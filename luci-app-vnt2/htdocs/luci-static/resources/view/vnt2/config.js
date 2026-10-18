@@ -1013,10 +1013,12 @@ function buildBool(f, val) {
         'data-field-name':f.name,'data-field-type':'bool'
     });
     if (checked) cb.setAttribute('checked','checked');
+    var txt = E('span', {'class':'vnt2-toggle-text'}, checked ? _('Enabled') : _('Disabled'));
+    cb.addEventListener('change', function() { txt.textContent = cb.checked ? _('Enabled') : _('Disabled'); });
     return E('label', {'class':'vnt2-toggle-wrap'}, [
         cb,
         E('span', {'class':'vnt2-toggle-slider'}),
-        E('span', {'class':'vnt2-toggle-text'}, _('Enabled'))
+        txt
     ]);
 }
 
@@ -1206,10 +1208,12 @@ function buildSection(f, val, isRequired, parser) {
                 });
                 boolInput = cbSec;
                 if (checked) cbSec.setAttribute('checked','checked');
+                var txtSec = E('span', {'class':'vnt2-toggle-text'}, checked ? _('Enabled') : _('Disabled'));
+                cbSec.addEventListener('change', function() { txtSec.textContent = cbSec.checked ? _('Enabled') : _('Disabled'); });
                 input = E('label', {'class':'vnt2-toggle-wrap'}, [
                     cbSec,
                     E('span', {'class':'vnt2-toggle-slider'}),
-                    E('span', {'class':'vnt2-toggle-text'}, _('Enabled'))
+                    txtSec
                 ]);
             } else if (def.type === 'array') {
                 input = buildListField(

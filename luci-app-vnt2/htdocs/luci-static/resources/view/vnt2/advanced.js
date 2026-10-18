@@ -21,6 +21,7 @@ var callTplDefault     = rpcDeclare('set_default_template', ['type','name']);
 
 var callTplHelp        = rpcDeclare('get_template_help', ['type']);
 var callGetSettings    = rpcDeclare('get_settings', []);
+var callSetTunBind     = rpcDeclare('set_tun_bind', ['enabled','patterns']);
 var callGetLogKeys     = rpcDeclare('get_log_keys', []);
 var callSaveLogKeys    = rpcDeclare('save_log_keys', [
     'web_sync_keys','web_start_keys','web_stop_keys','web_delete_keys',
@@ -159,7 +160,7 @@ function renderTemplatePreview(parser, ui, content) {
         E('div', {'class':'vnt2-template-preview-title'}, _('Preview Form')),
         E('div', {}, fields.slice(0, 60).map(function(f) {
             var ctrl;
-            if (f.type === 'bool') ctrl = ui.toggleSwitch(null, !!f.default, null, _('Enabled'));
+            if (f.type === 'bool') ctrl = ui.toggleSwitch(null, !!f.default, null, !!f.default ? _('Enabled') : _('Disabled'), true, _('Disabled'));
             else if (f.type === 'array') ctrl = E('textarea', {'class':'vnt2-input','readonly':'readonly'}, Array.isArray(f.default) ? f.default.join('\n') : '');
             else if (f.type === 'int') ctrl = E('input', {'class':'vnt2-input vnt2-input-number','type':'number','readonly':'readonly','value':f.default || 0});
             else if (f.type === 'select') ctrl = E('select', {'class':'cbi-input-select','disabled':'disabled'}, (f.options || []).map(function(o){ return E('option', {'value':o}, o); }));
@@ -393,10 +394,38 @@ return view.extend({
     },
 
     _saveAdvanced: function() {
+        var self = this;
         this._collectAdvanced();
         var errors = validateAdvancedData(this._data);
         if (errors.length) { this._ui.notify(errors.join('\n'), 'error'); return; }
-        return callSaveRaw(this._raw).then(L.bind(function(r) { this._ui.notify(r && r.result === 'ok' ? _('Advanced settings saved') : _('Save failed: %s').format((r && r.msg) || ''), r && r.result === 'ok' ? 'success' : 'error'); }, this));
+        return callSaveRaw(this._raw).then(L.bind(function(r) {
+            if (!r || r.result !== 'ok') {
+                self._ui.notify(_('Save failed: %s').format((r && r.msg) || ''), 'error');
+                return;
+            }
+            var listEl = document.getElementById('vnt2-tun-pat-list');
+            if (!listEl) {
+                self._ui.notify(_('Advanced settings saved'), 'success');
+                return;
+            }
+            var tglEl = document.getElementById('vnt2-tun-bind-enabled');
+            var arr = [];
+            listEl.querySelectorAll('.vnt2-tun-pat-item').forEach(function(inp) {
+                var v = (inp.value || '').trim();
+                if (v) arr.push(v);
+            });
+            callSetTunBind(tglEl && !tglEl.checked ? '0' : '1', arr.join('|')).then(function(r2) {
+                if (r2 && r2.result === 'ok') {
+                    self._settings.tun_bind = r2.tun_bind;
+                    self._settings.tun_bind_pattern = r2.patterns || '';
+                    self._ui.notify(_('Advanced settings saved'), 'success');
+                } else {
+                    self._ui.notify(_('Save failed: %s').format((r2 && (r2.msg || r2.code)) || ''), 'error');
+                }
+            }).catch(function(err) {
+                self._ui.notify(_('Save failed: %s').format(String(err)), 'error');
+            });
+        }, this));
     },
 
     _binaryPath: function(name) {
@@ -494,10 +523,14 @@ return view.extend({
     _detectSwitch: function(label, field, checked, desc) {
         var cb = E('input', {'type':'checkbox','class':'vnt2-toggle-input','data-adv-type':'port_detect','data-adv-idx':'0','data-adv-field':field});
         if (checked) cb.setAttribute('checked', 'checked');
+        var text = E('span', {'class':'vnt2-toggle-text'}, cb.checked ? _('Enabled') : _('Disabled'));
+        cb.addEventListener('change', function() {
+            text.textContent = cb.checked ? _('Enabled') : _('Disabled');
+        });
         return this._ui.buildFormRow(label, E('label', {'class':'vnt2-toggle-wrap'}, [
             cb,
             E('span', {'class':'vnt2-toggle-slider'}),
-            E('span', {'class':'vnt2-toggle-text'}, _('Enabled'))
+            text
         ]), desc || '');
     },
 
@@ -570,8 +603,70 @@ return view.extend({
                 this._ui.buildFormRow(_('Extra Detection Parameters'), renderDetectList('extra_param', item.extra_param, 'api_listen 或 [section].port'), _('One parameter per row. Use section.key or [section].key for section fields.')),
                 this._ui.buildFormRow(_('Ignored Parameters'), renderDetectList('ignore_param', item.ignore_param, 'endpoint'), _('One parameter per row. Matching key names or section.key names will be skipped.'))
             ], 'vnt2-advanced-card'),
+            this._renderTunBindCard(),
             this._renderFooter()
         ]);
+    },
+
+    _renderTunBindCard: function() {
+        var self = this;
+        var st = self._settings || {};
+        var enabled = String(st.tun_bind != null ? st.tun_bind : '1') !== '0';
+        var pats = String(st.tun_bind_pattern || 'vnt_*|tun*').split('|').filter(function(p){ return p.trim() !== ''; });
+        if (!pats.length) pats = [''];
+        var list = E('div', {'id':'vnt2-tun-pat-list'});
+        function addRow(v) {
+            var input = E('input', {'type':'text','class':'vnt2-input vnt2-tun-pat-item','value':v || '', 'placeholder':'vnt_*'});
+            var row = E('div', {'class':'vnt2-port-param-row'}, [
+                input,
+                E('button', {'type':'button','class':'btn vnt2-array-btn-add','title':_('Add a row'),'click':function(ev) {
+                    ev.preventDefault();
+                    var nr = addRow('');
+                    row.nextSibling ? list.insertBefore(nr, row.nextSibling) : list.appendChild(nr);
+                    nr.querySelector('.vnt2-tun-pat-item').focus();
+                }}, '+'),
+                E('button', {'type':'button','class':'btn vnt2-array-btn-del','title':_('Delete this row'),'click':function(ev) {
+                    ev.preventDefault();
+                    if (list.querySelectorAll('.vnt2-port-param-row').length <= 1) {
+                        input.value = '';
+                        input.focus();
+                    } else {
+                        list.removeChild(row);
+                    }
+                }}, '−')
+            ]);
+            return row;
+        }
+        pats.forEach(function(v) { list.appendChild(addRow(v.trim())); });
+        var tgl = self._ui.toggleSwitch('vnt2-tun-bind-enabled', enabled, function(ev, input) {
+            self._saveTunBind(input.checked, input);
+        }, _('Enabled'), false, _('Disabled'));
+        return this._ui.card(_('TUN Binding'), [
+            E('p', {'class':'vnt2-form-desc'}, _('Automatically add matching TUN devices to the vnt2 firewall zone when any VNT instance is running. Patterns support shell wildcards, e.g. vnt_* and tun*.')),
+            E('div', {'style':'display:flex;align-items:center;gap:10px;margin:6px 0;'}, [
+                E('span', {}, _('TUN Binding Rules')),
+                tgl
+            ]),
+            this._ui.buildFormRow(_('Matching Rules'), list, _('One pattern per row. Device names matching any pattern are added to the firewall zone.'))
+        ], 'vnt2-advanced-card');
+    },
+
+    _saveTunBind: function(enabled, input) {
+        var self = this;
+        var on = enabled ? '1' : '0';
+        var pats = String((self._settings || {}).tun_bind_pattern || '');
+        callSetTunBind(on, pats).then(function(r) {
+            if (r && r.result === 'ok') {
+                self._settings.tun_bind = r.tun_bind;
+                self._settings.tun_bind_pattern = r.patterns || '';
+            } else {
+                self._ui.notify(_('Save failed: %s').format((r && (r.msg || r.code)) || ''), 'error');
+                if (input) input.checked = !input.checked;
+            }
+        }).catch(function(err) {
+            self._ui.notify(_('Save failed: %s').format(String(err)), 'error');
+            if (input) input.checked = !input.checked;
+        });
     },
 
     _renderConfigTemplates: function() {

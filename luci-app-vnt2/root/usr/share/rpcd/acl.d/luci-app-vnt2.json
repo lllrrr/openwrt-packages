@@ -38,6 +38,7 @@
                 "luci.vnt2": [
                     "set_theme",
                     "save_install_bins",
+                    "set_tun_bind",
                     "upload_chunk",
                     "instance_action",
                     "save_config",

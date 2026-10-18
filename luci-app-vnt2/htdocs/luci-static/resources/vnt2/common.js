@@ -22,7 +22,7 @@ var VNT2_ICON_PATHS = {
     key:     'M6 6.5a5.5 5.5 0 1 0 0 11a5.5 5.5 0 1 0 0-11z M6 7.5a4.5 4.5 0 1 0 0 9a4.5 4.5 0 1 0 0-9z M11.5 10H21V14H19V17H16V14H11.5Z',
     sun:     'M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.8 1.42-1.42zM1 13h3v-2H1v2zm10-12v3h2V1h-2zm9.45 3.46l-1.41-1.41-1.8 1.79 1.42 1.42 1.79-1.8zM17.24 19.16l1.8 1.79 1.41-1.41-1.79-1.8-1.42 1.42zM20 11v2h3v-2h-3zM12 6a6 6 0 1 0 0 12A6 6 0 0 0 12 6zm-1 17h2v-3h-2v3zm-7.45-3.46l1.41 1.41 1.8-1.79-1.42-1.42-1.79 1.8z',
     moon:    'M21 14.6A8 8 0 0 1 9.4 3a7 7 0 1 0 11.6 11.6z',
-    auto:    'M12 3A9 9 0 1 0 12 21A9 9 0 0 0 12 3zM12 5A7 7 0 1 1 12 19A7 7 0 0 1 12 5zM12 5A7 7 0 0 1 12 19z',
+    auto:    'M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.8 1.42-1.42zM1 13h3v-2H1v2zm10-12v3h2V1h-2zm9.45 3.46l-1.41-1.41-1.8 1.79 1.42 1.42 1.79-1.8zM17.24 19.16l1.8 1.79 1.41-1.41-1.79-1.8-1.42 1.42zM20 11v2h3v-2h-3zM11 23h2v-3h-2v3zm-7.45-3.46l1.41 1.41 1.8-1.79-1.42-1.42-1.79 1.8zM12 6A6 6 0 0 0 12 18Z M12 6A6 6 0 0 1 12 18V16.2A4.2 4.2 0 0 0 12 7.8Z',
     upload:  'M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z'
 };
 
@@ -94,11 +94,8 @@ var VNT2Web = {
     buildUrl: function(access, hash) {
         var addr  = (access && access.addr) || '0.0.0.0:19099';
         var token = (access && access.token) || '';
-        var host  = addr.split(':')[0];
         var port  = addr.split(':').slice(1).join(':') || '19099';
-        if (host === '0.0.0.0' || host === '127.0.0.1' || host === '::' || host === '[::]' || host === '')
-            host = window.location.hostname;
-        var url = window.location.protocol + '//' + host + ':' + port + '/';
+        var url = window.location.protocol + '//' + (window.location.hostname || addr.split(':')[0]) + ':' + port + '/';
         if (token) url += '?token=' + encodeURIComponent(token);
         if (hash) url += '#' + String(hash).replace(/^#/, '');
         return url;
@@ -171,9 +168,9 @@ var VNT2Web = {
         var link = document.createElement('link');
         link.id = 'vnt2-global-style';
         link.rel = 'stylesheet';
-        link.href = (typeof L !== 'undefined' && L.resource)
+        link.href = ((typeof L !== 'undefined' && L.resource)
             ? L.resource('vnt2/style.css')
-            : '/luci-static/resources/vnt2/style.css';
+            : '/luci-static/resources/vnt2/style.css') + '?v=20261018';
         document.head.appendChild(link);
     }
 
@@ -185,17 +182,17 @@ var VNT2Web = {
 
     function addTopNav(tries) {
         if (!vnt2Path()) return;
-        if (document.getElementById('vnt2-global-nav')) return;
-        var host = document.getElementById('maincontent') || document.querySelector('main') || document.querySelector('.main') || document.body;
-        if (!host) {
-            if ((tries || 0) < 20) window.setTimeout(function() { addTopNav((tries || 0) + 1); }, 80);
+        var rows = document.querySelectorAll('.vnt2-page-tabs, #tabmenu ul.tabs, ul.tabs');
+        var row = rows.length ? rows[0] : null;
+        if (!row && (tries || 0) < 25) {
+            window.setTimeout(function() { addTopNav((tries || 0) + 1); }, 100);
             return;
         }
-        var nav = document.createElement('div');
-        nav.id = 'vnt2-global-nav';
-        nav.className = 'vnt2-global-nav';
-        if (!document.getElementById('vnt2-theme-toggle')) {
-            var btn = document.createElement('button');
+        var host = row || document.getElementById('maincontent') || document.querySelector('main') || document.querySelector('.main') || document.body;
+        if (!host) return;
+        var btn = document.getElementById('vnt2-theme-toggle');
+        if (!btn) {
+            btn = document.createElement('button');
             btn.id = 'vnt2-theme-toggle';
             btn.type = 'button';
             btn.className = 'vnt2-icon-btn vnt2-theme-toggle';
@@ -207,10 +204,51 @@ var VNT2Web = {
                 applyTheme(next);
                 persistTheme(next);
             });
-            nav.appendChild(btn);
         }
-        if (host.firstChild) host.insertBefore(nav, host.firstChild);
-        else host.appendChild(nav);
+        if (row) {
+            btn.style.marginLeft = 'auto';
+            btn.style.flexShrink = '0';
+            btn.style.alignSelf = 'center';
+            var cs = window.getComputedStyle(row);
+            var comp = -(parseFloat(cs.marginTop) || 0);
+            row.style.setProperty('margin-bottom', '0px', 'important');
+            btn.style.setProperty('margin-bottom', comp + 'px', 'important');
+            row.style.display = '';
+            row.style.alignItems = '';
+            row.style.width = '';
+            row.style.maxWidth = '';
+            row.style.boxSizing = '';
+            var container = null;
+            if (row.tagName === 'UL' && row.parentNode && row.parentNode !== document.body) {
+                container = row.parentNode;
+            } else {
+                container = document.getElementById('vnt2-theme-row');
+                if (!container) container = document.createElement('div');
+                container.id = 'vnt2-theme-row';
+                if (!container.isConnected) row.parentNode.insertBefore(container, row);
+                if (row.parentNode !== container) container.appendChild(row);
+            }
+            container.style.display = 'flex';
+            container.style.alignItems = 'center';
+            container.style.width = '100%';
+            container.style.maxWidth = '100%';
+            container.style.boxSizing = 'border-box';
+            if (btn.parentNode !== container) container.appendChild(btn);
+            var stale = document.getElementById('vnt2-global-nav');
+            if (stale && stale.parentNode && !stale.firstChild) stale.parentNode.removeChild(stale);
+        } else {
+            var nav = document.getElementById('vnt2-global-nav');
+            if (!nav) {
+                nav = document.createElement('div');
+                nav.id = 'vnt2-global-nav';
+                nav.className = 'vnt2-global-nav';
+            }
+            if (btn.parentNode !== nav) nav.appendChild(btn);
+            if (!nav.isConnected) {
+                if (host.firstChild) host.insertBefore(nav, host.firstChild);
+                else host.appendChild(nav);
+            }
+        }
         applyTheme(savedTheme());
     }
 
@@ -235,14 +273,14 @@ var VNT2Web = {
             if (staleNav && staleNav.parentNode) staleNav.parentNode.removeChild(staleNav);
             return;
         }
-        if (!document.getElementById('vnt2-global-nav')) addTopNav(0);
-        applyTheme(document.documentElement.getAttribute('data-vnt2-theme') || savedTheme());
+        addTopNav(0);
+        applyTheme(savedTheme());
         markTabActive();
     }
 
     function initTheme() {
         addTopNav(0);
-        applyTheme(document.documentElement.getAttribute('data-vnt2-theme') || savedTheme());
+        applyTheme(savedTheme());
         markTabActive();
         if (window.MutationObserver) {
             var MO = window.MutationObserver;
@@ -997,7 +1035,7 @@ var VNT2UI = {
         ]);
     },
 
-    toggleSwitch: function(id, checked, onChange, label, disabled) {
+    toggleSwitch: function(id, checked, onChange, label, disabled, offLabel) {
         var cb = E('input', {
             'type':'checkbox',
             'class':'vnt2-toggle-input',
@@ -1005,11 +1043,16 @@ var VNT2UI = {
         });
         if (checked) cb.setAttribute('checked', 'checked');
         if (disabled) cb.setAttribute('disabled', 'disabled');
-        if (onChange) cb.addEventListener('change', function(ev) { if (!disabled) onChange(ev, cb); });
+        var text = label ? E('span', {'class':'vnt2-toggle-text'}, checked ? label : (offLabel || label)) : E('span', {});
+        var handler = (onChange && label) ? function(ev, cb) {
+            onChange(ev, cb);
+            text.textContent = cb.checked ? label : (offLabel || label);
+        } : onChange;
+        if (handler) cb.addEventListener('change', function(ev) { if (!disabled) handler(ev, cb); });
         return E('label', {'class':'vnt2-toggle-wrap' + (disabled ? ' vnt2-toggle-disabled' : '')}, [
             cb,
             E('span', {'class':'vnt2-toggle-slider'}),
-            label ? E('span', {'class':'vnt2-toggle-text'}, label) : E('span', {})
+            text
         ]);
     },
 

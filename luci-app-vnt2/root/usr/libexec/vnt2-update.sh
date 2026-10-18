@@ -15,20 +15,6 @@ log_file()      { echo "$CACHE_DIR/$1.log";       }
 event_file()    { echo "$CACHE_DIR/$1.events";    }
 tmp_file()      { echo "$CACHE_DIR/$2";           }
 
-MIN_FREE_KB=10240
-
-check_free_space() {
-    local mnt avail
-    for mnt in /tmp /; do
-        avail="$(df -k "$mnt" 2>/dev/null | awk 'NR==2{print $4}')"
-        [ -z "$avail" ] && continue
-        if [ "$avail" -lt "$MIN_FREE_KB" ]; then
-            echo "Not enough free space on $mnt: ${avail} KB available, at least ${MIN_FREE_KB} KB required" >&2
-            return 1
-        fi
-    done
-    return 0
-}
 
 bin_selected() {
     case ",$INSTALL_BINS," in
@@ -197,7 +183,7 @@ load_uci() {
         [ "$_det1" = "$ARCH1" ] && [ "$_det2" != "$_det1" ] && ARCH2="$_det2"
     fi
     BIN_PATH="$(uci get vnt2.global.bin_path      2>/dev/null || echo /usr/bin)"
-    INSTALL_BINS="$(uci get vnt2.global.install_bins 2>/dev/null || echo vnt2_web,vnt2_cli,vnt2_ctrl,vnts2)"
+    INSTALL_BINS="$(uci get vnt2.global.install_bins 2>/dev/null || echo none)"
     UPX="$(uci get vnt2.global.upx_compressed     2>/dev/null || echo 0)"
     AUTO_UPDATE="$(uci get vnt2.global.auto_update 2>/dev/null || echo 0)"
 }
@@ -393,7 +379,7 @@ _do_install() {
 _download_and_install() {
     local proj="$1" fname="$2" upx="$3"
     local cache dl_url esc_fname f total_size progress_pid rc downloaded pct size
-    local avail_kb need_kb i
+    local avail_kb need_kb i dl_dir
 
     cache="$(cache_full "$proj")"
     esc_fname="$(printf '%s' "$fname" | sed 's/[][\.*^$/]/\\&/g')"
@@ -412,13 +398,27 @@ _download_and_install() {
     if [ -n "$total_size" ] && [ "$total_size" -gt 0 ] 2>/dev/null; then
         log "$proj" "File size: $(format_size "$total_size")"
 
-        avail_kb="$(df -k /tmp 2>/dev/null | awk 'NR==2{print $4}')"
-        need_kb=$(( total_size / 512 ))
-        if [ -n "$avail_kb" ] && [ "$need_kb" -gt "$avail_kb" ]; then
-            log "$proj" "Not enough space in /tmp, need $(format_size $((need_kb * 1024))) but only $(format_size $((avail_kb * 1024))) available"
-            set_status "$proj" "error:Not enough temporary space"
+        need_kb=$(( total_size / 1024 + 512 ))
+        dl_dir=""
+        for _d in "$CACHE_DIR" "${BIN_PATH:-/usr/bin}"; do
+            mkdir -p "$_d" 2>/dev/null || continue
+            avail_kb="$(df -k "$_d" 2>/dev/null | awk 'NR==2{print $4}')"
+            if [ -n "$avail_kb" ] && [ "$avail_kb" -ge "$need_kb" ]; then
+                dl_dir="$_d"
+                break
+            fi
+        done
+        if [ -z "$dl_dir" ]; then
+            log "$proj" "Not enough storage space: need $(format_size $((need_kb * 1024))) for download"
+            event "$proj" "insufficient_space"
+            set_status "$proj" "error:Not enough storage space"
             return 1
         fi
+        if [ "$dl_dir" != "$CACHE_DIR" ]; then
+            log "$proj" "Low space in $CACHE_DIR, downloading to $dl_dir instead"
+        fi
+        f="$dl_dir/$fname"
+        rm -f "$f"
 
         (
             i=0
@@ -487,6 +487,15 @@ _download_and_install() {
     event "$proj" "installation_started"
     set_status "$proj" "installing"
     if [ "$proj" = "luci-app-vnt2" ]; then
+        need_kb=$(( size * 2 / 1024 + 512 ))
+        avail_kb="$(df -k "$BIN_PATH" 2>/dev/null | awk 'NR==2{print $4}')"
+        if [ -n "$avail_kb" ] && [ "$need_kb" -gt "$avail_kb" ]; then
+            log "$proj" "Not enough space to install package: need $(format_size $((need_kb * 1024))) but only $(format_size $((avail_kb * 1024))) available"
+            event "$proj" "insufficient_space"
+            set_status "$proj" "error:Not enough storage space"
+            rm -f "$f"
+            return 1
+        fi
         PM_LOG_FILE="$(log_file "$proj")"
         pm_install "$f" \
             && log "$proj" "Package installed: $fname" \
@@ -500,8 +509,8 @@ _download_and_install() {
 
 _install_bin() {
     local proj="$1" tmp="$2" upx="$3"
-    local bin_path bins installed="" extract_dir="$CACHE_DIR/${proj}_extract"
-    local ftype b src extract_ok
+    local bin_path bins installed="" extract_dir=""
+    local ftype b src extract_ok src_dir unc_bytes need_bytes need_kb avail_kb tdir
     load_uci
     bin_path="$BIN_PATH"
     if [ "$proj" = "vnt" ]; then
@@ -528,6 +537,50 @@ _install_bin() {
         zip) log "$proj" "Package type: zip archive" ;;
         *)   log "$proj" "Package type: unrecognized" ;;
     esac
+    src_dir=""
+    if [ "$ftype" = "elf" ]; then
+        unc_bytes="$(wc -c < "$tmp" | tr -d ' ')"
+        src_dir="$(dirname "$tmp")"
+    else
+        extract_dir="$(dirname "$tmp")/${proj}_extract"
+        src_dir="$extract_dir"
+        unc_bytes=0
+        if [ "$ftype" = "gz" ]; then
+            unc_bytes="$(tar -tzvf "$tmp" 2>/dev/null | awk '{s+=$3} END{print s+0}')"
+        elif [ "$ftype" = "zip" ]; then
+            unc_bytes="$(pm_install bsdtar -tvf "$tmp" 2>/dev/null | awk '{s+=$5} END{print s+0}')"
+        fi
+        case "$unc_bytes" in ''|*[!0-9]*) unc_bytes=0 ;; esac
+        if [ "$unc_bytes" -gt 0 ]; then
+            tdir="$(dirname "$tmp")"
+            avail_kb="$(df -k "$tdir" 2>/dev/null | awk 'NR==2{print $4}')"
+            need_kb=$(( unc_bytes / 1024 + 512 ))
+            if [ -n "$avail_kb" ] && [ "$need_kb" -gt "$avail_kb" ]; then
+                log "$proj" "Not enough space to extract: need $(format_size $((need_kb * 1024))) but only $(format_size $((avail_kb * 1024))) available in $tdir"
+                event "$proj" "insufficient_space"
+                set_status "$proj" "error:Not enough storage space"
+                return 1
+            fi
+        fi
+    fi
+    if [ "$upx" = "1" ]; then
+        need_bytes=$(( unc_bytes / 2 ))
+    else
+        need_bytes="$unc_bytes"
+    fi
+    src_dev="$(df -P "$src_dir" 2>/dev/null | awk 'NR==2{print $1}')"
+    bin_dev="$(df -P "$bin_path" 2>/dev/null | awk 'NR==2{print $1}')"
+    if [ -n "$src_dev" ] && [ -n "$bin_dev" ] && [ "$src_dev" = "$bin_dev" ]; then
+        need_bytes=$(( need_bytes + unc_bytes ))
+    fi
+    need_kb=$(( need_bytes / 1024 + 512 ))
+    avail_kb="$(df -k "$bin_path" 2>/dev/null | awk 'NR==2{print $4}')"
+    if [ -n "$avail_kb" ] && [ "$need_kb" -gt "$avail_kb" ]; then
+        log "$proj" "Not enough space to install: need $(format_size $((need_kb * 1024))) but only $(format_size $((avail_kb * 1024))) available in $bin_path"
+        event "$proj" "insufficient_space"
+        set_status "$proj" "error:Not enough storage space"
+        return 1
+    fi
     manage_service stop "$proj"
     case "$ftype" in
         elf)
@@ -542,7 +595,7 @@ _install_bin() {
                 tar -xzf "$tmp" -C "$extract_dir" 2>>"$(log_file "$proj")"
                 extract_ok=$?
             else
-                pm_install unzip -o "$tmp" -d "$extract_dir" >>"$(log_file "$proj")" 2>&1
+                pm_install bsdtar -x -f "$tmp" -C "$extract_dir" >>"$(log_file "$proj")" 2>&1
                 extract_ok=$?
             fi
             if [ "$extract_ok" -ne 0 ]; then
@@ -694,11 +747,6 @@ cmd_auto_update() {
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] No binaries selected for install, skipping auto update"
         exit 0
     fi
-    if ! check_free_space; then
-        log "auto" "Aborted: not enough free space, at least 10 MB required"
-        event "auto" "insufficient_space"
-        exit 1
-    fi
     wait_for_network || log "auto" "Network still unavailable after 30s, continuing anyway"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting auto update (mirror: $MIRROR, arch: ${ARCH1}${ARCH2:+ $ARCH2})"
     local projects="$*"
@@ -720,19 +768,6 @@ cmd_auto_update() {
 
 case "$1" in
     detect_arch) detect_arch; exit 0 ;;
-esac
-
-case "$1" in
-    check|download) ;;
-    *)
-        if ! check_free_space; then
-            _proj="${2:-auto}"
-            log "$_proj" "Aborted: not enough free space, at least 10 MB required"
-            event "$_proj" "insufficient_space"
-            set_status "$_proj" "error:Not enough storage space, at least 10 MB required"
-            exit 1
-        fi
-        ;;
 esac
 
 case "$1" in

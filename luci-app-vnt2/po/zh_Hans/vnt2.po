@@ -354,7 +354,7 @@ msgid "No %s configurations yet. Click \"New Config\" to add one."
 msgstr "暂无 %s 配置,点击\"新建配置\"添加。"
 
 msgid "Enabled"
-msgstr "已启用"
+msgstr "启用"
 
 msgid "Edit Listen Address"
 msgstr "编辑监听地址"
@@ -536,8 +536,8 @@ msgstr "允许 WAN 访问虚拟网络"
 msgid "VNT Web External Access"
 msgstr "VNT Web 外部访问"
 
-msgid "Allow WAN to access the vnt2_web listen port"
-msgstr "允许 WAN 访问 vnt2_web 监听端口"
+msgid "Requires web_addr to be configured"
+msgstr "需配置web_addr"
 
 msgid "VNTS Web External Access"
 msgstr "VNTS Web 外部访问"
@@ -610,9 +610,6 @@ msgstr "多镜像源保障下载成功"
 
 msgid "Auto Update"
 msgstr "自动更新"
-
-msgid "Enable auto update"
-msgstr "启用自动更新"
 
 msgid "Automatically check and update programs periodically"
 msgstr "定期检查并更新程序"
@@ -1035,7 +1032,7 @@ msgid "Confirm"
 msgstr "确定"
 
 msgid "Disabled"
-msgstr "已禁用"
+msgstr "禁用"
 
 msgid "No reference output"
 msgstr "无参考输出"
@@ -1243,3 +1240,14 @@ msgid "page to select the binaries to install."
 msgstr "页面选择需要安装的二进制文件。"
 msgid "No binaries selected for install"
 msgstr "未选择需要安装的二进制文件"
+
+msgid "TUN Binding"
+msgstr "TUN 绑定"
+msgid "TUN Binding Rules"
+msgstr "TUN 绑定规则"
+msgid "Matching Rules"
+msgstr "匹配规则"
+msgid "Automatically add matching TUN devices to the vnt2 firewall zone when any VNT instance is running. Patterns support shell wildcards, e.g. vnt_* and tun*."
+msgstr "任意 VNT 实例运行时，自动将匹配的 TUN 设备加入 vnt2 防火墙区域。模式支持 shell 通配符，例如 vnt_* 和 tun*。"
+msgid "One pattern per row. Device names matching any pattern are added to the firewall zone."
+msgstr "每行一个模式。匹配任一规则的网卡名会加入vnt2防火墙区域。"

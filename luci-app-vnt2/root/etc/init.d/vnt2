@@ -4,16 +4,19 @@
 START=99
 STOP=10
 USE_PROCD=1
-EXTRA_COMMANDS="refresh_tuntap_firewall fw_reload_now"
+EXTRA_COMMANDS="refresh_tuntap_firewall fw_reload_now fw_purge"
 EXTRA_HELP="	refresh_tuntap_firewall  Rescan TUN/TAP devices and reload fw4 include
-	fw_reload_now            Reload fw4 rules quietly, start firewall if not loaded"
+	fw_reload_now            Reload fw4 rules quietly, start firewall if not loaded
+	fw_purge                 Remove all vnt2 firewall rules synchronously"
 
 BIN_PATH="/usr/bin"
 CONFIG_PATH="/etc/vnt2_config"
 LOG_DIR="/tmp/vnt2_log"
 RUN_DIR="/var/run/vnt2"
 TUNTAP_NFT="${RUN_DIR}/tuntap.nft"
-TUNTAP_RELOAD_LOCK="${RUN_DIR}/fw_reload_pending"
+FW_PENDING="${RUN_DIR}/fw_pending"
+FW_WORKER_LOCK="${RUN_DIR}/fw_worker.lock"
+FW_ACTIVE="${RUN_DIR}/fw_active"
 TUNTAP_INCLUDE="vnt2_tuntap"
 CRON_TAG="vnt2_auto_update"
 UPDATE_SCRIPT="/usr/libexec/vnt2-update.sh"
@@ -245,19 +248,41 @@ uci_fw_rule() {
     done
 }
 
-scan_tuntap_devices() {
-    local d dev
-    for d in /sys/class/net/*; do
-        [ -e "$d/tun_flags" ] || continue
-        dev=${d##*/}
-        [ -n "$dev" ] && printf '%s\n' "$dev"
+zone_device_patterns() {
+    local pat pats pre
+    [ "$(uci -q get vnt2.global.tun_bind)" = "0" ] && return 0
+    pats="$(uci -q get vnt2.global.tun_bind_pattern 2>/dev/null | tr '|' ' ')"
+    [ -z "$pats" ] && pats="vnt_* tun*"
+    set -f
+    for pat in $pats; do
+        case "$pat" in
+            *[?*[]*)
+                pre=$(printf '%s' "$pat" | sed 's/[?*[].*$//')
+                [ -n "$pre" ] && printf '%s*\n' "$pre"
+                ;;
+            *) printf '%s\n' "$pat" ;;
+        esac
     done | sort -u
+    set +f
 }
 
-_schedule_fw_reload() {
+_lock_dir_acquire() {
+    [ -n "$(find "$1" -maxdepth 0 -mmin +1 2>/dev/null)" ] && rmdir "$1" 2>/dev/null
+    mkdir "$1" 2>/dev/null
+}
+
+fw_worker_request() {
     mkdir -p "$RUN_DIR"
-    if mkdir "$TUNTAP_RELOAD_LOCK" 2>/dev/null; then
-        setsid sh -c "sleep 1; /etc/init.d/vnt2 fw_reload_now; rmdir '$TUNTAP_RELOAD_LOCK' 2>/dev/null" >/dev/null 2>&1 &
+    : > "$FW_PENDING"
+    if _lock_dir_acquire "$FW_WORKER_LOCK"; then
+        ( exec 1000>&-
+          while [ -f "$FW_PENDING" ]; do
+              rm -f "$FW_PENDING"
+              fw_apply_desired
+          done
+          rmdir "$FW_WORKER_LOCK" 2>/dev/null
+          [ -f "$FW_PENDING" ] && fw_worker_request
+        ) >/dev/null 2>&1 </dev/null &
     fi
 }
 
@@ -272,24 +297,21 @@ cleanup_tuntap_include() {
 
 sync_zone_devices() {
     local desired current d
-    desired="$(scan_tuntap_devices)"
+    desired="$(zone_device_patterns)"
     current="$(uci -q get "firewall.${FW_ZONE}.device" 2>/dev/null | tr ' ' '\n' | grep -v '^$' | sort -u)"
     [ "$desired" = "$current" ] && return 1
     uci -q delete "firewall.${FW_ZONE}.device"
+    set -f
     for d in $desired; do
         uci add_list "firewall.${FW_ZONE}.device=$d"
     done
+    set +f
     return 0
 }
 
 refresh_tuntap_firewall() {
     init_paths
-    local changed=1
-    cleanup_tuntap_include && changed=0
-    sync_zone_devices && changed=0
-    [ "$changed" = "0" ] || return 0
-    uci commit firewall
-    _schedule_fw_reload
+    fw_worker_request
 }
 
 _create_iface() {
@@ -340,6 +362,7 @@ cleanup_fw() {
     uci -q delete "firewall.${FW_ZONE}"
     uci -q delete "firewall.vnt2_ports"
     uci -q delete "firewall.vnt2_web_rule"
+    uci -q delete "firewall.vnt2_web_block"
     uci -q delete "firewall.vnt2_web_redirect"
     uci -q show firewall 2>/dev/null | sed -n 's/^firewall\.\(vnt2_vnts_wg_[^.]*\)=.*/\1/p' | while read -r sid; do
         [ -n "$sid" ] && uci -q delete "firewall.${sid}"
@@ -428,28 +451,12 @@ apply_fw_ports() {
 _collect_web_ports() {
     local name="$1" type="$2"
     local conf="${CONFIG_PATH}/${name}.${type}"
-    local val port field
-
-    case "$type" in
-        vnt)
-            return
-            ;;
-        vnts)
-            if [ "$(uci -q get vnt2.global.fw_vnts_web)" = "1" ]; then
-                val=$(read_field "$conf" "web_bind")
-                [ -n "$val" ] && {
-                    port=$(extract_port "$val")
-                    [ -n "$port" ] && echo "$port" >> "$_WEB_PORTS_TMP"
-                }
-            fi
-            for field in $VNTS_PORT_FIELDS; do
-                val=$(read_field "$conf" "$field")
-                [ -z "$val" ] && continue
-                port=$(extract_port "$val")
-                [ -n "$port" ] && echo "$port" >> "$_WEB_PORTS_TMP"
-            done
-            ;;
-    esac
+    local val port
+    [ "$type" = "vnts" ] || return
+    val=$(read_field "$conf" "web_bind")
+    [ -n "$val" ] || return
+    port=$(extract_port "$val")
+    [ -n "$port" ] && echo "$port" >> "$_WEB_PORTS_TMP"
 }
 
 _collect_sorted_ports() {
@@ -505,28 +512,59 @@ apply_fw_vnts_wireguard() {
         "dest=wan"
 }
 apply_fw_web_redirect() {
-    local sid="vnt2_web_rule"
-    local all_ports port
+    local allow block port
 
-    uci -q delete "firewall.${sid}"
+    uci -q delete "firewall.vnt2_web_rule"
+    uci -q delete "firewall.vnt2_web_block"
+    uci -q delete "firewall.vnt2_web_redirect"
 
+    allow=""
+    block=""
+    if [ "$WEB_ENABLED" = "1" ]; then
+        port=$(extract_port "$WEB_ADDR")
+        if [ -n "$port" ]; then
+            if [ "$(uci -q get vnt2.global.fw_vnt_web)" = "1" ]; then
+                allow="$allow $port"
+            else
+                block="$block $port"
+            fi
+        fi
+    fi
     _WEB_PORTS_TMP=$(make_tmp)
     each_enabled_instance _collect_web_ports
-    all_ports=$(sort -un "$_WEB_PORTS_TMP" | tr '\n' ' ')
-    all_ports="${all_ports% }"
+    if [ "$(uci -q get vnt2.global.fw_vnts_web)" = "1" ]; then
+        allow="$allow $(sort -un "$_WEB_PORTS_TMP" | tr '\n' ' ')"
+    else
+        block="$block $(sort -un "$_WEB_PORTS_TMP" | tr '\n' ' ')"
+    fi
     rm -f "$_WEB_PORTS_TMP"
-    [ -z "$all_ports" ] && return
+    allow=$(printf '%s' "$allow" | tr ' ' '\n' | sed '/^$/d' | sort -un | tr '\n' ' ')
+    allow="${allow% }"
+    block=$(printf '%s' "$block" | tr ' ' '\n' | sed '/^$/d' | sort -un | tr '\n' ' ')
+    block="${block% }"
 
-    uci_fw_rule "$sid" \
-        "type=rule" \
-        "name=vnt2_allow_web" \
-        "src=wan" \
-        "proto=tcp" \
-        "target=ACCEPT"
-
-    for port in $all_ports; do
-        uci add_list "firewall.${sid}.dest_port=${port}"
-    done
+    if [ -n "$allow" ]; then
+        uci_fw_rule "vnt2_web_rule" \
+            "type=rule" \
+            "name=vnt2_allow_web" \
+            "src=wan" \
+            "proto=tcp" \
+            "target=ACCEPT"
+        for port in $allow; do
+            uci add_list "firewall.vnt2_web_rule.dest_port=${port}"
+        done
+    fi
+    if [ -n "$block" ]; then
+        uci_fw_rule "vnt2_web_block" \
+            "type=rule" \
+            "name=vnt2_block_web" \
+            "src=wan" \
+            "proto=tcp" \
+            "target=DROP"
+        for port in $block; do
+            uci add_list "firewall.vnt2_web_block.dest_port=${port}"
+        done
+    fi
 }
 
 rebuild_fw_zone() {
@@ -542,29 +580,49 @@ rebuild_fw_zone() {
 fw_reload_now() {
     if command -v fw4 >/dev/null 2>&1; then
         if [ -f /var/run/fw4.state ]; then
-            fw4 -q reload >/dev/null 2>&1
+            fw4 -q reload >/dev/null 2>&1 || logger -t vnt2 "fw4 reload failed, run: fw4 reload"
         else
             "$INITD/firewall" start >/dev/null 2>&1
+            [ -f /var/run/fw4.state ] || logger -t vnt2 "firewall not loaded after start, run: fw4 reload"
         fi
     else
-        "$INITD/firewall" reload >/dev/null 2>&1
+        "$INITD/firewall" reload >/dev/null 2>&1 || logger -t vnt2 "firewall reload failed"
     fi
 }
 
-_fw_reload() {
-    fw_reload_now
+_fw_teardown_uci() {
+    cleanup_fw
+    cleanup_tuntap_include
+    uci -q delete "firewall.${FW_ZONE}.device"
 }
 
 rebuild_firewall() {
     rebuild_fw_zone
+    apply_fw_web_redirect
     apply_fw_forwardings
     apply_fw_ports
-    apply_fw_web_redirect
     apply_fw_vnts_wireguard
     cleanup_tuntap_include
     sync_zone_devices
+}
+
+fw_apply_desired() {
+    init_paths
+    if [ -f "$FW_ACTIVE" ]; then
+        rebuild_firewall
+    else
+        _fw_teardown_uci
+    fi
     uci commit firewall
-    _fw_reload
+    fw_reload_now
+}
+
+fw_purge() {
+    init_paths
+    rm -f "$FW_ACTIVE"
+    _fw_teardown_uci
+    uci commit firewall
+    fw_reload_now
 }
 
 get_bin_args() {
@@ -611,7 +669,7 @@ _cleanup_tun() {
 
 
 _do_start_vnt_web() {
-    local log_file bin_args bin tpl cmd
+    local skip_sync="$1" log_file bin_args bin tpl cmd
     log_file="${LOG_DIR}/${WEB_INSTANCE}.log"
     touch "$log_file" 2>/dev/null
     bin="$(adv_bin vnt_web vnt2_web)"
@@ -636,7 +694,7 @@ _do_start_vnt_web() {
     procd_set_param pidfile "/var/run/vnt2_${WEB_INSTANCE}.pid"
     procd_close_instance
     _instance_log "$WEB_INSTANCE" "Registered vnt2_web addr=${WEB_ADDR}"
-    setsid /usr/libexec/vnt2-web-sync.sh >/dev/null 2>&1 &
+    [ "$skip_sync" = "1" ] || setsid /usr/libexec/vnt2-web-sync.sh >/dev/null 2>&1 1000>&- &
 }
 
 _do_start_instance() {
@@ -686,12 +744,18 @@ _install_selection() {
     local sel
     sel=$(uci -q get vnt2.global.install_bins 2>/dev/null)
     [ "$sel" = "none" ] && return 0
-    [ -n "$sel" ] || sel="vnt2_web,vnt2_cli,vnt2_ctrl,vnts2"
     printf '%s' "$sel" | tr ',' ' ' | tr -s ' '
 }
 
 start_service() {
+    local sel skip_web_sync=0
+    [ -f /tmp/vnt2_log/vnt2_web_skip_sync ] && { skip_web_sync=1; rm -f /tmp/vnt2_log/vnt2_web_skip_sync; }
+    sel=$(uci -q get vnt2.global.install_bins 2>/dev/null)
+    case "$sel" in
+        none|"") return 0 ;;
+    esac
     init_paths
+    setup_cron
     local b need_vnt="" need_vnts="" projects=""
     for b in $(_install_selection); do
         case "$b" in
@@ -708,32 +772,24 @@ start_service() {
     if [ -n "$projects" ]; then
         [ -x "$UPDATE_SCRIPT" ] && {
             echo "Starting automatic download of $projects ..."
-            setsid sh -c "$UPDATE_SCRIPT $projects" >/dev/null 2>&1 </dev/null &
+            setsid sh -c "$UPDATE_SCRIPT $projects" >/dev/null 2>&1 </dev/null 1000>&- &
         }
         return 0
     fi
     echo "VNT2: starting all enabled instances..."
     if [ "$WEB_ENABLED" = "1" ]; then
-        _do_start_vnt_web
+        _do_start_vnt_web "$skip_web_sync"
     fi
     each_enabled_instance _do_start_instance
     rebuild_network_interfaces
-    rebuild_firewall
-    ( sleep 8; "$INITD/vnt2" refresh_tuntap_firewall ) >/dev/null 2>&1 </dev/null &
+    : > "$FW_ACTIVE"
+    fw_worker_request
 }
 
 stop_service() {
+    rm -f "$FW_ACTIVE"
     each_enabled_instance _cleanup_tun
     cleanup_network_interfaces
-    cleanup_tuntap_include
-    sync_zone_devices
-    uci commit firewall
-    _fw_reload
+    fw_worker_request
 }
 
-reload_service() {
-    init_paths
-    setup_cron
-    rebuild_network_interfaces
-    rebuild_firewall
-}

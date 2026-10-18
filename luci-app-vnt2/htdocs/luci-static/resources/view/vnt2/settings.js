@@ -47,7 +47,7 @@ var FW_OPTIONS = [
     { key: 'fw_lan_to_vnt', label: 'LAN → VNT', desc: _('Allow LAN to access virtual network') },
     { key: 'fw_vnt_to_wan', label: 'VNT → WAN', desc: _('Allow virtual network to access WAN')       },
     { key: 'fw_wan_to_vnt', label: 'WAN → VNT', desc: _('Allow WAN to access virtual network')       },
-    { key: 'fw_vnt_web',  label: _('VNT Web External Access'),  desc: _('Allow WAN to access the vnt2_web listen port') },
+    { key: 'fw_vnt_web',  label: _('VNT Web External Access'),  desc: _('Requires web_addr to be configured') },
     { key: 'fw_vnts_web', label: _('VNTS Web External Access'), desc: _('Requires web_bind configuration') },
 ];
 
@@ -228,7 +228,7 @@ return view.extend({
         function buildCheck(id, uciKey) {
             return vui.toggleSwitch(id, g(uciKey) === '1', function(ev, cb) {
                 uci.set('vnt2', 'global', uciKey, cb.checked ? '1' : '0');
-            }, _('Enabled'));
+            }, _('Enabled'), false, _('Disabled'));
         }
 
         function buildText(id, uciKey, style, fallback) {
@@ -275,7 +275,7 @@ return view.extend({
                         uci.set('vnt2', 'global', 'auto_update', cb.checked ? '1' : '0');
                         var row = document.getElementById('s-interval-row');
                         if (row) row.style.display = cb.checked ? '' : 'none';
-                    }, _('Enable auto update')), _('Automatically check and update programs periodically')),
+                    }, _('Enabled'), false, _('Disabled')), _('Automatically check and update programs periodically')),
                 E('div', { 'id': 's-interval-row', 'style': 'display:' + (g('auto_update') === '1' ? '' : 'none') + ';' }, [
                     (function() {
                         var inpInterval = E('input', { 'type': 'number', 'class': 'cbi-input-text',
@@ -929,4 +929,3 @@ return view.extend({
         updateFiles();
     }
 });
-

@@ -141,7 +141,39 @@ _web_sid() {
     printf 'web_%s' "$1" | tr -c 'A-Za-z0-9_' '_' | cut -c1-60
 }
 
+_wait_port_free() {
+    local i=0
+    while [ "$i" -lt 90 ]; do
+        awk -v p="$(printf '%04X' "$1")" '$2 ~ ":"p"$" {f=1} END{exit !f}' /proc/net/tcp /proc/net/tcp6 2>/dev/null || return 0
+        sleep 1
+        i=$((i + 1))
+    done
+}
+
+_vnts_wait_ports() {
+    local cfg="" a prev="" p
+    for a in "$@"; do
+        [ "$prev" = "-c" ] && cfg="$a"
+        prev="$a"
+    done
+    [ -f "$cfg" ] || return 0
+    for p in $(sed -n 's/^[[:space:]]*\(tcp_bind\|web_bind\)[[:space:]]*=[[:space:]]*"[^"]*:\([0-9][0-9]*\)".*/\2/p' "$cfg"); do
+        _wait_port_free "$p"
+    done
+}
+
 _LAST_WEB_SYNC=0
+
+_lock_dir_acquire() {
+    [ -n "$(find "$1" -maxdepth 0 -mmin +1 2>/dev/null)" ] && rmdir "$1" 2>/dev/null
+    mkdir "$1" 2>/dev/null
+}
+
+_schedule_reload() {
+    mkdir -p /var/run/vnt2 2>/dev/null
+    _lock_dir_acquire /var/run/vnt2/reload.lock || return 0
+    ( exec 1000>&-; sleep 2; rmdir /var/run/vnt2/reload.lock 2>/dev/null; exec /etc/init.d/vnt2 reload ) >/dev/null 2>&1 </dev/null &
+}
 
 _web_sync_all() {
     local now
@@ -150,7 +182,7 @@ _web_sync_all() {
     [ $((now - _LAST_WEB_SYNC)) -lt 3 ] && return 0
     _LAST_WEB_SYNC=$now
     ubus call luci.vnt2 sync_web_state '{}' >/dev/null 2>&1
-    /etc/init.d/vnt2 reload >/dev/null 2>&1
+    _schedule_reload
 }
 
 _web_extract_file() {
@@ -207,7 +239,7 @@ _web_record_state() {
 
     # 同步 UCI 状态，并刷新 network/firewall 中自动 tun 与端口放行。
     ubus call luci.vnt2 sync_web_state '{}' >/dev/null 2>&1
-    /etc/init.d/vnt2 reload >/dev/null 2>&1
+    _schedule_reload
 }
 
 _web_watch_line() {
@@ -296,6 +328,10 @@ mkdir -p "$(dirname "$LOG_FILE")"
 touch "$LOG_FILE" 2>/dev/null
 rotate_log
 log "Starting: $*"
+
+if [ "$INSTANCE_TYPE" = "vnts" ]; then
+    _vnts_wait_ports "$@"
+fi
 
 FIFO=$(mktemp -u)
 mkfifo "$FIFO" || { log "mkfifo failed"; exit 1; }

@@ -753,7 +753,16 @@ function instanceAction(name, action, typeHint) {
         uci.set("vnt2", sid, "enabled", action === "start" ? "1" : "0");
         uci.commit("vnt2");
     }
-    runDetached(`${DEFAULTS.init_script} ${name ? "start" : action} >/dev/null 2>&1`);
+    let enableCmd = "";
+    if (!name) {
+        let on = (action !== "stop") ? "1" : "0";
+        let uci2 = cursor();
+        uci2.load("vnt2");
+        uci2.set("vnt2", "global", "autostart", on);
+        uci2.commit("vnt2");
+        enableCmd = `${DEFAULTS.init_script} ${on === "1" ? "enable" : "disable"} >/dev/null 2>&1; `;
+    }
+    runDetached(`${enableCmd}${DEFAULTS.init_script} ${name ? "start" : action} >/dev/null 2>&1`);
     return { result: "ok" };
 }
 
@@ -819,7 +828,8 @@ function cmdRestoreWebState() {
         webApi(items[i].enabled ? "/api/start" : "/api/stop", "POST", body);
     }
     cmdSyncWebState();
-    system(`${DEFAULTS.init_script} reload >/dev/null 2>&1`);
+    system("touch /tmp/vnt2_log/vnt2_web_skip_sync 2>/dev/null");
+    runDetached(`${DEFAULTS.init_script} reload`);
     system("rm -f /tmp/vnt2_log/vnt2_web_restoring 2>/dev/null");
     return { result: "ok", count: length(items) };
 }
@@ -1767,11 +1777,7 @@ function cmdUploadChunk(args) {
         unlink(stage);
         return { result: "error", code: "verify_failed", msg: "Version check failed, not a valid VNT binary" };
     }
-    system(`${DEFAULTS.init_script} stop >/dev/null 2>&1`);
-    system(`cp '${stage}' '${CFG.bin_path}/${name}'`);
-    unlink(stage);
-    system(`chmod 755 '${CFG.bin_path}/${name}'`);
-    runDetached(`${DEFAULTS.init_script} restart >/dev/null 2>&1`);
+    runDetached(`${DEFAULTS.init_script} stop; cp '${stage}' '${CFG.bin_path}/${name}'; rm -f '${stage}'; chmod 755 '${CFG.bin_path}/${name}'; ${DEFAULTS.init_script} restart`);
     return { result: "ok", version: vm[0], size };
 }
 
@@ -1780,7 +1786,7 @@ function cmdCheckBinaries() {
     let uci = cursor();
     uci.load("vnt2");
     let r = {};
-    r.install_bins = normalizeInstallBins(uci.get("vnt2", "global", "install_bins")) || join(",", INSTALL_BINARIES);
+    r.install_bins = normalizeInstallBins(uci.get("vnt2", "global", "install_bins")) || "none";
     let profiles = advancedBinaryProfiles();
     for (let i = 0; i < length(profiles); i++) {
         let key = profiles[i][0];
@@ -1799,10 +1805,33 @@ function cmdGetSettings() {
     for (let i = 0; i < length(SETTING_DEFS); i++)
         r[SETTING_DEFS[i][0]] = uci.get("vnt2", "global", SETTING_DEFS[i][0])
                                  || SETTING_DEFS[i][1];
-    r.install_bins = normalizeInstallBins(uci.get("vnt2", "global", "install_bins")) || join(",", INSTALL_BINARIES);
+    r.install_bins = normalizeInstallBins(uci.get("vnt2", "global", "install_bins")) || "none";
+    r.tun_bind = (uci.get("vnt2", "global", "tun_bind") == "0") ? "0" : "1";
+    r.tun_bind_pattern = trim(`${uci.get("vnt2", "global", "tun_bind_pattern") ?? ""}`) || "vnt_*|tun*";
     return r;
 }
 
+
+function cmdSetTunBind(args) {
+    let on = (args.enabled == "1") ? "1" : "0";
+    let raw = trim(`${args.patterns ?? ""}`);
+    let pats = [];
+    let parts = split(raw, "|");
+    let p;
+    for (let i = 0; i < length(parts); i++) {
+        p = trim(parts[i]);
+        if (!p) continue;
+        if (length(p) > 32 || match(p, /^[][A-Za-z0-9_*?.-]+$/) == null)
+            return { result: "error", code: "invalid_pattern", msg: `Invalid pattern: ${p}` };
+        if (index(pats, p) < 0) push(pats, p);
+    }
+    let uci = cursor();
+    uci.load("vnt2");
+    uci.set("vnt2", "global", "tun_bind", on);
+    uci.set("vnt2", "global", "tun_bind_pattern", join("|", pats));
+    uci.commit("vnt2");
+    return { result: "ok", tun_bind: on, patterns: join("|", pats) };
+}
 
 function cmdSetWebAddr(args) {
     let addr = trim(args.addr ?? "");
@@ -1983,7 +2012,7 @@ function cmdSaveSettings(args) {
     }
     uci.commit("vnt2");
     initPaths();
-    runDetached(`${DEFAULTS.init_script} restart >/dev/null 2>&1`);
+    runDetached(`${DEFAULTS.init_script} reload >/dev/null 2>&1`);
     return { result: "ok" };
 }
 
@@ -2326,6 +2355,7 @@ const METHODS = {
     web_instance_action:  cmdWebInstanceAction,
     get_log_keys:         cmdGetLogKeys,
     save_log_keys:        cmdSaveLogKeys,
+    set_tun_bind:         cmdSetTunBind,
     sync_web_state:       cmdSyncWebState,
     restore_web_state:    cmdRestoreWebState,
     save_settings:        cmdSaveSettings,
@@ -2375,6 +2405,7 @@ const SIGNATURES = {
     web_instance_action:  { file_name: "String", action: "String" },
     get_log_keys:         {},
     save_log_keys:        { web_sync_keys: "String", web_start_keys: "String", web_stop_keys: "String", web_delete_keys: "String", fault_restart_keys: "String", online_keys: "String", online_exclude_keys: "String" },
+    set_tun_bind:         { enabled: "String", patterns: "String" },
     sync_web_state:       {},
     restore_web_state:    {},
     save_settings: {

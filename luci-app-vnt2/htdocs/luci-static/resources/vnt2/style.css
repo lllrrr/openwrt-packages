@@ -173,6 +173,15 @@ html[data-vnt2-theme] #maincontent th {
     color: var(--vnt2-text-strong);
 }
 
+html[data-vnt2-theme] #maincontent h1,
+html[data-vnt2-theme] #maincontent h2,
+html[data-vnt2-theme] #maincontent h3,
+html[data-vnt2-theme] #maincontent th,
+html[data-vnt2-theme] #maincontent tr {
+    background-color: transparent !important;
+    background-image: none !important;
+}
+
 html[data-vnt2-theme] #maincontent small {
     color: var(--vnt2-muted);
 }
@@ -1682,6 +1691,12 @@ html[data-vnt2-theme] #maincontent optgroup {
 @keyframes vnt2-modal-pop {
     from { opacity: 0; transform: translateY(8px) scale(.97); }
     to   { opacity: 1; transform: none; }
+}
+
+.vnt2-page-tabs .vnt2-theme-toggle,
+ul.tabs .vnt2-theme-toggle {
+    margin-left: auto;
+    flex-shrink: 0;
 }
 
 .vnt2-theme-toggle {
