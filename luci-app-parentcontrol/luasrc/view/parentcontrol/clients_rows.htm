@@ -1,0 +1,58 @@
+<%+cbi/valueheader%>
+<%
+	-- 设备行表（第 11k 轮 A95-2）：一行一台设备，`MAC|IP`（两侧皆可空）。
+	-- 服务端先渲染已有行（无 JS 时也能看、也能原样保存）；增删 / 序列化由 pc-ui.js
+	-- 的 pcClientsRows 统一实现（唯一 JS 实现，文案与占位符由本模板传入）。
+	-- 真正的表单字段是下面隐藏的 textarea：name = self:cbid(section)，值 = clients 原文
+	-- （原样回写，**不做**大小写归一 —— 归一只用于比较/判定）。
+	local ui = require "luci.model.cbi.parentcontrol.ui"
+	local raw = self:cfgvalue(section) or ""
+	local rows = ui.client_rows(raw, true)
+
+	-- A133（第 11k-8 轮 D55）：恢复 MAC 候选下拉 —— 11k 之前 `Value` 用 `e:value()` 焊候选，
+	-- 换成 clients 行表后退化成纯手打（用户报的回归）。这里用 <datalist>（不是 <select>）：
+	-- 大量设备还没出现在 DHCP 租约 / ARP 里（休眠、刚换 Wi-Fi），强制选择会让人无法绑定。
+	-- 数据源沿用 11k 前已真机验证的 net.mac_hints，**不换源**（design.md §11.30.6）。
+	-- 第 11k-8b 轮：收集/去重/排序/上限全部搬进 devnames.hints() —— 视图只 require + ipairs
+	-- 消费。视图模板跑在受限沙箱，pcall/table.sort 在那里没有确凿先例（math.* 有），
+	-- 放进视图就等于赌沙箱 env，而宿主侧无 lua、静态门查不出来（C2）。
+	local hints = require("luci.model.cbi.parentcontrol.devnames").hints()
+%>
+<datalist id="pc-mac-hints">
+	<% for _, h in ipairs(hints) do %>
+	<% if h.name ~= "" then %>
+	<option value="<%=pcdata(h.mac)%>" label="<%=pcdata(h.name)%>"></option>
+	<% else %>
+	<option value="<%=pcdata(h.mac)%>"></option>
+	<% end %>
+	<% end %>
+</datalist>
+<div class="pc-clients" id="pc-clients">
+	<p class="cbi-value-description">
+		<%=translate("一行一台设备：左边填 MAC 地址，右边填该设备的静态 IP（可留空）。同一台设备换 Wi-Fi 会换 MAC，可以把多台都填进来；这里的次序就是规则次序，额度是这些设备合计用的。")%>
+	</p>
+	<div class="pc-clients-list" data-pc-client-list>
+		<% for _, r in ipairs(rows) do %>
+		<div class="pc-client-row" data-pc-client-row>
+			<input type="text" class="pc-client-mac" list="pc-mac-hints" value="<%=pcdata(r.mac)%>"
+				placeholder="<%=translate("MAC 地址，如 00:11:22:33:44:55")%>" />
+			<input type="text" class="pc-client-ip" value="<%=pcdata(r.ip)%>"
+				placeholder="<%=translate("静态 IP / 主机名（可留空）")%>" />
+			<button type="button" class="cbi-button pc-client-del" data-pc-client-del><%=translate("删除")%></button>
+		</div>
+		<% end %>
+	</div>
+	<button type="button" class="cbi-button cbi-button-add" data-pc-client-add><%=translate("➕ 新增设备")%></button>
+</div>
+<textarea name="<%=self:cbid(section)%>" data-pc-clients-value style="display:none"><%=pcdata(raw)%></textarea>
+<script src="<%=resource%>/parentcontrol/pc-ui.js?v=<%=require("luci.model.cbi.parentcontrol.pkgver").get()%>"></script>
+<script type="text/javascript">//<![CDATA[
+	pcClientsRows({
+		root: 'pc-clients',
+		macList: 'pc-mac-hints',
+		delText: '<%=translate("删除")%>',
+		macPh: '<%=translate("MAC 地址，如 00:11:22:33:44:55")%>',
+		ipPh: '<%=translate("静态 IP / 主机名（可留空）")%>'
+	});
+//]]></script>
+<%+cbi/valuefooter%>

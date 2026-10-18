@@ -96,36 +96,46 @@ addr_is_family() {
 	esac
 }
 
-# 计数用的“设备条件”：ip 优先（避免 mac+ip 双计），但地址必须与协议族匹配 ——
-# ip6tables 里 `-s <IPv4>` 是非法语句（静默失败，该条目的 v6 流量就完全不计额度了），
-# 所以条目只填了 IPv4 时 v6 链回退到 mac。两族各自独立统计，同族内不会重复计数。
-# 输出：条件串 / ALL（条目没有任何设备条件 = 对全部客户端计数）/ 空（本族无法识别）
+# 计数用的“设备条件”：逐行遍历 clients（A90/A88）。每行：
+#   ip 属于本族 → `-s <ip>`；否则有 mac → `-m mac --mac-source <mac>`；两者都不可用则跳过该行。
+# 无任何 clients 行 ⇒ 输出 ALL（条目没有任何设备条件 = 对全部客户端计数）。
+# 输出：每行一个条件串 / ALL / 空（本族无法识别任何行）
 devcount() { # $1=ipcmd $2=module $3=idx
-	local _ip _mac _fam6
-	_ip=$(pc_uget "@$2[$3].ip")
-	_mac=$(pc_uget "@$2[$3].mac")
+	local _fam6 _rows _row _m _ip
 	_fam6=0
 	[ "$1" = "$ipt6" ] && _fam6=1
-	if [ -n "$_ip" ] && addr_is_family "$_ip" "$_fam6"; then echo "-s $_ip"
-	elif [ -n "$_mac" ]; then echo "-m mac --mac-source $_mac"
-	elif [ -n "$_ip" ]; then return 0
-	else echo "ALL"
-	fi
+	_rows=$(pc_clients_rows "$2" "$3")
+	[ -z "$_rows" ] && { echo "ALL"; return 0; }
+	for _row in $_rows; do
+		case "$_row" in
+		*"|"*) _m=${_row%%|*}; _ip=${_row#*|} ;;
+		*)     _m=$_row; _ip="" ;;
+		esac
+		if [ -n "$_ip" ] && addr_is_family "$_ip" "$_fam6"; then echo "-s $_ip"
+		elif [ -n "$_m" ]; then echo "-m mac --mac-source $_m"
+		fi
+	done
 }
 
-# 封锁/时段用：对条目的每个设备身份各加一条规则（mac 与 ip 任一命中即生效）
+# 封锁/时段用：对条目的每台设备各加规则（mac 与 ip 任一命中即生效）；
+# 逐行遍历 clients（A90）：每行 mac 一条、ip（同族）一条；只有「无任何行」才退化成对全部客户端。
 add_dev_rules() { # $1=ipcmd $2=table $3=chain $4=module $5=idx $6=extra $7=action
-	local _mac _ip _n _fam6
-	_mac=$(pc_uget "@$4[$5].mac")
-	_ip=$(pc_uget "@$4[$5].ip")
+	local _rows _row _m _ip _n _fam6
 	_fam6=0
 	[ "$1" = "$ipt6" ] && _fam6=1
+	_rows=$(pc_clients_rows "$4" "$5")
 	_n=0
-	[ -n "$_mac" ] && { ipt_do "$1" -t "$2" -I "$3" -m mac --mac-source "$_mac" $6 $7; _n=1; }
-	# 静态 IP 只对同族链有意义（往 ip6tables 里塞 IPv4 地址只会静默失败）
-	[ -n "$_ip" ] && addr_is_family "$_ip" "$_fam6" && { ipt_do "$1" -t "$2" -I "$3" -s "$_ip" $6 $7; _n=1; }
+	for _row in $_rows; do
+		case "$_row" in
+		*"|"*) _m=${_row%%|*}; _ip=${_row#*|} ;;
+		*)     _m=$_row; _ip="" ;;
+		esac
+		[ -n "$_m" ] && { ipt_do "$1" -t "$2" -I "$3" -m mac --mac-source "$_m" $6 $7; _n=1; }
+		# 静态 IP 只对同族链有意义（往 ip6tables 里塞 IPv4 地址只会静默失败）
+		[ -n "$_ip" ] && addr_is_family "$_ip" "$_fam6" && { ipt_do "$1" -t "$2" -I "$3" -s "$_ip" $6 $7; _n=1; }
+	done
 	# 只有「条目本身没有任何设备条件」才退化成对全部客户端 —— 否则会变成无条件 DROP
-	if [ "$_n" = 0 ] && [ -z "$_mac" ] && [ -z "$_ip" ]; then
+	if [ "$_n" = 0 ] && [ -z "$_rows" ]; then
 		ipt_do "$1" -t "$2" -I "$3" $6 $7
 	fi
 	return 0
@@ -289,8 +299,25 @@ offload_macs() {
 }
 # 注意：不能用 `grep 'weburl'` 找 —— 命名节的行是 `parentcontrol.kids.mac='…'`，
 # 整行不含 "weburl"，会被漏掉（同一类 F5 缺陷）。改按「节类型」判定。
-weburl_macs_all() { pc_opts_all weburl mac; }
-weburl_ips_all() { pc_opts_all weburl ip; }
+# 全部条目绑定的 MAC 并集（A96）：任一 PC_MODULES 的任一节的 clients 中的 MAC。
+# 不按节类型过滤（time/protocol 条目也可能绑定设备），也不看 enable。
+weburl_macs_all() {
+	local _m _i
+	for _m in $PC_MODULES; do
+		for _i in $(pc_ids_all "$_m"); do
+			pc_clients_macs "$_m" "$_i"
+		done
+	done | sort -u
+}
+# 同上，取 IP 并集
+weburl_ips_all() {
+	local _m _i
+	for _m in $PC_MODULES; do
+		for _i in $(pc_ids_all "$_m"); do
+			pc_clients_ips "$_m" "$_i"
+		done
+	done | sort -u
+}
 offload_handle() {
 	nft -a list chain inet fw4 forward 2>/dev/null \
 		| grep 'flow add @ft' | head -1 \
@@ -376,13 +403,14 @@ weburl_patterns() {
 		| grep -E '^[A-Za-z0-9._/-]+$' | sort -u
 }
 
-# 计数用：单一设备条件（ip 优先）加一条规则——避免 mac+ip 两条都被命中而双计
+# 计数用：逐行设备条件各加一条规则（A90）—— 每行 ip 优先、否则 mac，避免 mac+ip 被双计。
+# 逐「行」而非逐「词」迭代：一个条件本身含空格（`-m mac --mac-source <mac>`）。
 add_dev_rule_single() { # $1=ipcmd $2=table $3=chain $4=module $5=idx $6=extra $7=action
 	local _c
-	_c=$(devcount "$1" "$4" "$5")
-	[ -z "$_c" ] && return 0        # 本族无法识别 → 不装规则（装了就成了「全部客户端」）
-	[ "$_c" = "ALL" ] && _c=""
-	ipt_do "$1" -t "$2" -I "$3" $_c $6 $7
+	devcount "$1" "$4" "$5" | while IFS= read -r _c; do
+		[ "$_c" = "ALL" ] && _c=""
+		ipt_do "$1" -t "$2" -I "$3" $_c $6 $7
+	done
 	return 0
 }
 
@@ -577,8 +605,7 @@ block_entry_window() { # $1=module $2=idx $3=UTC起秒 $4=UTC止秒
 # 防自锁守卫：无设备条件（= 对全部客户端生效）且拿不到局域网网段时不能封锁 ——
 # 无差别 PREROUTING DROP 会把路由器自己也封死。返回 0 表示"应当跳过这条"。
 block_skip_devless() { # $1=module $2=idx $3=局域网网段列表
-	[ -n "$(pc_uget "@$1[$2].mac")" ] && return 1
-	[ -n "$(pc_uget "@$1[$2].ip")" ] && return 1
+	[ -n "$(pc_clients_rows "$1" "$2")" ] && return 1
 	[ -n "$3" ] && return 1
 	elog "quota: $1[$2] 无设备条件且拿不到局域网网段，跳过封锁以防自锁"
 	return 0
@@ -712,18 +739,29 @@ build_quota_blocks() {
 
 # 未覆盖客户端（一行一个 mac；在线优先、按 mac 升序，上限 PC_DIAG_MAX）
 diag_clients() { # $1=module $2=idx
-	local _emac _eip
-	_emac=$(pc_uget "@$1[$2].mac" | tr 'A-F' 'a-f')
-	_eip=$(pc_uget "@$1[$2].ip")
+	local _emacs _eips
+	_emacs=$(pc_clients_macs "$1" "$2")
+	_eips=$(pc_clients_ips "$1" "$2")
 	# 没有任何设备条件的条目 = 对所有客户端生效 ⇒ 不存在「未覆盖客户端」
-	[ -n "$_emac$_eip" ] || return 0
-	hosts_tsv | awk -v m="$_emac" -v i="$_eip" '
-		$1 == "host" && $2 != "" {
-			mac = tolower($2)
-			if (mac == m) next
-			if (i != "" && $3 == i) next
-			print $5, mac
-		}' | sort -k1,1r -k2,2 | head -n "$PC_DIAG_MAX" | awk '{ print $2 }'
+	[ -n "$_emacs$_eips" ] || return 0
+	# 排除集经 ENVIRON 传入（多值、按行分隔）：-v 无法承载含空格/$/反斜杠的值（A93/C5）
+	(
+		export PC_DIAG_EX_MACS="$_emacs"
+		export PC_DIAG_EX_IPS="$_eips"
+		hosts_tsv | awk '
+			BEGIN {
+				n = split(ENVIRON["PC_DIAG_EX_MACS"], a, "\n")
+				for (k = 1; k <= n; k++) if (a[k] != "") exm[a[k]] = 1
+				n = split(ENVIRON["PC_DIAG_EX_IPS"], b, "\n")
+				for (k = 1; k <= n; k++) if (b[k] != "") exi[b[k]] = 1
+			}
+			$1 == "host" && $2 != "" {
+				mac = tolower($2)
+				if (mac in exm) next
+				if ($3 != "" && ($3 in exi)) next
+				print $5, mac
+			}' | sort -k1,1r -k2,2 | head -n "$PC_DIAG_MAX" | awk '{ print $2 }'
+	)
 	return 0
 }
 
@@ -754,9 +792,15 @@ diag_client_rules() { # $1=ipcmd $2=key $3=目标序号 $4=客户端文件
 
 # 诊断链的渲染 / 真下发（渲染模式只记文本，绝不碰内核）
 _diag_emit_rules() {
-	local _key _m _i _tf _itf _cf _n _c _c2 _mac _p _algos _nh
+	local _key _m _i _tf _itf _cf _n _c _c2 _mac _p _algos _nh _sd
 	_algos=$(pc_uget "@basic[0].algos"); [ -z "$_algos" ] && _algos=kmp
-	_tf="$STATE_DIR/diag.t.$$"; _cf="$STATE_DIR/diag.c.$$"
+	# A116（design §11.25.2 / F-6）：临时文件不得落在持久状态目录 $STATE_DIR。原先
+	# diag.ip/diag.t/diag.c 三个 scratch 都写成 "$STATE_DIR/diag.*.$$"：进程被 OOM/kill
+	# 打断就永久遗留到状态目录里（重启、升级都不清，且会让「状态目录=持久状态」的口径破产）。
+	# 现统一放进一次性 scratch 目录（/tmp，tmpfs，重启自清），函数退出时整目录删掉。
+	_sd=${TMPDIR:-/tmp}/pc-diag.$$
+	mkdir -p "$_sd" 2>/dev/null
+	_tf="$_sd/t"; _cf="$_sd/c"
 	for _key in $(pc_active_keys); do
 		_m=${_key%%_*}; _i=${_key#*_}
 		[ "$_m" = "weburl" ] || continue          # 只有网址条目有可枚举的目标
@@ -780,7 +824,7 @@ _diag_emit_rules() {
 		# ③a IP 目标（来自 IP 目录）：按地址族给一条 -d，目标序号与
 		#    diag_targets 的输出顺序一致（IP 在前、匹配串在后）——采样靠它对齐。
 		_n=0
-		_itf="$STATE_DIR/diag.ip.$$"
+		_itf="$_sd/ip"
 		[ -f "$IPDIR/weburl_$_i" ] && grep -v '^$' "$IPDIR/weburl_$_i" > "$_itf"
 		while read -r _p; do
 			[ -n "$_p" ] || continue
@@ -806,7 +850,7 @@ _diag_emit_rules() {
 			done
 		done
 	done
-	rm -f "$_tf" "$_cf"
+	rm -rf "$_sd"
 	return 0
 }
 
@@ -877,79 +921,108 @@ diag_bump_t() { # $1=key $2=target
 	return 0
 }
 
-# c <entry_key> <mac> <ip> <hostname> <minutes> <first> <last>
-# minutes+1；first 只在首次写入；last 每次刷新（A24/W101）。
+# D31/A44：条目展示名（诊断区 live 与 c 行快照共用）：remarks → apps 首行名 → 空串；去 TAB/CR/LF。
+entry_disp_name() { # $1=entry_key（<模块>_<下标>）
+	local _m=${1%%_*} _i=${1#*_} _n
+	_n=$(pc_uget "@$_m[$_i].remarks" | tr -d '\t\r\n')
+	[ -n "$_n" ] || _n=$(pc_apps_rows "$(pc_uget "@$_m[$_i].apps")" | head -n 1 | cut -f1 | tr -d '\t\r\n')
+	printf '%s' "$_n"
+}
+
+# c <entry_key> <mac> <ip> <hostname> <minutes> <first> <last> <name>；minutes+1、first 只写一次、
+# last 每次刷新（A24/W101）。$4–$8 位置/语义不变；$9=展示名快照（D31/A44，每次 bump 重写）。
 diag_bump_c() { # $1=key $2=mac $3=ip $4=hostname
 	local _f _now
 	_f=$(diag_file); _now=$(date +%H:%M:%S)
 	mkdir -p "$USAGE_DIR/diag"
 	[ -f "$_f" ] || : > "$_f"
-	awk -F'\t' -v OFS='\t' -v k="$1" -v mc="$2" -v ip="$3" -v hn="$4" -v now="$_now" '
+	# nm/hn 是字符串类传参，改走环境：awk -v 会解释反斜杠转义（a\tb→真 TAB、
+	# a\\b 丢反斜杠、\061→1），ENVIRON 原样透传（A47/review10 Low-1）。
+	# 字符集受控的 k/mc/ip/now 仍用 -v；$4–$8 位置与语义逐字节不变。
+	nm=$(entry_disp_name "$1") hn="$4" \
+		awk -F'\t' -v OFS='\t' -v k="$1" -v mc="$2" -v ip="$3" -v now="$_now" 'BEGIN{ nm = ENVIRON["nm"]; hn = ENVIRON["hn"] }
 		$1 == "c" && $2 == k && $3 == mc {
 			$6 = $6 + 1
 			if ($4 == "" || $4 == "-") $4 = ip
 			if ($5 == "" || $5 == "-") $5 = hn
 			if ($7 == "") $7 = now
 			$8 = now
+			$9 = nm
 			hit = 1
 		}
 		{ print }
-		END { if (!hit) print "c", k, mc, ip, hn, 1, now, now }' "$_f" > "$_f.new" && mv "$_f.new" "$_f"
+		END { if (!hit) print "c", k, mc, ip, hn, 1, now, now, nm }' "$_f" > "$_f.new" && mv "$_f.new" "$_f"
 	return 0
 }
 
+# 取值助手（A83-2）：$1=表内容（`k|v|…` 以 `|` 串联）$2=键 ⇒ 结果放全局 _MV（有意不加 local）。
+diag_map_get() { _MV=${1#*"|$2|"}; [ "$_MV" = "$1" ] && { _MV=0; return 0; }; _MV=${_MV%%|*}; }
+
 # 每分钟采样：目标维（PCAD → PCDT）与客户端维（PCDT → PCDC）各按同一阈值判一次。
 sample_diag_counters() { # $1=阈值（字节）
-	local _thr _key _m _i _n _v _bf _d _mac _tg _dump _tf _hosts _ip _hn _k
+	local _thr _key _m _i _n _v _bf _d _mac _tg _dump _tf _hosts _ip _hn _k _map _ln _map_c _map_t _b _r _NL _pak _dead
 	[ -n "$ipt" ] || return 0
 	# 没装诊断链（未启用 / 无未覆盖客户端）就不采样
 	$ipt -t mangle -n -L "$TAGD" >/dev/null 2>&1 || return 0
-	mkdir -p "$STATE_DIR" "$USAGE_DIR/diag"
-	_thr=$1
-	_dump="$STATE_DIR/diag.dump.$$"; _tf="$STATE_DIR/diag.tg.$$"
+	_thr=$1; mkdir -p "$STATE_DIR" "$USAGE_DIR/diag"
+	_dump="$STATE_DIR/diag.dump.$$"; _tf="$STATE_DIR/diag.tg.$$"; _map="$STATE_DIR/diag.map.$$"
 	{ $ipt -t mangle -nvx -L 2>/dev/null; $ipt6 -t mangle -nvx -L 2>/dev/null; } > "$_dump"
-	_hosts=$(hosts_tsv 2>/dev/null)
-	for _key in $(pc_active_keys); do
-		_m=${_key%%_*}; _i=${_key#*_}
-		[ "$_m" = "weburl" ] || continue
-		$ipt -t mangle -n -L "PCAD_$_key" >/dev/null 2>&1 || continue
-		diag_targets "$_m" "$_i" > "$_tf"
-		_n=0
-		while read -r _tg; do
-			[ -n "$_tg" ] || continue
+	# A83-1：单遍化的唯一一次 awk（默认 FS，容忍行首空格计数列）。c|<链>|<目标>|<和> 按 (链,目标)
+	# 累加；t|<目标>|<和> 按目标跨全部链累加（不得加 ^PC 过滤，否则非 PC* 链跳向 PCDC_* 时与旧算法分叉）。
+	awk '
+		/^Chain / { ch = $2; next }
+		$1 ~ /^[0-9]+$/ { s[ch "|" $3] += $2; t[$3] += $2 }
+		END { for (k in s) print "c|" k "|" s[k]; for (k in t) print "t|" k "|" t[k] }' "$_dump" > "$_map"
+	# A83-2：两表一次 read 循环读进变量并 `|` 串成 `…k|v|`（不得用 $(cat)，会多一个 fork）。
+	_map_c=; _map_t=
+	while IFS= read -r _ln; do
+		case "$_ln" in t*) _map_t="$_map_t$_ln|" ;; c*) _map_c="$_map_c$_ln|" ;; esac
+	done < "$_map"
+	_NL='
+'
+	_hosts="$_NL$(hosts_tsv 2>/dev/null)"
+	for _key in $(pc_active_keys); do _m=${_key%%_*}; _i=${_key#*_}
+		[ "$_m" = "weburl" ] || continue; $ipt -t mangle -n -L "PCAD_$_key" >/dev/null 2>&1 || continue
+		_n=0; diag_targets "$_m" "$_i" > "$_tf"; while read -r _tg; do [ -n "$_tg" ] || continue
 			_n=$((_n + 1))
-			# 注意：-nvx -L 的计数列是右对齐的（行首有空格），所以按「第一个字段是纯数字」
-			# 识别规则行，不能用 ^[0-9]。
-			_v=$(awk -v c="PCAD_$_key" -v t="PCDT_${_key}_$_n" '
-				/^Chain / { ch = $2; next }
-				$1 ~ /^[0-9]+$/ { if (ch == c && $3 == t) s += $2 }
-				END { printf "%d", s + 0 }' "$_dump")
+			# 目标侧查 `c|` 表（键带链名，A83-1b）；行首空格计数列 ⇒ 按「首字段纯数字」识别规则行。
+			diag_map_get "$_map_c" "PCAD_$_key|PCDT_${_key}_$_n"; _v=$_MV
 			_bf="$STATE_DIR/dbase.${_key}.t$_n"
-			_d=$(diag_delta "$_v" "$_bf")
+			# A83-3：基线纯 shell（取代 $(diag_delta …)）；缺失/非法按 0；回零按 _v 计；无论是否命中都写回。
+			_b=0; [ -f "$_bf" ] && IFS= read -r _b < "$_bf" 2>/dev/null; case "$_b" in ''|*[!0-9]*) _b=0 ;; esac
+			if [ "$_v" -ge "$_b" ]; then _d=$((_v - _b)); else _d=$_v; fi; printf '%s\n' "$_v" > "$_bf"
 			[ "$_d" -gt 0 ] && [ "$_d" -ge "$_thr" ] && diag_bump_t "$_key" "$_tg"
 		done < "$_tf"
-		_n=0
-		for _mac in $(diag_clients "$_m" "$_i"); do
-			_n=$((_n + 1))
-			_v=$(awk -v t="PCDC_${_key}_$_n" '
-				$1 ~ /^[0-9]+$/ { if ($3 == t) s += $2 }
-				END { printf "%d", s + 0 }' "$_dump")
+		_n=0; for _mac in $(diag_clients "$_m" "$_i"); do _n=$((_n + 1))
+			diag_map_get "$_map_t" "PCDC_${_key}_$_n"; _v=$_MV
 			_bf="$STATE_DIR/dbase.${_key}.c$_n"
-			_d=$(diag_delta "$_v" "$_bf")
+			_b=0; [ -f "$_bf" ] && IFS= read -r _b < "$_bf" 2>/dev/null; case "$_b" in ''|*[!0-9]*) _b=0 ;; esac
+			if [ "$_v" -ge "$_b" ]; then _d=$((_v - _b)); else _d=$_v; fi; printf '%s\n' "$_v" > "$_bf"
 			[ "$_d" -gt 0 ] && [ "$_d" -ge "$_thr" ] || continue
-			_ip=$(printf '%s\n' "$_hosts" | awk -v m="$_mac" '$1 == "host" && $2 == m { print $3; exit }')
-			_hn=$(printf '%s\n' "$_hosts" | awk -v m="$_mac" '$1 == "host" && $2 == m { print $4; exit }')
+			# A83-4：客户端 _ip/_hn 由同一份 _hosts 纯 shell 查（取代每客户端 2 次 printf|awk）。
+			_r=${_hosts#*"$_NL""host $_mac "}; [ "$_r" = "$_hosts" ] && _r=""; _r=${_r%%"$_NL"*}; _ip=${_r%% *}; _hn=${_r#* }; _hn=${_hn%% *}
 			diag_bump_c "$_key" "$_mac" "$_ip" "$_hn"
 		done
 	done
-	rm -f "$_dump" "$_tf"
+	rm -f "$_dump" "$_tf" "$_map"
 	# 条目被删/禁用后清掉它的诊断基线（与 base.* 同思路）
+	# A110（design §11.25.2 / F-1）：`pc_active_keys` 提到循环外 —— 原先每个 dbase.* 各起
+	# 1 个 `pc_active_keys` 子 shell + 1 个 `grep -qx` ⇒ N 个文件 = 2N fork。真机 49 个文件
+	# 实测 ~3160ms（test-report §15）；提出去 + 纯 shell 整行匹配后 ≈ 240ms，且整循环只
+	# 剩 1 次 fork（pc_active_keys 本身）≤ 2。用 $_NL 包边做整行匹配（非子串），避免
+	# `weburl_1` 误命中 `weburl_10`。
+	_pak="$_NL$(pc_active_keys)$_NL"
+	_dead=
 	for _bf in "$STATE_DIR"/dbase.*; do
 		[ -e "$_bf" ] || continue
 		_k=${_bf##*/dbase.}
 		_k=${_k%%.*}
-		pc_active_keys | grep -qx "$_k" || rm -f "$_bf"
+		case "$_pak" in *"$_NL$_k$_NL"*) ;; *) _dead="$_dead ${_bf##*/}" ;; esac
 	done
+	# 一次性删（子 shell 里 cd 到 $STATE_DIR 用相对名）：`rm` 逐文件也是 fork，不清账的话
+	# 「整循环 ≤2 fork」就不成立 —— 100 个残留会变成 100 次 rm（实测 90 个差值 ≈154ms）。
+	# dbase.<键> 的名字由 pc_active_keys 的 `模块_下标` 构成，不含空格，故可直接展开。
+	[ -n "$_dead" ] && ( cd "$STATE_DIR" && rm -f $_dead )
 	return 0
 }
 
@@ -996,6 +1069,9 @@ sample_counters() {
 # ============================================================================
 build_all() {
 	local _tt _ip
+	# A52/D35：跳转数量/顺序不对（重复跳转、Q/A/D 错序）→ 先拆干净，下面按既有
+	# hook_chain 顺序（D→A→Q 头插 ⇒ 最终 Q→A→D）整套重建；顺序正确时零额外调用。
+	pc_hooks_present || pc_unhook_all
 	_tt=$(pc_today_type)
 	elog "build: day=$_tt"
 	for _ip in "$ipt" "$ipt6"; do
@@ -1026,8 +1102,10 @@ build_all() {
 del_rule() {
 	local _ip _ta _c
 	for _ip in "$ipt" "$ipt6"; do
+		# A51/D35：PREROUTING 跳转「删到删不动」（外部注入的重复跳转一次收敛）。
+		# 必须先摘跳转再 -X 链：链仍被 PREROUTING 引用时 -X 会失败（真 iptables 行为）。
+		pc_unhook_all_family "$_ip"
 		for _ta in "$TAGQ" "$TAGA" "$TAGD"; do
-			$_ip -t mangle -D PREROUTING -j "$_ta" 2>/dev/null
 			$_ip -t mangle -F "$_ta" 2>/dev/null
 			$_ip -t mangle -X "$_ta" 2>/dev/null
 		done
@@ -1238,8 +1316,10 @@ hosts_tsv() {
 #   hist     <YYYYMMDD> <当天总分钟>
 #   histkey  <YYYYMMDD> <条目key> <分钟>
 #   reset    <YYYYMMDD> <HH:MM:SS> <条目key> <重置前已用分钟>
-stats_tsv() {
-	local _brief _tt _min_kb _keep _m _i _key _name _mac _q _u _pool _live _f _t _n _dump _unl _dd _hs _dtf _df _dm _di _dname _donl _k
+stats_tsv() { pc_uci_snap_begin; stats_tsv_inner "$@"; pc_uci_snap_drop; }
+
+stats_tsv_inner() {
+	local _brief _tt _min_kb _keep _m _i _key _name _mac _q _u _pool _live _f _t _n _dump _unl _dd _hs _dtf _df _di _dname _donl _k _snap
 	_brief="${1:-}"
 	_tt=$(pc_today_type)
 	_min_kb=$(pc_uget "@basic[0].usage_min_kb")
@@ -1258,7 +1338,9 @@ stats_tsv() {
 			_key="${_m}_${_i}"
 			_name=$(pc_uget "@$_m[$_i].remarks" | tr -d '\t\r\n')
 			_unl=$(pc_entry_unlimited "$_m" "$_i" "$_tt")
-			_mac=$(pc_uget "@$_m[$_i].mac")
+			# 第 5 字段 = 该条目绑定的全部 MAC（逗号+空格连接，A94/A111）；printf 参数个数/顺序不变
+			# A111（§11.25.2 / F-3）：原先借外部行拼接命令，设备上缺失（rc=127）⇒ 字段恒空。
+			_mac=$(pc_clients_macs "$_m" "$_i" | pc_join_comma)
 			_q=0; _u=0; _pool=""
 			set -- $(entry_effective "$_m" "$_i" "$_tt")   # $1=额度 $2=已用 $3=池名
 			_q=$1; _u=$2; _pool=${3:-}
@@ -1269,6 +1351,53 @@ stats_tsv() {
 		done
 	done
 	if [ "$_brief" != "brief" ]; then
+		# A50/D34 name 行：展示名「一份权威名单」（on/off/gone 三态），Lua 侧永不回退裸 key。
+		#   name <key> <display> <state>；on=启用中 off=配置在但未启用 gone=配置已无（近 30 天出现过）
+		# 集合 = on ∪ off ∪ gone；gone = 近 30 天 histkey/reset 出现过 − 配置里存在。
+		# gone 的 display：diag c 行第 9 字段快照（单次 awk 汇总全部 diag 文件，不逐文件启 shell）
+		# → 无快照退「条目 #<idx+1>」（key 形如 <module>_<idx>；解析失败退「条目 #?」）。
+		for _m in $PC_MODULES; do
+			for _i in $(pc_ids_all "$_m"); do
+				_key="${_m}_${_i}"
+				if pc_ids_on "$_m" | grep -qx "$_i"; then _st=on; else _st=off; fi
+				_dname=$(entry_disp_name "$_key")
+				printf 'name\t%s\t%s\t%s\n' "$_key" "$_dname" "$_st"
+			done
+		done
+		# gone 集合与快照：单次 awk 汇总（近 30 天 histkey/reset − 配置存在的 key）。
+		# R11-129：用量文件是「空格分隔 <key> <分钟>」（pc_usage_add），与 TAB 的
+		# histkey/reset 不同 —— 这里用默认分隔符（空白）收集；maxdepth 1 进不了
+		# diag/ 子目录，护栏 $1 != "diag" 双保险。
+		{
+			for _m in $PC_MODULES; do
+				for _i in $(pc_ids_all "$_m"); do printf '%s\t%s\n' "${_m}_${_i}" 1; done
+			done
+			# A56（review11 Low-3）：取最近 30 天，必须排序（find 输出顺序不保证）；
+			# 与 :1341/:1377 的 ls -1 风格一致。
+			# A72/D44：本组三处 awk 末尾各补 /dev/null —— find 空 ⇒ awk 无文件实参改读
+			# stdin，继承到不 EOF 的 fd（LuCI/ucode、daemon）会让 stats_tsv 永久挂死。
+			awk '$1 != "diag" { n[$1]=1 } END { for (k in n) print k }' \
+				$(find "$USAGE_DIR" -maxdepth 1 -type f -name '????????' 2>/dev/null | sort | tail -30) /dev/null
+			# A54（review11 Major-1）：diag 文件契约 $2 = entry_key（$3 是 MAC/target，
+			# 取错会把 MAC/域名写进权威名单 → gone 行 key 位冒出 MAC/域名）。
+			awk -F'\t' 'NF >= 4 { n[$2]=1 } END { for (k in n) print k }' \
+				$(find "$USAGE_DIR" -maxdepth 2 -path '*diag/????????' -type f 2>/dev/null | sort | tail -30) /dev/null
+			# R11-129：重置日志的 key 集合并入下面的 reset 行流（stats_tsv 末段把
+			# reset 事件按 TAB 行输出，gone 收集器直接吃它的 $3），不再单独 tail 一份。
+			awk -F'\t' 'NF >= 4 && $1 ~ /^[0-9]{4}-/ { key=$3; n[key]=1 } END { for (k in n) print k }' "$RESET_LOG" 2>/dev/null
+			awk -F'\t' '$1 == "c" && $9 != "" && !($2 in s) { s[$2]=$9 } END { for (k in s) print "snap:" k "\t" s[k] }' \
+				$(find "$USAGE_DIR" -maxdepth 2 -path '*diag/????????' -type f 2>/dev/null | sort | tail -30) /dev/null
+		} | awk -F'\t' '
+			NF == 1 { seen[$1]=1; next }
+			{ gots[$1]=$2; next }
+			END {
+				for (k in seen) {
+					if (gots[k] != "") continue   # 配置里存在（on/off 已在上面输出）
+					nm = gots["snap:" k] ""
+					if (nm == "") { _di = k; sub(/^[a-z]+_/, "", _di); nm = (_di ~ /^[0-9]+$/) ? "条目 #" _di + 1 : "条目 #?" }
+					printf "name\t%s\t%s\tgone\n", k, nm
+				}
+			}'
 		# 共享池
 		for _i in $(pc_ids_all quota); do
 			_n=$(pc_uget "@quota[$_i].name"); [ -n "$_n" ] || continue
@@ -1301,14 +1430,13 @@ stats_tsv() {
 			hosts_tsv > "$_hs" 2>/dev/null
 			_dtf="$_dd/$(pc_today | tr -d '-')"
 			if [ -f "$_dtf" ]; then
-				while IFS="$TAB" read -r _k _key _mac _ip _hn _min _first _last; do
+				while IFS="$TAB" read -r _k _key _mac _ip _hn _min _first _last _snap; do
 					[ "$_k" = "c" ] || continue
-					_dm=${_key%%_*}; _di=${_key#*_}
-					_dname=$(pc_uget "@$_dm[$_di].remarks" | tr -d '\t\r\n')
-					# 条目名为空 → 兜底到首个封锁名称（与列表页「条目名称」列同一链路）
-					if [ -z "$_dname" ]; then
-						_dname=$(pc_apps_rows "$(pc_uget "@$_dm[$_di].apps")" | head -n 1 | cut -f1 | tr -d '\t\r\n')
-					fi
+					_di=${_key#*_}
+					# D31/A44 三档回退：① live ② 行内第 9 字段快照（条目已删除时唯一来源；旧 8 字段文件为空）③ 条目 #N；绝不裸 key
+					_dname=$(entry_disp_name "$_key")
+					[ -n "$_dname" ] || _dname=$_snap
+					[ -n "$_dname" ] || _dname="条目 #$((_di + 1))"
 					_donl=$(awk -v m="$_mac" '$1 == "host" && $2 == m { print $5; exit }' "$_hs" 2>/dev/null)
 					case "$_donl" in 1) ;; *) _donl=0 ;; esac
 					printf 'diag\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
@@ -1341,15 +1469,112 @@ with_tick_lock() {
 	return 0
 }
 
-tick() { with_tick_lock tick_body; }
+# A70/D43：三个只读入口开/关 uci 快照（热路径逐次 fork uci 是稳态 tick 的主要成本）。
+# 用「begin … drop」顺序保证异常返回也不留 /tmp 残留；**不用 EXIT trap** —— 那会顶掉
+# 测试套件的清理 trap（test/lib.sh 的 _t_cleanup），导致临时目录滞留。
+tick() { pc_uci_snap_begin; with_tick_lock tick_body; pc_uci_snap_drop; }
+
+# D28：设备上是否留有本插件的运行时痕迹 —— mangle 表存在任一 PARENTCONTROL_* 跳转，
+# 或任一 PC[A-Z]*_ 自定义链（PCA_/PCAW_/PCAD_/PCDT_/PCDC_……「PCD 开头」曾漏过，正则必须 PC[A-Z]*_）。
+# 只读探测：每协议族一次 -S；停用清理路径专用（绝不在探测前发 -D/-F/-X）。
+pc_residual_on_device() {
+	local _ip _snap
+	for _ip in "$ipt" "$ipt6"; do
+		[ -n "$_ip" ] || continue
+		_snap=$($_ip -t mangle -S 2>/dev/null)
+		printf '%s\n' "$_snap" | grep -qE '^-A PREROUTING .*-j PARENTCONTROL_' && return 0
+		printf '%s\n' "$_snap" | grep -qE '^-N PC[A-Z]*_' && return 0
+	done
+	return 1
+}
+
+# D28：三条跳转（QUOTA/ACCT/DIAG）在 PREROUTING/mangle 是否齐备（v4 与 v6 都要）。
+# A52/D35 语义收紧：不止判存在，还判「每族每 tag **恰好一条**」+「-S 输出顺序 Q→A→D」。
+# 任一不满足 → 返回非 0（调用方 build_all 会先 pc_unhook_all 拆干净再整套重建）。
+pc_hooks_present() {
+	local _ip _snap _ta _q _a _d
+	for _ip in "$ipt" "$ipt6"; do
+		[ -n "$_ip" ] || continue
+		_snap=$($_ip -t mangle -S 2>/dev/null)
+		for _ta in "$TAGQ" "$TAGA" "$TAGD"; do
+			[ "$(printf '%s\n' "$_snap" | grep -cE "^-A PREROUTING .*-j $_ta( |$)")" = "1" ] || return 1
+		done
+		# 顺序：-S 是内核实际顺序；QUOTA 必须先于 ACCT 与 DIAG 出现（行号比较）
+		_q=$(printf '%s\n' "$_snap" | grep -nE "^-A PREROUTING .*-j $TAGQ( |$)" | cut -d: -f1)
+		_a=$(printf '%s\n' "$_snap" | grep -nE "^-A PREROUTING .*-j $TAGA( |$)" | cut -d: -f1)
+		_d=$(printf '%s\n' "$_snap" | grep -nE "^-A PREROUTING .*-j $TAGD( |$)" | cut -d: -f1)
+		[ -n "$_q" ] && [ -n "$_a" ] && [ -n "$_d" ] || return 1
+		[ "$_q" -lt "$_a" ] 2>/dev/null && [ "$_a" -lt "$_d" ] 2>/dev/null || return 1
+	done
+	return 0
+}
+
+# A51/D35：三条跳转的「删到删不动」拆除（两族 × 三 tag）。外部注入的重复跳转
+# （插件自身靠 hook_chain 的 -C 不会产生）也能一次 tick 收敛，而不是每 tick 删一条。
+pc_unhook_all() {
+	local _ip _ta
+	for _ip in "$ipt" "$ipt6"; do
+		[ -n "$_ip" ] || continue
+		for _ta in "$TAGQ" "$TAGA" "$TAGD"; do
+			while $_ip -t mangle -C PREROUTING -j "$_ta" 2>/dev/null; do
+				$_ip -t mangle -D PREROUTING -j "$_ta" 2>/dev/null || break
+			done
+		done
+	done
+}
+
+# 单族（$1 = 该族的 iptables 命令，ipt 或 ipt6）的删除循环；del_rule 逐族调用。
+pc_unhook_all_family() {
+	local _ip1 _ta
+	_ip1="$1"
+	[ -n "$_ip1" ] || return 0
+	for _ta in "$TAGQ" "$TAGA" "$TAGD"; do
+		while $_ip1 -t mangle -C PREROUTING -j "$_ta" 2>/dev/null; do
+			$_ip1 -t mangle -D PREROUTING -j "$_ta" 2>/dev/null || break
+		done
+	done
+}
 
 tick_body() {
 	local _tt
-	pc_uget "@basic[0].enabled" | grep -q '^1$' || return 0
 	[ -n "$ipt" ] || return 0
 	# 正在 start（重建全套规则）时跳过，避免并发
-	[ -f "$LOCK" ] && return 0
+	# A114（design §11.25.2 / F-4）：陈旧 $LOCK 兜底 —— 若 start/restart 中途被杀（OOM、
+	# 拔电、脚本被 kill），旧实现会永久静默 return 0 ⇒ **tick 从此不再生效**（配额/时段
+	# 封堵全部停摆，页面无任何异常提示）。现：锁龄 > $PC_LOCK_STALE_MIN min（阈值唯一来源是
+	# common.sh 的 PC_LOCK_STALE_MIN，与 start() 共用；正常 restart 实测 12.1s）⇒ 判为陈旧、
+	# 回收并 elog，然后继续本次 tick；< $PC_LOCK_STALE_MIN min 仍在正常 start 窗口 ⇒ 静默 return 0。
+	if [ -f "$LOCK" ]; then
+		if [ -n "$(find "$LOCK" -mmin +"$PC_LOCK_STALE_MIN" 2>/dev/null)" ]; then
+			elog "stale lock $LOCK (age>${PC_LOCK_STALE_MIN}min) reclaimed"
+			rm -f "$LOCK"
+		else
+			return 0
+		fi
+	fi
+	if ! pc_uget "@basic[0].enabled" | grep -q '^1$'; then
+		# D32/A45 停用：每 tick **无条件**只读探测（≤2 次 -S；写侧稳态仍 0）——旧实现用
+		# [ -e "$STATE_DIR" ] 当门槛，「规则在但状态目录被删」会永不清理（死角）。
+		# 有残留 → del_rule → 复验，仍残留则 elog（下个 tick 重试）；两种情况都清状态目录。
+		if pc_residual_on_device; then
+			del_rule
+			pc_residual_on_device && elog "停用清理未彻底（仍有残留），下个 tick 重试"
+		fi
+		rm -rf "$STATE_DIR"
+		return 0
+	fi
 	mkdir -p "$STATE_DIR"
+	# A116（design §11.25.2 / F-6）：清掉历史版本留下的 scratch 残渣（旧实现把 diag.t/c/ip 写在
+	# 持久状态目录，进程被杀就永久遗留）。新实现已改到 /tmp 一次性目录，这里做一次垃圾回收，
+	# 让「$STATE_DIR 只装持久状态」这一口径在升级后也立即成立。
+	rm -f "$STATE_DIR"/diag.t.* "$STATE_DIR"/diag.c.* "$STATE_DIR"/diag.ip.* 2>/dev/null
+	# D28/A35 启用但三条跳转缺任一（fw4 reload / 上次 stop 后只靠 cron 的路径）：
+	# build_all 整套重建 —— 它自带 ensure_chain 先建后挂 D→A→Q（最终 Q→A→D），
+	# 与 restart/start 同路径（幂等，可反复跑）。
+	if ! pc_hooks_present; then
+		build_all
+		return 0
+	fi
 	_tt=$(pc_today_type)
 	if [ "$(cat "$STATE_DIR/daytype" 2>/dev/null)" != "$_tt" ]; then
 		# 跨天 / 日子类型变化 → 生效档案变了，整套静态规则重建
@@ -1363,7 +1588,9 @@ tick_body() {
 	fi
 }
 
-refresh_ip() {
+refresh_ip() { pc_uci_snap_begin; refresh_ip_inner; pc_uci_snap_drop; }
+
+refresh_ip_inner() {
 	pc_uget "@basic[0].enabled" | grep -q '^1$' || return 0
 	[ -n "$ipt" ] || return 0
 	with_tick_lock refresh_ip_body
@@ -1417,7 +1644,7 @@ cron_sync() { # $1=1 写入 / $1=0 移除
 
 start() {
 	[ -f "$LOCK" ] && {
-		[ -n "$(find "$LOCK" -mmin +1 2>/dev/null)" ] || exit 1
+		[ -n "$(find "$LOCK" -mmin +"$PC_LOCK_STALE_MIN" 2>/dev/null)" ] || exit 1
 		elog "removing stale lock $LOCK"
 	}
 	del_rule

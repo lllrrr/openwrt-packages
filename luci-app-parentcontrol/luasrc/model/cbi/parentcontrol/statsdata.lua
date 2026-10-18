@@ -6,8 +6,20 @@ local devnames = require "luci.model.cbi.parentcontrol.devnames"
 
 local M = {}
 
+-- A94/第 11k 轮：`entry` 行的 MAC 字段现在是**逗号连接的 MAC 列表**（一条目多设备）。
+-- 逐个映射设备名（无已知名的用 MAC 原样），以 ` / ` 连接；一个都没有则返回空串
+-- （空串让模板的「未指定设备」兜底生效，也保证未绑设备的条目不进「按设备分析」）。
+-- 诊断明细（diag 行）传单个 MAC 也走这里，行为不变（有名字用名字，否则原样 MAC）。
 function M.device_name(mac)
-	return devnames.name(mac)
+	local out = {}
+	for m in tostring(mac or ""):gmatch("[^,]+") do
+		local t = m:gsub("^%s+", ""):gsub("%s+$", "")
+		if t ~= "" then
+			local n = devnames.name(t)
+			out[#out + 1] = (n ~= "" and n or t)
+		end
+	end
+	return table.concat(out, " / ")
 end
 
 -- 日期递减：交给 os.time（取中午，避开夏令时边界），别再手写日历
@@ -189,8 +201,33 @@ function M.collect()
 
 	-- 5) 按条目（最近 30 天合计 + 占比）—— 台账按 key 归约（重置已在台账里，不再另加）
 	--    R7：行带 device 维度，排序挪到 6) 之后按设备分组（见 devrank）
+	--    A50/D34：labels / dlabel 的构造 = d.entries（已启用）→ 再并入 d.names（含
+	--    off/gone）—— 历史/重置里已停用、已删除的 key 也有名字。三处回退链
+	--    （key_rows/reset_rows/诊断 entry）统一为
+	--      dlabel[key] or (d.names[key] and d.names[key].label) or ("条目 #" .. (idx+1))
+	--    绝不回退原始 key；stale 判据 = state ~= "on"（d.names 缺该 key 视为 stale）。
 	local labels = {}
 	for _, e in ipairs(d.entries) do labels[e.key] = e end
+	for key, nm in pairs(d.names or {}) do
+		if not labels[key] then labels[key] = { label = nm.label, state = nm.state } end
+	end
+	local dlabel = {}
+	for _, e in ipairs(d.entries) do dlabel[e.key] = e.label end
+	for key, nm in pairs(d.names or {}) do
+		if not dlabel[key] then dlabel[key] = nm.label end
+	end
+	local dstate = {}
+	for key, nm in pairs(d.names or {}) do dstate[key] = nm.state end
+	-- key 形如 <module>_<idx>（idx 从 0 起）；兜底「条目 #<idx+1>」，解析失败「条目 #?」
+	local function key_idx(key)
+		return tonumber(select(2, key:match("^(%w+)_(%d+)$")))
+	end
+	-- A55/review11 Low-1：空串与 nil 同罪 —— dlabel/d.names 里存了空串时，`or` 链会
+	-- 短路出空白名，压掉「条目 #N」兜底。nz() 把空串也视为缺失。
+	local function nz(a, b)
+		if a ~= nil and a ~= "" then return a end
+		return b
+	end
 	for _, day in ipairs(d.days) do
 		for key, v in pairs(ledger[day.date]) do
 			d.key_totals[key] = (d.key_totals[key] or 0) + v
@@ -199,9 +236,13 @@ function M.collect()
 	local rows = {}
 	for key, v in pairs(d.key_totals) do
 		local e = labels[key]
+		local _ix = key_idx(key)
 		rows[#rows + 1] = {
 			key = key,
-			name = e and e.label or key,
+			-- A50/D34 统一回退链（永不裸 key；A55：nz 让空串也回退，idx 解析失败退「条目 #?」）
+			name = nz(dlabel[key], nz(d.names[key] and d.names[key].label,
+				"条目 #" .. (_ix and _ix + 1 or "?"))),
+			stale = (dstate[key] or "off") ~= "on",
 			device = e and e.device or "",
 			minutes = v,
 			share = (sum > 0) and math.floor(v * 100 / sum + 0.5) or 0,
@@ -303,9 +344,13 @@ function M.collect()
 	local rr = {}
 	for _, r in ipairs(d.resets) do
 		local e = labels[r.key]
+		local _ix = key_idx(r.key)
 		rr[#rr + 1] = {
 			date = r.date, time = r.time, key = r.key,
-			name = e and e.label or r.key,
+			-- A50/D34 统一回退链（同 key_rows；A55：nz 让空串也回退，永不裸 key）
+			name = nz(dlabel[r.key], nz(d.names[r.key] and d.names[r.key].label,
+				"条目 #" .. (_ix and _ix + 1 or "?"))),
+			stale = (dstate[r.key] or "off") ~= "on",
 			device = e and e.device or "",
 			before = r.before,
 		}
@@ -320,8 +365,7 @@ function M.collect()
 	-- 9) 诊断明细（第 8 轮 R13/D19/A24）：未被条目覆盖、但命中了条目目标的流量。
 	--    行 = (条目, MAC)：按今日命中分钟降序；每行带 30 天按天合计（与 d.days 对齐、缺日补零）。
 	--    目标列表**仅在**该条目只有一台未覆盖客户端有命中时内联；多台时标注「目标未区分设备」。
-	local dlabel = {}
-	for _, e in ipairs(d.entries) do dlabel[e.key] = e.label end
+	-- 诊断区沿用上面的 dlabel/dstate（已并入权威名单 d.names，含 off/gone）。
 	local tgt_by_key = {}
 	for _, tg in ipairs(d.diag_tgt or {}) do
 		tgt_by_key[tg.key] = tgt_by_key[tg.key] or {}
@@ -330,13 +374,26 @@ function M.collect()
 	end
 	local drows = {}
 	for _, r in ipairs(d.diag or {}) do
+		local _ix = key_idx(r.key)
 		local row = {
 			key = r.key, mac = r.mac, ip = r.ip, hostname = r.hostname,
 			online = r.online, minutes = r.minutes, first = r.first, last = r.last,
-			entry = dlabel[r.key] or r.key,
+			-- D29/A36：名称一律取 stats_tsv 已解析的行内 name（remarks → apps 首项）；
+			-- 条目已停用/已删除时仍有权威名单（dlabel 已并入 d.names）兜底，
+			-- 只有行内 name 也为空才退「条目 #N」—— 诊断区永不出现 weburl_N 这类裸 key
+			-- （行内 name 由 shell 三档回退保证非空；本链再对空串兜底，A57 前提）。
+			-- A55：nz 让空串行内 name 也回退（shell 侧三档全空时不再渲染空白）。
+			-- A43：行内 name 判空后再进 nz 链 —— Lua 的 and/or 返回操作数本身，子表达式
+			-- (A and B) 为真时结果是布尔 true，会把字面量 true 渲染进页面。
+			entry = (r.name ~= nil and r.name ~= "") and r.name
+				or nz(dlabel[r.key], nz(d.names[r.key] and d.names[r.key].label,
+					"条目 #" .. (_ix and _ix + 1 or "?"))),
 			device = M.device_name(r.mac),
 			days30 = {}, total30 = 0, by_date = {},
 		}
+		-- 条目已停用/已删除：其封锁规则已清理，但历史诊断计数仍保留（模板据此加注说明）。
+		-- A50：判据改用权威名单的 state（off/gone → stale）；名单缺行（老数据源）视为启用。
+		row.stale = ((dstate[r.key] or "on") ~= "on")
 		local perday = (d.diag_day or {})
 		for _, day in ipairs(d.days) do
 			local v = (perday[day.date] or {})[r.key .. "|" .. r.mac] or 0

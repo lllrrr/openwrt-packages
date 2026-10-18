@@ -10,9 +10,227 @@ PC_MODULES=${PC_MODULES:-"time protocol weburl"}
 HOLIDAY_CACHE=${HOLIDAY_CACHE:-/etc/parentcontrol/holiday}
 USAGE_DIR=${USAGE_DIR:-/etc/parentcontrol/usage}
 BACKUP_DIR=${BACKUP_DIR:-/etc/parentcontrol/backup}
+# 陈旧锁判定（分钟）。start() 与 tick 共用 —— 唯一来源，别在 init.d 里再硬编码。
+# 取值理由（A119/D51）：统一到 2（等效门槛 ≈180 s）。start 侧原为 1（≈120 s），提高一分钟是
+# **有意**的保守化 —— 慢 start（DNS 黑洞下 15–20 个 weburl 条目逐个解析）实测可达 ~180 s；
+# 若 tick 或另一个 start 在 120 s 就判陈旧并抢占，正是 design §11.26.1 L-2 描述的「并发写
+# netfilter」。代价：start 死锁（被 OOM/拔电/杀）后的自恢复从 ~120 s 变为 ~180 s，可接受。
+PC_LOCK_STALE_MIN=${PC_LOCK_STALE_MIN:-2}
 
 # ---------- 基础 ----------
-pc_uget() { uci -q get "$PC_CONF.$1"; }
+# ============================================================================
+# 运行期 uci 快照（A70/D43，第 11h 轮）
+# ============================================================================
+# 为什么：tick 热路径**逐规则/逐条目**调 pc_uget()/pc_uci_scan()，每次都会 fork 一个
+# uci（真机 ≈11ms）—— 启用态稳态 tick 实测 575 次 uci ≈ 6.5s/分钟（占空比约 12%）。
+# 快照把「整个 run 只读一次 `uci show`」，两个取值口改从快照解析 ⇒ uci 调用降到 1 次。
+# 快照内容含 ai.apikey ⇒ 文件权限必须 0600（用 umask 077 创建）。
+# 失效纪律（A70-2）：任何写操作之后必须让快照失效 —— 见 pc_uset()/pc_udelete()。
+# tick / refresh_ip / stats_tsv 是**只读**路径；写点（迁移 / apps / 配额）都在冷路径，
+# 失效后回落直连即可（不重取快照，读到的一定是真值）。
+#
+# 查找串（避免逐次 fork awk/grep）：一次 awk 把快照压成两个字面串，
+#   LIT：<键>\t<值>\n…   —— 键 = uci show 键去掉「配置名.」（覆盖命名节、匿名节地址、
+#                          其选项、以及「有选项行但无节行」的老残留键）
+#   IDX：@<类型>[<位次>]\t<节名>\n…  —— 命名节在 @类型[N] 下标空间里的占位映射
+# 取值时用引用展开做子串匹配（不 fork、不做通配解释，'[' ']' 按字面匹配）。
+PC_UCI_SNAP=${PC_UCI_SNAP:-}   # 快照文件路径；空 = 未启用（全部回落直连 uci）
+PC_UCI_SNAP_LIT=
+PC_UCI_SNAP_IDX=
+# A98/D48（§11.22）：多行值（LIT 里只剩首行）的键集合，形如 NL+key+NL…。命中即直连取全值。
+PC_UCI_SNAP_TRUNC=
+PC_CL_DIR=   # 第 11k 轮：直连读缓存目录（= 快照文件 + ".d"，随快照同生共死）
+_PC_SNAP_NL='
+'
+_PC_SNAP_TAB=$(printf '\t')
+
+# 快照内容来源：有快照读快照，否则直连 `uci show`（也是 pc_uci_scan 的输入口）。
+# A77/D46：判据必须与 pc_uget 同源（LIT 非空）—— 否则「文件在但 LIT 空」时
+# pc_uci_scan 读旧文件、pc_uget 回落直连，两个消费者反向分叉（review15 L-4）。
+_pc_snap_src() {
+	if [ -n "$PC_UCI_SNAP" ] && [ -n "$PC_UCI_SNAP_LIT" ] && [ -r "$PC_UCI_SNAP" ]; then
+		cat "$PC_UCI_SNAP"
+	else
+		uci show "$PC_CONF" 2>/dev/null
+	fi
+}
+
+# 一次 awk 把快照压成 LIT/IDX（见上）。值只剥**最外层成对引号**（与真机 uci show 的
+# `key='value'` 一致）；用 index() 找第一个 '='，容忍值里含 '='（如带查询串的 URL）。
+#
+# A73/D45（真机事实，conductor 用 `uci -c` 临时 confdir 逐字节取证）：`uci show` 把值内的
+# 单引号印成 **4 字节 `'\''`（hex 27 5c 27 27）**，而 `uci -q get` 原样返回单字节 `'`。
+# 转义面**只有单引号一种**（反斜杠 / 双引号 / `$` / 空格 / `=` 在 uci show 里均原样）。
+# ⇒ 剥完最外层引号后必须把 `'\''` 还原为 `'`，否则快照值 `it'\''s` ≠ 直连 `it's`，
+# 违反 §11.15.2 等价性硬门槛（受影响字段：remarks / ai.apikey 等）。
+_pc_snap_build() { # $1=快照文件
+	local _all _mk _mk2 _t
+	_mk=__pcsnapidx__      # LIT 与 IDX 的分段标记（只可能出现在键行之外）
+	_mk2=__pcsnaptrunc__   # A98：IDX 与 TRUNC 的分段标记（同上，只可能出现在键行之外）
+	_all=$(awk -v c="$PC_CONF" -v mk="$_mk" -v mk2="$_mk2" '
+		{
+			if (index($0, c ".") != 1) next
+			p = index($0, "=")
+			if (p <= length(c) + 1) next
+			s = substr($0, length(c) + 2, p - length(c) - 2)
+			v = substr($0, p + 1)
+			# A98/D48（§11.22.2）：值内的真换行在 uci show 里原样印出 ⇒ 行导向解析只吃得到
+			# 首行。**完整（单行）值**必为「单引号 + esc(值) + 单引号」：末字符是收尾引号，且末尾 4 字节
+			# 绝不等于转义三元组 \047\\\047\047（该三元组只出现在值内 ⇒ 收尾引号必然缺席）。两者任一
+			# 不成立 ⇒ 本行是某多行值的首行（被截断）。判定必须看**原始** v（剥引号之前）。
+			# 注：设计书 §11.22.2 的字面写法（只判「首字符是单引号 且末字符非单引号」）漏掉两种形态：
+			# 多行值首行恰以引号结尾（raw=\047abc\047\\\047\047）与多行值首行为空（raw=\047）—— 两者末字符
+			# 都是单引号，但收尾引号其实在后续行；实证见 test/init_test.sh W164/W165。
+			# （W169 护栏：本 awk 程序由 shell 单引号串包裹，其内部**不得**出现字面单引号字节 ——
+			#   必须用 \047 八进制写法；11k-2 的注释里写了字面单引号 ⇒ 串提前闭合，注释被当命令
+			#   执行，每次调用打 3 行 `not found`。）
+			if (substr(v, 1, 1) == "\047") {
+				_vl = length(v)
+				if (_vl < 2 || substr(v, _vl, 1) != "\047" || (_vl >= 4 && substr(v, _vl - 3, 4) == "\047\\\047\047")) trunc = trunc s "\n"
+			}
+			# 双引号分支：真机 uci show 只用单引号包裹（§11.17.1 实测），此处为防御性保留
+			if (length(v) >= 2) {                  # 只剥最外层成对引号（"\047" = 单引号）
+				q1 = substr(v, 1, 1); q2 = substr(v, length(v), 1)
+				if ((q1 == "\047" && q2 == "\047") || (q1 == "\"" && q2 == "\"")) v = substr(v, 2, length(v) - 2)
+			}
+			# A76/D46：把真机 uci show 转义出来的 4 字节序列**单遍**还原为单字节引号。
+			# 绝不能重扫已解码的输出：否则当值里**逐字出现** 4 字节 \047\\\047\047 时，
+			# 上一次写进去的单字节引号会与后续字节重新拼成假序列被二次折叠（review15
+			# Major-1；穷举 3280 例 while 版 141 反例、单遍版 0 反例）。用 oct \047 写单引号
+			# （awk 程序由 shell 单引号包裹，不能出现字面单引号），不用动态正则。
+			_i = 1; _v = ""
+			while (_i <= length(v)) {
+				if (substr(v, _i, 4) == "\047\\\047\047") { _v = _v "\047"; _i += 4 }
+				else { _v = _v substr(v, _i, 1); _i++ }
+			}
+			v = _v
+			lit = lit s "\t" v "\n"
+			if (index(s, ".") != 0) next          # 含 "." ⇒ 选项行，不是节行
+			if (substr(s, 1, 1) == "@") {         # 匿名节：类型从地址里取
+				ty = substr(s, 2); q = index(ty, "[")
+				if (q == 0) next
+				ty = substr(ty, 1, q - 1)
+			} else ty = v                          # 命名节：值就是类型
+			if (ty == "") next
+			pos = cnt[ty] + 0; cnt[ty]++
+			idx = idx "@" ty "[" pos "]" "\t" s "\n"
+		}
+		END { printf "\n%s%s\n%s%s\n%s", lit, mk, idx, mk2, trunc }
+	' "$1")
+	PC_UCI_SNAP_LIT="$_PC_SNAP_NL${_all%%"$_PC_SNAP_NL$_mk"*}$_PC_SNAP_NL"
+	_t="${_all#*"$_PC_SNAP_NL$_mk"}"
+	PC_UCI_SNAP_IDX="${_t%%"$_mk2"*}$_PC_SNAP_NL"
+	# mk2 不会出现在 LIT 里：LIT 的值不含真换行（这正是它被截断的原因），而匹配需要 NL+mk2。
+	# 截断键的 LIT 记录照旧保留（不改 LIT 语义、不影响 IDX 解析）。
+	# 收尾 NL 必须补：`_all=$(awk …)` 是命令替换，会剥掉末尾换行 ⇒ 段里**最后一个**截断键
+	# 拿不到收尾 NL，「NL+key+NL」判据漏判，取值时退化回 LIT 首行（被截断的首行）。
+	# 与 LIT/IDX 同形（两者也各补了一个 $_PC_SNAP_NL）。实证：test/init_test.sh W164②k8。
+	PC_UCI_SNAP_TRUNC="${_t#*"$_mk2"}$_PC_SNAP_NL"
+	# A76-3/D46：空判据 = **填充串相等**。无任何行时上面两式退化成恰好两个换行（非空串但
+	# 无实义），归零为真·空 ⇒「LIT 空 ⟺ 快照不可用」不再依赖 _PC_SNAP_TAB 是否非空
+	# （_PC_SNAP_TAB 仍用于 LIT/IDX 的查询前缀，只是不再当空判据）。
+	if [ "$PC_UCI_SNAP_LIT" = "$_PC_SNAP_NL$_PC_SNAP_NL" ]; then
+		PC_UCI_SNAP_LIT=; PC_UCI_SNAP_IDX=; PC_UCI_SNAP_TRUNC=
+	fi
+}
+
+# 开快照：整个 run 只 `uci show` 一次（已开则空操作）。失败就退回直连。
+pc_uci_snap_begin() {
+	# A74：只有「本进程真构建过（LIT 非空）」才算已开 —— 挡住 PID 复用读到上一个进程
+	# 残留文件的僵态（那时 PC_UCI_SNAP 指向可读的旧文件，但本进程 LIT 还是空的）。
+	# 同进程内二次调用仍为空操作（幂等）。
+	[ -n "$PC_UCI_SNAP" ] && [ -n "$PC_UCI_SNAP_LIT" ] && return 0
+	local _f
+	_f=${PC_UCI_SNAP_FILE:-${TMPDIR:-/tmp}/parentcontrol-uci.$$}
+	( umask 077; uci show "$PC_CONF" 2>/dev/null > "$_f" ) || { rm -f "$_f"; return 0; }
+	PC_UCI_SNAP=$_f
+	PC_CL_DIR=$_f.d
+	rm -rf "$PC_CL_DIR"   # 新快照代 ⇒ 清派生缓存（防 PID 复用读到上一进程残留）
+	_pc_snap_build "$_f"
+	if [ -z "$PC_UCI_SNAP_LIT" ]; then   # A74：文件空 / 解析无输出 ⇒ 不留半成品，全量回落直连
+		rm -f "$_f"
+		rm -rf "$PC_CL_DIR"
+		PC_UCI_SNAP=
+		PC_UCI_SNAP_LIT=
+		PC_UCI_SNAP_IDX=
+		PC_UCI_SNAP_TRUNC=
+		PC_CL_DIR=
+	fi
+	return 0
+}
+
+# 关快照：删文件 + 清查找串（幂等）。
+pc_uci_snap_drop() {
+	[ -n "$PC_UCI_SNAP" ] && rm -f "$PC_UCI_SNAP"
+	[ -n "$PC_CL_DIR" ] && rm -rf "$PC_CL_DIR"
+	PC_UCI_SNAP=
+	PC_UCI_SNAP_LIT=
+	PC_UCI_SNAP_IDX=
+	PC_UCI_SNAP_TRUNC=
+	PC_CL_DIR=            # 第 11k 轮：直连读缓存随快照失效一并清（写操作也会走这里）
+	return 0
+}
+
+# 写包装（A70-2）：写 uci 之后立刻失效快照 —— 冷路径下快照通常没开，drop 是空操作。
+pc_uset() { uci -q set "$@"; pc_uci_snap_drop; }
+pc_udelete() { uci -q delete "$@"; pc_uci_snap_drop; }
+
+# 取 parentcontrol.<$1> 的值。$1 形如 @weburl[0].mac / @basic[0].enabled / ai / ai.endpoint。
+# 快照可用 → 从快照解析，语义与 uci -q get 一致（先按**字面键**；未命中且形如「@类型[位次]」
+# 时，按 pc_uci_scan 的同一编号逻辑把位次解析成节名 —— 命名节在 @类型[N] 下标空间里同样占位）。
+# 快照不可用 → 保持原样直连 `uci -q get`。
+pc_uget() {
+	# A74：判据必须与 begin 一致（LIT 非空）⇒ 空/半截快照文件下与 pc_uci_scan 同源回落直连。
+	if [ -n "$PC_UCI_SNAP" ] && [ -r "$PC_UCI_SNAP" ] && [ -n "$PC_UCI_SNAP_LIT" ]; then
+		local _q _t _n _o _r
+		_q=$1
+		# A98-2/D48：本键的值是多行（快照 LIT 只留了首行）⇒ 直连取全值（按代缓存）。
+		case "$PC_UCI_SNAP_TRUNC" in
+		*"$_PC_SNAP_NL$_q$_PC_SNAP_NL"*) _pc_uget_direct "$_q"; return 0 ;;
+		esac
+		_r=${PC_UCI_SNAP_LIT#*"$_PC_SNAP_NL$_q$_PC_SNAP_TAB"}
+		if [ "$_r" != "$PC_UCI_SNAP_LIT" ]; then printf '%s\n' "${_r%%"$_PC_SNAP_NL"*}"; return 0; fi
+		case "$_q" in "@"*"["*"]"*) ;; *) return 0 ;; esac
+		_t=${_q#@}; _t=${_t%%"["*}
+		_r=${_q#*"["}; _n=${_r%%"]"*}; _o=${_r#*"]"}
+		case "$_n" in ''|*[!0-9]*) return 0 ;; esac
+		[ -n "$_t" ] || return 0
+		_r=${PC_UCI_SNAP_IDX#*"$_PC_SNAP_NL@$_t[$_n]$_PC_SNAP_TAB"}
+		[ "$_r" = "$PC_UCI_SNAP_IDX" ] && return 0
+		_r=${_r%%"$_PC_SNAP_NL"*}$_o
+		_r=${PC_UCI_SNAP_LIT#*"$_PC_SNAP_NL$_r$_PC_SNAP_TAB"}
+		[ "$_r" = "$PC_UCI_SNAP_LIT" ] && return 0
+		printf '%s\n' "${_r%%"$_PC_SNAP_NL"*}"
+		return 0
+	fi
+	uci -q get "$PC_CONF.$1"
+}
+
+# A98-3/D48（§11.22.2）：多行值在行导向快照下只剩首行 ⇒ 构建期已把这类键记进 TRUNC 段；
+# 命中即直连取全值，并按快照代缓存（同一代内同键只直连一次）。空值也落盘（cat 得空）
+# ⇒「值确实为空」在代内同样只 fork 一次。$1=相对键（不含 $PC_CONF.）。
+_pc_uget_direct() {
+	# A113（design §11.25.2 / F-2，Major）：缓存键用**单射转义**，不再用校验和命令。
+	#   第 11l 轮真机发现目标设备没有该校验和命令（F-2）：旧实现把它拼进缓存键，设备上返
+	#   回空 ⇒ 键退化成 `<净化键>.`
+	#   `_c` 为空 ⇒ 键退化成 `<净化键>.` ⇒ A106 修掉的「不同键压成同名、同代内读到别人
+	#   的缓存值」原地复发，且每 tick 多 6–11 行 not-found 噪音。
+	#   转义表（在闭域 [-A-Za-z0-9_@.[]] 上单射）：_ → __ ；@ → _a ；[ → _b ；] → _c。
+	#   `_` 先被转义 ⇒ 所有转义码都以 `_` 开头且前缀无关 ⇒ 不同原键必得不同文件名。
+	#   闭域外的键（含 `/` 等会变成路径分隔符的字符）⇒ 直读、不写不读缓存：宁可多 fork
+	#   一次，也不把缓存文件写到 $PC_CL_DIR 之外。
+	local _f
+	[ -n "$PC_CL_DIR" ] || { uci -q get "$PC_CONF.$1"; return 0; }
+	case "$1" in
+		""|*[!]A-Za-z0-9_@.[-]*) uci -q get "$PC_CONF.$1"; return 0 ;;
+	esac
+	_f=$PC_CL_DIR/$(printf '%s' "$1" | sed 's/_/__/g; s/@/_a/g; s/\[/_b/g; s/\]/_c/g')
+	if [ ! -f "$_f" ]; then
+		mkdir -p "$PC_CL_DIR" 2>/dev/null
+		( umask 077; uci -q get "$PC_CONF.$1" > "$_f" 2>/dev/null )
+	fi
+	cat "$_f" 2>/dev/null
+}
 
 # 把 uci show 规范化成 `类型|下标|字段|值` 流（节行输出 `类型|下标||类型`）。
 #
@@ -25,7 +243,7 @@ pc_uget() { uci -q get "$PC_CONF.$1"; }
 # 下标口径：匿名节用 uci 自己打印的位置下标（权威）；命名节用「已见同类型节数」补位。
 # 兼容老行为：匿名节的选项行即使没有对应节行，也能凭地址取到下标。
 pc_uci_scan() {
-	uci show "$PC_CONF" 2>/dev/null | awk -F= -v c="$PC_CONF" '
+	_pc_snap_src | awk -F= -v c="$PC_CONF" '
 		{
 			k = $1
 			if (index(k, c ".") != 1) next
@@ -79,6 +297,67 @@ pc_ids_on() { pc_uci_scan | awk -F'|' -v t="$1" '$1 == t && $3 == "enable" && $4
 # 某模块所有节的某字段取值（匿名/命名节等价），去重。用于收集 mac / ip。
 pc_opts_all() { # $1=模块 $2=字段
 	pc_uci_scan | awk -F'|' -v t="$1" -v o="$2" '$1 == t && $3 == o && $4 != "" { print $4 }' | sort -u
+}
+
+# ---------- 设备清单 clients（第 11k 轮 A87/A88）----------
+# clients 值为纯文本：一行一台设备，`<MAC>|<IP>`，两侧皆可空（A87-1）。
+# 解析只此一处（shell 侧），Lua 侧镜像见 ui.client_rows（A88）。
+
+# 原始 clients 文本；缺失时由老 mac/ip 合成 `mac|ip`（A87-2 双源兼容）
+pc_clients_raw() { # $1=模块 $2=下标
+	local _c _m _i
+	# A87-1：clients 是一行一台设备的纯文本。多行值的快照截断由 pc_uget 统一承担
+	# （A98-4/D48，§11.22）：构建期 TRUNC 标记 + 取值期直连缓存。这里不再自带启发式 ——
+	# 11k 的「快照值以单引号开头」判据对「多行值首行恰以引号结尾」会漏判并返回被污染的值。
+	_c=$(pc_uget "@$1[$2].clients")
+	[ -n "$_c" ] && { printf '%s\n' "$_c"; return 0; }
+	# A87-2：clients 空 ⇒ 由老 mac/ip 合成 `mac|ip`（双源兼容）
+	_m=$(pc_uget "@$1[$2].mac")
+	_i=$(pc_uget "@$1[$2].ip")
+	[ -z "$_m$_i" ] && return 0
+	printf '%s|%s\n' "$_m" "$_i"
+}
+
+# 规范化：split \r\n/\n → 去首尾空白 → 跳过空行 → 按首个 | 切分 → 两侧去空白 →
+#           两侧皆空丢弃 → MAC 小写比较 → (mac,ip) 完全相同去重（保序）。
+# 输出每行 `mac|ip`（IP 为空时省略 `|`；MAC 为空时保留前导 `|`）。
+pc_clients_rows() { # $1=模块 $2=下标
+	pc_clients_raw "$1" "$2" | awk '
+		{
+			line = $0
+			sub(/\r$/, "", line)
+			gsub(/^[ \t]+|[ \t]+$/, "", line)
+			if (line == "") next
+			p = index(line, "|")
+			if (p > 0) { m = substr(line, 1, p - 1); ip = substr(line, p + 1) }
+			else       { m = line; ip = "" }
+			gsub(/^[ \t]+|[ \t]+$/, "", m)
+			gsub(/^[ \t]+|[ \t]+$/, "", ip)
+			if (m == "" && ip == "") next
+			ml = tolower(m)
+			key = ml "|" ip
+			if (seen[key]++) next
+			if (ip == "") print ml; else print ml "|" ip
+		}'
+}
+
+# 绑定 MAC 集合（小写、去重、保序）
+pc_clients_macs() { # $1=模块 $2=下标
+	pc_clients_rows "$1" "$2" | awk -F'|' '$1 != "" && !seen[$1]++ { print $1 }'
+}
+
+# A111（design §11.25.2 / F-3，High）：把若干行拼成一行、以 `, ` 连接。
+#   空输入 ⇒ **输出 0 字节**（不是空行、不是空字符串行）；末尾不补分隔符。
+#   全仓唯一实现 —— stats 的 entry 行第 6 字段原先是借外部行拼接命令（`-sd,`）实现，
+#   而目标设备没有该命令（F-3）：rc=127 ⇒ 该字段恒空 ⇒ tsv.lua 的 11 字段契约破缺 ⇒
+#   统计页「设备」列整列空白（用户需求 R3 主功能失效）。故下沉到这里，只用 awk（设备必有）。
+pc_join_comma() {
+	awk 'NF { if (n++) printf ", "; printf "%s", $0 }'
+}
+
+# 绑定 IP 集合（去重、保序）
+pc_clients_ips() { # $1=模块 $2=下标
+	pc_clients_rows "$1" "$2" | awk -F'|' '$2 != "" && !seen[$2]++ { print $2 }'
 }
 
 # ---------- 日期 ----------
@@ -400,7 +679,7 @@ pc_apps_rows() { # $1=apps 多行文本
 # 只改 uci，不 commit（由调用方决定）。
 # ============================================================================
 pc_migrate_config() {
-	local _k _i _m _w _d _f _has_sd _has_hd _sfx _md _ws _we _on _had_dual _unl _dt _eq _a _r _out _n _ai_ep _ai_md _ai_key _ai_v _ai_del _ai_secs
+	local _k _i _m _w _d _f _has_sd _has_hd _sfx _md _ws _we _on _had_dual _unl _dt _eq _a _r _out _n _ai_ep _ai_md _ai_key _ai_v _ai_del _ai_secs _cl_m _cl_ip _cl_c
 	# 0) 迁移会删老字段、并可能改变封锁行为，不可逆 —— 先留一份带时间戳的备份。
 	#    （README 里承诺了这件事，就必须真的做；$PC_CONF_DIR 下没有配置文件时自动跳过。
 	#      PC_CONF_DIR / BACKUP_DIR 是可覆盖钩子（默认值 = 生产路径），供白盒测试把
@@ -413,8 +692,8 @@ pc_migrate_config() {
 	for _k in usage_keep usage_min_kb; do
 		[ -n "$(pc_uget "@basic[0].$_k")" ] && continue
 		case "$_k" in
-		usage_keep)                 uci -q set "$PC_CONF.@basic[0].$_k=90" ;;
-		usage_min_kb)               uci -q set "$PC_CONF.@basic[0].$_k=8" ;;
+		usage_keep)                 pc_uset "$PC_CONF.@basic[0].$_k=90" ;;
+		usage_min_kb)               pc_uset "$PC_CONF.@basic[0].$_k=8" ;;
 		esac
 	done
 
@@ -423,10 +702,10 @@ pc_migrate_config() {
 		_w=$(pc_uget "@weburl[$_i].word")
 		_d=$(pc_uget "@weburl[$_i].domains")
 		if [ -n "$_w" ] && [ -z "$_d" ]; then
-			uci -q set "$PC_CONF.@weburl[$_i].domains=$_w"
+			pc_uset "$PC_CONF.@weburl[$_i].domains=$_w"
 		fi
 		# 老 word 一律删除：否则改了域名后，旧关键词仍会生成幽灵匹配规则
-		[ -n "$_w" ] && uci -q delete "$PC_CONF.@weburl[$_i].word"
+		[ -n "$_w" ] && pc_udelete "$PC_CONF.@weburl[$_i].word"
 	done
 
 	# 2b) apps 归一化（第 8 轮 D14/ADR-018）：apps 成为「封锁名称行表」的唯一数据源，
@@ -453,15 +732,15 @@ pc_migrate_config() {
 "
 			done
 			[ -n "$_out" ] || continue
-			uci -q set "$PC_CONF.@weburl[$_i].apps=$_out"
+			pc_uset "$PC_CONF.@weburl[$_i].apps=$_out"
 		elif [ -n "$_d" ]; then
 			# ① R6 形态：名称为空时用首个域名兜底
 			[ -n "$_r" ] || { set -- $_d; _r=$1; }
-			uci -q set "$PC_CONF.@weburl[$_i].apps=${_r}|${_d}"
+			pc_uset "$PC_CONF.@weburl[$_i].apps=${_r}|${_d}"
 		else
 			continue
 		fi
-		uci -q delete "$PC_CONF.@weburl[$_i].domains"
+		pc_udelete "$PC_CONF.@weburl[$_i].domains"
 		_pclog "migrate: weburl[$_i] apps 归一化（domains 已并入 apps 行并删除）"
 	done
 
@@ -500,20 +779,40 @@ pc_migrate_config() {
 		# 类型守卫：按名删节前先确认该节确实是 ai 类型 —— 模板里若恰好有「异类型但名为 ai」
 		# 的节（如 config weburl 'ai'），直接 uci -q delete 会误删。命名节不存在时
 		# pc_uget ai 为空 ⇒ 本就不需要删，跳过即可。
-		if [ "$(pc_uget ai)" = "ai" ]; then uci -q delete "$PC_CONF.ai"; fi
+		if [ "$(pc_uget ai)" = "ai" ]; then pc_udelete "$PC_CONF.ai"; fi
 		_ai_del=""
 		for _i in $(pc_ids_all ai); do
 			_ai_del="$_i $_ai_del"
 		done
 		for _i in $_ai_del; do
-			uci -q delete "$PC_CONF.@ai[$_i]"
+			pc_udelete "$PC_CONF.@ai[$_i]"
 			_pclog "migrate: 删除匿名 config ai 段（@ai[$_i]）—— AI 段身份统一为命名节 ai"
 		done
-		uci -q set "$PC_CONF.ai=ai"
-		[ -n "$_ai_ep" ]  && uci -q set "$PC_CONF.ai.endpoint=$_ai_ep"
-		[ -n "$_ai_md" ]  && uci -q set "$PC_CONF.ai.model=$_ai_md"
-		[ -n "$_ai_key" ] && uci -q set "$PC_CONF.ai.apikey=$_ai_key"
+		pc_uset "$PC_CONF.ai=ai"
+		[ -n "$_ai_ep" ]  && pc_uset "$PC_CONF.ai.endpoint=$_ai_ep"
+		[ -n "$_ai_md" ]  && pc_uset "$PC_CONF.ai.model=$_ai_md"
+		[ -n "$_ai_key" ] && pc_uset "$PC_CONF.ai.apikey=$_ai_key"
 	fi
+
+	# 2d) clients 归一化（第 11k 轮 A87/A92）：老 mac/ip 单值 → clients 一行。
+	#     目标格式见 A87-1（一行一台设备，`<MAC>|<IP>`，两侧皆可空）。
+	#       * mac/ip 皆空 → 一个字节都不动（幂等）
+	#       * clients 非空 → 只删老字段（双源防幽灵，不覆盖用户已填的表）
+	#       * 否则 → 把 `mac|ip` 写进 clients 后再删老字段
+	for _m in $PC_MODULES; do
+		for _i in $(pc_ids_all "$_m"); do
+			_cl_m=$(pc_uget "@$_m[$_i].mac")
+			_cl_ip=$(pc_uget "@$_m[$_i].ip")
+			[ -z "$_cl_m$_cl_ip" ] && continue
+			_cl_c=$(pc_uget "@$_m[$_i].clients")
+			if [ -z "$_cl_c" ]; then
+				pc_uset "$PC_CONF.@$_m[$_i].clients=${_cl_m}|${_cl_ip}"
+				_pclog "migrate: $_m[$_i] mac/ip → clients 一行"
+			fi
+			pc_udelete "$PC_CONF.@$_m[$_i].mac"
+			pc_udelete "$PC_CONF.@$_m[$_i].ip"
+		done
+	done
 
 	# 3) 统一为「可用时段 + 额度」模型。老配置有两代：
 	#      a) 双档案时代：<sfx>_mode ∈ off|time|quota|block（另有 <sfx>_start/<sfx>_end）
@@ -562,12 +861,12 @@ pc_migrate_config() {
 				_ws=; _we=
 				case "$_md" in
 				time)
-					uci -q set "$PC_CONF.@$_m[$_i].${_sfx}_unlimited=1"
+					pc_uset "$PC_CONF.@$_m[$_i].${_sfx}_unlimited=1"
 					_ws=09:00:00; _we=21:00:00
 					_pclog "migrate: $_m[$_i] ${_sfx}: 老「时段」→ 不限额度 + 09:00-21:00" ;;
 				block)
-					uci -q set "$PC_CONF.@$_m[$_i].${_sfx}_unlimited=0"
-					uci -q set "$PC_CONF.@$_m[$_i].${_sfx}_quota=0"
+					pc_uset "$PC_CONF.@$_m[$_i].${_sfx}_unlimited=0"
+					pc_uset "$PC_CONF.@$_m[$_i].${_sfx}_quota=0"
 					_pclog "migrate: $_m[$_i] ${_sfx}: 老「全天禁止」→ 额度 0" ;;
 				quota)
 					# 依据：额度模型是 8ab43a2 引入的，**从那一刻到 a0c7936 之前的每一个版本**，
@@ -592,20 +891,20 @@ pc_migrate_config() {
 						# ui.lua 有必须同步的镜像）
 						_eq=$(pc_effective_quota "$_m" "$_i" "$_dt")
 						if [ "$(pc_quota_positive "$_eq")" -gt 0 ] 2>/dev/null; then
-							uci -q set "$PC_CONF.@$_m[$_i].${_sfx}_unlimited=0"
+							pc_uset "$PC_CONF.@$_m[$_i].${_sfx}_unlimited=0"
 						else
-							uci -q set "$PC_CONF.@$_m[$_i].${_sfx}_unlimited=1"
+							pc_uset "$PC_CONF.@$_m[$_i].${_sfx}_unlimited=1"
 							_pclog "migrate: $_m[$_i] ${_sfx}: 老额度非正/非法 → 不限（额度模型 8ab43a2 引入、a0c7936 之前的老判据）。若你本来要的是「全天禁止」，请在界面上把额度填 0 并取消勾选「不限额度」"
 						fi
 					fi ;;
 				off)
-					uci -q set "$PC_CONF.@$_m[$_i].${_sfx}_unlimited=1" ;;
+					pc_uset "$PC_CONF.@$_m[$_i].${_sfx}_unlimited=1" ;;
 				'')
 					# 只有真的处在「按星期」时代的老条目才推窗口；已经是新模型的条目
 					# 完全不动（这样"只配了某一边档案"的条目不会被造出另一边）
 					if [ "$_had_dual" = 0 ]; then
 						if [ "$_sfx" = "sd" ]; then _on=$_has_sd; else _on=$_has_hd; fi
-						uci -q set "$PC_CONF.@$_m[$_i].${_sfx}_unlimited=1"
+						pc_uset "$PC_CONF.@$_m[$_i].${_sfx}_unlimited=1"
 						if [ -n "$_w" ] && [ "$_on" = 1 ]; then
 							_ws=09:00:00; _we=21:00:00
 							_pclog "migrate: $_m[$_i] ${_sfx}: 老「按星期 + 时段」→ 不限额度 + 09:00-21:00"
@@ -616,16 +915,16 @@ pc_migrate_config() {
 				# 避免把本来 24h 可用的条目静默收紧。这里只写 qstart/qend 这两个"新模式字段"，
 				# 语义字段（unlimited/quota）一律由上面的分支按老判据（8ab43a2..a0c7936 之前）决定。
 				if [ -n "$_ws" ]; then
-					uci -q set "$PC_CONF.@$_m[$_i].${_sfx}_qstart=$_ws"
-					uci -q set "$PC_CONF.@$_m[$_i].${_sfx}_qend=$_we"
+					pc_uset "$PC_CONF.@$_m[$_i].${_sfx}_qstart=$_ws"
+					pc_uset "$PC_CONF.@$_m[$_i].${_sfx}_qend=$_we"
 				fi
-				uci -q delete "$PC_CONF.@$_m[$_i].${_sfx}_mode"
-				uci -q delete "$PC_CONF.@$_m[$_i].${_sfx}_start"
-				uci -q delete "$PC_CONF.@$_m[$_i].${_sfx}_end"
+				pc_udelete "$PC_CONF.@$_m[$_i].${_sfx}_mode"
+				pc_udelete "$PC_CONF.@$_m[$_i].${_sfx}_start"
+				pc_udelete "$PC_CONF.@$_m[$_i].${_sfx}_end"
 			done
-			uci -q delete "$PC_CONF.@$_m[$_i].week"
-			uci -q delete "$PC_CONF.@$_m[$_i].timestart"
-			uci -q delete "$PC_CONF.@$_m[$_i].timeend"
+			pc_udelete "$PC_CONF.@$_m[$_i].week"
+			pc_udelete "$PC_CONF.@$_m[$_i].timestart"
+			pc_udelete "$PC_CONF.@$_m[$_i].timeend"
 		done
 	done
 }
