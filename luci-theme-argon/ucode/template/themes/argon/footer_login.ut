@@ -20,7 +20,7 @@
 <!-- added style="text-wrap: auto" but on this page it is still not the best solution. I will take it to consideration next time :) -->
 <footer style="text-wrap: auto">
 	<div>
-		<a class="luci-link" href="" target="_blank">{{ version.distversion }}</a>
+		<a class="luci-link" href="" target="_blank">R{{ version.distversion }}</a>
 	</div>
 </footer>
 </div>
