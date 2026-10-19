@@ -3025,7 +3025,8 @@
     font-size: 16px;
 }
 
-.fm-openwith-remember{
+.fm-openwith-remember,
+.fm-overwrite-options{
     display: flex;
     align-items: center;
     gap: 8px;
@@ -3036,7 +3037,8 @@
     user-select: none;
 }
 
-.fm-openwith-remember input{
+.fm-openwith-remember input,
+.fm-overwrite-options input{
     accent-color: var(--fm-accent);
     cursor: pointer;
 }

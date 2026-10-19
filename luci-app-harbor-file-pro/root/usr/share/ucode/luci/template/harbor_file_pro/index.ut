@@ -1,5 +1,5 @@
 {%
-const harbor_asset_version = '20260922.6';
+const harbor_asset_version = '20260922.7';
 function harbor_asset_url(path) {
     return resource + '/harbor_file_pro/' + path + '?v=' + harbor_asset_version;
 }
@@ -78,6 +78,8 @@ HarborFile.init({
         bookmark_folder_move: '{{ dispatcher.build_url('admin', 'harbor_pro', 'bookmark_folder_move') }}'
     },
     labels: {
+        upload_replace_title: '{{ _('Replace existing files') }}',
+        upload_replace_prompt: '{{ _('The following files already exist. Replace them with the uploaded files?') }}',
         folder_size_loading: '{{ _('Read size') }}…',
         choose_directory: '{{ _('Select destination folder') }}',
         video_format_error: '{{ _('This video format or codec is not supported by the browser') }}',
@@ -1054,6 +1056,10 @@ window.HarborFile.tr = function (msgid) {
     <div class="fm-overwrite-body">
         <p class="fm-overwrite-copy">{{ _('The following files already exist. Replace them with the uploaded files?') }}</p>
         <ul id="fm_conflict_list" class="fm-conflict-list"></ul>
+        <label class="fm-overwrite-options" title="{{ _('Preserve the permission bits of existing destination files; owner, group and ACL are not preserved.') }}">
+            <input id="fm_preserve_permissions" type="checkbox" checked>
+            <span>{{ _('Preserve existing file permissions') }}</span>
+        </label>
     </div>
     <div class="fm-dialog-actions">
         <button id="fm_overwrite_confirm" class="fm-dialog-action primary" type="button">{{ _('Replace') }}</button>
@@ -1507,6 +1513,7 @@ window.HarborFile.tr = function (msgid) {
     }
     document.getElementById('fm_overwrite_confirm').addEventListener('click', function() {
         var batch = HF.state.pending_upload;
+        if (batch) batch.preserve_permissions = document.getElementById('fm_preserve_permissions').checked;
         HF.state.pending_upload = null;
         HF.close_modal();
         if (batch) {

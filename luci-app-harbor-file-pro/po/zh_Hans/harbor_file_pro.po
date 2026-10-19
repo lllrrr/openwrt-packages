@@ -1434,3 +1434,10 @@ msgstr "处已替换"
 
 msgid "Replacing"
 msgstr "正在替换"
+
+msgid "Preserve existing file permissions"
+msgstr "保留原文件权限"
+
+msgid "Preserve the permission bits of existing destination files; owner, group and ACL are not preserved."
+msgstr "保留目标位置已有文件的权限位；不保留所属用户、用户组和 ACL。"
+

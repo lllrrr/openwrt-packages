@@ -1711,9 +1711,15 @@ function finish_output(fd, path, written) {
 	return closed && st && st.type == 'file' && st.size == written;
 }
 
-function copy_file(src, dst) {
+function replacement_mode(path, fallback, preserve) {
+	let st = preserve ? lstat_safe(path) : null;
+	return st && st.type == 'file' ? st.mode & 0o7777 : fallback;
+}
+
+function copy_file(src, dst, preserve_permissions) {
 	let src_st = lstat_safe(src);
 	if (!src_st || src_st.type != 'file') return false;
+	let mode = replacement_mode(dst, src_st.mode & 0o7777, preserve_permissions);
 	let inf = open(src, 'r');
 	if (!inf) return false;
 	let staging = create_staging_directory(parent_path(dst), '.harbor-copy.');
@@ -1734,13 +1740,13 @@ function copy_file(src, dst) {
 	}
 	inf.close();
 	if (!finish_output(outf, tmp, written) || written != src_st.size) okay = false;
-	if (okay) okay = chmod(tmp, src_st.mode & 0o7777) && rename(tmp, dst);
+	if (okay) okay = chmod(tmp, mode) && rename(tmp, dst);
 	if (!okay) unlink(tmp);
 	rmdir(staging);
 	return okay;
 }
 
-function copy_recursive(src, dst, failed) {
+function copy_recursive(src, dst, failed, preserve_permissions) {
 	let st = lstat_safe(src);
 	let target = lstat_safe(dst);
 	if (!st || (target && (st.type == 'directory') != (target.type == 'directory')))
@@ -1751,7 +1757,7 @@ function copy_recursive(src, dst, failed) {
 		let entries = lsdir(src);
 		if (entries == null) return note_copy_failure(failed, src);
 		for (let name in entries)
-			if (!copy_recursive(join_path(src, name), join_path(dst, name), failed))
+			if (!copy_recursive(join_path(src, name), join_path(dst, name), failed, preserve_permissions))
 				return false;
 		return true;
 	}
@@ -1765,14 +1771,15 @@ function copy_recursive(src, dst, failed) {
 		rmdir(staging);
 		return okay ? true : note_copy_failure(failed, dst);
 	}
-	return copy_file(src, dst) ? true : note_copy_failure(failed, dst);
+	return copy_file(src, dst, preserve_permissions) ? true : note_copy_failure(failed, dst);
 }
 
 function is_descendant(parent, child) {
 	return (child == parent) || (substr(child, 0, length(parent) + 1) == parent + '/');
 }
 
-function transfer_one(src, dest_dir, mode, on_conflict, forced_name) {
+function transfer_one(src, dest_dir, mode, on_conflict, forced_name, preserve_permissions) {
+	preserve_permissions = preserve_permissions !== false;
 	let st = lstat_safe(src);
 	if (!st)
 		return { ok: false, error: tr('Source not found') };
@@ -1809,10 +1816,12 @@ function transfer_one(src, dest_dir, mode, on_conflict, forced_name) {
 		return { ok: false, error: tr('Cannot transfer a directory into itself') };
 
 	if (mode == 'move') {
-		if (!(st.type == 'directory' && lstat_safe(target)) && rename(src, target))
+		let source_mode = st.mode & 0o7777;
+		let preserve_mode = st.type == 'file' && replacement_mode(target, source_mode, preserve_permissions) != source_mode;
+		if (!preserve_mode && !(st.type == 'directory' && lstat_safe(target)) && rename(src, target))
 			return { ok: true, error: null };
 		let move_fail = {};
-		if (!copy_recursive(src, target, move_fail))
+		if (!copy_recursive(src, target, move_fail, preserve_permissions))
 			return { ok: false, error: tr('Move failed'), failed_item: move_fail.path ?? src };
 		if (!remove_recursive(src))
 			return { ok: false, error: tr('Move succeeded but source could not be removed'), failed_item: src };
@@ -1820,7 +1829,7 @@ function transfer_one(src, dest_dir, mode, on_conflict, forced_name) {
 	}
 
 	let copy_fail = {};
-	return copy_recursive(src, target, copy_fail)
+	return copy_recursive(src, target, copy_fail, preserve_permissions)
 		? { ok: true, error: null }
 		: { ok: false, error: tr('Copy failed'), failed_item: copy_fail.path ?? src };
 }
@@ -2614,10 +2623,22 @@ function archive_listing(src, ext) {
 	else
 		return { error: tr('Unsupported archive format') };
 
-	let err_file = sprintf('%s.list.err', ARCHIVE_SEL_FILE);
-	let res = archive_tool_lines(cmd, err_file);
-	let err_text = trim(readfile(err_file) ?? '');
+	if (!ensure_runtime_dir())
+		return { error: tr('List failed'), detail: 'Cannot initialize temporary directory: ' + RUNTIME_DIR };
+	let staging = create_staging_directory(RUNTIME_DIR, '.archive-list.');
+	if (!staging)
+		return { error: tr('List failed'), detail: 'Cannot create temporary listing directory: ' + RUNTIME_DIR };
+	let err_file = staging + '/stderr';
+	let res = { lines: [], rc: -1 }, err_text = '';
+	try {
+		res = archive_tool_lines(cmd, err_file);
+		err_text = trim(readfile(err_file) ?? '');
+	}
+	catch (e) {
+		err_text = e.message ?? 'Archive listing failed';
+	}
 	unlink(err_file);
+	rmdir(staging);
 
 	let parsed = archive_parse_entries(res.lines, archive_bsdtar_kind(kind), limit);
 
@@ -2629,6 +2650,7 @@ function archive_listing(src, ext) {
 				if (detail == '' && trim(raw) != '')
 					detail = trim(raw);
 
+		if (detail == '') detail = sprintf(tr('Command exited with status %d'), res.rc);
 		return { error: tr('List failed'), detail: substr(detail, 0, 200) };
 	}
 
@@ -2706,7 +2728,7 @@ function api_list() {
 		let list = archive_listing(path, ext);
 
 		if (list.error)
-			return fail(http, 2, list.error, { detail: list.detail ?? '' });
+			return fail(http, 2, list.error + (list.detail ? ': ' + list.detail : ''), { detail: list.detail ?? '' });
 
 		return ok(http, { archive: path, entries: list.entries, truncated: list.truncated ?? false });
 	}
@@ -2869,7 +2891,7 @@ function do_transfer(mode, batch) {
 		}
 
 		let rv = transfer_one(src, dest, mode, on_conflict,
-			rename_map[path_name(src)]);
+			rename_map[path_name(src)], http.formvalue('preserve_permissions') != '0');
 		push(results, { path: src, ok: rv.ok, error: rv.error, failed_item: rv.failed_item ?? null });
 		if (!rv.ok) failures++;
 	}
@@ -3221,7 +3243,7 @@ function api_upload() {
 	let overwrite = q.overwrite == '1';
 	let expected = q.expected_size != null ? +q.expected_size : -1;
 	if (expected != expected) expected = -1;
-	let state = { fd: null, path: null, staging: null, tmp: null, written: 0, error: null, finished: false };
+	let state = { fd: null, path: null, staging: null, tmp: null, written: 0, error: null, finished: false, mode: null };
 	http.setfilehandler(function(meta, chunk, eof) {
 		if (state.error) return;
 		if (state.finished) { state.error = 'multiple files in one upload are not supported'; return; }
@@ -3233,6 +3255,7 @@ function api_upload() {
 				target = unique_target(parent_path(target), path_name(target));
 			if (!target) { state.error = 'cannot allocate a unique name'; return; }
 			state.path = target;
+			state.mode = replacement_mode(target, null, overwrite && q.preserve_permissions != '0');
 			state.staging = create_staging_directory(parent_path(target), '.harbor-upload.');
 			state.tmp = state.staging ? state.staging + '/data' : null;
 			state.fd = state.tmp ? open(state.tmp, 'w', 0o644) : null;
@@ -3255,6 +3278,8 @@ function api_upload() {
 		state.fd.close();
 		state.error = state.error ?? 'upload interrupted';
 	}
+	if (!state.error && state.finished && state.mode != null && !chmod(state.tmp, state.mode))
+		state.error = 'cannot preserve existing file permissions';
 	if (!state.error && state.finished && !rename(state.tmp, state.path)) state.error = 'finalize failed';
 	if (state.tmp) unlink(state.tmp);
 	if (state.staging) rmdir(state.staging);
@@ -3510,3 +3535,4 @@ return {
 	api_package_install_start, api_package_install_status,
 	api_thumbnail_generate_start, api_thumbnail_generate_status
 };
+

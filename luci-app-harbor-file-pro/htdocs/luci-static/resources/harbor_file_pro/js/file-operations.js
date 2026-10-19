@@ -3947,6 +3947,7 @@
     }
 
     HF.reset_overwrite_actions = function reset_overwrite_actions() {
+        document.getElementById('fm_preserve_permissions').checked = true;
         var actions = document.querySelector('#fm_overwrite_dialog .fm-dialog-actions');
         if (!actions) {
             return null;
@@ -3959,6 +3960,8 @@
     }
 
     HF.show_overwrite_dialog = function show_overwrite_dialog(batch, conflicts) {
+        document.getElementById('fm_overwrite_title').textContent = HF.labels.upload_replace_title;
+        document.querySelector('#fm_overwrite_dialog .fm-overwrite-copy').textContent = HF.labels.upload_replace_prompt;
         var list = document.getElementById('fm_conflict_list');
         HF.clear_node(list);
         conflicts.forEach(function(name) {
@@ -4086,7 +4089,8 @@
         var query = '?target_dir=' + encodeURIComponent(batch.target_dir) +
             '&expected_size=' + encodeURIComponent(file.size) +
             '&relative_path=' + encodeURIComponent(HF.upload_relative_path(file)) +
-            '&overwrite=' + (conflict_map[HF.upload_relative_path(file)] ? '1' : '0');
+            '&overwrite=' + (conflict_map[HF.upload_relative_path(file)] ? '1' : '0') +
+            '&preserve_permissions=' + (batch.preserve_permissions === false ? '0' : '1');
         var xhr = new XMLHttpRequest();
         xhr.open('POST', HF.api.upload + query, true);
         xhr.upload.onprogress = function(event) {
@@ -4451,7 +4455,7 @@
         HF.set_status(mode === 'cut' ? HF.labels.cut_to_clipboard : HF.labels.copied_to_clipboard, 'success');
     }
 
-    HF.executePaste = function executePaste(action, items, target_path, conflict_action, rename_map) {
+    HF.executePaste = function executePaste(action, items, target_path, conflict_action, rename_map, preserve_permissions) {
         var success_message = action === 'copy' ? HF.labels.copy_complete : HF.labels.move_complete;
         var url = action === 'copy' ? HF.api.batch_copy : HF.api.batch_move;
         var data = {
@@ -4461,6 +4465,7 @@
         if (conflict_action) {
             data.conflict_action = conflict_action;
         }
+        if (conflict_action === 'overwrite') data.preserve_permissions = preserve_permissions === false ? '0' : '1';
         if (rename_map) {
             data.rename_map = JSON.stringify(rename_map);
         }
@@ -4551,8 +4556,9 @@
         replaceBtn.className = 'fm-dialog-action primary fm-dynamic-paste-btn';
         replaceBtn.textContent = HF.labels.overwrite;
         replaceBtn.onclick = function() {
+            var preserve = document.getElementById('fm_preserve_permissions').checked;
             HF.close_modal();
-            HF.executePaste(action, items, target_path, 'overwrite');
+            HF.executePaste(action, items, target_path, 'overwrite', null, preserve);
         };
         actions.appendChild(replaceBtn);
 
