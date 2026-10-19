@@ -1,5 +1,5 @@
 {%
-const harbor_asset_version = '20260922.7';
+const harbor_asset_version = '20260922.9';
 function harbor_asset_url(path) {
     return resource + '/harbor_file_pro/' + path + '?v=' + harbor_asset_version;
 }
@@ -1055,7 +1055,12 @@ window.HarborFile.tr = function (msgid) {
     </div>
     <div class="fm-overwrite-body">
         <p class="fm-overwrite-copy">{{ _('The following files already exist. Replace them with the uploaded files?') }}</p>
+        <div class="fm-conflict-toolbar">
+            <label class="fm-conflict-choice"><input id="fm_conflict_all" type="checkbox" checked><span>{{ _('Select all') }}</span></label>
+            <span id="fm_conflict_count" aria-live="polite"></span>
+        </div>
         <ul id="fm_conflict_list" class="fm-conflict-list"></ul>
+        <div id="fm_conflict_error" class="fm-conflict-error" role="status" hidden></div>
         <label class="fm-overwrite-options" title="{{ _('Preserve the permission bits of existing destination files; owner, group and ACL are not preserved.') }}">
             <input id="fm_preserve_permissions" type="checkbox" checked>
             <span>{{ _('Preserve existing file permissions') }}</span>
@@ -1511,9 +1516,14 @@ window.HarborFile.tr = function (msgid) {
             HF.set_settings_tab(this.getAttribute('data-settings-tab'));
         });
     }
+    document.getElementById('fm_conflict_all').addEventListener('change', function() {
+        var checked = this.checked;
+        document.querySelectorAll('#fm_conflict_list input[type="checkbox"]').forEach(function(input) { input.checked = checked; });
+        HF.sync_conflict_checks();
+    });
     document.getElementById('fm_overwrite_confirm').addEventListener('click', function() {
         var batch = HF.state.pending_upload;
-        if (batch) batch.preserve_permissions = document.getElementById('fm_preserve_permissions').checked;
+        if (batch) HF.apply_upload_conflict_selection(batch);
         HF.state.pending_upload = null;
         HF.close_modal();
         if (batch) {
@@ -2151,3 +2161,4 @@ window.HarborFile.tr = function (msgid) {
 </script>
 
 {% include('footer') %}
+

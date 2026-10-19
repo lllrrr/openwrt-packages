@@ -203,6 +203,13 @@ function valid_component(name) {
 	return true;
 }
 
+function valid_rename_name(name) {
+	if (!valid_component(name) || index(name, '\\') >= 0) return false;
+	for (let i = 0; i < length(name); i++)
+		if (ord(name, i) < 32 || ord(name, i) == 127) return false;
+	return true;
+}
+
 function query_params(http_obj) {
 	let out = {};
 	let qs = http_obj.getenv('QUERY_STRING') ?? '';
@@ -496,18 +503,24 @@ function remove_recursive(path) {
 	return unlink(path);
 }
 
-function unique_target(dir, name) {
+function unique_target(dir, name, reserved, directory) {
 	let target = join_path(dir, name);
-	if (!lstat_safe(target))
+	if (!lstat_safe(target) && index(reserved ?? [], name) < 0)
 		return target;
 
 	let base = name, ext = '';
 	let m = match(name, /^(.+)(\.[^.]+)$/);
-	if (m) { base = m[1]; ext = m[2]; }
+	if (m && !directory) { base = m[1]; ext = m[2]; }
 
 	for (let i = 1; i < 1000; i++) {
-		target = join_path(dir, sprintf('%s (%d)%s', base, i, ext));
-		if (!lstat_safe(target))
+		let suffix = sprintf(' (%d)', i);
+		if (length(ext) + length(suffix) >= 255) { base = name; ext = ''; }
+		let keep = min(length(base), 255 - length(ext) - length(suffix));
+		while (keep > 0 && (ord(base, keep) & 0xc0) == 0x80) keep--;
+		let candidate = substr(base, 0, keep) + suffix + ext;
+		if (!valid_component(candidate)) return null;
+		target = join_path(dir, candidate);
+		if (!lstat_safe(target) && index(reserved ?? [], candidate) < 0)
 			return target;
 	}
 
@@ -1788,8 +1801,9 @@ function transfer_one(src, dest_dir, mode, on_conflict, forced_name, preserve_pe
 		is_descendant(_fs.realpath(src) ?? src, _fs.realpath(dest_dir) ?? dest_dir)))
 		return { ok: false, error: tr('Cannot transfer a directory into itself') };
 
-	let name = forced_name && valid_component(forced_name)
-		? forced_name : path_name(src);
+	if (forced_name != null && !valid_rename_name(forced_name))
+		return { ok: false, error: tr('Invalid name') };
+	let name = forced_name ?? path_name(src);
 	let target = join_path(dest_dir, name);
 
 	if (target == src && on_conflict != 'skip' &&
@@ -1799,8 +1813,10 @@ function transfer_one(src, dest_dir, mode, on_conflict, forced_name, preserve_pe
 	if (lstat_safe(target)) {
 		if (on_conflict == 'skip')
 			return { ok: true, error: 'skipped' };
-		else if (on_conflict == 'rename')
-			target = unique_target(dest_dir, name);
+		else if (on_conflict == 'rename') {
+			if (forced_name != null) return { ok: false, error: tr('Target already exists'), failed_item: target };
+			target = unique_target(dest_dir, name, null, st.type == 'directory');
+		}
 		else if (on_conflict == 'overwrite') {
 			if ((st.type == 'directory') != (lstat_safe(target).type == 'directory'))
 				return { ok: false, error: tr('File and directory types conflict'), failed_item: target };
@@ -2840,6 +2856,37 @@ function api_delete() {
 	ok(http, { path });
 }
 
+function read_rename_map() {
+	let raw = http.formvalue('rename_map');
+	if (!raw) return {};
+	try {
+		let names = json(raw);
+		if (type(names) == 'object') return names;
+	}
+	catch (e) {}
+	return null;
+}
+
+function rename_key(names, src) {
+	return exists(names, src) ? src : path_name(src);
+}
+
+function validate_rename_plan(dest, sources, names) {
+	let seen = {};
+	for (let raw in sources) {
+		let src = normalize_path(raw);
+		if (!src) return tr('Invalid path');
+		let key = rename_key(names, src);
+		let custom = exists(names, key);
+		let name = custom ? names[key] : path_name(src);
+		if (!(custom ? valid_rename_name(name) : valid_component(name))) return tr('Invalid name') + ': ' + src;
+		if (exists(seen, name) || (custom && lstat_safe(join_path(dest, name))))
+			return tr('Target already exists') + ': ' + name;
+		seen[name] = true;
+	}
+	return null;
+}
+
 function do_transfer(mode, batch) {
 	let prefs = read_preferences();
 
@@ -2859,12 +2906,8 @@ function do_transfer(mode, batch) {
 	let on_conflict = formvalue_any(http,
 		[ 'conflict_action', 'on_conflict' ]) ?? 'error';
 
-	let rename_map = {};
-	let raw_map = http.formvalue('rename_map');
-	if (raw_map) {
-		try { rename_map = json(raw_map) ?? {}; }
-		catch (e) { rename_map = {}; }
-	}
+	let rename_map = read_rename_map();
+	if (rename_map == null) return fail(http, 1, tr('Invalid name'));
 
 	let sources = batch
 		? (parse_path_array(http, 'sources') ?? parse_path_array(http, 'paths'))
@@ -2872,6 +2915,11 @@ function do_transfer(mode, batch) {
 
 	if (!length(sources))
 		return fail(http, 1, tr('No source given'));
+
+	if (http.formvalue('rename_map') && on_conflict == 'rename') {
+		let error = validate_rename_plan(dest, sources, rename_map);
+		if (error) return fail(http, 1, error);
+	}
 
 	let results = [], failures = 0;
 
@@ -2891,7 +2939,7 @@ function do_transfer(mode, batch) {
 		}
 
 		let rv = transfer_one(src, dest, mode, on_conflict,
-			rename_map[path_name(src)], http.formvalue('preserve_permissions') != '0');
+			rename_map[rename_key(rename_map, src)], http.formvalue('preserve_permissions') != '0');
 		push(results, { path: src, ok: rv.ok, error: rv.error, failed_item: rv.failed_item ?? null });
 		if (!rv.ok) failures++;
 	}
@@ -2946,6 +2994,23 @@ function api_batch_check() {
 	let sources = parse_path_array(http, 'sources') ??
 		parse_path_array(http, 'paths') ?? [];
 
+	let rename_names = {}, reserved = [];
+	if (http.formvalue('suggest_rename') == '1' || http.formvalue('rename_map')) {
+		let st = dest ? stat(dest) : null;
+		if (!st || st.type != 'directory') return fail(http, 1, tr('Destination is not a directory'));
+	}
+	if (http.formvalue('rename_map')) {
+		let names = read_rename_map();
+		if (names == null) return fail(http, 1, tr('Invalid name'));
+		let error = validate_rename_plan(dest, sources, names);
+		if (error) return fail(http, 1, error);
+	}
+	if (http.formvalue('suggest_rename') == '1')
+		for (let raw in sources) {
+			let src = normalize_path(raw);
+			if (src) push(reserved, path_name(src));
+		}
+
 	let conflicts = [], total_bytes = 0, count = 0;
 
 	for (let raw in sources) {
@@ -2956,6 +3021,11 @@ function api_batch_check() {
 		let st = lstat_safe(src);
 		if (!st)
 			continue;
+
+		if (http.formvalue('suggest_rename') == '1') {
+			let target = unique_target(dest, path_name(src), reserved, st.type == 'directory');
+			if (target) { rename_names[src] = path_name(target); push(reserved, path_name(target)); }
+		}
 
 		count++;
 		total_bytes += (st.size ?? 0);
@@ -2971,7 +3041,7 @@ function api_batch_check() {
 	                 : { available: null, total: null, margin: 0 };
 
 	ok(http, {
-		count, total_bytes, conflicts,
+		count, total_bytes, conflicts, rename_names,
 		available_bytes: space.available ?? 0,
 		has_operation_space: (space.available == null) ||
 			(space.available >= total_bytes + (space.margin ?? 0))
