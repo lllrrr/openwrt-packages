@@ -19,7 +19,7 @@ var callHijackGet = rpc.declare({
 var callHijackSave = rpc.declare({
 	object: 'luci.oxidns',
 	method: 'hijack_save',
-	params: [ 'enabled' ],
+	params: [ 'enabled', 'port_mode', 'port' ],
 	expect: {}
 });
 
@@ -346,13 +346,39 @@ function updateServiceActions(status) {
 }
 
 function hijackPortText(hijack) {
+	var source = (hijack && hijack.port_mode === 'manual')
+		? _('manual')
+		: _('from config.yaml');
+
 	if (!hijack || (hijack.udp_port == null && hijack.tcp_port == null))
-		return _('No OxiDNS DNS listener could be detected in config.yaml.');
+		return _('No target port available (source: %s).').format(source);
+
+	var ports;
 	if (hijack.udp_port != null && hijack.udp_port === hijack.tcp_port)
-		return _('Detected OxiDNS DNS listener: port %s (TCP/UDP).').format(hijack.udp_port);
-	return _('Detected OxiDNS DNS listeners: UDP port %s, TCP port %s.')
-		.format(hijack.udp_port == null ? '-' : hijack.udp_port,
-			hijack.tcp_port == null ? '-' : hijack.tcp_port);
+		ports = _('port %s (TCP/UDP)').format(hijack.udp_port);
+	else
+		ports = _('UDP port %s, TCP port %s')
+			.format(hijack.udp_port == null ? '-' : hijack.udp_port,
+				hijack.tcp_port == null ? '-' : hijack.tcp_port);
+
+	return _('%s, %s').format(source, ports);
+}
+
+function hijackSelectedMode() {
+	var box = document.querySelector('input[name="oxidns-hijack-port-mode"]:checked');
+	return (box && box.value === 'manual') ? 'manual' : 'auto';
+}
+
+function hijackPortInput() {
+	return document.getElementById('oxidns-hijack-port');
+}
+
+// auto 时手填框禁用并置灰；manual 时才允许输入
+function syncHijackPortInput() {
+	var input = hijackPortInput();
+	if (!input)
+		return;
+	input.disabled = (hijackSelectedMode() !== 'manual');
 }
 
 function setHijackStatus(message, danger) {
@@ -363,14 +389,34 @@ function setHijackStatus(message, danger) {
 	node.className = danger ? 'alert-message error' : 'alert-message info';
 }
 
-// 每次轮询都按后端状态重绘：勾选框、端口描述、以及「当前生效的规则段」列表
-// 都以 hijack_get 的结果为准，避免界面与实际防火墙状态漂移。
+// 每次轮询都按后端状态重绘：勾选框、端口来源、目标端口，以及「当前生效的规则段」
+// 列表都以 hijack_get 的结果为准，避免界面与实际防火墙状态漂移。
+// 代价是 5 秒一次覆盖输入框 —— 所以只在用户没聚焦时回填，否则会把他敲的字冲掉。
 function applyHijackState(hijack) {
 	hijack = hijack || {};
 
 	var box = document.getElementById('oxidns-hijack-enabled');
 	if (box)
 		box.checked = !!hijack.enabled;
+
+	var mode = (hijack.port_mode === 'manual') ? 'manual' : 'auto';
+	var autoBox = document.getElementById('oxidns-hijack-mode-auto');
+	var manualBox = document.getElementById('oxidns-hijack-mode-manual');
+	if (autoBox)
+		autoBox.checked = (mode === 'auto');
+	if (manualBox)
+		manualBox.checked = (mode === 'manual');
+
+	var input = hijackPortInput();
+	if (input) {
+		if (document.activeElement !== input) {
+			var value = hijack.manual_port;
+			if (value == null && hijack.udp_port != null)
+				value = hijack.udp_port;
+			input.value = (value == null) ? '' : String(value);
+		}
+		input.disabled = (mode !== 'manual');
+	}
 
 	setNodeContent(document.getElementById('oxidns-hijack-ports'), hijackPortText(hijack));
 	setNodeContent(document.getElementById('oxidns-hijack-sections'), (hijack.sections || []).join(', '));
@@ -391,12 +437,25 @@ function refreshAll() {
 function saveHijack() {
 	var box = document.getElementById('oxidns-hijack-enabled');
 	var enabled = !!(box && box.checked);
+	var mode = hijackSelectedMode();
+	var input = hijackPortInput();
+	var port = input ? String(input.value || '').trim() : '';
+
+	// 设置本身要合法：manual 下端口必须是 1-65535。后端同样会校验，这里先挡一次。
+	if (mode === 'manual') {
+		var portNumber = parseInt(port, 10);
+		if (!/^[0-9]+$/.test(port) || portNumber < 1 || portNumber > 65535) {
+			setHijackStatus(_('Enter a port number between 1 and 65535.'), true);
+			return Promise.resolve();
+		}
+		port = String(portNumber);
+	}
 
 	ui.showModal(_('OxiDNS'), [
 		E('p', {}, _('Applying DNS hijack...'))
 	]);
 
-	return L.resolveDefault(callHijackSave(enabled), null).then(function(result) {
+	return L.resolveDefault(callHijackSave(enabled, mode, port), null).then(function(result) {
 		ui.hideModal();
 		if (result && result.ok !== false)
 			applyHijackState(result);
@@ -475,11 +534,47 @@ return view.extend({
 			E('div', { 'class': 'cbi-section' }, [
 				E('h3', {}, _('DNS hijack')),
 				E('div', { 'class': 'cbi-section-descr' },
-					_('Redirect LAN DNS requests to port 53 (TCP and UDP, IPv4 and IPv6) to the local OxiDNS DNS listener. The target port is parsed from the OxiDNS config.yaml; implemented as an fw4 firewall redirect, so lookups made by the router itself are not affected.')),
+					_('Redirect LAN DNS requests on port 53 (TCP and UDP, IPv4 and IPv6) to the local OxiDNS DNS listener. Pick where the target port comes from: read it from the OxiDNS config.yaml, or enter one manually. Implemented as an fw4 firewall redirect, so lookups made by the router itself are not affected.')),
 				E('div', { 'class': 'table cbi-section-table' }, [
 					renderRow(_('Status'), hijackStatusBadge(hijackState)),
 					renderRow(_('Target ports'), '-', 'oxidns-hijack-ports'),
 					renderRow(_('Active firewall sections'), '-', 'oxidns-hijack-sections')
+				]),
+				E('div', { 'style': 'margin: .75em 0;' }, [
+					E('label', { 'style': 'display: block; margin-bottom: .35em;' }, [
+						E('input', {
+							'id': 'oxidns-hijack-mode-auto',
+							'type': 'radio',
+							'name': 'oxidns-hijack-port-mode',
+							'value': 'auto',
+							'checked': (hijackState.port_mode === 'manual') ? null : 'checked',
+							'style': 'margin-right: .5em;',
+							'change': function() { syncHijackPortInput(); }
+						}),
+						_('Read the port from config.yaml automatically')
+					]),
+					E('label', { 'style': 'display: block;' }, [
+						E('input', {
+							'id': 'oxidns-hijack-mode-manual',
+							'type': 'radio',
+							'name': 'oxidns-hijack-port-mode',
+							'value': 'manual',
+							'checked': (hijackState.port_mode === 'manual') ? 'checked' : null,
+							'style': 'margin-right: .5em;',
+							'change': function() { syncHijackPortInput(); }
+						}),
+						_('Use a manual port'),
+						' ',
+						E('input', {
+							'id': 'oxidns-hijack-port',
+							'type': 'text',
+							'inputmode': 'numeric',
+							'placeholder': '5353',
+							'value': (hijackState.manual_port != null) ? String(hijackState.manual_port) : '',
+							'disabled': (hijackState.port_mode === 'manual') ? null : 'disabled',
+							'style': 'width: 6em; margin-left: .4em;'
+						})
+					])
 				]),
 				E('label', { 'style': 'display: block; margin: .5em 0;' }, [
 					E('input', {

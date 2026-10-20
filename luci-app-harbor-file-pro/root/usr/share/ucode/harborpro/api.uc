@@ -1759,7 +1759,14 @@ function copy_file(src, dst, preserve_permissions) {
 	return okay;
 }
 
-function copy_recursive(src, dst, failed, preserve_permissions) {
+function transfer_excluded(path, excluded) {
+	for (let skip in (excluded ?? []))
+		if (path == skip || substr(path, 0, length(skip) + 1) == skip + '/') return true;
+	return false;
+}
+
+function copy_recursive(src, dst, failed, preserve_permissions, excluded, moving) {
+	if (transfer_excluded(src, excluded)) return true;
 	let st = lstat_safe(src);
 	let target = lstat_safe(dst);
 	if (!st || (target && (st.type == 'directory') != (target.type == 'directory')))
@@ -1770,8 +1777,12 @@ function copy_recursive(src, dst, failed, preserve_permissions) {
 		let entries = lsdir(src);
 		if (entries == null) return note_copy_failure(failed, src);
 		for (let name in entries)
-			if (!copy_recursive(join_path(src, name), join_path(dst, name), failed, preserve_permissions))
+			if (!copy_recursive(join_path(src, name), join_path(dst, name), failed, preserve_permissions, excluded, moving))
 				return false;
+		if (moving) {
+			let remaining = lsdir(src);
+			if (remaining == null || (!length(remaining) && !rmdir(src))) return note_copy_failure(failed, src);
+		}
 		return true;
 	}
 	if (st.type == 'link') {
@@ -1782,16 +1793,19 @@ function copy_recursive(src, dst, failed, preserve_permissions) {
 		let okay = link != null && symlink(link, tmp) && rename(tmp, dst);
 		if (!okay) unlink(tmp);
 		rmdir(staging);
+		if (okay && moving && !unlink(src)) return note_copy_failure(failed, src);
 		return okay ? true : note_copy_failure(failed, dst);
 	}
-	return copy_file(src, dst, preserve_permissions) ? true : note_copy_failure(failed, dst);
+	if (!copy_file(src, dst, preserve_permissions)) return note_copy_failure(failed, dst);
+	return !moving || unlink(src) ? true : note_copy_failure(failed, src);
 }
 
 function is_descendant(parent, child) {
 	return (child == parent) || (substr(child, 0, length(parent) + 1) == parent + '/');
 }
 
-function transfer_one(src, dest_dir, mode, on_conflict, forced_name, preserve_permissions) {
+function transfer_one(src, dest_dir, mode, on_conflict, forced_name, preserve_permissions, excluded) {
+	if (transfer_excluded(src, excluded)) return { ok: true, error: 'skipped' };
 	preserve_permissions = preserve_permissions !== false;
 	let st = lstat_safe(src);
 	if (!st)
@@ -1830,6 +1844,16 @@ function transfer_one(src, dest_dir, mode, on_conflict, forced_name, preserve_pe
 
 	if (st.type == 'directory' && is_descendant(target, src))
 		return { ok: false, error: tr('Cannot transfer a directory into itself') };
+
+	let skipped_count = 0;
+	for (let skip in (excluded ?? []))
+		if (is_descendant(src, skip)) skipped_count++;
+	if (skipped_count) {
+		let failed = {};
+		let okay = copy_recursive(src, target, failed, preserve_permissions, excluded, mode == 'move');
+		return { ok: okay, error: okay ? null : tr(mode == 'move' ? 'Move failed' : 'Copy failed'),
+			failed_item: failed.path, skipped_count, partial: mode == 'move' && lstat_safe(src) != null };
+	}
 
 	if (mode == 'move') {
 		let source_mode = st.mode & 0o7777;
@@ -2916,6 +2940,21 @@ function do_transfer(mode, batch) {
 	if (!length(sources))
 		return fail(http, 1, tr('No source given'));
 
+	let excluded = [];
+	if (http.formvalue('exclude_paths') != null) {
+		let raw = parse_path_array(http, 'exclude_paths');
+		if (raw == null) return fail(http, 1, tr('Invalid path'));
+		for (let item in raw) {
+			let path = normalize_path(item), allowed = false;
+			for (let source in sources) {
+				let root = normalize_path(source);
+				if (path && root && is_descendant(root, path)) allowed = true;
+			}
+			if (!allowed) return fail(http, 1, tr('Invalid path'));
+			push(excluded, path);
+		}
+	}
+
 	if (http.formvalue('rename_map') && on_conflict == 'rename') {
 		let error = validate_rename_plan(dest, sources, rename_map);
 		if (error) return fail(http, 1, error);
@@ -2939,8 +2978,8 @@ function do_transfer(mode, batch) {
 		}
 
 		let rv = transfer_one(src, dest, mode, on_conflict,
-			rename_map[rename_key(rename_map, src)], http.formvalue('preserve_permissions') != '0');
-		push(results, { path: src, ok: rv.ok, error: rv.error, failed_item: rv.failed_item ?? null });
+			rename_map[rename_key(rename_map, src)], http.formvalue('preserve_permissions') != '0', excluded);
+		push(results, { path: src, ok: rv.ok, error: rv.error, failed_item: rv.failed_item ?? null, partial: rv.partial ?? false, skipped_count: rv.skipped_count ?? 0 });
 		if (!rv.ok) failures++;
 	}
 
@@ -2989,6 +3028,20 @@ function api_batch_delete() {
 }
 
 function api_batch_check() {
+	if (http.formvalue('tree_path') != null) {
+		let path = normalize_path(http.formvalue('tree_path'));
+		let st = path ? _fs.lstat(path) : null;
+		if (!st || st.type != 'directory') return fail(http, 1, tr('Not a directory'));
+		let names = lsdir(path), children = [];
+		if (names == null) return fail(http, 2, tr('List failed'));
+		for (let name in names) {
+			if (name == '.' || name == '..') continue;
+			let child = join_path(path, name), info = _fs.lstat(child);
+			if (!info) return fail(http, 2, tr('List failed') + ': ' + child);
+			push(children, { path: child, name, type: info.type });
+		}
+		return ok(http, { path, children });
+	}
 	let dest = normalize_path(formvalue_any(http,
 		[ 'target_dir', 'destination', 'dest' ]));
 	let sources = parse_path_array(http, 'sources') ??
@@ -3033,7 +3086,7 @@ function api_batch_check() {
 		if (dest) {
 			let target = join_path(dest, path_name(src));
 			if (lstat_safe(target))
-				push(conflicts, { path: src, target, name: path_name(src) });
+				push(conflicts, { path: src, target, name: path_name(src), type: st.type });
 		}
 	}
 
@@ -3061,27 +3114,43 @@ function api_chmod() {
 		mode = mode * 8 + (ord(modestr, i) - 48);
 
 	let recursive = (http.formvalue('recursive') == '1');
-
-	if (!chmod(path, mode))
-		return fail(http, 2, tr('chmod failed'));
-
-	if (recursive) {
-		function walk(p) {
-			for (let name in (lsdir(p) ?? [])) {
-				let child = join_path(p, name);
-				chmod(child, mode);
-				let cst = lstat_safe(child);
-				if (cst?.type == 'directory')
-					walk(child);
-			}
-		}
-
-		let st = lstat_safe(path);
-		if (st?.type == 'directory')
-			walk(path);
+	if (!recursive) {
+		if (!chmod(path, mode)) return fail(http, 2, tr('chmod failed'));
+		return ok(http, { path, mode: modestr });
 	}
 
-	ok(http, { path, mode: modestr });
+	let root = _fs.lstat(path);
+	if (!root || root.type != 'directory') return fail(http, 1, tr('Not a directory'));
+	let prefs = read_preferences();
+	let pending = [{ path }], seen = {};
+	let changed = 0, skipped = 0, failed = 0, failed_path = null;
+	function record_failure(p) { failed++; failed_path ??= p; }
+	while (length(pending)) {
+		let entry = pop(pending), p = entry.path;
+		let st = _fs.lstat(p);
+		if (!st) { record_failure(p); continue; }
+		if (st.type == 'link') { skipped++; continue; }
+		let actual = _fs.realpath(p);
+		if (!actual || (!prefs.allow_system_operations && (is_system_path(p) || is_system_path(actual)))) {
+			record_failure(p); continue;
+		}
+		if (st.type == 'directory' && !entry.ready) {
+			let identity = sprintf('%J:%J', st.dev, st.inode);
+			if (seen[identity]) { skipped++; continue; }
+			seen[identity] = true;
+			let names = lsdir(p);
+			push(pending, { path: p, ready: true });
+			if (names == null) { record_failure(p); continue; }
+			for (let name in names)
+				if (name != '.' && name != '..') push(pending, { path: join_path(p, name) });
+			continue;
+		}
+		if (chmod(p, mode)) changed++;
+		else record_failure(p);
+	}
+	let result = { path, mode: modestr, changed, skipped, failed, failed_path };
+	if (failed) return fail(http, 2, tr('Failed to update some permissions') + ': ' + failed_path, result);
+	ok(http, result);
 }
 
 function api_detect_type() {
@@ -3283,19 +3352,22 @@ function api_upload_check() {
 	let directories = parse_path_array(http, 'directories') ?? [];
 	let total_size = +(http.formvalue('total_size') ?? 0);
 	if (total_size != total_size || total_size < 0) total_size = 0;
-	let conflicts = [], blocked = [];
+	let conflicts = [], directory_conflicts = [], blocked = [];
 	for (let name in names) {
 		let target = upload_target(dir, name, false, false);
 		if (!target) push(blocked, name);
 		else if (lstat_safe(target)) push(conflicts, name);
 	}
-	for (let name in directories)
-		if (!upload_target(dir, name, true, false)) push(blocked, name);
+	for (let name in directories) {
+		let target = upload_target(dir, name, true, false);
+		if (!target) push(blocked, name);
+		else if (lstat_safe(target)) push(directory_conflicts, name);
+	}
 	let space = get_directory_space_info(dir);
 	let margin = space.margin ?? 0;
 	let enough = space.available == null || space.available >= total_size + margin;
 	ok(http, {
-		path: dir, target_dir: dir, conflicts, blocked_conflicts: blocked,
+		path: dir, target_dir: dir, conflicts, directory_conflicts, blocked_conflicts: blocked,
 		enough_space: enough, space_message: enough ? '' : 'space_less_than_50mb',
 		total_size, available_bytes: space.available ?? 0, operation_space_margin: margin
 	});

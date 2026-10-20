@@ -120,11 +120,6 @@ msgstr ""
 
 msgid "Details"
 msgstr ""
-msgid "Detected OxiDNS DNS listener: port %s (TCP/UDP)."
-msgstr ""
-msgid "Detected OxiDNS DNS listeners: UDP port %s, TCP port %s."
-msgstr ""
-
 msgid "Disable"
 msgstr ""
 
@@ -269,9 +264,6 @@ msgstr ""
 
 msgid "No"
 msgstr ""
-msgid "No OxiDNS DNS listener could be detected in config.yaml."
-msgstr ""
-
 msgid "No rule files were found in the rule directory."
 msgstr ""
 
@@ -337,9 +329,6 @@ msgstr ""
 
 msgid "Redirect"
 msgstr ""
-msgid "Redirect LAN DNS requests to port 53 (TCP and UDP, IPv4 and IPv6) to the local OxiDNS DNS listener. The target port is parsed from the OxiDNS config.yaml; implemented as an fw4 firewall redirect, so lookups made by the router itself are not affected."
-msgstr ""
-
 msgid "Refresh"
 msgstr ""
 
@@ -619,4 +608,34 @@ msgid "YAML"
 msgstr ""
 
 msgid "Yes"
+msgstr ""
+
+msgid "Enter a port number between 1 and 65535."
+msgstr ""
+
+msgid "No target port available (source: %s)."
+msgstr ""
+
+msgid "Read the port from config.yaml automatically"
+msgstr ""
+
+msgid "Redirect LAN DNS requests on port 53 (TCP and UDP, IPv4 and IPv6) to the local OxiDNS DNS listener. Pick where the target port comes from: read it from the OxiDNS config.yaml, or enter one manually. Implemented as an fw4 firewall redirect, so lookups made by the router itself are not affected."
+msgstr ""
+
+msgid "UDP port %s, TCP port %s"
+msgstr ""
+
+msgid "Use a manual port"
+msgstr ""
+
+msgid "from config.yaml"
+msgstr ""
+
+msgid "manual"
+msgstr ""
+
+msgid "port %s (TCP/UDP)"
+msgstr ""
+
+msgid "%s, %s"
 msgstr ""

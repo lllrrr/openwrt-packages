@@ -3947,60 +3947,165 @@
     }
 
     HF.sync_conflict_checks = function sync_conflict_checks() {
-        var inputs = Array.from(document.querySelectorAll('#fm_conflict_list input[type="checkbox"]'));
-        inputs.forEach(function(input) {
-            var editor = input.closest('li').querySelector('.fm-conflict-rename');
-            if (editor) { editor.disabled = !input.checked; editor.style.display = input.checked ? '' : 'none'; }
-        });
-        var count = inputs.filter(function(input) { return input.checked; }).length;
+        var list = document.getElementById('fm_conflict_list');
+        var inputs = [];
+        function sync(node) {
+            node.children.forEach(sync);
+            var input = node.input;
+            if (node.children.length) {
+                input.checked = node.children.every(function(child) { return child.input.checked && !child.input.indeterminate; });
+                input.indeterminate = !input.checked && node.children.some(function(child) { return child.input.checked || child.input.indeterminate; });
+            }
+            input.disabled = !!list._fmConflictBusy;
+            if (node.toggle) node.toggle.disabled = !!list._fmConflictBusy || node.loading;
+            var editor = node.row.querySelector(':scope > .fm-conflict-rename');
+            if (editor) {
+                var selected = input.checked || input.indeterminate;
+                editor.disabled = !!list._fmConflictBusy || !selected;
+                editor.style.display = selected ? '' : 'none';
+            }
+            inputs.push(input);
+        }
+        (list._fmConflictNodes || []).forEach(sync);
+        var count = inputs.filter(function(input) { return input.checked && !input.indeterminate; }).length;
         var all = document.getElementById('fm_conflict_all');
         all.checked = !!inputs.length && count === inputs.length;
-        all.indeterminate = count > 0 && count < inputs.length;
-        all.disabled = !inputs.length;
+        all.indeterminate = !all.checked && inputs.some(function(input) { return input.checked || input.indeterminate; });
+        all.disabled = !!list._fmConflictBusy || !inputs.length;
         document.getElementById('fm_conflict_count').textContent = count + ' / ' + inputs.length;
     }
 
-    HF.render_conflict_choices = function render_conflict_choices(entries) {
+    HF.set_conflict_busy = function set_conflict_busy(busy) {
+        document.getElementById('fm_conflict_list')._fmConflictBusy = busy;
+        HF.sync_conflict_checks();
+    }
+
+    HF.render_conflict_choices = function render_conflict_choices(entries, load_children) {
         var list = document.getElementById('fm_conflict_list');
-        list._fmConflictSession = {};
+        var session = list._fmConflictSession = {};
+        list._fmConflictBusy = false;
+        list.classList.toggle('fm-conflict-tree', entries.some(function(entry) { return entry.directory; }));
         HF.clear_node(list);
-        entries.forEach(function(entry) {
+        function render(entry, parent, container, checked) {
             var item = document.createElement('li');
+            var row = HF.Util.createElement('div', 'fm-conflict-row' + (entry.directory ? '' : ' fm-conflict-leaf'));
             var label = HF.Util.createElement('label', 'fm-conflict-choice');
             label.title = entry.title || entry.label;
             var input = document.createElement('input');
-            input.type = 'checkbox';
-            input.checked = true;
-            input.value = entry.key;
-            input.addEventListener('change', HF.sync_conflict_checks);
+            input.type = 'checkbox'; input.checked = checked; input.value = entry.key;
+            var node = { entry: entry, row: item, input: input, parent: parent, children: [], loading: false };
+            item._fmConflictNode = node;
+            input.addEventListener('change', function() {
+                item.querySelectorAll('input[type="checkbox"]').forEach(function(child) { child.checked = input.checked; child.indeterminate = false; });
+                HF.sync_conflict_checks();
+            });
             label.appendChild(input);
             label.appendChild(HF.Util.createElement('span', 'fm-conflict-name', entry.label));
-            item.appendChild(label);
-            list.appendChild(item);
-        });
+            if (entry.directory) {
+                var toggle = node.toggle = HF.Util.createElement('button', 'fm-conflict-toggle', '▸');
+                toggle.type = 'button'; toggle.setAttribute('aria-expanded', 'false'); toggle.setAttribute('aria-label', entry.label);
+                row.appendChild(toggle);
+                var children = node.container = HF.Util.createElement('ul', 'fm-conflict-children');
+                children.hidden = true;
+                node.loaded = Array.isArray(entry.children);
+                toggle.onclick = function() {
+                    var expanded = toggle.getAttribute('aria-expanded') !== 'true';
+                    toggle.setAttribute('aria-expanded', String(expanded)); toggle.textContent = expanded ? '▾' : '▸';
+                    children.hidden = !expanded;
+                    if (!expanded || node.loaded || node.loading || !load_children) return;
+                    node.loading = true;
+                    document.getElementById('fm_conflict_error').hidden = true;
+                    HF.sync_conflict_checks();
+                    load_children(entry, function(entries) {
+                        if (list._fmConflictSession !== session || !list.contains(item) || document.getElementById('fm_overwrite_dialog').style.display === 'none') return;
+                        node.loading = false; node.loaded = true;
+                        node.children = entries.map(function(child) { return render(child, node, children, input.checked); });
+                        HF.sync_conflict_checks();
+                    }, function(message) {
+                        if (list._fmConflictSession !== session || !list.contains(item) || document.getElementById('fm_overwrite_dialog').style.display === 'none') return;
+                        node.loading = false;
+                        toggle.setAttribute('aria-expanded', 'false'); toggle.textContent = '▸'; children.hidden = true;
+                        var error = document.getElementById('fm_conflict_error'); error.textContent = message; error.hidden = false;
+                        HF.sync_conflict_checks();
+                    });
+                };
+            }
+            row.appendChild(label); item.appendChild(row); container.appendChild(item);
+            if (node.container) {
+                item.appendChild(node.container);
+                node.children = (entry.children || []).map(function(child) { return render(child, node, node.container, checked); });
+            }
+            return node;
+        }
+        list._fmConflictNodes = entries.map(function(entry) { return render(entry, null, list, true); });
         HF.sync_conflict_checks();
     }
 
     HF.unchecked_conflicts = function unchecked_conflicts() {
-        return new Set(Array.from(document.querySelectorAll('#fm_conflict_list input[type="checkbox"]'))
-            .filter(function(input) { return !input.checked; }).map(function(input) { return input.value; }));
+        var skipped = new Set();
+        function visit(node) {
+            if (!node.input.checked && !node.input.indeterminate) skipped.add(node.entry.key);
+            else node.children.forEach(visit);
+        }
+        (document.getElementById('fm_conflict_list')._fmConflictNodes || []).forEach(visit);
+        return skipped;
+    }
+
+    HF.conflict_is_excluded = function conflict_is_excluded(path, skipped) {
+        while (path) {
+            if (skipped.has(path)) return true;
+            var slash = path.lastIndexOf('/');
+            if (slash < 0) break;
+            path = path.slice(0, slash);
+        }
+        return false;
+    }
+
+    HF.upload_conflict_entries = function upload_conflict_entries(batch, conflicts) {
+        var roots = [], nodes = new Map(), shown = new Set(conflicts.map(function(path) { return path.split('/')[0]; }));
+        function add(path, directory) {
+            if (nodes.has(path)) return nodes.get(path);
+            var parts = path.split('/'), name = parts.pop();
+            var parent = parts.length ? add(parts.join('/'), true) : null;
+            var node = { key: path, label: name, title: path, directory: directory };
+            if (directory) node.children = [];
+            nodes.set(path, node);
+            (parent ? parent.children : roots).push(node);
+            return node;
+        }
+        HF.upload_directories(batch.files).forEach(function(path) { if (shown.has(path.split('/')[0])) add(path, true); });
+        batch.files.forEach(function(file) {
+            var path = HF.upload_relative_path(file);
+            if (shown.has(path.split('/')[0])) add(path, false);
+        });
+        return roots;
     }
 
     HF.partition_conflict_items = function partition_conflict_items(items, skipped_keys, key) {
         var result = { included: [], skipped: [] };
-        items.forEach(function(item) { result[skipped_keys.has(key(item)) ? 'skipped' : 'included'].push(item); });
+        items.forEach(function(item) { result[HF.conflict_is_excluded(key(item), skipped_keys) ? 'skipped' : 'included'].push(item); });
         return result;
     }
 
     HF.apply_upload_conflict_selection = function apply_upload_conflict_selection(batch) {
         var directories = batch.files.directories || [];
-        var selection = HF.partition_conflict_items(batch.files, HF.unchecked_conflicts(), HF.upload_relative_path);
+        var unchecked = HF.unchecked_conflicts();
+        var selection = HF.partition_conflict_items(batch.files, unchecked, HF.upload_relative_path);
         batch.files = selection.included;
-        batch.files.directories = directories;
+        batch.files.directories = directories.filter(function(path) { return !HF.conflict_is_excluded(path, unchecked); });
         batch.directories = HF.upload_directories(batch.files);
         batch.skipped = selection.skipped.length;
         batch.total_size = batch.files.reduce(function(total, file) { return total + Number(file.size || 0); }, 0);
         batch.preserve_permissions = document.getElementById('fm_preserve_permissions').checked;
+    }
+
+    HF.open_conflict_dialog = function open_conflict_dialog() {
+        HF.open_modal('fm_overwrite_dialog');
+        var dialog = document.getElementById('fm_overwrite_dialog'), record = dialog._fmWindow;
+        if (!record || record.maximized || !document.getElementById('fm_conflict_list').classList.contains('fm-conflict-tree')) return;
+        var height = dialog.querySelector('.fm-dialog-header').offsetHeight + dialog.querySelector('.fm-overwrite-body').scrollHeight +
+            dialog.querySelector('.fm-dialog-actions').offsetHeight + 2;
+        if (height > record.rect.height) HF.window_manager.apply_rect(record, Object.assign({}, record.rect, { height: height }));
     }
 
     HF.reset_overwrite_actions = function reset_overwrite_actions() {
@@ -4018,15 +4123,15 @@
         return actions;
     }
 
-    HF.show_overwrite_dialog = function show_overwrite_dialog(batch, conflicts) {
+    HF.show_overwrite_dialog = function show_overwrite_dialog(batch, conflicts, directory_conflicts) {
         document.getElementById('fm_overwrite_title').textContent = HF.labels.upload_replace_title;
         document.querySelector('#fm_overwrite_dialog .fm-overwrite-copy').textContent = HF.labels.upload_replace_prompt;
-        HF.render_conflict_choices(conflicts.map(function(name) { return { key: name, label: name }; }));
+        HF.render_conflict_choices(HF.upload_conflict_entries(batch, conflicts.concat(directory_conflicts || [])));
         batch.conflicts = conflicts;
         HF.state.pending_upload = batch;
         HF.reset_overwrite_actions();
         document.getElementById('fm_overwrite_confirm').style.display = '';
-        HF.open_modal('fm_overwrite_dialog');
+        HF.open_conflict_dialog();
     }
 
     HF.begin_upload = function begin_upload(files, target_dir, target_label) {
@@ -4087,8 +4192,8 @@
                     HF.fail_upload_batch(HF.labels.blocked_conflict + ': ' + data.blocked_conflicts.join(', '));
                     return;
                 }
-                if (data.conflicts && data.conflicts.length) {
-                    HF.show_overwrite_dialog(batch, data.conflicts);
+                if ((data.conflicts && data.conflicts.length) || (data.directory_conflicts && data.directory_conflicts.length)) {
+                    HF.show_overwrite_dialog(batch, data.conflicts || [], data.directory_conflicts);
                     return;
                 }
                 HF.upload_batch(batch);
@@ -4400,12 +4505,13 @@
     HF.report_batch_transfer = function report_batch_transfer(res, success_message) {
         var data = (res && res.data) || {};
         var results = data.results || [];
-        var skipped = 0;
+        var skipped = 0, nested_skipped = 0;
         var bad = [];
         results.forEach(function (r) {
             if (!r) {
                 return;
             }
+            nested_skipped += Number(r.skipped_count || 0);
             if (r.error === 'skipped') {
                 skipped++;
             } else if (!r.ok) {
@@ -4413,6 +4519,7 @@
             }
         });
         var done = results.length - bad.length - skipped;
+        skipped += nested_skipped;
         if (bad.length) {
             HF.set_error_status(bad.slice(0, 3).map(function (b) {
                 return (b.error || HF.labels.operation_failed) + '：' + (b.failed_item || b.path || '');
@@ -4511,7 +4618,7 @@
         HF.set_status(mode === 'cut' ? HF.labels.cut_to_clipboard : HF.labels.copied_to_clipboard, 'success');
     }
 
-    HF.executePaste = function executePaste(action, items, target_path, conflict_action, rename_map, preserve_permissions, skipped_items) {
+    HF.executePaste = function executePaste(action, items, target_path, conflict_action, rename_map, preserve_permissions, skipped_items, excluded_paths) {
         var success_message = action === 'copy' ? HF.labels.copy_complete : HF.labels.move_complete;
         var clipboard = HF.state.clipboard;
         var skipped = (skipped_items || []).map(function(item) { return { path: item.path, ok: true, error: 'skipped' }; });
@@ -4523,7 +4630,7 @@
             var results = res.data && res.data.results || [];
             HF.report_batch_transfer({ data: { results: results.concat(skipped) } }, success_message);
             if (action === 'move' && clipboard && clipboard.mode === 'cut' && HF.state.clipboard === clipboard) {
-                var moved = new Set(results.filter(function(item) { return item && item.ok && item.error !== 'skipped'; })
+                var moved = new Set(results.filter(function(item) { return item && item.ok && item.error !== 'skipped' && !item.partial; })
                     .map(function(item) { return item.path; }));
                 clipboard.items = clipboard.items.filter(function(item) { return !moved.has(item.path); });
                 if (!clipboard.items.length) HF.state.clipboard = null;
@@ -4538,6 +4645,7 @@
         if (conflict_action) data.conflict_action = conflict_action;
         if (conflict_action === 'overwrite') data.preserve_permissions = preserve_permissions === false ? '0' : '1';
         if (rename_map) data.rename_map = JSON.stringify(rename_map);
+        if (excluded_paths && excluded_paths.length) data.exclude_paths = JSON.stringify(excluded_paths);
         HF.Util.ajax({
             url: action === 'copy' ? HF.api.batch_copy : HF.api.batch_move,
             type: 'POST', data: data, dataType: 'json', success: complete,
@@ -4589,8 +4697,15 @@
         var counts = new Map();
         conflicts.forEach(function(item) { counts.set(item.name, (counts.get(item.name) || 0) + 1); });
         HF.render_conflict_choices(conflicts.map(function(item) {
-            return { key: item.path || item.name, label: counts.get(item.name) > 1 ? item.path || item.name : item.name, title: item.path || item.name };
-        }));
+            var source = items.find(function(source) { return item.path ? source.path === item.path : source.name === item.name; });
+            return { key: item.path || item.name, label: counts.get(item.name) > 1 ? item.path || item.name : item.name,
+                title: item.path || item.name, directory: (item.type || (source && source.type)) === 'directory' && !(source && source.is_symlink) };
+        }), function(entry, done, failed) {
+            var source = items.find(function(item) { return item.path === entry.key || item.name === entry.key; });
+            HF.check_paste_transfer({ tree_path: source ? source.path : entry.key }, function(data) {
+                done((data.children || []).map(function(item) { return { key: item.path, label: item.name, title: item.path, directory: item.type === 'directory' }; }));
+            }, failed);
+        });
         var list = document.getElementById('fm_conflict_list');
         var session = list._fmConflictSession, request = 0, renaming = false;
         var error_node = document.getElementById('fm_conflict_error');
@@ -4609,13 +4724,17 @@
                 }
             });
             items.forEach(function(item) { if (names.has(item.name)) paths.add(item.path); });
-            return HF.partition_conflict_items(items, paths, function(item) { return item.path; });
+            var selected = HF.partition_conflict_items(items, paths, function(item) { return item.path; });
+            selected.excluded = Array.from(unchecked).filter(function(path) {
+                return selected.included.some(function(item) { return path.indexOf(item.path + '/') === 0; });
+            });
+            return selected;
         }
         function submit(conflict_action, names, selected) {
             selected = selected || selection(conflict_action);
             var preserve = document.getElementById('fm_preserve_permissions').checked;
             HF.close_modal();
-            HF.executePaste(action, selected.included, target_path, conflict_action, names, preserve, selected.skipped);
+            HF.executePaste(action, selected.included, target_path, conflict_action, names, preserve, selected.skipped, selected.excluded);
         }
         function set_mode(value) {
             renaming = value;
@@ -4631,8 +4750,7 @@
             request++;
             renameBtn.disabled = false;
             list.querySelectorAll('.fm-conflict-rename').forEach(function(input) { input.remove(); });
-            list.querySelectorAll('input[type="checkbox"]').forEach(function(input) { input.disabled = false; });
-            HF.sync_conflict_checks();
+            HF.set_conflict_busy(false);
             set_mode(false);
             error('');
         }
@@ -4663,7 +4781,7 @@
                         if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); if (!renameBtn.disabled) confirm_rename(); }
                         if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); cancel_rename(); }
                     });
-                    row.appendChild(input);
+                    row.insertBefore(input, row.querySelector(':scope > .fm-conflict-children'));
                 });
                 HF.sync_conflict_checks();
                 renameBtn.disabled = false;
@@ -4691,8 +4809,7 @@
             }
             var id = ++request;
             renameBtn.disabled = true;
-            list.querySelectorAll('input').forEach(function(input) { input.disabled = true; });
-            document.getElementById('fm_conflict_all').disabled = true;
+            HF.set_conflict_busy(true);
             error('');
             HF.check_paste_transfer({
                 sources: JSON.stringify(selected.included.map(function(item) { return item.path; })),
@@ -4702,8 +4819,7 @@
             }, function(message) {
                 if (!active(id)) return;
                 renameBtn.disabled = false;
-                list.querySelectorAll('input[type="checkbox"]').forEach(function(input) { input.disabled = false; });
-                HF.sync_conflict_checks(); error(message);
+                HF.set_conflict_busy(false); error(message);
             });
         }
 
@@ -4720,7 +4836,7 @@
         skipBtn.type = 'button'; skipBtn.onclick = function() { submit('skip'); }; actions.appendChild(skipBtn);
         var cancelBtn = HF.Util.createElement('button', 'fm-dialog-action fm-dynamic-paste-btn fm-rename-cancel', HF.tr('Cancel'));
         cancelBtn.type = 'button'; cancelBtn.onclick = cancel_rename; cancelBtn.style.display = 'none'; actions.appendChild(cancelBtn);
-        HF.open_modal('fm_overwrite_dialog');
+        HF.open_conflict_dialog();
     }
 
     HF.hide_context_menus = function hide_context_menus(keep_anchor, keep_details) {

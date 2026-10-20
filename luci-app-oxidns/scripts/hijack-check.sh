@@ -264,6 +264,70 @@ suite() {
 
 	fi
 
+	if want portmode; then
+	printf '\n== 劫持端口来源：自动 / 手动 ==\n'
+
+	# --- manual：完全不读 config.yaml，直接用指定端口 ------------------- #
+	new_store p1
+	uci_set "oxidns.main.config_path=$WORK/does-not-exist.yaml"
+	OUT="$(call hijack_save '{"enabled":true,"port_mode":"manual","port":"5354"}')"
+	has "手动：返回 ok" "$OUT" '"ok":true'
+	expect "手动：both 段端口 = 手填值" "$(uci_get firewall.oxidns_hijack.dest_port)" "5354"
+	expect "手动：proto 为 tcp udp" "$(uci_get firewall.oxidns_hijack.proto)" "tcp udp"
+	expect "手动：family=any 仍带着" "$(uci_get firewall.oxidns_hijack.family)" "any"
+	has "手动：状态 port_mode=manual" "$OUT" '"port_mode":"manual"'
+	has "手动：状态 manual_port=5354" "$OUT" '"manual_port":5354'
+	has "★ 手动：config.yaml 不存在也能建段" "$OUT" '"enabled":1'
+	expect "手动：设置已落盘" "$(uci_get oxidns.main.hijack_port)" "5354"
+	expect "手动：模式已落盘" "$(uci_get oxidns.main.hijack_port_mode)" "manual"
+	fi
+
+	if want portinvalid; then
+	printf '\n== 劫持端口来源：非法输入 ==\n'
+
+	# --- manual：非法端口必须拒绝，且一个段都不许建 --------------------- #
+	for bad in 0 65536 abc ''; do
+		new_store "p-bad-$bad"
+		uci_set "oxidns.main.config_path=$(config_yaml 5335 5335)"
+		# 后端在参数非法时 return 1，set -e 下命令替换失败会直接杀掉脚本，
+		# 所以这里要吞掉退出码 —— 断言看的是 JSON 里的 code。
+		OUT="$(call hijack_save "{\"enabled\":true,\"port_mode\":\"manual\",\"port\":\"$bad\"}" || true)"
+		has "非法端口 [$bad]：返回 invalid_hijack_port" "$OUT" '"code":"invalid_hijack_port"'
+		expect "非法端口 [$bad]：没建段" "$(uci_get firewall.oxidns_hijack)" ""
+	done
+	fi
+
+	if want portauto; then
+	printf '\n== 劫持端口来源：切回自动 ==\n'
+
+	# --- auto：回到 config.yaml，并清掉遗留手填值 ----------------------- #
+	new_store p2
+	uci_set "oxidns.main.config_path=$(config_yaml 5335 5336)"
+	uci_set "oxidns.main.hijack_port_mode=manual"
+	uci_set "oxidns.main.hijack_port=9999"
+	OUT="$(call hijack_save '{"enabled":true,"port_mode":"auto"}')"
+	expect "切回自动：udp 段端口来自 config.yaml" "$(uci_get firewall.oxidns_hijack_udp.dest_port)" "5335"
+	expect "切回自动：tcp 段端口来自 config.yaml" "$(uci_get firewall.oxidns_hijack_tcp.dest_port)" "5336"
+	expect "切回自动：手填值已清除" "$(uci_get oxidns.main.hijack_port)" ""
+	expect "切回自动：模式已清除" "$(uci_get oxidns.main.hijack_port_mode)" ""
+	has "切回自动：状态 port_mode=auto" "$OUT" '"port_mode":"auto"'
+	has "切回自动：manual_port 为空" "$OUT" '"manual_port":null'
+	fi
+
+	if want portoff; then
+	printf '\n== 劫持端口来源：关闭时仍保存设置 ==\n'
+
+	# --- 关闭劫持时，手动设置仍要保存 ----------------------------------- #
+	new_store p3
+	OUT="$(call hijack_save '{"enabled":false,"port_mode":"manual","port":"5354"}')"
+	has "关闭+手动：返回 ok" "$OUT" '"ok":true'
+	expect "关闭+手动：段已删" "$(uci_get firewall.oxidns_hijack)" ""
+	expect "关闭+手动：设置仍落盘" "$(uci_get oxidns.main.hijack_port)" "5354"
+	has "关闭+手动：状态 port_mode=manual" "$OUT" '"port_mode":"manual"'
+	has "关闭+手动：enabled=0" "$OUT" '"enabled":0'
+
+	fi
+
 	if want legacy; then
 	printf '\n== 旧版留下的段要能被看出来（只劫持了 IPv4）==\n'
 
@@ -418,6 +482,31 @@ if [ "$INJECT" = "1" ]; then
 		bad "注入锚点失配" "postinst 里没找到 family 空值守卫"
 	else
 		inject "迁移无条件覆盖用户设置" "$BACKEND_DEFAULT" "$WORK/postinst-forced.sh" migration forced
+	fi
+
+	# 6) manual 分支失效 ⇒ 手动模式退回读 config.yaml（配的端口被无视）
+	if mutate "$BACKEND_DEFAULT" "$WORK/backend-nomanual" \
+		's/HIJACK_PORT_MODE:-auto}" = "manual"/HIJACK_PORT_MODE:-auto}" = "never"/'; then
+		inject "manual 分支失效（仍读 config.yaml）" "$WORK/backend-nomanual" "-" portmode nomanual
+	fi
+
+	# 7) 去掉端口范围校验 ⇒ 0 / 65536 会被当成合法端口
+	if mutate "$BACKEND_DEFAULT" "$WORK/backend-norange" \
+		's/if \[ "\$PORT" -lt 1 \] || \[ "\$PORT" -gt 65535 \]; then/if false; then/'; then
+		inject "端口范围校验失效" "$WORK/backend-norange" "-" portinvalid norange
+	fi
+
+	# 8) 状态里恒报 auto ⇒ 界面上分不清手填值到底有没有生效
+	if mutate "$BACKEND_DEFAULT" "$WORK/backend-alwaysauto" \
+		"s/manual) MODE_JSON='\"manual\"' ;;/manual) MODE_JSON='\"auto\"' ;;/"; then
+		inject "状态恒报 port_mode=auto" "$WORK/backend-alwaysauto" "-" portmode alwaysauto
+	fi
+
+	# 9) 切回 auto 时不清手填值 ⇒ 陈旧端口留在 UCI 里
+	# 分隔符用 #：模式里含 shell 的 "||"，用 | 当分隔符会被 sed 当成语法错误。
+	if mutate "$BACKEND_DEFAULT" "$WORK/backend-staleport" \
+		's#^\([[:space:]]*\)uci -q delete oxidns\.main\.hijack_port >/dev/null 2>&1 || true$#\1:#'; then
+		inject "切回 auto 不清除遗留手填端口" "$WORK/backend-staleport" "-" portauto staleport
 	fi
 fi
 

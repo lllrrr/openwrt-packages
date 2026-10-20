@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-tailscale
-PKG_VERSION:=2.0.0
+PKG_VERSION:=2.0.1
 PKG_RELEASE:=1
 PKG_PO_VERSION:=$(PKG_VERSION)
 PKG_LICENSE:=Apache-2.0
@@ -12,7 +12,7 @@ LUCI_MINIFY_CSS:=0
 
 LUCI_TITLE:=LuCI app for Tailscale
 LUCI_DESCRIPTION:=Tailscale management UI with an ucode rpcd backend and a self contained kernel updater
-LUCI_DEPENDS:=+luci-base +rpcd-mod-ucode +ucode-mod-fs +ucode-mod-uci +ucode-mod-ubus +ucode-mod-html
+LUCI_DEPENDS:=+luci-base +rpcd-mod-ucode +ucode-mod-fs +ucode-mod-uci +ucode-mod-ubus +ucode-mod-html +curl
 
 define Package/luci-app-tailscale/conffiles
 /etc/config/tailscale
@@ -38,7 +38,13 @@ define Package/$(PKG_NAME)/prerm
 
 INITD=/etc/init.d
 
-$${INITD}/tailscale stop >/dev/null 2>&1 || true
+TS_STOP_RELOAD_NETWORK=0 $${INITD}/tailscale stop >/dev/null 2>&1 || true
+
+case "$${1:-remove}" in
+	remove|deconfigure)
+		$${INITD}/network reload >/dev/null 2>&1 || true
+		;;
+esac
 
 rm -rf /tmp/luci-*
 
@@ -46,3 +52,4 @@ exit 0
 endef
 
 $(eval $(call BuildPackage,$(PKG_NAME)))
+

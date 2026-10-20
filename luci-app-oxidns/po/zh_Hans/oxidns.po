@@ -129,11 +129,6 @@ msgstr "删除工作目录"
 
 msgid "Details"
 msgstr "详情"
-msgid "Detected OxiDNS DNS listener: port %s (TCP/UDP)."
-msgstr "检测到 OxiDNS DNS 监听：端口 %s（TCP/UDP）。"
-msgid "Detected OxiDNS DNS listeners: UDP port %s, TCP port %s."
-msgstr "检测到 OxiDNS DNS 监听：UDP 端口 %s、TCP 端口 %s。"
-
 msgid "Disable"
 msgstr "禁用"
 
@@ -278,9 +273,6 @@ msgstr "星期一"
 
 msgid "No"
 msgstr "否"
-msgid "No OxiDNS DNS listener could be detected in config.yaml."
-msgstr "未能从 config.yaml 中检测到 OxiDNS 的 DNS 监听端口。"
-
 msgid "No rule files were found in the rule directory."
 msgstr "规则目录下没有找到任何规则文件。"
 
@@ -346,9 +338,6 @@ msgstr "原因"
 
 msgid "Redirect"
 msgstr "重定向"
-msgid "Redirect LAN DNS requests to port 53 (TCP and UDP, IPv4 and IPv6) to the local OxiDNS DNS listener. The target port is parsed from the OxiDNS config.yaml; implemented as an fw4 firewall redirect, so lookups made by the router itself are not affected."
-msgstr "把局域网发往 53 端口（TCP/UDP、IPv4/IPv6）的 DNS 请求重定向到本机 OxiDNS 的 DNS 监听端口。目标端口从 OxiDNS 的 config.yaml 解析；实现为 fw4 防火墙重定向规则，路由器自身的 DNS 查询不受影响。"
-
 msgid "Refresh"
 msgstr "刷新"
 
@@ -629,3 +618,33 @@ msgstr "YAML"
 
 msgid "Yes"
 msgstr "是"
+
+msgid "Enter a port number between 1 and 65535."
+msgstr "请输入 1 到 65535 之间的端口号。"
+
+msgid "No target port available (source: %s)."
+msgstr "没有可用的目标端口（来源：%s）。"
+
+msgid "Read the port from config.yaml automatically"
+msgstr "自动从 config.yaml 读取端口"
+
+msgid "Redirect LAN DNS requests on port 53 (TCP and UDP, IPv4 and IPv6) to the local OxiDNS DNS listener. Pick where the target port comes from: read it from the OxiDNS config.yaml, or enter one manually. Implemented as an fw4 firewall redirect, so lookups made by the router itself are not affected."
+msgstr "把局域网发往 53 端口（TCP/UDP、IPv4/IPv6）的 DNS 请求重定向到本机 OxiDNS 的 DNS 监听端口。目标端口可以自动从 OxiDNS 的 config.yaml 读取，也可以手动填写。实现为 fw4 防火墙重定向规则，路由器自身的 DNS 查询不受影响。"
+
+msgid "UDP port %s, TCP port %s"
+msgstr "UDP 端口 %s，TCP 端口 %s"
+
+msgid "Use a manual port"
+msgstr "手动指定端口"
+
+msgid "from config.yaml"
+msgstr "从 config.yaml"
+
+msgid "manual"
+msgstr "手动"
+
+msgid "port %s (TCP/UDP)"
+msgstr "端口 %s（TCP/UDP）"
+
+msgid "%s, %s"
+msgstr "%s，%s"

@@ -1226,6 +1226,48 @@
     font-size: 13px;
 }
 
+.fm-conflict-tree{
+    height: 220px;
+}
+
+.fm-conflict-tree .fm-conflict-leaf{
+    padding-left: 32px;
+}
+
+.fm-conflict-tree .fm-conflict-rename{
+    width: calc(100% - 56px);
+    margin-left: 56px;
+}
+
+.fm-conflict-row{
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.fm-conflict-row .fm-conflict-choice{
+    flex: 1;
+    min-width: 0;
+}
+
+.fm-conflict-toggle{
+    flex: none;
+    width: 28px;
+    height: 32px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--fm-text);
+    cursor: pointer;
+    font-size: 16px;
+}
+
+.fm-conflict-children{
+    list-style: none;
+    padding: 0 0 0 20px;
+    margin: 0;
+}
+
 .fm-conflict-toolbar{
     display: flex;
     align-items: center;

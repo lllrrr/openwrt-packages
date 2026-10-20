@@ -1441,3 +1441,12 @@ msgstr "保留原文件权限"
 msgid "Preserve the permission bits of existing destination files; owner, group and ACL are not preserved."
 msgstr "保留目标位置已有文件的权限位；不保留所属用户、用户组和 ACL。"
 
+msgid "Recursive permissions"
+msgstr "递归权限"
+
+msgid "Symbolic links are skipped. The same permission bits are applied to files and directories."
+msgstr "跳过符号链接。文件和目录都应用相同的权限位。"
+
+msgid "Failed to update some permissions"
+msgstr "部分项目权限更新失败"
+

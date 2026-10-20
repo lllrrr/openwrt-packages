@@ -715,41 +715,57 @@
         document.getElementById('fm_property_mode_input').value = mode;
         HF.updatePermissionCheckboxes(mode);
 
+        var recursive = document.getElementById('fm_property_recursive');
+        var directory = item.type === 'directory' && !item.is_symlink;
+        var save = document.getElementById('fm_property_mode_save');
+        recursive.checked = false;
+        recursive.disabled = !directory;
+        save.disabled = false;
+        document.getElementById('fm_property_recursive_option').style.display = directory ? 'flex' : 'none';
         document.getElementById('fm_property_mode_edit').style.display = 'none';
 
         document.getElementById('fm_property_edit_mode').onclick = function() {
+            recursive.checked = false;
             document.getElementById('fm_property_mode_edit').style.display = 'contents';
         };
 
         document.getElementById('fm_property_mode_cancel').onclick = function() {
+            recursive.checked = false;
             document.getElementById('fm_property_mode_edit').style.display = 'none';
             document.getElementById('fm_property_mode_input').value = mode;
             HF.updatePermissionCheckboxes(mode);
         };
 
-        document.getElementById('fm_property_mode_save').onclick = function() {
+        save.onclick = function() {
+            if (save.disabled) return;
             var newMode = document.getElementById('fm_property_mode_input').value.trim();
             if (!/^[0-7]{3,4}$/.test(newMode)) {
                 HF.set_warning_status(HF.tr('Invalid permissions'));
                 return;
             }
+            save.disabled = true;
             HF.Util.ajax({
                 url: HF.api.chmod,
                 type: 'POST',
-                data: { path: item.path, mode: newMode },
+                data: { path: item.path, mode: newMode, recursive: directory && recursive.checked ? '1' : '0' },
                 dataType: 'json',
                 success: function(res) {
+                    if (HF.property_size_token !== size_token) return;
+                    save.disabled = false;
                     if (res && res.code === 0) {
                         HF.set_status(HF.tr('Permissions updated'), 'success');
+                        recursive.checked = false;
                         mode = newMode;
                         document.getElementById('fm_property_mode_text').textContent = mode;
                         document.getElementById('fm_property_mode_edit').style.display = 'none';
                         HF.refresh_after_write(item.path);
                     } else {
-                        HF.set_error_status(res.message || HF.tr('Update failed'));
+                        HF.set_error_status(res && res.message || HF.tr('Update failed'));
                     }
                 },
                 error: function() {
+                    if (HF.property_size_token !== size_token) return;
+                    save.disabled = false;
                     HF.set_error_status(HF.tr('Update failed'));
                 }
             });
@@ -782,3 +798,4 @@
         start_nginx_install: HF.start_nginx_install
     };
 })(window.HarborFile = window.HarborFile || {});
+

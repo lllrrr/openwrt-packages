@@ -1,5 +1,5 @@
 {%
-const harbor_asset_version = '20260922.9';
+const harbor_asset_version = '20260922.12';
 function harbor_asset_url(path) {
     return resource + '/harbor_file_pro/' + path + '?v=' + harbor_asset_version;
 }
@@ -689,6 +689,10 @@ window.HarborFile.tr = function (msgid) {
                     <input type="checkbox" class="perm-check">
                     <input type="checkbox" class="perm-check">
                 </div>
+                <label id="fm_property_recursive_option" class="fm-overwrite-options" style="grid-column:2;margin-top:0;display:none" title="{{ _('Symbolic links are skipped. The same permission bits are applied to files and directories.') }}">
+                    <input id="fm_property_recursive" type="checkbox">
+                    <span>{{ _('Recursive permissions') }}</span>
+                </label>
                 <div class="fm-property-label">{{ _('Octal') }}</div><div class="fm-property-value fm-flex-row">
                     <input id="fm_property_mode_input" type="text" size="4" maxlength="4" pattern="[0-7]{3,4}" style="width:50px;">
                     <button id="fm_property_mode_save" class="fm-dialog-action primary" type="button">{{ _('Save') }}</button>
@@ -1518,7 +1522,7 @@ window.HarborFile.tr = function (msgid) {
     }
     document.getElementById('fm_conflict_all').addEventListener('change', function() {
         var checked = this.checked;
-        document.querySelectorAll('#fm_conflict_list input[type="checkbox"]').forEach(function(input) { input.checked = checked; });
+        document.querySelectorAll('#fm_conflict_list input[type="checkbox"]').forEach(function(input) { input.checked = checked; input.indeterminate = false; });
         HF.sync_conflict_checks();
     });
     document.getElementById('fm_overwrite_confirm').addEventListener('click', function() {
