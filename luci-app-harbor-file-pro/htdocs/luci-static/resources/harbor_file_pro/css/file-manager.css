@@ -3221,11 +3221,23 @@
 }
 
 .fm-details{
-    position: static;
+    position: absolute;
+    z-index: 12;
+    right: 0;
+    bottom: var(--fm-details-edge, 0px);
+    left: 0;
     box-sizing: border-box;
+    min-height: 0;
     max-height: 40%;
     overflow-y: auto;
     overflow-x: hidden;
+}
+
+.fm-details.is-top{
+    top: var(--fm-details-edge, 0px);
+    bottom: auto;
+    border-top: 0;
+    border-bottom: 1px solid var(--fm-border);
 }
 
 #fm_details .fm-detail-label,
@@ -3267,4 +3279,3 @@
 .fm-path-picker .fm-dialog-action{
     flex: none;
 }
-

@@ -2,7 +2,18 @@
 'require baseclass';
 'require rpc';
 
-var themeState = 'light';
+var LUCKY_ASSET_VERSION = '2.0.10-r4';
+var themeMode = 'auto';
+var themeMedia = window.matchMedia
+    ? window.matchMedia('(prefers-color-scheme: dark)')
+    : null;
+
+function systemTheme() {
+    return themeMedia && themeMedia.matches ? 'dark' : 'light';
+}
+
+var themeState = systemTheme();
+document.documentElement.setAttribute('data-theme', themeState);
 var bgState = 'on';
 
 var settingsGet = rpc.declare({ object: 'luci.lucky', method: 'get_settings', expect: { '': {} } });
@@ -34,9 +45,6 @@ var ICONS = {
                'M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z'],
     box:      ['M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z',
                'M3.27 6.96L12 12.01l8.73-5.05', 'M12 22.08V12'],
-    sparkles: ['M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z',
-               'M20 3v4', 'M22 5h-4', 'M4 17v2', 'M5 18H3'],
-    ban:      ['M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z', 'M4.93 4.93L19.07 19.07'],
     sliders:  ['M4 21v-7', 'M4 10V3', 'M12 21v-9', 'M12 8V3', 'M20 21v-5', 'M20 12V3', 'M1 14h6', 'M9 8h6', 'M17 16h6']
 };
 
@@ -59,22 +67,35 @@ function icon(key, size) {
     return svg;
 }
 
+function autoThemeIcon(size) {
+    var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('width', size || 16);
+    svg.setAttribute('height', size || 16);
+    svg.setAttribute('class', 'lucky-icon');
+    svg.setAttribute('fill', 'currentColor');
+    svg.setAttribute('stroke', 'none');
+    svg.setAttribute('aria-hidden', 'true');
+    var p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    p.setAttribute('d', 'M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.8 1.42-1.42zM1 13h3v-2H1v2zm10-12v3h2V1h-2zm9.45 3.46l-1.41-1.41-1.8 1.79 1.42 1.42 1.79-1.8zM17.24 19.16l1.8 1.79 1.41-1.41-1.79-1.8-1.42 1.42zM20 11v2h3v-2h-3zM11 23h2v-3h-2v3zm-7.45-3.46l1.41 1.41 1.8-1.79-1.42-1.42-1.79 1.8zM12 6A6 6 0 0 0 12 18Z M12 6A6 6 0 0 1 12 18V16.2A4.2 4.2 0 0 0 12 7.8Z');
+    svg.appendChild(p);
+    return svg;
+}
+
 function syncThemeBtn() {
     var b = document.getElementById('lucky-theme-btn');
     if (!b) return;
     while (b.firstChild) b.removeChild(b.firstChild);
     var dark = theme.get() === 'dark';
-    b.appendChild(icon(dark ? 'sun' : 'moon', 16));
-    b.title = dark ? _('Switch to light theme') : _('Switch to dark theme');
+    b.appendChild(themeMode === 'auto' ? autoThemeIcon(16) : icon(dark ? 'sun' : 'moon', 16));
+    b.title = themeMode === 'auto'
+        ? _('Follow browser theme')
+        : dark ? _('Switch to light theme') : _('Switch to dark theme');
 }
 
-function syncBgBtn() {
-    var b = document.getElementById('lucky-bg-btn');
-    if (!b) return;
-    while (b.firstChild) b.removeChild(b.firstChild);
-    var on = bg.get() === 'on';
-    b.appendChild(icon(on ? 'sparkles' : 'ban', 16));
-    b.title = on ? _('Turn off background decoration') : _('Turn on background decoration');
+function syncBgControl() {
+    var input = document.getElementById('lucky-bg-toggle');
+    if (input) input.checked = bg.get() === 'on';
 }
 
 function showCurtain(targetTheme, callback) {
@@ -117,34 +138,59 @@ var theme = {
     apply: function(t) {
         document.documentElement.setAttribute('data-theme', t);
     },
-    set: function(t) {
-        if (t !== 'light' && t !== 'dark') return Promise.resolve({});
-        themeState = t;
-        theme.apply(t);
+    set: function(mode) {
+        if (mode !== 'auto' && mode !== 'light' && mode !== 'dark')
+            return Promise.resolve({});
+        themeMode = mode;
+        themeState = mode === 'auto' ? systemTheme() : mode;
+        theme.apply(themeState);
         applyAllColors();
         syncThemeBtn();
-        try { localStorage.setItem('lucky-theme', t); } catch(e) {}
-        try { themeSave(t); } catch(e) {}
+        try { localStorage.setItem('lucky-theme', mode); } catch(e) {}
+        try { themeSave(mode); } catch(e) {}
         return Promise.resolve({});
     },
     toggle: function() {
-        var next = themeState === 'dark' ? 'light' : 'dark';
+        var nextMode = themeMode === 'auto'
+            ? 'light'
+            : themeMode === 'light' ? 'dark' : 'auto';
+        var nextTheme = nextMode === 'auto' ? systemTheme() : nextMode;
         var self = this;
-        showCurtain(next, function() { self.set(next); });
+        if (nextTheme === themeState) self.set(nextMode);
+        else showCurtain(nextTheme, function() { self.set(nextMode); });
         return Promise.resolve({});
     },
     load: function() {
         return L.resolveDefault(settingsGet(), {}).then(function(res) {
-            var t = res && res.theme;
-            if (t !== 'light' && t !== 'dark') return;
-            if (t === themeState) return;
-            themeState = t;
-            theme.apply(t);
+            var mode = res && res.theme;
+            if (mode !== 'auto' && mode !== 'light' && mode !== 'dark')
+                mode = themeMode;
+            themeMode = mode;
+            themeState = mode === 'auto' ? systemTheme() : mode;
+            theme.apply(themeState);
+            applyAllColors();
             syncThemeBtn();
-            try { localStorage.setItem('lucky-theme', t); } catch(e) {}
+            try { localStorage.setItem('lucky-theme', mode); } catch(e) {}
         });
     }
 };
+
+function syncSystemTheme() {
+    if (themeMode !== 'auto') return;
+    var next = systemTheme();
+    if (next === themeState) return;
+    themeState = next;
+    theme.apply(next);
+    applyAllColors();
+    syncThemeBtn();
+}
+
+if (themeMedia) {
+    if (themeMedia.addEventListener)
+        themeMedia.addEventListener('change', syncSystemTheme);
+    else if (themeMedia.addListener)
+        themeMedia.addListener(syncSystemTheme);
+}
 
 var bg = {
     get: function() {
@@ -157,7 +203,7 @@ var bg = {
         if (v !== 'on' && v !== 'off') return Promise.resolve({});
         bgState = v;
         bg.apply(v);
-        syncBgBtn();
+        syncBgControl();
         try { localStorage.setItem('lucky-bg', v); } catch(e) {}
         try { bgSave(v === 'on' ? '1' : '0'); } catch(e) {}
         return Promise.resolve({});
@@ -174,7 +220,7 @@ var bg = {
             if (v === bgState) return;
             bgState = v;
             bg.apply(v);
-            syncBgBtn();
+            syncBgControl();
             try { localStorage.setItem('lucky-bg', v); } catch(e) {}
         });
     }
@@ -363,17 +409,70 @@ function syncColorBtn() {
     b.appendChild(icon('sliders', 16));
     b.title = _('Color Customization');
 }
+function positionColorPanel(panel) {
+    var viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+    var viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+    var margin = 12;
+    var button = document.getElementById('lucky-color-btn');
+    var rect = button ? button.getBoundingClientRect() : null;
+
+    panel.style.left = '0px';
+    panel.style.top = '0px';
+    panel.style.right = 'auto';
+    panel.style.maxHeight = 'none';
+    panel.style.overflowY = 'auto';
+
+    var maxHeight = Math.max(100, viewportHeight - margin * 2);
+    var height = Math.min(panel.scrollHeight, maxHeight);
+    var width = panel.getBoundingClientRect().width || panel.offsetWidth;
+    var left = rect ? rect.right - width : viewportWidth - width - margin;
+    left = Math.max(margin, Math.min(left, viewportWidth - width - margin));
+
+    var top = rect ? rect.bottom + 8 : margin;
+    if (top + height > viewportHeight - margin) {
+        var above = rect ? rect.top - height - 8 : viewportHeight - height - margin;
+        top = above >= margin ? above : viewportHeight - height - margin;
+    }
+    top = Math.max(margin, Math.min(top, viewportHeight - height - margin));
+
+    panel.style.left = left + 'px';
+    panel.style.top = top + 'px';
+    panel.style.maxHeight = height + 'px';
+    return height;
+}
+
+function showColorPanel(panel, animate) {
+    if (panel._luckyCloseTimer) {
+        clearTimeout(panel._luckyCloseTimer);
+        panel._luckyCloseTimer = null;
+    }
+    panel._luckyClosing = false;
+    panel.style.display = '';
+    panel.style.maxHeight = 'none';
+    var height = positionColorPanel(panel);
+    if (animate) {
+        panel.style.maxHeight = '0px';
+        panel.style.overflowY = 'hidden';
+        void panel.offsetHeight;
+    }
+    panel.style.maxHeight = height + 'px';
+    panel.style.overflowY = 'auto';
+
+    if (!panel._luckyResizeHandler) {
+        panel._luckyResizeHandler = function() {
+            if (panel.style.display === 'none' || panel._luckyClosing) return;
+            var nextHeight = positionColorPanel(panel);
+            panel.style.maxHeight = nextHeight + 'px';
+        };
+        window.addEventListener('resize', panel._luckyResizeHandler);
+    }
+}
+
 function initColorPanel() {
     var existing = document.getElementById('lucky-color-panel');
     if (existing) {
-        if (existing.style.display === 'none') {
-            existing.style.display = '';
-            requestAnimationFrame(function() { existing.style.maxHeight = existing.scrollHeight + 'px'; existing.style.overflowY = 'auto'; });
-        } else {
-            existing.style.maxHeight = '0';
-            existing.style.overflowY = 'hidden';
-            setTimeout(function() { existing.style.display = 'none'; }, 220);
-        }
+        if (existing.style.display === 'none' || existing.style.maxHeight === '0px' || existing.style.maxHeight === '0')
+            showColorPanel(existing, true);
         return;
     }
     var defs = COLOR_DEFAULTS[themeState] || COLOR_DEFAULTS.light;
@@ -387,6 +486,12 @@ function initColorPanel() {
     var panel = E('div', { id:'lucky-color-panel', class:'lucky-color-panel' });
     panel.style.maxHeight = '0';
     panel.style.transition = 'max-height 0.22s ease';
+    panel.appendChild(E('div', { class:'lucky-color-bg-row' }, [
+        E('label', { for:'lucky-bg-toggle', class:'lucky-color-bg-label' }, _('Background Decoration')),
+        buildToggle('lucky-bg-toggle', bg.get() === 'on', function() {
+            bg.set(this.checked ? 'on' : 'off');
+        })
+    ]));
     var stateMap = {};
     COLOR_KEYS.forEach(function(k) {
         var val = colorSettings[k] || defs[k];
@@ -487,24 +592,22 @@ function initColorPanel() {
         closeColorPanel();
     }}, _('Close')));
     panel.appendChild(foot);
-    var bar = document.getElementById('lucky-menu-tools');
-    if (bar) bar.parentNode.insertBefore(panel, bar.nextSibling);
-    else document.body.appendChild(panel);
-    requestAnimationFrame(function() { panel.style.maxHeight = panel.scrollHeight + 'px'; panel.style.overflowY = 'auto'; });
+    document.body.appendChild(panel);
+    requestAnimationFrame(function() { showColorPanel(panel, true); });
     function closeColorPanel() {
         var p = document.getElementById('lucky-color-panel');
-        if (p) { p.style.maxHeight = '0'; p.style.overflowY = 'hidden'; setTimeout(function() { p.style.display = 'none'; }, 220); }
+        if (p) {
+            if (p._luckyCloseTimer) clearTimeout(p._luckyCloseTimer);
+            p._luckyClosing = true;
+            p.style.maxHeight = '0px';
+            p.style.overflowY = 'hidden';
+            p._luckyCloseTimer = setTimeout(function() {
+                if (p._luckyClosing) p.style.display = 'none';
+                p._luckyClosing = false;
+                p._luckyCloseTimer = null;
+            }, 220);
+        }
     }
-    function onDocClick(e) {
-        var p = document.getElementById('lucky-color-panel');
-        if (!p || p.style.display === 'none') return;
-        if (p.style.maxHeight === '0' || p.style.maxHeight === '0px') return;
-        if (p.contains(e.target)) return;
-        var btn = document.getElementById('lucky-color-btn');
-        if (btn && btn.contains(e.target)) return;
-        closeColorPanel();
-    }
-    document.addEventListener('click', onDocClick, true);
 }
 function makeToolButton(id, fn) {
     var b = E('button', {
@@ -563,9 +666,6 @@ function ensureMenuTools() {
     bar.appendChild(makeToolButton('lucky-theme-btn', function() {
         return theme.toggle();
     }));
-    bar.appendChild(makeToolButton('lucky-bg-btn', function() {
-        return bg.toggle();
-    }));
     bar.appendChild(makeToolButton('lucky-color-btn', function() { initColorPanel(); }));
     var tabmenu  = document.getElementById('tabmenu');
     var mainmenu = document.getElementById('mainmenu');
@@ -582,7 +682,6 @@ function ensureMenuTools() {
     mountField();
     markMenuItems();
     syncThemeBtn();
-    syncBgBtn();
     syncColorBtn();
     return bar;
 }
@@ -597,7 +696,7 @@ function injectCSS() {
     var l = document.createElement('link');
     l.id = 'lucky-css';
     l.rel = 'stylesheet';
-    l.href = L.resource('lucky/lucky.css');
+    l.href = L.resource('lucky/lucky.css') + '?v=' + encodeURIComponent(LUCKY_ASSET_VERSION);
     document.head.appendChild(l);
 }
 
@@ -918,9 +1017,10 @@ function LogPoller(opts) {
 
 try {
     var _ct = localStorage.getItem('lucky-theme');
-    if (_ct === 'dark' || _ct === 'light') {
-        themeState = _ct;
-        theme.apply(_ct);
+    if (_ct === 'auto' || _ct === 'dark' || _ct === 'light') {
+        themeMode = _ct;
+        themeState = _ct === 'auto' ? systemTheme() : _ct;
+        theme.apply(themeState);
     }
 } catch(e) {}
 try {
@@ -986,5 +1086,4 @@ function parseHex8(hex8) {
     }
     return { hex: hex8 || '', a: 100 };
 }
-
 

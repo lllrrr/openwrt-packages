@@ -99,11 +99,11 @@ msgstr "切换到浅色主题"
 msgid "Switch to dark theme"
 msgstr "切换到深色主题"
 
-msgid "Turn off background decoration"
-msgstr "关闭背景装饰"
+msgid "Follow browser theme"
+msgstr "跟随浏览器主题"
 
-msgid "Turn on background decoration"
-msgstr "开启背景装饰"
+msgid "Background Decoration"
+msgstr "背景装饰"
 
 msgid "Unknown"
 msgstr "未知"
@@ -280,7 +280,7 @@ msgid "GitHub (github.com/gdy666/lucky)"
 msgstr "GitHub（github.com/gdy666/lucky）"
 
 msgid "Official (release.66666.host)"
-msgstr "官方版（release.66666.host）"
+msgstr "官方（release.66666.host）"
 
 msgid "Release Channel"
 msgstr "发布渠道"
@@ -490,10 +490,10 @@ msgid "Internet Access"
 msgstr "互联网访问"
 
 msgid "Enabled"
-msgstr "已启用"
+msgstr "启用"
 
 msgid "Disabled"
-msgstr "已禁用"
+msgstr "禁用"
 
 msgid "Entrance"
 msgstr "入口"
@@ -653,4 +653,3 @@ msgstr "发布标签"
 
 msgid "Build Date"
 msgstr "构建日期"
-

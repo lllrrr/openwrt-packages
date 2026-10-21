@@ -7,7 +7,7 @@ import { cursor } from "uci";
 const DEFAULTS = {
     config_path:   "/etc/vnt2_config",
     template_path: "/etc/vnt2_config",
-    update_script: "/usr/libexec/vnt2-update.sh",
+    update_script: "/usr/libexec/vnt2/vnt2-update.sh",
     update_dir:    "/tmp/vnt2_update",
     init_script:   "/etc/init.d/vnt2",
 };

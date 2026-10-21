@@ -4,25 +4,22 @@
 START=99
 STOP=10
 USE_PROCD=1
-EXTRA_COMMANDS="refresh_tuntap_firewall fw_reload_now fw_purge"
-EXTRA_HELP="	refresh_tuntap_firewall  Rescan TUN/TAP devices and reload fw4 include
-	fw_reload_now            Reload fw4 rules quietly, start firewall if not loaded
+EXTRA_COMMANDS="fw_reload_now fw_purge"
+EXTRA_HELP="	fw_reload_now            Reload fw4 rules quietly, start firewall if not loaded
 	fw_purge                 Remove all vnt2 firewall rules synchronously"
 
 BIN_PATH="/usr/bin"
 CONFIG_PATH="/etc/vnt2_config"
 LOG_DIR="/tmp/vnt2_log"
 RUN_DIR="/var/run/vnt2"
-TUNTAP_NFT="${RUN_DIR}/tuntap.nft"
 FW_PENDING="${RUN_DIR}/fw_pending"
 FW_WORKER_LOCK="${RUN_DIR}/fw_worker.lock"
 FW_ACTIVE="${RUN_DIR}/fw_active"
-TUNTAP_INCLUDE="vnt2_tuntap"
 CRON_TAG="vnt2_auto_update"
-UPDATE_SCRIPT="/usr/libexec/vnt2-update.sh"
+UPDATE_SCRIPT="/usr/libexec/vnt2/vnt2-update.sh"
 CRON_FILE="/etc/crontabs/root"
 FW_ZONE="vnt2_vnt"
-VNT_RUN="/usr/libexec/vnt2-run.sh"
+VNT_RUN="/usr/libexec/vnt2/vnt2-run.sh"
 INITD="/etc/init.d"
 IFACE_PREFIX="vnt2"
 RESPAWN_THRESHOLD=3600
@@ -286,15 +283,6 @@ fw_worker_request() {
     fi
 }
 
-cleanup_tuntap_include() {
-    rm -f "$TUNTAP_NFT"
-    if uci -q get "firewall.${TUNTAP_INCLUDE}" >/dev/null 2>&1; then
-        uci -q delete "firewall.${TUNTAP_INCLUDE}"
-        return 0
-    fi
-    return 1
-}
-
 sync_zone_devices() {
     local desired current d
     desired="$(zone_device_patterns)"
@@ -307,11 +295,6 @@ sync_zone_devices() {
     done
     set +f
     return 0
-}
-
-refresh_tuntap_firewall() {
-    init_paths
-    fw_worker_request
 }
 
 _create_iface() {
@@ -592,7 +575,6 @@ fw_reload_now() {
 
 _fw_teardown_uci() {
     cleanup_fw
-    cleanup_tuntap_include
     uci -q delete "firewall.${FW_ZONE}.device"
 }
 
@@ -602,7 +584,6 @@ rebuild_firewall() {
     apply_fw_forwardings
     apply_fw_ports
     apply_fw_vnts_wireguard
-    cleanup_tuntap_include
     sync_zone_devices
 }
 
@@ -694,7 +675,7 @@ _do_start_vnt_web() {
     procd_set_param pidfile "/var/run/vnt2_${WEB_INSTANCE}.pid"
     procd_close_instance
     _instance_log "$WEB_INSTANCE" "Registered vnt2_web addr=${WEB_ADDR}"
-    [ "$skip_sync" = "1" ] || setsid /usr/libexec/vnt2-web-sync.sh >/dev/null 2>&1 1000>&- &
+    [ "$skip_sync" = "1" ] || setsid /usr/libexec/vnt2/vnt2-web-sync.sh >/dev/null 2>&1 1000>&- &
 }
 
 _do_start_instance() {

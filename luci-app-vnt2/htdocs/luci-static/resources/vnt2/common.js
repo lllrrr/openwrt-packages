@@ -1,6 +1,7 @@
 'use strict';
 'require rpc';
 'require uci';
+const ASSET_VERSION = '0.0.0';
 
 var RE_TOML_TABLE     = /^\[([a-zA-Z_][a-zA-Z0-9_]*)\]$/;
 var NO_COMMENT_FIELDS = ['white_list'];
@@ -170,7 +171,7 @@ var VNT2Web = {
         link.rel = 'stylesheet';
         link.href = ((typeof L !== 'undefined' && L.resource)
             ? L.resource('vnt2/style.css')
-            : '/luci-static/resources/vnt2/style.css') + '?v=20261018';
+            : '/luci-static/resources/vnt2/style.css') + '?v=' + ASSET_VERSION;
         document.head.appendChild(link);
     }
 

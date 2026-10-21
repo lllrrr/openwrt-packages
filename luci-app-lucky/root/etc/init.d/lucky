@@ -108,6 +108,8 @@ sync_cron() {
 start_service() {
     init_config
 
+    [ "$ENABLED" = "1" ] || { log_msg "Lucky is disabled, skipping start."; return 0; }
+
     if [ ! -x "$PROG" ]; then
         uci -q set lucky.lucky.installed_version='' 2>/dev/null
         uci -q commit lucky 2>/dev/null
@@ -117,8 +119,6 @@ start_service() {
         }
         return 0
     fi
-
-    [ "$ENABLED" = "1" ] || { log_msg "Lucky is disabled, skipping start."; return 0; }
 
     [ "$(awk -F. '{print $1}' /proc/uptime)" -lt 120 ] && {
         log_msg "Delaying start by ${DELAY}s..."

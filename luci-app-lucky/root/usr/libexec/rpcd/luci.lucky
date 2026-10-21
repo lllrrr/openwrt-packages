@@ -16,7 +16,7 @@ const SETTINGS = {
     arch: 'auto', mirror: 'github', release_type: 'stable', variant: 'lucky',
     respawn_threshold: '3600', respawn_timeout: '30', respawn_retry: '5',
     auto_update: '0', update_interval: '7', installed_version: '',
-    theme: 'light', bg: '1',
+    theme: 'auto', bg: '1',
     color_primary: '', color_text: '', color_card: '', color_deco: ''
 };
 
@@ -76,7 +76,7 @@ function ensureUiOptions() {
         "(uci -q get lucky.lucky >/dev/null 2>&1 || " +
         "uci -q set lucky.lucky=lucky) && " +
         "(uci -q get lucky.lucky.theme >/dev/null 2>&1 || " +
-        "uci -q set lucky.lucky.theme='light') && " +
+        "uci -q set lucky.lucky.theme='auto') && " +
         "(uci -q get lucky.lucky.bg >/dev/null 2>&1 || " +
         "uci -q set lucky.lucky.bg='1') && " +
         "uci -q commit lucky", 'r');
@@ -250,12 +250,12 @@ const api = {
     get_theme: () => {
         ensureUiOptions();
         let t = readUciOption('theme', SETTINGS.theme);
-        return { theme: t === 'dark' ? 'dark' : 'light' };
+        return { theme: t === 'light' || t === 'dark' ? t : 'auto' };
     },
 
     set_theme: (a) => {
         let t = (a && a.theme) || '';
-        if (t !== 'light' && t !== 'dark')
+        if (t !== 'auto' && t !== 'light' && t !== 'dark')
             return { result: 'error', msg: 'invalid theme' };
         if (!writeUciOption('theme', t))
             return { result: 'error', msg: 'uci_commit_failed' };
@@ -497,6 +497,5 @@ if (ARGV[0] === 'list') {
 } else {
     exit(1);
 }
-
 
 

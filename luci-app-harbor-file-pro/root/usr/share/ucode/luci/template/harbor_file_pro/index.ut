@@ -1,5 +1,5 @@
 {%
-const harbor_asset_version = '20260922.12';
+const harbor_asset_version = '@PKG_VERSION@';
 function harbor_asset_url(path) {
     return resource + '/harbor_file_pro/' + path + '?v=' + harbor_asset_version;
 }
@@ -1817,7 +1817,6 @@ window.HarborFile.tr = function (msgid) {
     });
     window.addEventListener('scroll', function(event) {
         HF.hide_item_hover_card();
-        if (event.target === document.getElementById('fm_content') && HF.state.details_adjusting) return;
         if (HF.scroll_inside_overlay(event && event.target)) {
             return;
         }
@@ -2165,4 +2164,3 @@ window.HarborFile.tr = function (msgid) {
 </script>
 
 {% include('footer') %}
-

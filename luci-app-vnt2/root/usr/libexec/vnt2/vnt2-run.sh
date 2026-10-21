@@ -1,5 +1,5 @@
 #!/bin/sh
-# /usr/libexec/vnt2-run.sh - lightweight procd wrapper for vnt2_web/vnts2
+# /usr/libexec/vnt2/vnt2-run.sh - lightweight procd wrapper for vnt2_web/vnts2
 
 NAME="$1"
 LOG_FILE="$2"

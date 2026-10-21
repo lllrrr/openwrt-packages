@@ -472,4 +472,3 @@ return view.extend({
     }
 });
 
-

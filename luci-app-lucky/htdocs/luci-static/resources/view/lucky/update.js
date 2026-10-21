@@ -380,4 +380,3 @@ return view.extend({
     }
 });
 
-

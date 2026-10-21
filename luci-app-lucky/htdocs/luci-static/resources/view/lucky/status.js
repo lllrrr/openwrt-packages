@@ -410,4 +410,3 @@ return view.extend({
         return mapEl;
     }
 });
-

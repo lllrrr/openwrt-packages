@@ -142,9 +142,10 @@ ts_fetch() {
 	attempt=0
 	empty_seen=0
 	TS_FETCH_ERROR='fetch_fail'
+	TS_FETCH_MSG=''
 	while [ "$attempt" -le "$retry" ]; do
 		if command -v curl >/dev/null 2>&1; then
-			if curl -fsSL --connect-timeout "$timeout" --max-time "$max" -o "$out" "$url"; then
+			if TS_FETCH_MSG="$(curl -fsSL -S --connect-timeout "$timeout" --max-time "$max" -o "$out" "$url" 2>&1)"; then
 				if [ -s "$out" ]; then
 					TS_FETCH_ERROR=''
 					return 0
@@ -152,7 +153,7 @@ ts_fetch() {
 				empty_seen=1
 			fi
 		elif command -v uclient-fetch >/dev/null 2>&1; then
-			if uclient-fetch --timeout="$max" -O "$out" "$url"; then
+			if TS_FETCH_MSG="$(uclient-fetch --timeout="$max" -O "$out" "$url" 2>&1)"; then
 				if [ -s "$out" ]; then
 					TS_FETCH_ERROR=''
 					return 0
@@ -160,7 +161,7 @@ ts_fetch() {
 				empty_seen=1
 			fi
 		elif command -v wget >/dev/null 2>&1; then
-			if wget -q -T "$max" -O "$out" "$url"; then
+			if TS_FETCH_MSG="$(wget -q -T "$max" -O "$out" "$url" 2>&1)"; then
 				if [ -s "$out" ]; then
 					TS_FETCH_ERROR=''
 					return 0
@@ -181,6 +182,18 @@ ts_fetch() {
 		TS_FETCH_ERROR='empty_response'
 	fi
 	return 1
+}
+
+ts_fetch_log() {
+	local msg
+	case "$TS_FETCH_ERROR" in
+		empty_response) ts_task_log "$1" fetch_fail 'empty response after retries' ;;
+		no_client) ts_task_log "$1" fetch_fail 'no downloader is installed' ;;
+		*)
+			msg="$(printf '%s' "$TS_FETCH_MSG" | tail -n 1)"
+			ts_task_log "$1" fetch_fail "$2${msg:+ $msg}"
+			;;
+	esac
 }
 
 ts_cached_fetch() {
@@ -789,13 +802,7 @@ core_attempt() {
 	if ! ts_fetch "$url" "$pkg" "$(ts_uci_get update dl_timeout "$TS_DEF_DL")"; then
 		rm -f "$pkg"
 		rm -rf "$stage_dir"
-		if [ "$TS_FETCH_ERROR" = "empty_response" ]; then
-			ts_task_log "$id" fetch_fail 'empty response after retries'
-		elif [ "$TS_FETCH_ERROR" = "no_client" ]; then
-			ts_task_log "$id" fetch_fail 'no downloader is installed'
-		else
-			ts_task_log "$id" fetch_fail "$file"
-		fi
+		ts_fetch_log "$id" "$file"
 		return 1
 	fi
 	actual_download_bytes="$(ts_path_bytes "$pkg")"
@@ -1578,7 +1585,7 @@ luci_installed_version() {
 	local mgr version
 	mgr="$(luci_mgr)"
 	if [ "$mgr" = "apk" ]; then
-		version="$(apk info -v "$TS_PKG_LUCI" 2>/dev/null | head -n 1 | sed "s/^$TS_PKG_LUCI-//")"
+		version="$(apk list --installed --manifest 2>/dev/null | awk -v p="$TS_PKG_LUCI" '$1 == p { print $2; exit }')"
 	else
 		version="$(opkg list-installed "$TS_PKG_LUCI" 2>/dev/null | cut -d' ' -f3)"
 	fi
@@ -1618,13 +1625,7 @@ luci_attempt() {
 	ts_task_step "$id" download 20 "$file"
 	if ! ts_fetch "$url" "$pkg" "$(ts_uci_get update dl_timeout "$TS_DEF_DL")"; then
 		rm -f "$pkg"
-		if [ "$TS_FETCH_ERROR" = "empty_response" ]; then
-			ts_task_log "$id" fetch_fail 'empty response after retries'
-		elif [ "$TS_FETCH_ERROR" = "no_client" ]; then
-			ts_task_log "$id" fetch_fail 'no downloader is installed'
-		else
-			ts_task_log "$id" fetch_fail "$file"
-		fi
+		ts_fetch_log "$id" "$file"
 		return 1
 	fi
 	ts_task_step "$id" download 60 "$file"
@@ -1641,7 +1642,7 @@ luci_attempt() {
 			return 6
 		}
 	else
-		pkg_out="$(opkg install --force-reinstall --force-downgrade "$pkg" 2>&1)" || {
+		pkg_out="$(opkg install "$pkg" 2>&1)" || {
 			rm -f "$pkg"
 			ts_task_log "$id" pkg_fail "$(printf '%s' "$pkg_out" | tail -n 1)"
 			return 6
@@ -1689,6 +1690,10 @@ luci_install() {
 	}
 	file="${out#ok }"
 	ts_task_step "$id" install 95 "$file"
+	if [ -x /etc/init.d/uhttpd ]; then
+		ts_task_log "$id" restart uhttpd
+		/etc/init.d/uhttpd restart >/dev/null 2>&1
+	fi
 	luci_finish "$id" ""
 	return 0
 }

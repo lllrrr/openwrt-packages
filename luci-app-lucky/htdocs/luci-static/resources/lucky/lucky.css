@@ -792,19 +792,27 @@ body.lucky-variant-modal-open { overflow: hidden; }
 .lucky-toast-msg { font-size: 14px; color: var(--lucky-text-2); overflow-wrap: anywhere; }
 
 .lucky-color-panel {
-    overflow: hidden;
+    position: fixed;
+    z-index: 10001;
+    top: 12px;
+    left: 12px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     background: var(--lucky-toast-bg);
     -webkit-backdrop-filter: blur(var(--lucky-blur)) saturate(160%);
     backdrop-filter: blur(var(--lucky-blur)) saturate(160%);
     border: 1px solid var(--lucky-card-border);
     border-radius: 10px;
     box-shadow: 0 6px 24px rgba(0,0,0,0.15);
-    margin: 6px 6px 0;
+    margin: 0;
     padding: 10px 14px;
     box-sizing: border-box;
-    width: fit-content;
-    max-width: 100%;
-    min-width: 220px;
+    width: min(360px, calc(100vw - 24px));
+    max-width: calc(100vw - 24px);
+    max-height: calc(100vh - 24px);
+    max-height: calc(100dvh - 24px);
+    min-width: 0;
 }
 
 .lucky-theme-btn {
@@ -842,6 +850,20 @@ body.lucky-variant-modal-open { overflow: hidden; }
     animation: lucky-curtain-open 0.8s ease-in-out forwards;
 }
 
+.lucky-color-bg-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 4px 12px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid var(--lucky-divider);
+}
+.lucky-color-bg-label {
+    color: var(--lucky-text);
+    font-size: 14px;
+    cursor: pointer;
+}
 .lucky-color-row {
     border-bottom: 1px solid var(--lucky-divider);
 }
@@ -1228,7 +1250,7 @@ body.lucky-variant-modal-open { overflow: hidden; }
         padding: 0 6px 8px;
     }
     .lucky-select--file { max-width: 100%; width: 100%; }
-    .lucky-color-panel { margin: 6px 0 0; border-radius: 8px; }
+    .lucky-color-panel { border-radius: 8px; }
     .lucky-color-head { padding: 10px 2px; }
     .lucky-color-body { padding: 0 2px 10px; }
     .lucky-toast { padding: 22px 24px; }
@@ -1254,5 +1276,4 @@ body.lucky-variant-modal-open { overflow: hidden; }
     .lucky-form-ctrl { width: 100%; }
     .lucky-input { max-width: 100%; }
 }
-
 

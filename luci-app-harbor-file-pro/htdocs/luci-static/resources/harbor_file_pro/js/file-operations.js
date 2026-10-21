@@ -1573,10 +1573,7 @@
                 touch_start = null;
             }, { capture: true, passive: true });
         });
-        window.addEventListener('scroll', function(event) {
-            if (event.target === document.getElementById('fm_content') && HF.state.details_adjusting) return;
-            HF.dismiss_details(event);
-        }, true);
+        window.addEventListener('scroll', HF.dismiss_details, true);
         window.addEventListener('resize', HF.hide_details);
     }
 
@@ -1782,25 +1779,25 @@
         document.addEventListener('visibilitychange', HF.cancel_touch_operations);
     }
 
-    HF.keep_details_item_visible = function keep_details_item_visible() {
-        var item = HF.state.selected;
+    HF.position_details = function position_details() {
         var panel = document.getElementById('fm_details');
-        if (item && !panel.hidden) {
-            var entry = HF.rendered_file_items().find(function(entry) { return entry.item.path === item.path; });
-            var content = document.getElementById('fm_content');
-            if (entry && content) {
-                var bounds = content.getBoundingClientRect();
-                var rect = entry.node.getBoundingClientRect();
-                var delta = rect.bottom > bounds.bottom ? rect.bottom - bounds.bottom :
-                    (rect.top < bounds.top ? rect.top - bounds.top : 0);
-                if (delta) {
-                    HF.state.details_adjusting = true;
-                    content.scrollTop += delta;
-                    requestAnimationFrame(function() { requestAnimationFrame(function() { HF.state.details_adjusting = false; }); });
-                }
-            }
-        }
-
+        var content = document.getElementById('fm_content');
+        if (!panel || panel.hidden || !content) return;
+        var bounds = content.getBoundingClientRect();
+        var parent = panel.parentElement.getBoundingClientRect();
+        var viewport = HF.visible_viewport();
+        var top = Math.max(bounds.top, viewport.top);
+        var bottom = Math.min(bounds.bottom, viewport.bottom);
+        if (bottom <= top) { HF.hide_details(); return; }
+        var item = HF.state.selected;
+        var entry = item && HF.rendered_file_items().find(function(entry) { return entry.item.path === item.path; });
+        var rect = entry && entry.node.getBoundingClientRect();
+        var above = !!rect && (rect.top + rect.bottom) / 2 > (top + bottom) / 2;
+        var height = Math.min((bottom - top) * 0.4, rect ? (above ? rect.top - top : bottom - rect.bottom) - 4 : Infinity);
+        if (height < 24) { HF.hide_details(); return; }
+        panel.classList.toggle('is-top', above);
+        panel.style.setProperty('--fm-details-edge', Math.max(0, above ? top - parent.top : parent.bottom - bottom) + 'px');
+        panel.style.maxHeight = height + 'px';
     }
 
     HF.render_details = function render_details() {
@@ -1829,7 +1826,7 @@
             document.getElementById('fm_detail_size').textContent = has_directory ? '-' : HF.format_size(size);
             document.getElementById('fm_detail_mtime').textContent = '-';
             document.getElementById('fm_detail_mode').textContent = '-';
-            HF.keep_details_item_visible();
+            HF.position_details();
             return;
         }
         var item = HF.state.selected;
@@ -1839,7 +1836,7 @@
         document.getElementById('fm_detail_size').textContent = item ? item.display_size : '-';
         document.getElementById('fm_detail_mtime').textContent = item ? item.display_mtime : '-';
         document.getElementById('fm_detail_mode').textContent = item ? (item.mode || '-') : '-';
-        HF.keep_details_item_visible();
+        HF.position_details();
     }
 
     HF.ensure_item_hover_card = function ensure_item_hover_card() {
@@ -5553,4 +5550,3 @@
         update_toolbar: HF.update_toolbar
     };
 })(window.HarborFile = window.HarborFile || {});
-
