@@ -727,7 +727,42 @@ run_service() {
 }
 
 stat_mtime() {
-	stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || printf ''
+	# ★ 主路径必须是 date -r：OpenWrt 25.12 的 busybox **没有 stat applet**
+	#   （设备上实测 `ash: stat: not found`，rc=127），`stat -c %Y` 会静默失败，
+	#   被 2>/dev/null 吞掉后调用方只拿到空串 —— 表现为 Geo 页「修改时间」显示
+	#   「-」、config/rules 的 mtime 乐观锁永不生效。GNU 开发机上 stat 可用，
+	#   会让这个缺陷测不出来，所以别把 stat 放前面。
+	date -r "$1" +%s 2>/dev/null && return 0
+	stat -c %Y "$1" 2>/dev/null && return 0
+	stat -f %m "$1" 2>/dev/null && return 0
+	printf ''
+}
+
+# 同一个原因（busybox 无 stat applet）拿不到文件权限位，只能从 `ls -l` 的符号位
+# 换算成八进制。用 busybox --list 确认过 `busybox stat` 也是 "applet not found"。
+# 失败返回非 0，调用方继续用默认 644，绝不因为读权限失败而写坏文件。
+ls_mode_group() { # <三个字符（如 rwx / rws / ---）> → 0..7
+	case "$1" in
+		---) printf '0' ;;
+		--x | --s | --t) printf '1' ;;
+		-w-) printf '2' ;;
+		-wx | -ws | -wt) printf '3' ;;
+		r--) printf '4' ;;
+		r-x | r-s | r-t) printf '5' ;;
+		rw- | rwS | rwT) printf '6' ;;
+		rwx | rws | rwt) printf '7' ;;
+		*) return 1 ;;
+	esac
+}
+
+file_mode_octal() { # <path> → 形如 644；读不到就返回非 0
+	_sym="$(ls -ld "$1" 2>/dev/null | awk '{ print $1 }')"
+	[ -n "$_sym" ] || return 1
+	[ "${#_sym}" -eq 10 ] || return 1
+	_g1="$(ls_mode_group "$(printf '%s' "$_sym" | cut -c2-4)")" || return 1
+	_g2="$(ls_mode_group "$(printf '%s' "$_sym" | cut -c5-7)")" || return 1
+	_g3="$(ls_mode_group "$(printf '%s' "$_sym" | cut -c8-10)")" || return 1
+	printf '%s%s%s' "$_g1" "$_g2" "$_g3"
 }
 
 emit_config_read() {
@@ -1798,7 +1833,7 @@ emit_rules_save() {
 
 	MODE="644"
 	if [ -e "$FILE" ]; then
-		EXISTING_MODE="$(stat -c %a "$FILE" 2>/dev/null || printf '')"
+		EXISTING_MODE="$(file_mode_octal "$FILE" 2>/dev/null || printf '')"
 		if [ -n "$EXISTING_MODE" ]; then
 			MODE="$EXISTING_MODE"
 		fi

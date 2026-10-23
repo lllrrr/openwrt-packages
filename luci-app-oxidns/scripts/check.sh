@@ -158,3 +158,30 @@ sh -n root/etc/init.d/oxidns
 sh -n scripts/build-luci-package.sh
 sh -n scripts/integration-check.sh
 sh -n scripts/release-check.sh
+
+# ---------------------------------------------------------------- 源码守卫
+# OpenWrt 25.12 的 busybox **没有 stat applet**（设备实测 `ash: stat: not found`，
+# rc=127）。`stat -c %Y` 失败会被 2>/dev/null 吞掉，调用方只拿到空串：Geo 页的
+# 「修改时间」显示 `-`，config/rules 的 mtime 乐观锁永不生效。
+# 开发机是 GNU stat、能跑通，所以这类缺陷只能靠源码守卫挡 —— 断言 stat_mtime
+# 的第一条有效语句是 `date -r`（busybox date 支持 -r）。
+stat_mtime_first=$(
+	awk '/^stat_mtime\(\)/{f=1;next} f&&/^\}/{exit} f' root/usr/libexec/rpcd/luci.oxidns |
+		grep -v '^[[:space:]]*#' | grep -v '^[[:space:]]*$' | head -1
+)
+case "$stat_mtime_first" in
+	*'date -r'*) ;;
+	*)
+		echo "stat_mtime 的第一条有效语句必须是 date -r（25.12 的 busybox 没有 stat applet）；实际: [$stat_mtime_first]" >&2
+		exit 1
+		;;
+esac
+if ! grep -q 'fmtTime(info\.mtime)' htdocs/luci-static/resources/view/oxidns/geo.js; then
+	echo 'geo.js 的「修改时间」必须经 fmtTime() 换算成本地时间，不能直接输出 Unix 秒' >&2
+	exit 1
+fi
+# 同一根因的另一处：拿权限位也不能用 stat（规则文件保存时保留原 mode）
+if grep -q 'stat -c %a' root/usr/libexec/rpcd/luci.oxidns; then
+	echo 'luci.oxidns 里不能用 stat -c %a 取权限位（25.12 的 busybox 没有 stat applet），用 file_mode_octal' >&2
+	exit 1
+fi

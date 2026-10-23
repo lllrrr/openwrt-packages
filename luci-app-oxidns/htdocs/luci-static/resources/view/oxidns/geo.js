@@ -78,6 +78,20 @@ function fmtSize(bytes) {
 	return '%d B'.format(bytes);
 }
 
+/* 后端给的是 Unix 秒（stat_mtime），这里换算成本地时间显示，与规则页一致 */
+function fmtTime(mtime) {
+	var value = parseInt(mtime, 10);
+
+	if (isNaN(value) || value <= 0)
+		return '-';
+
+	var date = new Date(value * 1000);
+
+	return '%04d-%02d-%02d %02d:%02d:%02d'.format(
+		date.getFullYear(), date.getMonth() + 1, date.getDate(),
+		date.getHours(), date.getMinutes(), date.getSeconds());
+}
+
 function fileRows(name, info) {
 	var cells = [
 		E('div', { 'class': 'td left', 'style': 'width: 120px' }, name)
@@ -87,7 +101,7 @@ function fileRows(name, info) {
 		return E('div', { 'class': 'tr' }, cells);
 	}
 	cells.push(E('div', { 'class': 'td left', 'style': 'width: 120px' }, fmtSize(info.size)));
-	cells.push(E('div', { 'class': 'td left', 'style': 'width: 200px' }, info.mtime || '-'));
+	cells.push(E('div', { 'class': 'td left', 'style': 'width: 200px' }, fmtTime(info.mtime)));
 	cells.push(E('div', { 'class': 'td left' },
 		E('span', { 'style': 'font-family: monospace; font-size: 85%; word-break: break-all;' }, info.sha256 || '-')));
 	return E('div', { 'class': 'tr' }, cells);
