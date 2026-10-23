@@ -10,6 +10,91 @@ import subprocess
 import os
 import sys
 import time
+import re
+import urllib.request
+
+def normalize_target_domain(raw_target, lang="zh"):
+    """
+    智能聚类与友好域名归并：
+    将复杂的底层 CDN 切片域名、音视频碎片分发域名、以及代理/游戏节点，
+    归拢到对应的主流服务主品牌名下，确保统计报表一目了然。
+    """
+    if not raw_target:
+        return "未知 (Unknown)"
+    t = raw_target.lower().strip()
+
+    # 1. 哔哩哔哩 (Bilibili)
+    if any(k in t for k in ["bilibili.com", "bilivideo.cn", "bilivideo.com", "biliapi.net", "hdslb.com", "mcdn.bilivideo.cn"]):
+        return "Bilibili" if lang == "en" else "哔哩哔哩 (Bilibili)"
+
+    # 2. YouTube / Google 视频与服务
+    if any(k in t for k in ["youtube.com", "googlevideo.com", "ytimg.com", "youtu.be"]):
+        return "YouTube" if lang == "en" else "YouTube 视频"
+    if any(k in t for k in ["google.com", "googleapis.com", "gstatic.com", "googleusercontent.com", "1e100.net"]):
+        return "Google Services" if lang == "en" else "Google 服务"
+
+    # 3. 抖音 / 剪映 / 字节跳动视频
+    if any(k in t for k in ["douyinvod.com", "douyinpic.com", "douyin.com", "bytegoofy.com", "bytedance.com", "snssdk.com"]):
+        return "Douyin / TikTok" if lang == "en" else "抖音 / 字节跳动视频"
+
+    # 4. 腾讯视频 / 微信 / 腾讯云 CDN
+    if any(k in t for k in ["video.qq.com", "qpic.cn", "gtimg.cn", "weixin.qq.com", "wechat.com", "tenpay.com", "tencent.com", "cdnhwc2.com", "myqcloud.com", "tdnsvod"]):
+        return "Tencent / WeChat Stream" if lang == "en" else "腾讯 / 微信 / 视频流媒体"
+
+    # 5. 阿里巴巴 / 优酷 / 阿里 CDN
+    if any(k in t for k in ["youku.com", "ykimg.com", "taobao.com", "alipay.com", "aliyuncs.com", "alibabadns.com", "alicdn.com"]):
+        return "Alibaba / Youku CDN" if lang == "en" else "阿里 / 优酷 / 媒体分发网络"
+
+    # 6. 爱奇艺
+    if any(k in t for k in ["iqiyi.com", "qiyi.com", "iqiyipic.com"]):
+        return "iQIYI" if lang == "en" else "爱奇艺 (iQIYI)"
+
+    # 7. Steam / Dota 2 / 游戏分发
+    if any(k in t for k in ["dota2.com", "steampowered.com", "steamcommunity.com", "steamcontent.com", "steamstatic.com", "valvesoftware.com"]):
+        return "Steam / Dota 2" if lang == "en" else "Steam / Dota 2 游戏平台"
+
+    # 8. GitHub / 开发者源
+    if any(k in t for k in ["github.com", "githubusercontent.com", "github.io", "ghcr.io"]):
+        return "GitHub" if lang == "en" else "GitHub 源码与容器库"
+
+    # 9. Docker / 容器镜像
+    if any(k in t for k in ["docker.com", "docker.io", "cloudfront.docker.com"]):
+        return "Docker Registry" if lang == "en" else "Docker 镜像源"
+
+    # 10. 小红书
+    if "xiaohongshu.com" in t or "xhscdn.com" in t:
+        return "Xiaohongshu" if lang == "en" else "小红书 (Xiaohongshu)"
+
+    # 11. 百度
+    if any(k in t for k in ["baidu.com", "bdstatic.com", "baidupcs.com"]):
+        return "Baidu" if lang == "en" else "百度服务"
+
+    # 12. 苹果服务
+    if any(k in t for k in ["apple.com", "icloud.com", "aaplimg.com", "mzstatic.com"]):
+        return "Apple / iCloud" if lang == "en" else "Apple / iCloud 服务"
+
+    # 13. 微软
+    if any(k in t for k in ["microsoft.com", "windowsupdate.com", "live.com", "office.com", "azure.com"]):
+        return "Microsoft / Windows" if lang == "en" else "Microsoft / Windows 更新"
+
+    # 14. 常见的运营商/主流公共 CDN 汇总
+    if any(k in t for k in ["bsgslb.cn", "cloudjscdn.cn", "gslb4.com", "glb4.com", "ctlcdn.cn", "ourwebpic.com"]):
+        return "Streaming Media CDN" if lang == "en" else "运营商视频与流媒体 CDN"
+
+    # 15. 若是纯 IP，按已知网段做友好提示
+    if re.match(r"^\d+\.\d+\.\d+\.\d+$", t):
+        if t in ["180.163.126.1", "111.206.90.3"]:
+            return f"{t} (Backbone CDN)" if lang == "en" else f"{t} (骨干节点高速分发)"
+        return t
+
+    # 16. 其他常规多级域名：提取二级主域名（如 a.b.example.com -> example.com）
+    parts = t.split(".")
+    if len(parts) >= 2:
+        if len(parts) >= 3 and parts[-2] in ["com", "net", "org", "gov", "edu"] and parts[-1] in ["cn", "hk", "tw", "uk"]:
+            return ".".join(parts[-3:])
+        return ".".join(parts[-2:])
+
+    return raw_target
 
 def fmt_bytes(b):
     try:
@@ -149,6 +234,79 @@ def read_wan_bytes(ifname):
         pass
     return 0, 0
 
+def collect_proxy_controller_stats():
+    """
+    通用自适应代理探针：
+    静默探测本地常见代理内核控制端口 (9090 / 7890 / 9999 等)，提取客户端与网站的实时传输量。
+    若无代理或未开启外部控制器，自动捕获异常并平滑返回空数据，绝不阻塞或抛错。
+    """
+    client_stats = {}
+    site_stats = {}
+    
+    ports_and_secrets = []
+    
+    # 1. 尝试从 OpenClash 配置文件读取端口与密钥
+    try:
+        cfg_path = "/etc/openclash/config.yaml"
+        if os.path.exists(cfg_path):
+            with open(cfg_path, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+                port = 9090
+                sec = ""
+                m_port = re.search(r"external-controller:\s*['\"]?(?:0\.0\.0\.0|127\.0\.0\.1)?:?(\d+)['\"]?", content)
+                if m_port:
+                    port = int(m_port.group(1))
+                m_sec = re.search(r"secret:\s*['\"](.*?)['\"]", content)
+                if m_sec:
+                    sec = m_sec.group(1).strip()
+                ports_and_secrets.append((port, sec))
+    except Exception:
+        pass
+
+    # 2. 默认常见组合探针
+    for p, s in [(9090, ""), (9090, "852172"), (7890, ""), (9999, "")]:
+        if (p, s) not in ports_and_secrets:
+            ports_and_secrets.append((p, s))
+
+    for port, secret in ports_and_secrets:
+        try:
+            url = f"http://127.0.0.1:{port}/connections"
+            headers = {"User-Agent": "dailyreport-probe"}
+            if secret:
+                headers["Authorization"] = f"Bearer {secret}"
+            
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=1.5) as resp:
+                data = json.loads(resp.read().decode("utf-8", errors="ignore"))
+                conns = data.get("connections", [])
+                for c in conns:
+                    meta = c.get("metadata", {})
+                    src_ip = meta.get("sourceIP")
+                    host = meta.get("host") or meta.get("destinationIP")
+                    dl = int(c.get("download", 0))
+                    ul = int(c.get("upload", 0))
+                    
+                    if src_ip:
+                        if src_ip not in client_stats:
+                            client_stats[src_ip] = {"rx": 0, "tx": 0}
+                        client_stats[src_ip]["rx"] += dl
+                        client_stats[src_ip]["tx"] += ul
+                        
+                    if host:
+                        # 过滤掉 DNS 与内部广播探测
+                        if host not in ["1.1.1.1", "1.12.12.12", "dns.google", "cloudflare-dns.com", "223.5.5.5"]:
+                            if host not in site_stats:
+                                site_stats[host] = [0.0, 0.0]
+                            site_stats[host][0] += dl
+                            site_stats[host][1] += ul
+                # 探测到一个可用并提取成功，结束探针
+                if client_stats or site_stats:
+                    break
+        except Exception:
+            continue
+
+    return client_stats, site_stats
+
 def safe_atomic_json_dump(data, target_path):
     """安全原子写入 JSON 文件，杜绝大并发或中断导致的文件损坏与数据重叠"""
     tmp_path = f"{target_path}.tmp"
@@ -206,6 +364,8 @@ def load_window(snapshots_dir, margin=6 * 3600):
             "nlbw": best.get("nlbw") or {},
             "wan": best.get("wan") or {},
             "target_ips": best.get("target_ips") or {},
+            "proxy_clients": best.get("proxy_clients") or {},
+            "proxy_sites": best.get("proxy_sites") or {},
             "label": "过去24小时",
             "note": f"统计区间：{since} 至现在",
             "since": since,
@@ -224,6 +384,8 @@ def load_window(snapshots_dir, margin=6 * 3600):
             "nlbw": oldest.get("nlbw") or {},
             "wan": oldest.get("wan") or {},
             "target_ips": oldest.get("target_ips") or {},
+            "proxy_clients": oldest.get("proxy_clients") or {},
+            "proxy_sites": oldest.get("proxy_sites") or {},
             "label": f"过去{span_str}（快照积累中，满24小时后对齐）",
             "note": f"统计区间：{since} 至现在（快照尚不足24小时，数据仅供参考）",
             "since": since,
@@ -235,6 +397,8 @@ def load_window(snapshots_dir, margin=6 * 3600):
         "nlbw": {},
         "wan": {},
         "target_ips": {},
+        "proxy_clients": {},
+        "proxy_sites": {},
         "label": "过去24小时",
         "note": "暂无快照数据，首次快照将在整点写入。",
         "since": "",
@@ -340,12 +504,15 @@ def main():
         try:
             os.makedirs(snapshots_dir, exist_ok=True)
             now_ts = int(time.time())
+            proxy_clients, proxy_sites = collect_proxy_controller_stats()
             snap_payload = {
                 "ts": now_ts,
                 "time_str": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now_ts)),
                 "wan": {"ifname": get_wan_interface(), "rx": read_wan_bytes(get_wan_interface())[0], "tx": read_wan_bytes(get_wan_interface())[1]},
                 "nlbw": collect_nlbw_cur_raw(),
                 "target_ips": collect_target_ip_cur_raw(),
+                "proxy_clients": proxy_clients,
+                "proxy_sites": proxy_sites,
             }
             wan_if = snap_payload["wan"]["ifname"]
             wrx, wtx = read_wan_bytes(wan_if)
@@ -372,6 +539,8 @@ def main():
     base_data = window["nlbw"]
     wan_base_data = window["wan"]
     base_ips = window["target_ips"]
+    base_proxy_clients = window.get("proxy_clients", {})
+    base_proxy_sites = window.get("proxy_sites", {})
     window_label = window["label"]
     window_note = window["note"]
 
@@ -435,11 +604,14 @@ def main():
     devices = {}
     window_ready = bool(window.get("ready"))
     nlbw_cur_raw = collect_nlbw_cur_raw() if (enable_traffic and window_ready) else {}
+    live_proxy_clients, live_proxy_sites = collect_proxy_controller_stats() if window_ready else ({}, {})
 
     if not window_ready:
         base_data = {}
         wan_base_data = {}
         base_ips = {}
+        base_proxy_clients = {}
+        base_proxy_sites = {}
 
     # 联合所有已知 MAC：包含基准里的历史活跃设备、当前有流量设备以及 DHCP 静态绑定设备
     all_tracked_macs = set(base_data.keys()) | set(nlbw_cur_raw.keys()) | set(mac_to_name.keys()) if window_ready else set()
@@ -459,6 +631,17 @@ def main():
                 if l_mac == mac:
                     ip = lease_ip
                     break
+
+        # 融合代理核心记录的实时流量 (若该 IP 走代理产生可观下行，平滑归并)
+        if ip and ip in live_proxy_clients:
+            p_cur = live_proxy_clients[ip]
+            p_base = base_proxy_clients.get(ip, {"rx": 0, "tx": 0})
+            p_diff_rx = p_cur["rx"] - p_base["rx"] if p_cur["rx"] >= p_base["rx"] else p_cur["rx"]
+            p_diff_tx = p_cur["tx"] - p_base["tx"] if p_cur["tx"] >= p_base["tx"] else p_cur["tx"]
+            if p_diff_rx > diff_rx:
+                diff_rx = p_diff_rx
+            if p_diff_tx > diff_tx:
+                diff_tx = p_diff_tx
 
         unnamed_prefix = "Device" if lang == "en" else "设备"
         dev_name = mac_to_name.get(mac, ip_to_name.get(ip, f"{unnamed_prefix} [{mac.upper()}]"))
@@ -488,31 +671,12 @@ def main():
         wan_phy_rx = cur_wrx - b_wrx if cur_wrx >= b_wrx else cur_wrx
         wan_phy_tx = cur_wtx - b_wtx if cur_wtx >= b_wtx else cur_wtx
 
-    # 核心总览数据 (实事求是呈现)
+    # 核心总览数据 (实事求是呈现真实硬件物理值)
     wan_total_rx = wan_phy_rx if wan_phy_rx > 0 else dev_total_rx
     wan_total_tx = wan_phy_tx if wan_phy_tx > 0 else dev_total_tx
     wan_total = wan_total_rx + wan_total_tx
 
-    # 轨 C：将经过代理或系统出网的公网总吞吐，按各硬件今日实际业务出网比例，完全合并到各个硬件名下！
-    # 绝不单独列出“代理分流”，将所有真实 WAN 物理流量 100% 落实到具体硬件
-    unallocated_rx = max(0, wan_total_rx - dev_total_rx)
-    unallocated_tx = max(0, wan_total_tx - dev_total_tx)
-
-    if dev_total_rx > 0 or dev_total_tx > 0:
-        base_dev_rx = dev_total_rx
-        base_dev_tx = dev_total_tx
-        for mac, d in devices.items():
-            if base_dev_rx > 0:
-                d["wan_rx"] += int(unallocated_rx * (d["wan_rx"] / base_dev_rx))
-            if base_dev_tx > 0:
-                d["wan_tx"] += int(unallocated_tx * (d["wan_tx"] / base_dev_tx))
-            d["total"] = d["wan_rx"] + d["wan_tx"]
-
-    # 重新求和终端硬件总计，使得终端统计 100% 完全等于公网总吞吐
-    dev_total_rx = sum(d["wan_rx"] for d in devices.values())
-    dev_total_tx = sum(d["wan_tx"] for d in devices.values())
-
-    # 3. 生成设备排行 HTML 与摘要列表
+    # 3. 生成设备排行 HTML 与摘要列表 (严格按硬件真实底层采集，绝不人为掺水/平摊/计算分配)
     dev_table_rows = ""
     dev_sorted = []
     if devices:
@@ -573,12 +737,25 @@ def main():
             if d_rx + d_tx <= 0:
                 continue
 
-            # 优先反查真实域名
+            # 优先反查真实域名并做品牌/音视频智能归并
             domain = ip_to_domain.get(ip, ip)
-            if domain not in sites_delta:
-                sites_delta[domain] = [0.0, 0.0]
-            sites_delta[domain][0] += d_rx
-            sites_delta[domain][1] += d_tx
+            friendly_name = normalize_target_domain(domain, lang=lang)
+            if friendly_name not in sites_delta:
+                sites_delta[friendly_name] = [0.0, 0.0]
+            sites_delta[friendly_name][0] += d_rx
+            sites_delta[friendly_name][1] += d_tx
+
+        # 融合代理核心解析出的实际目标域名流量 (如 YouTube / GitHub 等代理域名)
+        for dom, stats in live_proxy_sites.items():
+            b_stats = base_proxy_sites.get(dom, [0.0, 0.0])
+            p_dl = stats[0] - b_stats[0] if stats[0] >= b_stats[0] else stats[0]
+            p_ul = stats[1] - b_stats[1] if stats[1] >= b_stats[1] else stats[1]
+            if p_dl + p_ul > 0:
+                friendly_dom = normalize_target_domain(dom, lang=lang)
+                if friendly_dom not in sites_delta:
+                    sites_delta[friendly_dom] = [0.0, 0.0]
+                sites_delta[friendly_dom][0] += p_dl
+                sites_delta[friendly_dom][1] += p_ul
 
         # 若新机制刚生效还没有产生大量条目，合并旧 csv 备选，确保报表丰满
         if len(sites_delta) < 5 and os.path.exists("/root/site_traffic.csv"):
@@ -590,8 +767,13 @@ def main():
                             dom = parts[0].strip()
                             dl = float(parts[1])
                             ul = float(parts[2])
-                            if dom and dom not in sites_delta:
-                                sites_delta[dom] = [dl, ul]
+                            if dom:
+                                friendly_csv = normalize_target_domain(dom, lang=lang)
+                                if friendly_csv not in sites_delta:
+                                    sites_delta[friendly_csv] = [dl, ul]
+                                else:
+                                    sites_delta[friendly_csv][0] += dl
+                                    sites_delta[friendly_csv][1] += ul
             except Exception:
                 pass
 
@@ -601,7 +783,7 @@ def main():
         for dom, (dl, ul) in sorted_sites:
             if dl + ul < 1024:
                 continue
-            site_table_rows += f"<tr><td style='padding:6px 10px;border-bottom:1px solid #f0f0f0;color:#666;text-align:center;'>{idx}</td><td style='padding:6px 10px;border-bottom:1px solid #f0f0f0;font-family:monospace;color:#333;'>{dom}</td><td style='padding:6px 10px;border-bottom:1px solid #f0f0f0;color:#1890ff;text-align:right;'>⬇️ {fmt_bytes(dl)}</td><td style='padding:6px 10px;border-bottom:1px solid #f0f0f0;color:#52c41a;text-align:right;'>⬆️ {fmt_bytes(ul)}</td></tr>\n"
+            site_table_rows += f"<tr><td style='padding:6px 10px;border-bottom:1px solid #f0f0f0;color:#666;text-align:center;'>{idx}</td><td style='padding:6px 10px;border-bottom:1px solid #f0f0f0;font-family:monospace;color:#333;'>{dom}</td><td style='padding:6px 10px;border-bottom:1px solid #f0f0f0;color:#1890ff;text-align:right;'>⬇️ {fmt_bytes(dl)}</td><td style='padding:6px 10px;border-bottom:1px solid #f0f0f0;color:#52c41a;text-align:right;'>⬆️ {fmt_bytes(ul)}</td><td style='padding:6px 10px;border-bottom:1px solid #f0f0f0;font-weight:700;color:#fa8c16;text-align:right;'>{fmt_bytes(dl+ul)}</td></tr>\n"
             idx += 1
 
     if not site_table_rows:
@@ -626,7 +808,7 @@ def main():
         top_site_lines = []
         if sorted_sites:
             for dom, (dl, ul) in sorted_sites[:5]:
-                top_site_lines.append(f"  • {dom}: {fmt_bytes(dl+ul)}")
+                top_site_lines.append(f"  • {dom}: ⬇️{fmt_bytes(dl)} ⬆️{fmt_bytes(ul)}")
 
         if lang == "en":
             summary_text = f"WAN Bandwidth: ⬇️{fmt_bytes(wan_total_rx)} ⬆️{fmt_bytes(wan_total_tx)} (Clients: {fmt_bytes(dev_total_rx + dev_total_tx)}){top_dev_str}"
@@ -652,7 +834,7 @@ def main():
         lbl_rx = "⬇️ WAN Download"
         lbl_tx = "⬆️ WAN Upload"
         lbl_tot = "🔄 Total WAN Traffic"
-        lbl_dev_sub = "Clients Sum"
+        lbl_dev_sub = "Clients HW"
         title_devs = "📱 LAN Clients WAN Traffic Ranking"
         th_dev_name = "Device Name"
         th_dev_ip = "IP / MAC"
@@ -663,12 +845,13 @@ def main():
         th_site_domain = "Domain / IP"
         th_site_rx = "Download"
         th_site_tx = "Upload"
+        th_site_tot = "Total"
     else:
         title_summary = f"📶 过去24小时外网流量总览"
         lbl_rx = "⬇️ 公网下载"
         lbl_tx = "⬆️ 公网上传"
         lbl_tot = "🔄 公网总吞吐"
-        lbl_dev_sub = "终端统计"
+        lbl_dev_sub = "终端直连"
         title_devs = "📱 局域网各设备外网流量排行"
         th_dev_name = "设备名称"
         th_dev_ip = "IP / MAC"
@@ -679,6 +862,7 @@ def main():
         th_site_domain = "网站域名 / 公网 IP"
         th_site_rx = "下载流量"
         th_site_tx = "上传流量"
+        th_site_tot = "总计"
 
     html = f"""
     <div style='margin-bottom:25px;'>
@@ -731,6 +915,7 @@ def main():
                             <th style='padding:6px 10px;border-bottom:1px solid #eee;'>{th_site_domain}</th>
                             <th style='padding:6px 10px;border-bottom:1px solid #eee;text-align:right;'>{th_site_rx}</th>
                             <th style='padding:6px 10px;border-bottom:1px solid #eee;text-align:right;'>{th_site_tx}</th>
+                            <th style='padding:6px 10px;border-bottom:1px solid #eee;text-align:right;'>{th_site_tot}</th>
                         </tr>
                     </thead>
                     <tbody>

@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-harbor-file-pro
-PKG_VERSION:=1.0.6
+PKG_VERSION:=1.0.7
 PKG_RELEASE:=1
 PKG_PO_VERSION:=$(PKG_VERSION)
 
@@ -15,11 +15,11 @@ LUCI_TITLE:=LuCI support for HarborFile Pro (ucode backend)
 LUCI_DEPENDS:=+luci-base +rpcd +rpcd-mod-file +ucode +ucode-mod-fs +ucode-mod-ubus +ucode-mod-uci
 LUCI_PKGARCH:=all
 
-include $(TOPDIR)/feeds/luci/luci.mk
-
-define Build/Prepare/$(LUCI_NAME)
+define Build/Prepare/$(PKG_NAME)
 	$(SED) "s/^const harbor_asset_version = '[^']*';/const harbor_asset_version = '$(PKG_VERSION)';/" $(PKG_BUILD_DIR)/root/usr/share/ucode/luci/template/harbor_file_pro/index.ut
 endef
+
+include $(TOPDIR)/feeds/luci/luci.mk
 
 define Package/$(PKG_NAME)/conffiles
 /etc/config/harbor_file_pro

@@ -12,11 +12,11 @@ PKG_PO_VERSION:=$(PKG_VERSION)
 LUCI_MINIFY_JS:=0
 LUCI_MINIFY_CSS:=0
 
-include $(TOPDIR)/feeds/luci/luci.mk
-
-define Build/Prepare/$(LUCI_NAME)
+define Build/Prepare/$(PKG_NAME)
 	$(SED) "s/^var LUCKY_ASSET_VERSION = '[^']*';/var LUCKY_ASSET_VERSION = '$(PKG_VERSION)-r$(PKG_RELEASE)';/" $(PKG_BUILD_DIR)/htdocs/luci-static/resources/lucky/common.js
 endef
+
+include $(TOPDIR)/feeds/luci/luci.mk
 
 define Package/$(PKG_NAME)/conffiles
 /etc/config/lucky

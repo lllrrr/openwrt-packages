@@ -214,12 +214,11 @@ if [ "$ENABLE_BANIP" = "1" ]; then
     CURR_BANIP_FILE="/tmp/dailyreport_curr_banip.tmp"
     CURR_NFT_FILE="/tmp/dailyreport_curr_nft.tmp"
 
-    # 4.1 被 banIP 拦截 (严格统计当天的增量：检查当天加入 blocklist 的 IP)
-    TODAY_DATE=$(date "+%Y-%m-%d")
-    awk -v d="$TODAY_DATE" '$0 ~ d {print $1}' /etc/banip/banip.blocklist 2>/dev/null > "$CURR_BANIP_FILE"
+    # 4.1 被 banIP 拦截 (去除死板日期过滤，提取当前 blocklist 中的所有有效 IP 并做增量比对)
+    grep -E -o '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' /etc/banip/banip.blocklist 2>/dev/null > "$CURR_BANIP_FILE"
     
-    # 增量比对 (测试模式下直接展示当前已捕获的当天增量)
-    if [ "$1" = "test" ] || [ ! -f "$LAST_BANIP_FILE" ]; then
+    # 增量比对 (若无历史记录或强制测试且无历史记录，则取全部；否则仅提取比上次新增的 IP)
+    if [ ! -f "$LAST_BANIP_FILE" ]; then
         NEW_BANIP=$(cat "$CURR_BANIP_FILE" 2>/dev/null)
     else
         NEW_BANIP=$(grep -vFf "$LAST_BANIP_FILE" "$CURR_BANIP_FILE" 2>/dev/null)
@@ -550,10 +549,10 @@ if [ "$GOTIFY_ENABLED" = "1" ] && [ -n "$GOTIFY_URL" ] && [ -n "$GOTIFY_TOKEN" ]
                 MSG_TEXT=$(printf "%s\n%s\n" "${MSG_TEXT}" "${TRAFFIC_SUMMARY}")
             fi
             BAN_COUNT_BRIEF="Drops: 0"
-            if [ -f "$CURR_BANIP_FILE" ] || [ -f "$CURR_NFT_FILE" ]; then
-                B_CNT=$(cat "$CURR_BANIP_FILE" "$CURR_NFT_FILE" 2>/dev/null | wc -l)
-                [ "$B_CNT" -gt 0 ] && BAN_COUNT_BRIEF="Drops: ${B_CNT} events"
-            fi
+            B_CNT=0
+            [ -n "$NEW_BANIP" ] && B_CNT=$((B_CNT + $(echo "$NEW_BANIP" | grep -c -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$')))
+            [ -n "$NEW_NFT" ] && B_CNT=$((B_CNT + $(echo "$NEW_NFT" | grep -c 'NAS-Port-Ban')))
+            [ "$B_CNT" -gt 0 ] && BAN_COUNT_BRIEF="Drops: ${B_CNT} events"
             MSG_TEXT=$(printf "%s\n🛡️ Security: %s | %s\n" "${MSG_TEXT}" "Audited" "${BAN_COUNT_BRIEF}")
         else
             GOTIFY_TITLE="OpenWrt 状态与流量日报"
@@ -564,10 +563,10 @@ if [ "$GOTIFY_ENABLED" = "1" ] && [ -n "$GOTIFY_URL" ] && [ -n "$GOTIFY_TOKEN" ]
                 MSG_TEXT=$(printf "%s\n%s\n" "${MSG_TEXT}" "${TRAFFIC_SUMMARY}")
             fi
             BAN_COUNT_BRIEF="拦截: 0"
-            if [ -f "$CURR_BANIP_FILE" ] || [ -f "$CURR_NFT_FILE" ]; then
-                B_CNT=$(cat "$CURR_BANIP_FILE" "$CURR_NFT_FILE" 2>/dev/null | wc -l)
-                [ "$B_CNT" -gt 0 ] && BAN_COUNT_BRIEF="拦截: ${B_CNT} 次恶意探测"
-            fi
+            B_CNT=0
+            [ -n "$NEW_BANIP" ] && B_CNT=$((B_CNT + $(echo "$NEW_BANIP" | grep -c -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$')))
+            [ -n "$NEW_NFT" ] && B_CNT=$((B_CNT + $(echo "$NEW_NFT" | grep -c 'NAS-Port-Ban')))
+            [ "$B_CNT" -gt 0 ] && BAN_COUNT_BRIEF="拦截: ${B_CNT} 次恶意探测"
             MSG_TEXT=$(printf "%s\n🛡️ 安全审计: %s | %s\n" "${MSG_TEXT}" "${LOGIN_SUMMARY:-登录审计正常}" "${BAN_COUNT_BRIEF}")
         fi
         G_RES=$(curl -s -w "\n%{http_code}" -X POST "${CLEAN_GOTIFY_URL}/message" \

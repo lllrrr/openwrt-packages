@@ -556,14 +556,22 @@
     margin-top: 30px;
 }
 
-.fm-group-title{
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    margin: 0 0 12px;
-    color: var(--fm-text);
-    font-size: 15px;
-    font-weight: 600;
+#fm_content .fm-group > h2.fm-group-title{
+    background: transparent !important;
+    box-shadow: none !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    margin: 0 0 12px !important;
+    height: auto !important;
+    min-height: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 9px !important;
+    color: var(--fm-text) !important;
+    font-size: 15px !important;
+    font-weight: 600 !important;
+    line-height: 1.5 !important;
 }
 
 .fm-group-title::after{
