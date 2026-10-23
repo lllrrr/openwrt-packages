@@ -639,3 +639,63 @@ msgstr ""
 
 msgid "%s, %s"
 msgstr ""
+
+msgid "Download / Update"
+msgstr ""
+
+msgid "Download finished."
+msgstr ""
+
+msgid "Download started."
+msgstr ""
+
+msgid "Failed to restore defaults"
+msgstr ""
+
+msgid "Failed to save geo settings"
+msgstr ""
+
+msgid "Failed to start the download"
+msgstr ""
+
+msgid "Geo Data"
+msgstr ""
+
+msgid "Geo settings restored to defaults."
+msgstr ""
+
+msgid "Geo settings saved."
+msgstr ""
+
+msgid "Restart OxiDNS after the download"
+msgstr ""
+
+msgid "Restore defaults"
+msgstr ""
+
+msgid "Restoring defaults..."
+msgstr ""
+
+msgid "SHA-256"
+msgstr ""
+
+msgid "Saving geo settings..."
+msgstr ""
+
+msgid "Starting download..."
+msgstr ""
+
+msgid "not present"
+msgstr ""
+
+msgid "Download and update geoip.dat / geosite.dat shared by OxiDNS and mihomo. Defaults fetch the Loyalsoldier enhanced rules via the jsDelivr CDN; URLs and the storage directory can be customized and restored to defaults."
+msgstr ""
+
+msgid "GeoIP download URL"
+msgstr ""
+
+msgid "GeoSite download URL"
+msgstr ""
+
+msgid "Storage directory"
+msgstr ""

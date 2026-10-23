@@ -53,6 +53,17 @@
 			"acl": [ "luci-app-oxidns" ]
 		}
 	},
+	"admin/services/oxidns/geo": {
+		"title": "Geo Data",
+		"order": 36,
+		"action": {
+			"type": "view",
+			"path": "oxidns/geo"
+		},
+		"depends": {
+			"acl": [ "luci-app-oxidns" ]
+		}
+	},
 	"admin/services/oxidns/logs": {
 		"title": "Logs",
 		"order": 40,

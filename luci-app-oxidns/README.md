@@ -25,6 +25,7 @@ apk add --allow-untrusted --no-network ./luci-i18n-oxidns-zh-cn-<版本>.apk
 | `Core` | 内核安装、上传安装、修复重装、删除 |
 | `Configuration` | 查看、校验、保存配置文件 |
 | `Rule Files` | 编辑规则列表文件；定时重置学习文件 |
+| `Geo Data` | geoip.dat / geosite.dat 下载与更新（默认 jsDelivr 上的 Loyalsoldier 增强版，落点 `/usr/share/v2ray`，地址与目录可改、可一键还原） |
 | `Logs` | 日志文件查看，时间戳按 UTC+8 显示；「清空」截断日志文件 |
 | `Settings` | 内核源、代理、token、路径 |
 

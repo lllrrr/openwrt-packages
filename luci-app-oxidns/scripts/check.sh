@@ -2,7 +2,7 @@
 
 set -eu
 
-node -e "const fs=require('fs'); const dir='htdocs/luci-static/resources/view/oxidns/'; for (const n of ['overview','core','config','rules','logs','settings','upload']) { const f=dir+n+'.js'; if (fs.existsSync(f)) new Function(fs.readFileSync(f,'utf8')); }"
+node -e "const fs=require('fs'); const dir='htdocs/luci-static/resources/view/oxidns/'; for (const n of ['overview','core','config','rules','geo','logs','settings','upload']) { const f=dir+n+'.js'; if (fs.existsSync(f)) new Function(fs.readFileSync(f,'utf8')); }"
 node -e "for (const f of ['root/usr/share/luci/menu.d/luci-app-oxidns.json','root/usr/share/rpcd/acl.d/luci-app-oxidns.json','root/usr/share/oxidns/targets.json']) JSON.parse(require('fs').readFileSync(f,'utf8'));"
 node <<'NODE'
 const fs = require('fs');
@@ -13,6 +13,7 @@ for (const file of [
 	'htdocs/luci-static/resources/view/oxidns/core.js',
 	'htdocs/luci-static/resources/view/oxidns/config.js',
 	'htdocs/luci-static/resources/view/oxidns/rules.js',
+	'htdocs/luci-static/resources/view/oxidns/geo.js',
 	'htdocs/luci-static/resources/view/oxidns/logs.js',
 	'htdocs/luci-static/resources/view/oxidns/settings.js',
 ]) {

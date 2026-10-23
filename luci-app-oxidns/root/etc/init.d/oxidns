@@ -8,25 +8,95 @@ PROG="/usr/bin/oxidns"
 DEFAULT_CONFIG_PATH="/etc/oxidns/config.yaml"
 DEFAULT_WORKING_DIR="/var/lib/oxidns"
 
+# 命名注意：不要用 info()/start()/stop()/status() 这类名字。
+# rc.common 在 source 本脚本之后还会定义自己的 info()（/etc/init.d/xxx info 用于
+# dump procd 状态），同名会被它反向覆盖 —— 表现为 `info "xxx"` 实际执行
+# `ubus call service list` 并打印一个 {}。
+oerr()  { echo "oxidns: ERROR: $*" >&2; }
+ohint() { echo "oxidns:   hint: $*" >&2; }
+omsg()  { echo "oxidns: $*"; }
+
+# pidof 对 Rust 多线程程序会返回每个线程的 tid（主线程 + worker），
+# 直接显示会给用户造成「有多个实例」的错觉。这里只取主进程。
+main_pid() {
+	ps | awk '/[o]xidns/ {print $1; exit}'
+}
+
+# rc.common 的 start() 结构：
+#   rc_procd start_service "$@"   # 返回值被丢弃
+#   service_started               # 它的返回值才是 start 的退出码
+# 所以启动失败要记进 START_FAILED，由 service_started 统一返回非 0。
+START_FAILED=0
+
+# ★ 不要在这里做任何长时间等待（sleep 循环）。
+#   oxidns 有 `respawn 3600 5 5`：进程退出后 procd 会在 5 秒内把它拉起来。
+#   若 stop 后阻塞等待进程消失，正好落进 respawn 窗口，会看到「停不掉」，
+#   并对同一实例反复触发重启（实测出现过多个 oxidns 并存、端口争用）。
+
 load_oxidns_settings() {
 	config_load oxidns
 	config_get CONFIG_PATH main config_path "$DEFAULT_CONFIG_PATH"
 	config_get WORKING_DIR main working_dir "$DEFAULT_WORKING_DIR"
 }
 
-start_service() {
-	load_oxidns_settings
+# 启动前逐项检查：二进制、配置文件、工作目录、配置内容。
+# 配置内容用 `oxidns check` 静态校验（YAML 语法 / 插件 tag 引用 / 上游参数 / 依赖成环），
+# 纯本地解析、不联网、约 200ms。
+oxidns_preflight() {
+	local rc=0
 
 	if [ ! -x "$PROG" ]; then
-		echo "oxidns binary not found or not executable: $PROG" >&2
-		return 1
+		oerr "binary missing or not executable: $PROG"
+		ohint "reinstall the package: apk fix luci-app-oxidns"
+		rc=1
 	fi
-	if [ ! -r "$CONFIG_PATH" ]; then
-		echo "oxidns config not found: $CONFIG_PATH" >&2
+
+	if [ ! -e "$CONFIG_PATH" ]; then
+		oerr "config not found: $CONFIG_PATH"
+		ohint "check the UCI setting: uci get oxidns.main.config_path"
+		rc=1
+	elif [ ! -r "$CONFIG_PATH" ]; then
+		oerr "config not readable: $CONFIG_PATH"
+		ohint "expected owner root:root mode 644; check: ls -l $CONFIG_PATH"
+		rc=1
+	fi
+
+	if [ -n "$WORKING_DIR" ] && [ -e "$WORKING_DIR" ] && [ ! -w "$WORKING_DIR" ]; then
+		oerr "working dir exists but is not writable: $WORKING_DIR"
+		ohint "fix permissions, or reset it: uci delete oxidns.main.working_dir"
+		rc=1
+	fi
+
+	[ "$rc" -eq 0 ] || return 1
+
+	local out
+	if ! out=$("$PROG" check --config "$CONFIG_PATH" 2>&1); then
+		oerr "config validation failed: $CONFIG_PATH"
+		printf '%s\n' "$out" | sed 's/^/    /' >&2
+		ohint "reproduce with: $PROG check --config $CONFIG_PATH"
+		ohint "a known-good copy may exist under /root/dns-change-backup-*/"
 		return 1
 	fi
 
-	mkdir -p "$WORKING_DIR"
+	return 0
+}
+
+start_service() {
+	load_oxidns_settings
+	omsg "starting (config=$CONFIG_PATH dir=$WORKING_DIR)"
+
+	if ! oxidns_preflight; then
+		START_FAILED=1
+		oerr "start aborted, nothing was launched"
+		return 1
+	fi
+
+	if ! mkdir -p "$WORKING_DIR" 2>/dev/null; then
+		START_FAILED=1
+		oerr "cannot create working dir: $WORKING_DIR"
+		ohint "check free space: df -h ${WORKING_DIR%/*}"
+		return 1
+	fi
 
 	procd_open_instance
 	procd_set_param command "$PROG" start -c "$CONFIG_PATH" -d "$WORKING_DIR"
@@ -36,10 +106,95 @@ start_service() {
 	procd_close_instance
 }
 
+service_started() {
+	if [ "$START_FAILED" = "1" ]; then
+		oerr "start failed, oxidns is NOT running"
+		return 1
+	fi
+
+	# 只做瞬时观察，不等待：procd 异步 fork，此刻进程可能还没出现，
+	# 那不一定是错误，所以两种情况都给可执行的下一步。
+	if pidof oxidns >/dev/null 2>&1; then
+		omsg "launched, pid $(main_pid)"
+	else
+		omsg "launched; process not visible yet (procd starts it asynchronously)"
+	fi
+	omsg "verify with: service oxidns diag"
+	return 0
+}
+
+stop_service() {
+	if pidof oxidns >/dev/null 2>&1; then
+		omsg "stopping (pid $(main_pid))"
+	else
+		omsg "not running, nothing to stop"
+	fi
+	return 0
+}
+
+service_stopped() {
+	# 不阻塞、不判定：procd 负责终止，且它有 respawn 机制。
+	# 在这等 8 秒会误报「停不掉」并触发反复重启（已实测踩过）。
+	if pidof oxidns >/dev/null 2>&1; then
+		omsg "stop requested; pid $(main_pid) is still terminating (procd handles it)"
+	else
+		omsg "stopped"
+	fi
+	return 0
+}
+
 reload_service() {
+	if ! pidof oxidns >/dev/null 2>&1; then
+		oerr "cannot reload: oxidns is not running"
+		ohint "start it first: service oxidns start"
+		return 1
+	fi
 	procd_send_signal oxidns
+	omsg "reload signal sent (pid $(main_pid))"
 }
 
 service_triggers() {
 	procd_add_reload_trigger oxidns
+}
+
+EXTRA_COMMANDS="diag"
+EXTRA_HELP="	diag	Print runtime diagnostics (binary, config, pid, listeners, last errors)"
+
+diag() {
+	load_oxidns_settings
+	echo "== oxidns diagnostics =="
+
+	if [ -x "$PROG" ]; then
+		echo "binary      : $PROG (ok)"
+	else
+		echo "binary      : $PROG (MISSING / not executable)"
+	fi
+
+	if [ -r "$CONFIG_PATH" ]; then
+		echo "config      : $CONFIG_PATH (readable, $(wc -l < "$CONFIG_PATH") lines)"
+	else
+		echo "config      : $CONFIG_PATH (MISSING / unreadable)"
+	fi
+
+	if [ -w "$WORKING_DIR" ]; then
+		echo "working dir : $WORKING_DIR (writable)"
+	else
+		echo "working dir : $WORKING_DIR (missing / not writable)"
+	fi
+
+	echo "pid         : $(main_pid || echo 'not running')"
+	echo "listeners   :"
+	netstat -lnup 2>/dev/null | grep -E ':(53|5354|9199|1053)[[:space:]]' | sed 's/^/  /' ||
+		echo "  (no matching UDP listener)"
+
+	echo "config check:"
+	if [ -r "$CONFIG_PATH" ]; then
+		"$PROG" check --config "$CONFIG_PATH" 2>&1 | sed 's/^/  /'
+	else
+		echo "  skipped (config unreadable)"
+	fi
+
+	echo "recent log  :"
+	logread -e oxidns 2>/dev/null | tail -8 | sed 's/^/  /' ||
+		echo "  (no oxidns entries)"
 }

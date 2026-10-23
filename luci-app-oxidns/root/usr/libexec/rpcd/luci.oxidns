@@ -25,6 +25,19 @@ CORE_PROGRESS_LOG="$CORE_PROGRESS_DIR/core-progress.log"
 CORE_LOCK_DIR="$CORE_PROGRESS_DIR/core-operation.lock"
 CORE_LOCK_HELD=0
 
+# Geo 数据（geoip.dat / geosite.dat）。默认源走 jsDelivr CDN 上的
+# Loyalsoldier/v2ray-rules-dat release 分支 —— github.com 不可直连，
+# jsDelivr 才是默认可达路径；落点与 oxidns config.yaml 的 download
+# 目标、镜像覆盖层一致（/usr/share/v2ray）。
+DEFAULT_GEOIP_URL="https://fastly.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/geoip.dat"
+DEFAULT_GEOSITE_URL="https://fastly.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/geosite.dat"
+DEFAULT_GEO_DIR="/usr/share/v2ray"
+GEO_PROGRESS_LOG="$CORE_PROGRESS_DIR/geo-progress.log"
+GEO_RUNNING_FILE="$CORE_PROGRESS_DIR/geo.running"
+# 进度日志切换点：core 流程写 CORE_PROGRESS_LOG；geo 下载在后台子壳里把
+# PROGRESS_LOG_FILE 指到 GEO_PROGRESS_LOG，下载/进度助手共用一套实现。
+PROGRESS_LOG_FILE="$CORE_PROGRESS_LOG"
+
 # DNS 劫持：状态唯一事实源是 /etc/config/firewall 里的 oxidns_hijack* 段
 # （存在 = 已开启）。段形如 target DNAT + 无 dest_ip，fw4 渲染为
 # nft `redirect to :<dest_port>`（iptables REDIRECT --to-ports 的 nft 等价）。
@@ -164,17 +177,17 @@ prepare_core_progress_dir() {
 prepare_core_progress_file() {
 	RESET_FILE="${1:-0}"
 	prepare_core_progress_dir || return 1
-	if [ -L "$CORE_PROGRESS_LOG" ] || { [ -e "$CORE_PROGRESS_LOG" ] && [ ! -f "$CORE_PROGRESS_LOG" ]; }; then
-		rm -f "$CORE_PROGRESS_LOG" 2>/dev/null || return 1
+	if [ -L "$PROGRESS_LOG_FILE" ] || { [ -e "$PROGRESS_LOG_FILE" ] && [ ! -f "$PROGRESS_LOG_FILE" ]; }; then
+		rm -f "$PROGRESS_LOG_FILE" 2>/dev/null || return 1
 	fi
-	if [ "$RESET_FILE" = "1" ] || [ ! -e "$CORE_PROGRESS_LOG" ]; then
-		: > "$CORE_PROGRESS_LOG" 2>/dev/null || return 1
+	if [ "$RESET_FILE" = "1" ] || [ ! -e "$PROGRESS_LOG_FILE" ]; then
+		: > "$PROGRESS_LOG_FILE" 2>/dev/null || return 1
 	fi
-	[ ! -L "$CORE_PROGRESS_LOG" ] || return 1
+	[ ! -L "$PROGRESS_LOG_FILE" ] || return 1
 	if command -v chown >/dev/null 2>&1; then
-		chown 0:0 "$CORE_PROGRESS_LOG" 2>/dev/null || true
+		chown 0:0 "$PROGRESS_LOG_FILE" 2>/dev/null || true
 	fi
-	chmod 600 "$CORE_PROGRESS_LOG" 2>/dev/null || true
+	chmod 600 "$PROGRESS_LOG_FILE" 2>/dev/null || true
 	return 0
 }
 
@@ -188,7 +201,7 @@ core_progress_log() {
 	PROGRESS_TEXT="$(printf '%s' "$PROGRESS_MESSAGE" | sanitize_progress_text)"
 	[ -n "$PROGRESS_TEXT" ] || PROGRESS_TEXT="-"
 	prepare_core_progress_file 0 || return 0
-	printf '[%s] %s %s\n' "$(progress_timestamp)" "$PROGRESS_KIND" "$PROGRESS_TEXT" >> "$CORE_PROGRESS_LOG" 2>/dev/null || true
+	printf '[%s] %s %s\n' "$(progress_timestamp)" "$PROGRESS_KIND" "$PROGRESS_TEXT" >> "$PROGRESS_LOG_FILE" 2>/dev/null || true
 }
 
 core_progress_command() {
@@ -313,6 +326,10 @@ load_settings() {
 	# 改写，和真正想劫持到的端口不是一回事）。
 	HIJACK_PORT_MODE="$(uci_get hijack_port_mode auto)"
 	HIJACK_PORT="$(uci_get hijack_port '')"
+	# geo 数据：空值 = 用默认（DEFAULT_GEOIP_URL 等），custom 标志据此区分
+	GEOIP_URL="$(uci_get geoip_url '')"
+	GEOSITE_URL="$(uci_get geosite_url '')"
+	GEO_DIR="$(uci_get geo_dir '')"
 }
 
 init_script() {
@@ -3106,6 +3123,267 @@ emit_core_remove() {
 	run_with_core_lock emit_core_remove_locked
 }
 
+# ===== Geo 数据（geoip.dat / geosite.dat 下载与更新）=====
+#
+# 两个文件都下载成功后才做本地替换（.new.$$ 临时文件 + 同目录 mv），避免
+# 半新半旧；下载失败时旧文件原样保留。复用 core 的 download_file（带进度
+# 打点、支持 download_proxy），只是把进度日志切到 geo 自己那份。
+
+geo_running() {
+	[ -f "$GEO_RUNNING_FILE" ] || return 1
+	GEO_PID="$(sed -n '1p' "$GEO_RUNNING_FILE" 2>/dev/null || true)"
+	if pid_is_running "$GEO_PID"; then
+		return 0
+	fi
+	rm -f "$GEO_RUNNING_FILE" 2>/dev/null || true
+	return 1
+}
+
+valid_geo_url() {
+	case "$1" in
+		http://* | https://*) ;;
+		*)
+			return 1
+			;;
+	esac
+	case "$1" in
+		*[[:space:]]* | *"'"* | *'"'* | *\\*)
+			return 1
+			;;
+	esac
+	return 0
+}
+
+valid_geo_dir() {
+	case "$1" in
+		/*) ;;
+		*)
+			return 1
+			;;
+	esac
+	case "$1" in
+		*..* | *'*'* | *"?"*)
+			return 1
+			;;
+	esac
+	return 0
+}
+
+geo_file_json() { # <逻辑名> <路径>
+	GEO_JSON_NAME="$1"
+	GEO_JSON_PATH="$2"
+	GEO_EXISTS=0
+	GEO_SIZE=0
+	GEO_MTIME=""
+	GEO_SHA=""
+	if [ -f "$GEO_JSON_PATH" ] && [ ! -L "$GEO_JSON_PATH" ]; then
+		GEO_EXISTS=1
+		GEO_SIZE="$(file_size_bytes "$GEO_JSON_PATH")"
+		GEO_MTIME="$(stat_mtime "$GEO_JSON_PATH")"
+		GEO_SHA="$(sha256_file "$GEO_JSON_PATH")"
+	fi
+	printf '"%s":{"exists":' "$GEO_JSON_NAME"
+	json_bool "$GEO_EXISTS"
+	printf ',"size":%s,"mtime":' "$GEO_SIZE"
+	json_string "$GEO_MTIME"
+	printf ',"sha256":'
+	json_string "$GEO_SHA"
+	printf '}'
+}
+
+emit_geo_get() {
+	load_settings
+	EFF_IP="${GEOIP_URL:-$DEFAULT_GEOIP_URL}"
+	EFF_SITE="${GEOSITE_URL:-$DEFAULT_GEOSITE_URL}"
+	EFF_DIR="${GEO_DIR:-$DEFAULT_GEO_DIR}"
+	RUNNING=0
+	geo_running && RUNNING=1
+	printf '{"ok":true'
+	printf ',"geoip_url":'
+	json_string "$EFF_IP"
+	printf ',"geosite_url":'
+	json_string "$EFF_SITE"
+	printf ',"geo_dir":'
+	json_string "$EFF_DIR"
+	printf ',"geoip_url_default":'
+	json_string "$DEFAULT_GEOIP_URL"
+	printf ',"geosite_url_default":'
+	json_string "$DEFAULT_GEOSITE_URL"
+	printf ',"geo_dir_default":'
+	json_string "$DEFAULT_GEO_DIR"
+	printf ',"geoip_url_custom":'
+	if [ -n "$GEOIP_URL" ]; then json_bool 1; else json_bool 0; fi
+	printf ',"geosite_url_custom":'
+	if [ -n "$GEOSITE_URL" ]; then json_bool 1; else json_bool 0; fi
+	printf ',"geo_dir_custom":'
+	if [ -n "$GEO_DIR" ]; then json_bool 1; else json_bool 0; fi
+	# geo_file_json 自带键名（"geoip":{...}），这里只补逗号
+	printf ','
+	geo_file_json geoip "$EFF_DIR/geoip.dat"
+	printf ','
+	geo_file_json geosite "$EFF_DIR/geosite.dat"
+	printf ',"running":'
+	json_bool "$RUNNING"
+	printf '}\n'
+}
+
+emit_geo_save() {
+	INPUT="$(cat)"
+	if ! command -v uci >/dev/null 2>&1; then
+		json_error "uci_unavailable" "uci command not found"
+		return 1
+	fi
+	load_settings
+	IP_IN="$(input_value geoip_url "$INPUT")"
+	SITE_IN="$(input_value geosite_url "$INPUT")"
+	DIR_IN="$(input_value geo_dir "$INPUT")"
+	if ! safe_single_line_value "$IP_IN" ||
+		! safe_single_line_value "$SITE_IN" ||
+		! safe_single_line_value "$DIR_IN"; then
+		json_error "invalid_geo_settings" "geo settings must be single-line strings"
+		return 1
+	fi
+	IP_IN="${IP_IN:-$DEFAULT_GEOIP_URL}"
+	SITE_IN="${SITE_IN:-$DEFAULT_GEOSITE_URL}"
+	DIR_IN="${DIR_IN:-$DEFAULT_GEO_DIR}"
+	if ! valid_geo_url "$IP_IN"; then
+		json_error "invalid_geo_url" "geoip_url must be an http(s) URL without whitespace or quotes"
+		return 1
+	fi
+	if ! valid_geo_url "$SITE_IN"; then
+		json_error "invalid_geo_url" "geosite_url must be an http(s) URL without whitespace or quotes"
+		return 1
+	fi
+	if ! valid_geo_dir "$DIR_IN"; then
+		json_error "invalid_geo_dir" "geo_dir must be an absolute directory path without '..' or wildcards"
+		return 1
+	fi
+	uci -q set oxidns.main=settings
+	uci -q set "oxidns.main.geoip_url=$IP_IN"
+	uci -q set "oxidns.main.geosite_url=$SITE_IN"
+	uci -q set "oxidns.main.geo_dir=$DIR_IN"
+	if uci -q commit oxidns; then
+		emit_geo_get
+	else
+		json_error "geo_save_failed" "failed to commit oxidns settings"
+		return 1
+	fi
+}
+
+emit_geo_reset() {
+	if ! command -v uci >/dev/null 2>&1; then
+		json_error "uci_unavailable" "uci command not found"
+		return 1
+	fi
+	for GEO_KEY in geoip_url geosite_url geo_dir; do
+		uci -q delete "oxidns.main.$GEO_KEY" >/dev/null 2>&1 || true
+	done
+	if uci -q commit oxidns; then
+		emit_geo_get
+	else
+		json_error "geo_reset_failed" "failed to commit oxidns settings"
+		return 1
+	fi
+}
+
+run_geo_download_job() {
+	# 仅在后台子壳里调用；PROGRESS_LOG_FILE 已切到 geo 日志
+	GEO_JOB_DIR="$1"
+	GEO_JOB_IP_URL="$2"
+	GEO_JOB_SITE_URL="$3"
+	GEO_JOB_RESTART="$4"
+	set +e
+	core_progress_log "info" "geo data update started (dir=$GEO_JOB_DIR)"
+	GEOIP_TMP="$GEO_JOB_DIR/.geoip.dat.new.$$"
+	GEOSITE_TMP="$GEO_JOB_DIR/.geosite.dat.new.$$"
+	rm -f "$GEOIP_TMP" "$GEOSITE_TMP"
+	GEO_FAILED=0
+	core_progress_command "download geoip.dat <- $GEO_JOB_IP_URL"
+	download_file "$GEO_JOB_IP_URL" "$GEOIP_TMP" || GEO_FAILED=1
+	if [ "$GEO_FAILED" = "0" ]; then
+		core_progress_command "download geosite.dat <- $GEO_JOB_SITE_URL"
+		download_file "$GEO_JOB_SITE_URL" "$GEOSITE_TMP" || GEO_FAILED=1
+	fi
+	if [ "$GEO_FAILED" = "0" ]; then
+		GEO_IP_SIZE="$(file_size_bytes "$GEOIP_TMP")"
+		GEO_SITE_SIZE="$(file_size_bytes "$GEOSITE_TMP")"
+		if [ "$GEO_IP_SIZE" -le 0 ] || [ "$GEO_SITE_SIZE" -le 0 ]; then
+			GEO_FAILED=1
+			core_progress_log "error" "downloaded file is empty (geoip=$GEO_IP_SIZE geosite=$GEO_SITE_SIZE)"
+		fi
+	fi
+	if [ "$GEO_FAILED" = "0" ]; then
+		core_progress_command "install into $GEO_JOB_DIR (atomic mv)"
+		chmod 644 "$GEOIP_TMP" "$GEOSITE_TMP" 2>/dev/null || true
+		if mv -f "$GEOIP_TMP" "$GEO_JOB_DIR/geoip.dat" && mv -f "$GEOSITE_TMP" "$GEO_JOB_DIR/geosite.dat"; then
+			core_progress_log "success" "installed: geoip.dat=$GEO_IP_SIZE bytes, geosite.dat=$GEO_SITE_SIZE bytes"
+		else
+			GEO_FAILED=1
+			core_progress_log "error" "failed to move downloaded files into $GEO_JOB_DIR"
+		fi
+	fi
+	if [ "$GEO_FAILED" != "0" ]; then
+		rm -f "$GEOIP_TMP" "$GEOSITE_TMP"
+		core_progress_log "error" "geo data update failed (existing files are unchanged)"
+	else
+		if [ "$GEO_JOB_RESTART" = "1" ] && service_running; then
+			GEO_INIT="$(init_script)"
+			core_progress_command "$GEO_INIT restart"
+			"$GEO_INIT" restart >/dev/null 2>&1
+			core_progress_log "info" "oxidns restarted to pick up the new geo data"
+		fi
+		core_progress_log "success" "geo data update finished"
+	fi
+}
+
+emit_geo_download() {
+	INPUT="$(cat)"
+	load_settings
+	if geo_running; then
+		json_error "geo_download_busy" "another geo download is already running"
+		return 1
+	fi
+	EFF_IP="${GEOIP_URL:-$DEFAULT_GEOIP_URL}"
+	EFF_SITE="${GEOSITE_URL:-$DEFAULT_GEOSITE_URL}"
+	EFF_DIR="${GEO_DIR:-$DEFAULT_GEO_DIR}"
+	if ! valid_geo_url "$EFF_IP" || ! valid_geo_url "$EFF_SITE" || ! valid_geo_dir "$EFF_DIR"; then
+		json_error "invalid_geo_settings" "configured geo url or directory is invalid"
+		return 1
+	fi
+	RESTART="$(input_bool restart "$INPUT")"
+	if ! mkdir -p "$EFF_DIR" 2>/dev/null; then
+		json_error "geo_dir_create_failed" "cannot create directory $EFF_DIR"
+		return 1
+	fi
+	require_download_transport || return 1
+	# 先重置 geo 进度日志（下载开始前 UI 就能读到「requested」）
+	PROGRESS_LOG_FILE="$GEO_PROGRESS_LOG"
+	prepare_core_progress_file 1 || true
+	core_progress_log "info" "geo data update requested"
+	(
+		PROGRESS_LOG_FILE="$GEO_PROGRESS_LOG"
+		run_geo_download_job "$EFF_DIR" "$EFF_IP" "$EFF_SITE" "$RESTART"
+		rm -f "$GEO_RUNNING_FILE"
+	) >/dev/null 2>&1 </dev/null &
+	GEO_CHILD_PID="$!"
+	printf '%s\n' "$GEO_CHILD_PID" > "$GEO_RUNNING_FILE" 2>/dev/null || true
+	chmod 600 "$GEO_RUNNING_FILE" 2>/dev/null || true
+	printf '{"ok":true,"started":true,"running":true}\n'
+}
+
+emit_geo_progress() {
+	PROGRESS_LOG_FILE="$GEO_PROGRESS_LOG"
+	if ! prepare_core_progress_file 0; then
+		printf '{"ok":true,"text":""}\n'
+		return 0
+	fi
+	printf '{"ok":true,"running":'
+	geo_running && json_bool 1 || json_bool 0
+	printf ',"text":'
+	json_file_string "$GEO_PROGRESS_LOG"
+	printf '}\n'
+}
+
 case "${1:-}" in
 	list)
 		printf '{'
@@ -3134,7 +3412,12 @@ case "${1:-}" in
 		printf '"logs_recent":{"limit":"number"},'
 		printf '"logs_clear":{},'
 		printf '"hijack_get":{},'
-		printf '"hijack_save":{"enabled":"boolean","port_mode":"string","port":"string"}'
+		printf '"hijack_save":{"enabled":"boolean","port_mode":"string","port":"string"},'
+		printf '"geo_get":{},'
+		printf '"geo_save":{"geoip_url":"string","geosite_url":"string","geo_dir":"string"},'
+		printf '"geo_reset":{},'
+		printf '"geo_download":{"restart":"boolean"},'
+		printf '"geo_progress":{}'
 		printf '}\n'
 		;;
 	call)
@@ -3216,6 +3499,21 @@ case "${1:-}" in
 				;;
 			hijack_save)
 				emit_hijack_save
+				;;
+			geo_get)
+				emit_geo_get
+				;;
+			geo_save)
+				emit_geo_save
+				;;
+			geo_reset)
+				emit_geo_reset
+				;;
+			geo_download)
+				emit_geo_download
+				;;
+			geo_progress)
+				emit_geo_progress
 				;;
 			*)
 				printf '{"ok":false,"error":"unknown method"}\n'

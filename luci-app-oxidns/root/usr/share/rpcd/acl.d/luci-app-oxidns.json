@@ -12,7 +12,9 @@
 					"rules_read",
 					"learn_reset_get",
 					"logs_recent",
-					"hijack_get"
+					"hijack_get",
+					"geo_get",
+					"geo_progress"
 				]
 			}
 		},
@@ -35,7 +37,10 @@
 					"learn_reset_run",
 					"settings_save",
 					"logs_clear",
-					"hijack_save"
+					"hijack_save",
+					"geo_save",
+					"geo_reset",
+					"geo_download"
 				]
 			}
 		}

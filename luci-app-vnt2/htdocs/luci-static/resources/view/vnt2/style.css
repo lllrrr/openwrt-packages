@@ -142,20 +142,20 @@
 
 /* ── 统一输入框样式 ── */
 .vnt2-input {
-    background-color: #ffffff !important;
-    color: #333333 !important;
-    border: 1px solid #cccccc !important;
-    border-radius: 3px !important;
-    padding: 5px 8px !important;
-    font-size: 13px !important;
+    background-color: #ffffff;
+    color: #333333;
+    border: 1px solid #cccccc;
+    border-radius: 3px;
+    padding: 5px 8px;
+    font-size: 13px;
     box-sizing: border-box;
     outline: none;
     transition: border-color 0.15s, box-shadow 0.15s;
 }
 
 .vnt2-input:focus {
-    border-color: #0066cc !important;
-    box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.15) !important;
+    border-color: #0066cc;
+    box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.15);
 }
 
 input.vnt2-input[type="text"],
@@ -165,13 +165,13 @@ input.vnt2-input[type="number"] {
 }
 
 .vnt2-input-number {
-    max-width: 160px !important;
+    max-width: 160px;
 }
 
 .vnt2-input-error {
-    border-color: #dc3545 !important;
-    background-color: #fff8f8 !important;
-    box-shadow: 0 0 0 2px rgba(220, 53, 69, 0.15) !important;
+    border-color: #dc3545;
+    background-color: #fff8f8;
+    box-shadow: 0 0 0 2px rgba(220, 53, 69, 0.15);
 }
 
 /* ── bool 字段 ── */
@@ -223,36 +223,36 @@ input.vnt2-input[type="number"] {
 .vnt2-array-item,
 .vnt2-section-item {
     flex: 1;
-    max-width: 420px !important;
+    max-width: 420px;
 }
 
 .vnt2-array-btn-add,
 .vnt2-array-btn-del {
-    padding: 4px 10px !important;
-    font-size: 15px !important;
-    line-height: 1.2 !important;
-    min-width: 32px !important;
+    padding: 4px 10px;
+    font-size: 15px;
+    line-height: 1.2;
+    min-width: 32px;
     flex-shrink: 0;
 }
 
 .vnt2-array-btn-add {
-    background: #e8f4e8 !important;
-    border-color: #82b882 !important;
-    color: #2d7a2d !important;
+    background: #e8f4e8;
+    border-color: #82b882;
+    color: #2d7a2d;
 }
 
 .vnt2-array-btn-add:hover {
-    background: #d0ecd0 !important;
+    background: #d0ecd0;
 }
 
 .vnt2-array-btn-del {
-    background: #fde8e8 !important;
-    border-color: #e08080 !important;
-    color: #a02020 !important;
+    background: #fde8e8;
+    border-color: #e08080;
+    color: #a02020;
 }
 
 .vnt2-array-btn-del:hover {
-    background: #fad0d0 !important;
+    background: #fad0d0;
 }
 
 /* ── 提示文字 ── */

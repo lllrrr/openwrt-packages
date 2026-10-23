@@ -648,3 +648,63 @@ msgstr "端口 %s（TCP/UDP）"
 
 msgid "%s, %s"
 msgstr "%s，%s"
+
+msgid "Download / Update"
+msgstr "下载 / 更新"
+
+msgid "Download finished."
+msgstr "下载完成。"
+
+msgid "Download started."
+msgstr "下载已开始。"
+
+msgid "Failed to restore defaults"
+msgstr "还原默认设置失败"
+
+msgid "Failed to save geo settings"
+msgstr "保存 Geo 设置失败"
+
+msgid "Failed to start the download"
+msgstr "无法开始下载"
+
+msgid "Geo Data"
+msgstr "Geo 数据"
+
+msgid "Geo settings restored to defaults."
+msgstr "Geo 设置已还原为默认。"
+
+msgid "Geo settings saved."
+msgstr "Geo 设置已保存。"
+
+msgid "Restart OxiDNS after the download"
+msgstr "下载完成后重启 OxiDNS 服务"
+
+msgid "Restore defaults"
+msgstr "还原默认"
+
+msgid "Restoring defaults..."
+msgstr "正在还原默认设置..."
+
+msgid "SHA-256"
+msgstr "SHA-256"
+
+msgid "Saving geo settings..."
+msgstr "正在保存 Geo 设置..."
+
+msgid "Starting download..."
+msgstr "正在开始下载..."
+
+msgid "not present"
+msgstr "不存在"
+
+msgid "Download and update geoip.dat / geosite.dat shared by OxiDNS and mihomo. Defaults fetch the Loyalsoldier enhanced rules via the jsDelivr CDN; URLs and the storage directory can be customized and restored to defaults."
+msgstr "下载并更新 OxiDNS 与 mihomo 共用的 geoip.dat / geosite.dat。默认通过 jsDelivr CDN 下载 Loyalsoldier 增强版规则；下载地址与存放目录可手动修改，并可一键还原默认。"
+
+msgid "GeoIP download URL"
+msgstr "GeoIP 下载地址"
+
+msgid "GeoSite download URL"
+msgstr "GeoSite 下载地址"
+
+msgid "Storage directory"
+msgstr "存放目录"
