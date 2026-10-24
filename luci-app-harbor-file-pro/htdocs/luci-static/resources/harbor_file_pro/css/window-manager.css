@@ -24,11 +24,6 @@
     --fm-danger: #dc6565;
 }
 
-.fm-modal-mask{
-    display: none !important;
-    pointer-events: none !important;
-}
-
 .fm-window-managed{
     position: fixed;
     box-sizing: border-box;
@@ -41,8 +36,11 @@
     overflow: hidden;
     border-radius: 10px;
     box-shadow: 0 22px 58px rgba(15, 30, 46, 0.28);
-    transform: none !important;
     isolation: isolate;
+}
+
+html[data-harbor-file-manager] .fm-window-managed{
+    transform: none;
 }
 
 .fm-desktop-window{
@@ -222,17 +220,19 @@
 .fm-window-resize-nw{ top: 0; left: 0; cursor: nwse-resize; }
 .fm-window-resize-se{ right: 0; bottom: 0; cursor: nwse-resize; }
 
-body.fm-window-dragging,
-body.fm-window-dragging *{
-    cursor: move !important;
-    user-select: none !important;
-    -webkit-user-select: none !important;
+html[data-harbor-file-manager] body.fm-window-dragging,
+html[data-harbor-file-manager] body.fm-window-dragging *,
+html[data-harbor-file-manager] body.fm-window-dragging .fm-window-managed *{
+    cursor: move;
+    user-select: none;
+    -webkit-user-select: none;
 }
 
-body.fm-window-resizing,
-body.fm-window-resizing *{
-    user-select: none !important;
-    -webkit-user-select: none !important;
+html[data-harbor-file-manager] body.fm-window-resizing,
+html[data-harbor-file-manager] body.fm-window-resizing *,
+html[data-harbor-file-manager] body.fm-window-resizing .fm-window-managed *{
+    user-select: none;
+    -webkit-user-select: none;
 }
 
 .fm-window-taskbar{

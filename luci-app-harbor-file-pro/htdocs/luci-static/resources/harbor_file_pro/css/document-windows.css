@@ -609,8 +609,9 @@
 }
 
 @media (max-width: 760px), (pointer: coarse) {
-    .fm-window-titlebar{
-        touch-action: none !important;
+
+.fm-window-managed .fm-window-titlebar{
+        touch-action: none;
         -webkit-touch-callout: none;
     }
 
@@ -695,8 +696,6 @@
     margin: 0;
     padding: 14px 16px 54px;
     overflow: auto;
-    border: 0 !important;
-    outline: none !important;
     resize: none;
     background: var(--fm-panel);
     color: var(--fm-text);
@@ -706,11 +705,16 @@
     tab-size: 4;
     white-space: pre;
     overflow-wrap: normal;
-    box-shadow: none !important;
 }
 
-.fm-memory-textarea:focus{
-    box-shadow: inset 0 0 0 1px var(--fm-accent) !important;
+.fm-window-managed .fm-memory-textarea{
+    border: 0;
+    outline: none;
+    box-shadow: none;
+}
+
+.fm-window-managed .fm-memory-textarea:focus{
+    box-shadow: inset 0 0 0 1px var(--fm-accent);
 }
 
 .fm-memory-hex-scroll{
@@ -1202,77 +1206,79 @@
     }
 }
 
-.fm-memory-hex-header.fm-memory-hex-row,
-
-.fm-memory-hex-row{
-    display: grid !important;
-    grid-template-columns: 16ch max-content 2ch max-content !important;
-    column-gap: 0 !important;
-    width: max-content !important;
-    min-width: max-content !important;
+.fm-window-managed .fm-memory-hex-header.fm-memory-hex-row,
+.fm-window-managed .fm-memory-hex-row{
+    display: grid;
+    grid-template-columns: 16ch max-content 2ch max-content;
+    column-gap: 0;
+    width: max-content;
+    min-width: max-content;
     align-items: center;
     justify-items: stretch;
-    font-family: monospace !important;
-}
-.fm-memory-hex-byte-track{
-    display: grid !important;
-    grid-template-columns: repeat(16, 2ch) !important;
-    column-gap: .25ch !important;
-    width: max-content !important;
-    min-width: max-content !important;
-    flex: none !important;
-}
-.fm-memory-hex-byte-track > .fm-memory-hex-header-byte{
-    display: block !important;
-    width: 2ch !important;
-    min-width: 2ch !important;
-    max-width: 2ch !important;
-    box-sizing: border-box !important;
-    margin: 0 !important;
-    padding-left: 0 !important;
-    padding-right: 0 !important;
-    text-align: center !important;
-    justify-self: stretch !important;
-}
-.fm-memory-hex-offset,
-
-.fm-memory-hex-header-offset{
-    width: auto !important;
-    min-width: 0 !important;
-    box-sizing: border-box !important;
-    padding-left: 0 !important;
-    padding-right: 0 !important;
-    text-align: center !important;
-}
-.fm-memory-hex-gap,
-
-.fm-memory-hex-header-gap{
-    width: 2ch !important;
-    min-width: 2ch !important;
-    box-sizing: border-box !important;
-    flex: none !important;
-}
-.fm-memory-ascii-grid,
-
-.fm-memory-hex-header-ascii{
-    display: grid !important;
-    grid-template-columns: repeat(16, 1ch) !important;
-    column-gap: .25ch !important;
-    width: max-content !important;
-    min-width: max-content !important;
-    box-sizing: border-box !important;
-    flex: none !important;
+    font-family: monospace;
 }
 
-.fm-memory-hex-header-ascii{
-    display: block !important;
-    width: calc(16ch + 3.75ch) !important;
-    min-width: calc(16ch + 3.75ch) !important;
-    padding-left: 8px !important;
+.fm-window-managed .fm-memory-hex-byte-track{
+    display: grid;
+    grid-template-columns: repeat(16, 2ch);
+    column-gap: .25ch;
+    width: max-content;
+    min-width: max-content;
+    flex: none;
+}
+
+.fm-window-managed .fm-memory-hex-byte-track > .fm-memory-hex-header-byte{
+    display: block;
+    width: 2ch;
+    min-width: 2ch;
+    max-width: 2ch;
+    box-sizing: border-box;
+    margin: 0;
+    padding-left: 0;
+    padding-right: 0;
+    text-align: center;
+    justify-self: stretch;
+}
+
+.fm-window-managed .fm-memory-hex-offset,
+.fm-window-managed .fm-memory-hex-header-offset{
+    width: auto;
+    min-width: 0;
+    box-sizing: border-box;
+    padding-left: 0;
+    padding-right: 0;
+    text-align: center;
+}
+
+.fm-window-managed .fm-memory-hex-gap,
+.fm-window-managed .fm-memory-hex-header-gap{
+    width: 2ch;
+    min-width: 2ch;
+    box-sizing: border-box;
+    flex: none;
+}
+
+.fm-window-managed .fm-memory-ascii-grid,
+.fm-window-managed .fm-memory-hex-header-ascii{
+    display: grid;
+    grid-template-columns: repeat(16, 1ch);
+    column-gap: .25ch;
+    width: max-content;
+    min-width: max-content;
+    box-sizing: border-box;
+    flex: none;
+}
+
+.fm-window-managed .fm-memory-hex-header-ascii{
+    display: block;
+    width: calc(16ch + 3.75ch);
+    min-width: calc(16ch + 3.75ch);
+    padding-left: 8px;
 }
 @media (max-width: 760px), (pointer: coarse) {
-    .fm-memory-hex-byte-track{
-        grid-template-columns: repeat(16, 2ch) !important;
+
+.fm-window-managed .fm-memory-hex-byte-track{
+        grid-template-columns: repeat(16, 2ch);
     }
 }
 
@@ -1329,28 +1335,28 @@
     border-right: 1px solid #303944;
 }
 
-.fm-memory-hex-table .fm-memory-ascii-grid{
-    display: grid !important;
-    grid-template-columns: repeat(16, minmax(1ch, 1fr)) !important;
-    column-gap: .25ch !important;
-    width: 100% !important;
-    min-width: 0 !important;
+.fm-window-managed .fm-memory-hex-table .fm-memory-ascii-grid{
+    display: grid;
+    grid-template-columns: repeat(16, minmax(1ch, 1fr));
+    column-gap: .25ch;
+    width: 100%;
+    min-width: 0;
     margin: 0 auto;
-    padding: 0 8px !important;
+    padding: 0 8px;
 }
-.fm-memory-hex-table .fm-memory-hex-cell,
 
-.fm-memory-hex-table .fm-memory-ascii-cell{
+.fm-window-managed .fm-memory-hex-table .fm-memory-hex-cell,
+.fm-window-managed .fm-memory-hex-table .fm-memory-ascii-cell{
     position: relative;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 100% !important;
-    min-width: 0 !important;
-    max-width: none !important;
-    box-sizing: border-box !important;
-    border: 0 !important;
-    padding: 0 !important;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    box-sizing: border-box;
+    border: 0;
+    padding: 0;
     cursor: text;
     white-space: nowrap;
     outline: none;

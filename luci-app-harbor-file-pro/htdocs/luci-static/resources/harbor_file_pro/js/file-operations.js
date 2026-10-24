@@ -1342,7 +1342,7 @@
         while (node) {
             ['overflow-x', 'overflow-y', 'touch-action'].forEach(function(property) {
                 entries.push({ node: node, property: property, value: node.style.getPropertyValue(property), priority: node.style.getPropertyPriority(property) });
-                node.style.setProperty(property, property === 'touch-action' ? 'none' : 'hidden', 'important');
+                node.style.setProperty(property, property === 'touch-action' ? 'none' : 'hidden');
             });
             node = node.parentElement;
         }
@@ -2300,9 +2300,13 @@
     HF.fit_frame = function fit_frame() {
         var frame = document.querySelector('.file-manager');
         if (!frame) return false;
+        document.documentElement.setAttribute('data-harbor-file-manager', '');
         var host = frame.parentElement;
         while (host && host !== document.body) {
             host.classList.add('fm-fluid-host');
+            ['width', 'max-width', 'margin-left', 'margin-right', 'padding-left', 'padding-right'].forEach(function(property) {
+                host.style.removeProperty(property);
+            });
             host = host.parentElement;
         }
         var top = Math.max(0, frame.getBoundingClientRect().top + window.scrollY);
