@@ -2,6 +2,10 @@
 (function (HF) {
     'use strict';
 
+    HF.update_language = function update_language() {
+        return String(document.documentElement.lang || '').trim().toLowerCase().replace(/_/g, '-');
+    };
+
     HF.reset_update_result = function reset_update_result() {
         HF.state.update_epoch = (HF.state.update_epoch || 0) + 1;
         var latest = document.getElementById('fm_about_latest');
@@ -28,6 +32,7 @@
         HF.Util.ajax({
             url: HF.api.update_check,
             type: 'GET',
+            data: { language: HF.update_language() },
             dataType: 'json',
             success: function(res) {
                 check.disabled = false;
@@ -162,7 +167,7 @@
         });
         HF.set_install_progress(true, 0, HF.labels.downloading_update);
         HF.open_modal('fm_package_install_dialog');
-        HF.request_write(HF.api.update_start, {}, '', function(data) {
+        HF.request_write(HF.api.update_start, { language: HF.update_language() }, '', function(data) {
             if (data && data.task_id) {
                 HF.poll_update_status(data.task_id);
             }

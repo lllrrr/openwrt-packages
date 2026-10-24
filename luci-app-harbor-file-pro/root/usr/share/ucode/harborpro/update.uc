@@ -211,47 +211,59 @@ function latest_tag(body) {
 	return r ? r.tag : null;
 }
 
-function collect_urls(v, ext, main, lang, seen) {
+function normalize_language(value) {
+	if (type(value) != 'string')
+		return '';
+	let language = lc(replace(trim(value), /_/g, '-'));
+	return length(language) <= 64 && match(language, /^[a-z]{2,8}(-[a-z0-9]{1,8})*$/) ? language : '';
+}
+
+function asset_filename(url) {
+	let path = split(url, /[?#]/)[0];
+	let parts = split(path, '/');
+	return parts[length(parts) - 1];
+}
+
+function package_matches(name, prefix) {
+	return substr(name, 0, length(prefix)) == prefix && match(substr(name, length(prefix)), /^[-_][0-9]/);
+}
+
+function collect_urls(v, ext, language, main, lang, seen) {
 	let tv = type(v);
 
 	if (tv == 'array') {
 		for (let item in v)
-			collect_urls(item, ext, main, lang, seen);
+			collect_urls(item, ext, language, main, lang, seen);
 		return;
 	}
 
 	if (tv == 'object') {
 		for (let k in v)
-			collect_urls(v[k], ext, main, lang, seen);
+			collect_urls(v[k], ext, language, main, lang, seen);
 		return;
 	}
 
-	if (tv != 'string' || !match(v, /^https?:\/\//))
+	if (tv != 'string' || !match(v, /^https?:\/\//) || index(seen, v) >= 0)
 		return;
 
-	if (substr(lc(v), length(v) - length(ext)) != ext)
-		return;
-
-	if (index(seen, v) >= 0)
+	let name = lc(asset_filename(v));
+	if (substr(name, length(name) - length(ext)) != ext)
 		return;
 
 	push(seen, v);
-	let low = lc(v);
-
-	if (index(low, 'i18n') >= 0 || index(low, 'zh-cn') >= 0 || index(low, 'zh_cn') >= 0 || index(low, 'zh-hans') >= 0)
-		push(lang, v);
-	else
+	if (package_matches(name, PACKAGE_NAME))
 		push(main, v);
+	else if (length(language) && package_matches(name, 'luci-i18n-harbor-file-pro-' + language))
+		push(lang, v);
 }
 
-function asset_urls(body, pm) {
+function asset_urls(body, pm, language) {
 	let ext = (pm == 'apk') ? '.apk' : '.ipk';
 	let main = [], lang = [], seen = [];
 	let r = latest_release(body);
 
-	if (r) {
-		collect_urls(r.release, ext, main, lang, seen);
-	}
+	if (r)
+		collect_urls(r.release, ext, normalize_language(language), main, lang, seen);
 
 	return { main, lang };
 }
@@ -287,6 +299,7 @@ function api_update_check() {
 
 	let pm = detect_package_manager();
 	let current = installed_version(pm);
+	let language = normalize_language(http.formvalue('language'));
 
 	for (let m in mirror_order(read_mirror_pref())) {
 		let body = fetch_url(m.api, 3, 8);
@@ -297,7 +310,7 @@ function api_update_check() {
 		if (!latest)
 			continue;
 
-		let urls = asset_urls(body, pm);
+		let urls = asset_urls(body, pm, language);
 
 		return ok(http, {
 			current,
@@ -306,6 +319,7 @@ function api_update_check() {
 			mirror: m.id,
 			main_url: urls.main[0] ?? null,
 			lang_url: urls.lang[0] ?? null,
+			language,
 			fetcher: true,
 			pm
 		});
@@ -342,7 +356,7 @@ function task_running(st) {
 	return alive == 'y';
 }
 
-function build_update_script(main_urls, lang_url, pm) {
+function build_update_script(main_urls, lang_url, pm, details) {
 	let fetch = detect_fetcher();
 	let ext = pm == 'apk' ? '.apk' : '.ipk';
 	let download, head;
@@ -356,6 +370,10 @@ function build_update_script(main_urls, lang_url, pm) {
 		head = ':';
 	}
 
+	let logs = [];
+	for (let line in details?.logs ?? [])
+		push(logs, "printf '%s\\n' " + shellquote(line));
+
 	let L = [
 		'#!/bin/sh',
 		'FETCH=' + shellquote(fetch),
@@ -366,6 +384,9 @@ function build_update_script(main_urls, lang_url, pm) {
 		'URLS_MAIN=' + shellquote(join(' ', main_urls)),
 		'URL_LANG=' + shellquote(lang_url ?? ''),
 		'HAY=' + shellquote(RELEASE_FILE),
+		'LANGUAGE=' + shellquote(normalize_language(details?.language)),
+		join('\n', logs),
+		'printf \'Package manager: %s\\nLanguage: %s\\n\' "$PM" "${LANGUAGE:-not set}"',
 		'',
 		'file_size() (',
 		'if [ -f "$1" ]; then',
@@ -393,6 +414,8 @@ function build_update_script(main_urls, lang_url, pm) {
 		'urls="$1"; dest="$2"; ph="$3"; part="$2.part"',
 		'rm -f "$dest" "$part"',
 		'for u in $urls; do',
+		'name=${u%%\\?*}; name=${name%%\\#*}; name=${name##*/}',
+		'printf \'File: %s\\nURL: %s\\n\' "$name" "$u"',
 		'rm -f "$part"',
 		'tot=$(total_of "$u")',
 		'[ -n "$tot" ] || tot=0',
@@ -414,6 +437,7 @@ function build_update_script(main_urls, lang_url, pm) {
 		'elif mv -f "$part" "$dest"; then',
 		'got=$(file_size "$dest")',
 		'echo "$ph $got $tot" > "$PROG"',
+		'printf \'Download complete: %s\\n\' "$name"',
 		'return 0',
 		'else',
 		'echo "cannot save downloaded package: $dest"',
@@ -437,6 +461,10 @@ function build_update_script(main_urls, lang_url, pm) {
 		'fi',
 		'}',
 		'',
+		'rm -f "$LANG_OUT" "$LANG_OUT.part"',
+		'if [ -z "$URL_LANG" ]; then',
+		'printf \'No matching language package for %s; skipping\\n\' "${LANGUAGE:-not set}"',
+		'fi',
 		'dl "$URLS_MAIN" "$MAIN_OUT" main || failed "main download failed"',
 		'if [ -n "$URL_LANG" ]; then',
 		'if ! dl "$URL_LANG" "$LANG_OUT" lang; then',
@@ -447,13 +475,16 @@ function build_update_script(main_urls, lang_url, pm) {
 		'',
 		'[ -s "$MAIN_OUT" ] || failed "main package is missing before installation"',
 		'echo "install 0 0" > "$PROG"',
+		'echo "Installing main package"',
 		'install_package "$MAIN_OUT" || failed "main install failed"',
 		'if [ -s "$LANG_OUT" ]; then',
+		'echo "Installing language package"',
 		'install_package "$LANG_OUT" || echo "language package install failed"',
 		'fi',
 		'',
 		'rm -f "$MAIN_OUT" "$LANG_OUT"',
 		'echo "done 0 0" > "$PROG"',
+		'echo "Update complete"',
 		'exit 0'
 	];
 
@@ -488,6 +519,8 @@ function api_update_start() {
 		return fail(http, 1, 'no supported package manager found');
 
 	let pref = read_mirror_pref();
+	let language = normalize_language(http.formvalue('language'));
+	let logs = [];
 	let sorted = [];
 	for (let m in mirror_order(pref))
 		push(sorted, m);
@@ -496,12 +529,17 @@ function api_update_start() {
 	let api_dump = '';
 
 	for (let m in sorted) {
+		push(logs, 'API: ' + m.api);
 		let body = fetch_url(m.api, 3, 8);
-		if (!body)
+		if (!body) {
+			push(logs, 'API unavailable: ' + m.id);
 			continue;
+		}
+		let tag = latest_tag(body);
+		push(logs, tag ? 'Release: ' + tag + ' (' + m.id + ')' : 'No release found: ' + m.id);
 
 		api_dump += body + '\n';
-		let urls = asset_urls(body, pm);
+		let urls = asset_urls(body, pm, language);
 		for (let u in urls.main)
 			if (index(pref_main, u) < 0)
 				push(pref_main, u);
@@ -526,7 +564,7 @@ function api_update_start() {
 		return fail(http, 1, tr('Cannot prepare update directory'));
 
 	if (writefile(RELEASE_FILE, api_dump) == null ||
-		writefile(SCRIPT, build_update_script(pref_main, pref_lang[0] ?? null, pm)) == null)
+		writefile(SCRIPT, build_update_script(pref_main, pref_lang[0] ?? null, pm, { language, logs })) == null)
 		return fail(http, 1, tr('Cannot write update files'));
 
 	let task_id = sprintf('update-%d', time());

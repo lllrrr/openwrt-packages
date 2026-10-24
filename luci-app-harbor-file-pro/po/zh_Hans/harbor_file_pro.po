@@ -1465,5 +1465,5 @@ msgstr "全屏显示"
 msgid "Auto follows the browser color scheme. This only changes HarborFile Pro."
 msgstr "自动跟随浏览器的亮暗配色变化，仅影响 HarborFile Pro。"
 
-msgid "Fill the available width when enabled, or center the file area when disabled. The LuCI menu stays unchanged."
-msgstr "开启时横向铺满可用空间，关闭后文件区域居中显示，不改变 LuCI 菜单。"
+msgid "Fill the available width when enabled, or center the file area when disabled"
+msgstr "开启时横向铺满可用空间，关闭后文件区域居中显示"
