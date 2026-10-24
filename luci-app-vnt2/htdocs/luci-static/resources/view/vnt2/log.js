@@ -182,8 +182,8 @@ return view.extend({
         }, _('Auto Refresh (5s)'));
 
         var btns = [
-            {label:_('Refresh'),          cls:'btn cbi-button-action',  fn:function(){self._loadLog();}},
-            {label:_('Clear Log'),        cls:'btn cbi-button-negative', fn:function(){self._clearLog();}},
+            {label:_('Refresh'),          cls:'btn',  fn:function(){self._loadLog();}},
+            {label:_('Clear Log'),        cls:'btn', fn:function(){self._clearLog();}},
             {label:_('Scroll to Top'),    cls:'btn',                     fn:function(){scrollLog(false);}},
             {label:_('Scroll to Bottom'), cls:'btn',                     fn:function(){scrollLog(true);}},
         ];

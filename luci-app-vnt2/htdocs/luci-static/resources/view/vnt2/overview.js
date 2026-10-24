@@ -654,7 +654,7 @@ return view.extend({
             E('div',{'class':'vnt2-row-flex'},[
                 E('label',{},_('Select Instance:')),
                 instSelect,
-                E('button',{'class':'btn cbi-button-action','click':function(){
+                E('button',{'class':'btn','click':function(){
                     if (self._selectedInstance)
                         self._loadCtrlTab(self._selectedInstance,self._activeCtrlTab);
                 }},_('Refresh'))

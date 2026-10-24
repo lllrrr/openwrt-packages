@@ -298,7 +298,7 @@ function editVntWebAddr(self) {
             ]),
             E('div', {'class':'vnt2-modal-btns'}, [
                 E('button', {'class':'btn','click':function(){ closeM(); }}, _('Cancel')),
-                E('button', {'class':'btn cbi-button-save','click':function() {
+                E('button', {'class':'btn','click':function() {
                     var addr = (input.value || '').trim();
                     if (!addr) { self._ui.notify(_('Listen address cannot be empty'), 'error'); input.focus(); return; }
                     input.classList.remove('vnt2-input-error');
@@ -329,7 +329,7 @@ function showVntWebToken(self) {
             ]),
             E('div', {'class':'vnt2-modal-btns'}, [
                 E('button', {'class':'btn','click':function(){ closeT(); }}, _('Close')),
-                E('button', {'class':'btn cbi-button-save','click':function() {
+                E('button', {'class':'btn','click':function() {
                     var val = (input.value || '').trim();
                     if (!/^[0-9a-fA-F]{64}$/.test(val)) {
                         input.classList.add('vnt2-input-error');
@@ -666,7 +666,7 @@ function buildRawEditor(self, name, tab, content, example) {
         editor.node,
         E('div', {'class':'vnt2-edit-footer vnt2-raw-footer'}, [
             E('button', {'class':'btn','click':backToList}, _('Back to List')),
-            E('button', {'class':'btn cbi-button-save','click':function() {
+            E('button', {'class':'btn','click':function() {
                 var raw = editor.getValue();
                 var dupErrors = self._validator.validateDuplicateParameters(raw, false);
                 if (dupErrors.length) {
@@ -775,7 +775,7 @@ function buildEditor(self, name, isNew, tab, res) {
         E('div', {'class':'vnt2-edit-footer'}, [
             E('button', {'class':'btn','click':backToList}, _('Back to List')),
             E('button', {
-                'class':'btn cbi-button-save',
+                'class':'btn',
                 'click': function() {
                     var newName = nameInput.value.trim();
                     if (!newName || !/^[\w.-]+$/.test(newName) || (tab !== 'web' && /[.]/.test(newName))) {
@@ -1596,15 +1596,15 @@ return view.extend({
                         'class':'vnt2-toolbar'
                     }, [
                         E('div', {'class':'vnt2-toolbar-group'}, [
-                            E('button', {'id':'vnt2-btn-new-local','class':'btn cbi-button-add',
+                            E('button', {'id':'vnt2-btn-new-local','class':'btn',
                                 'click':function() { openEditor(self, '', true); }
                             }, _tab === 'vnt' ? _('New vnt2_cli Instance') : _('New Config')),
-                            E('button', {'id':'vnt2-btn-new-web','class':'btn cbi-button-add',
+                            E('button', {'id':'vnt2-btn-new-web','class':'btn',
                                 'style':'display:' + (_tab === 'vnt' ? '' : 'none') + ';',
                                 'click':function() { openEditor(self, '', true, null, 'web'); }
                             }, _('New vnt2_web Instance'))
                         ]),
-                        E('button', {'class':'btn cbi-button-save',
+                        E('button', {'class':'btn',
                             'click':function() { saveListState(self); }
                         }, _('Save & Apply'))
                     ]),

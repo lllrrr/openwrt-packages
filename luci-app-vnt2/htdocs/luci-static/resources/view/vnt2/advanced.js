@@ -387,8 +387,8 @@ return view.extend({
     _renderFooter: function() {
         var self = this;
         var buttons = [
-            E('button', {'class':'btn cbi-button-save','click':function(){ self._saveAdvanced(); }}, _('Save')),
-            E('button', {'class':'btn cbi-button-negative','click':function(){ self._reset(); }}, _('Reset Defaults'))
+            E('button', {'class':'btn','click':function(){ self._saveAdvanced(); }}, _('Save')),
+            E('button', {'class':'btn','click':function(){ self._reset(); }}, _('Reset Defaults'))
         ];
         return E('div', {'class':'vnt2-edit-footer'}, buttons);
     },
@@ -497,7 +497,7 @@ return view.extend({
                 editor.node,
                 E('div', {'class':'vnt2-edit-footer'}, [
                     E('button', {'class':'btn','click':function() { self._switch('binary'); }}, _('Back')),
-                    E('button', {'class':'btn cbi-button-save','click':saveEditor}, _('Save'))
+                    E('button', {'class':'btn','click':saveEditor}, _('Save'))
                 ])
             ]));
         });
@@ -554,7 +554,7 @@ return view.extend({
                     body.innerHTML = '';
                     body.appendChild(self._renderBody());
                 }}, _('Reset Defaults')),
-                E('button', {'class':'btn cbi-button-save','click':function() { self._saveLogKeys(); }}, _('Save'))
+                E('button', {'class':'btn','click':function() { self._saveLogKeys(); }}, _('Save'))
             ])
         ]);
     },
@@ -677,7 +677,7 @@ return view.extend({
             self._ui.card(_('Config Templates') + ' - ' + templateTypeLabel(self._tplType), [
                 E('p', {'class':'vnt2-form-desc'}, _('Default templates are readonly. Clone a default template, edit the raw template text, then use Preview to see the form that Instance Management will create.')),
                 self._renderTemplateTable(list),
-                E('div', {'style':'margin-top:10px;'}, E('button', {'class':'btn cbi-button-add','click':function(){ self._openTemplateEditor(self._tplType, '', false, ''); }}, _('New Custom Template')))
+                E('div', {'style':'margin-top:10px;'}, E('button', {'class':'btn','click':function(){ self._openTemplateEditor(self._tplType, '', false, ''); }}, _('New Custom Template')))
             ], 'vnt2-advanced-card')
         ]);
     },
@@ -775,7 +775,7 @@ return view.extend({
             wrap.appendChild(E('div', {}, [editor.node, E('div', {'class':'vnt2-edit-footer'}, [
                 E('button', {'class':'btn','click':function(){ self._reloadTemplates(); }}, _('Back')),
                 E('button', {'class':'btn','click':doPreview}, _('Preview New Config Form')),
-                readonly ? E('button', {'class':'btn cbi-button-add','click':function(){ self._cloneTemplate({type:type,name:name||'default'}); }}, _('Clone')) : E('button', {'class':'btn cbi-button-save','click':function(){
+                readonly ? E('button', {'class':'btn','click':function(){ self._cloneTemplate({type:type,name:name||'default'}); }}, _('Clone')) : E('button', {'class':'btn','click':function(){
                     var nm = nameInput.value.trim();
                     if (!/^[A-Za-z0-9_-]+$/.test(nm)) { self._ui.notify(_('Template name can only contain letters, numbers, underscores and hyphens'), 'error'); return; }
                     var dupErrors = self._validator.validateDuplicateParameters(editor.getValue(), true);

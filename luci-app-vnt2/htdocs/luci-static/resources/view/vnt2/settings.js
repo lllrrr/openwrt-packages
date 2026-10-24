@@ -506,7 +506,7 @@ return view.extend({
         var gl = E('a', { 'class':'vnt2-link-pill', 'href':self._releaseUrl(bin).gitlab, 'target':'_blank', 'rel':'noopener' }, 'GitLab');
         var file = E('input', { 'type':'file', 'style':'display:none;' });
         var fileName = E('span', { 'class':'vnt2-upload-file', 'style':'margin-left:8px;' }, _('No file selected'));
-        var browse = E('button', { 'class':'btn cbi-button-action', 'click':function(ev) { ev.preventDefault(); file.click(); } }, _('Browse…'));
+        var browse = E('button', { 'class':'btn', 'click':function(ev) { ev.preventDefault(); file.click(); } }, _('Browse…'));
         file.addEventListener('change', function() {
             fileName.textContent = (file.files && file.files.length) ? file.files[0].name : _('No file selected');
         });
@@ -516,7 +516,7 @@ return view.extend({
             meterWrap.innerHTML = '';
             meterWrap.appendChild(self._ui.progressBar(pct, _('Upload'), 'vnt2-upload-meter', 'green'));
         };
-        var btn = E('button', { 'class':'btn cbi-button-save' }, _('Upload'));
+        var btn = E('button', { 'class':'btn' }, _('Upload'));
         var closeM = self._ui.modal(_('Manual Upload'), [
             E('div', { 'class':'vnt2-modal-body' }, [
                 E('div', { 'class':'vnt2-form-desc' }, _('Select the %s binary file to upload').format(bin)),
@@ -605,7 +605,7 @@ return view.extend({
             E('h4', {}, title),
             E('div', { 'class': 'vnt2-row-flex', 'style': 'gap:10px;' }, [
                 E('button', {
-                    'class': 'btn cbi-button-action',
+                    'class': 'btn',
                     'id':    bid + '-check-btn',
                     'click': function() { self._checkUpstream(project, bid); }
                 }, _('Check Upstream Version')),
@@ -628,7 +628,7 @@ return view.extend({
                     return E('option', a, o.label);
                 })),
                 E('button', {
-                    'class': 'btn cbi-button-action',
+                    'class': 'btn',
                     'click': function() { self._checkUpstream(project, bid); }
                 }, _('Retry'))
             ]),
@@ -642,7 +642,7 @@ return view.extend({
                     E('select', { 'class': 'cbi-input-select', 'id': bid + '-file',
                         'style': 'width:auto;max-width:100%;min-width:0;overflow:hidden;text-overflow:ellipsis;box-sizing:border-box;' }),
                     E('button', {
-                        'class': 'btn cbi-button-apply',
+                        'class': 'btn',
                         'id':    bid + '-btn',
                         'disabled': self._binsEmpty() ? 'disabled' : null,
                         'click': function() { self._doUpdate(project, bid); }

@@ -1,7 +1,7 @@
 'use strict';
 'require rpc';
 'require uci';
-const ASSET_VERSION = '0.0.0';
+const ASSET_VERSION = '0.0.1';
 
 var RE_TOML_TABLE     = /^\[([a-zA-Z_][a-zA-Z0-9_]*)\]$/;
 var NO_COMMENT_FIELDS = ['white_list'];
