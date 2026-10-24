@@ -25,6 +25,8 @@
         system_blocked_notified: false,
         preferences: {
             view_mode: 1,
+            theme: 'auto',
+            full_width: 1,
             allow_system_operations: 0,
             show_hidden_files: 0,
             home_dir: '/tmp/root',

@@ -12,8 +12,8 @@
     font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
 }
 
-[data-darkmode="true"] .fm-desktop-window,
-[data-darkmode="true"] .fm-window-taskbar{
+[data-harbor-theme="dark"] .fm-desktop-window,
+[data-harbor-theme="dark"] .fm-window-taskbar{
     --fm-accent: #62a9f3;
     --fm-accent-soft: #183b60;
     --fm-panel: #18212b;
@@ -49,7 +49,7 @@ html[data-harbor-file-manager] .fm-window-managed{
     color: var(--fm-text);
 }
 
-[data-darkmode="true"] .fm-window-managed{
+[data-harbor-theme="dark"] .fm-window-managed{
     box-shadow: 0 22px 58px rgba(0, 0, 0, 0.48);
 }
 
@@ -57,7 +57,7 @@ html[data-harbor-file-manager] .fm-window-managed{
     box-shadow: 0 26px 66px rgba(18, 41, 64, 0.34), 0 0 0 1px rgba(40, 120, 212, 0.15);
 }
 
-[data-darkmode="true"] .fm-window-managed.fm-window-focused{
+[data-harbor-theme="dark"] .fm-window-managed.fm-window-focused{
     box-shadow: 0 26px 66px rgba(0, 0, 0, 0.58), 0 0 0 1px rgba(98, 169, 243, 0.22);
 }
 
@@ -263,7 +263,7 @@ html[data-harbor-file-manager] body.fm-window-resizing .fm-window-managed *{
     scrollbar-width: thin;
 }
 
-[data-darkmode="true"] .fm-window-taskbar-list{
+[data-harbor-theme="dark"] .fm-window-taskbar-list{
     border-color: rgba(125, 145, 164, 0.36);
     background: rgba(18, 28, 39, 0.9);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.36);
@@ -359,11 +359,11 @@ html[data-harbor-file-manager] body.fm-window-resizing .fm-window-managed *{
     background: rgba(40, 120, 212, 0.85);
 }
 
-[data-darkmode="true"] .fm-taskbar-pill{
+[data-harbor-theme="dark"] .fm-taskbar-pill{
     background: rgba(125, 145, 164, 0.6);
 }
 
-[data-darkmode="true"] .fm-taskbar-pill:hover{
+[data-harbor-theme="dark"] .fm-taskbar-pill:hover{
     background: rgba(98, 169, 243, 0.85);
 }
 

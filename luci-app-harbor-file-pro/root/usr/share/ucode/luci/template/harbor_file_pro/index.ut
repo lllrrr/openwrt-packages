@@ -788,6 +788,29 @@ window.HarborFile.tr = function (msgid) {
                     <div class="fm-settings-panel-main">
                         <div class="fm-settings-row">
                             <div class="fm-settings-copy">
+                                <label class="fm-settings-label" for="fm_settings_theme">{{ _('Theme') }}</label>
+                                <div class="fm-settings-desc">{{ _('Auto follows the browser color scheme. This only changes HarborFile Pro.') }}</div>
+                            </div>
+                            <div class="fm-settings-control-wrap">
+                                <select id="fm_settings_theme" class="fm-settings-control">
+                                    <option value="auto">{{ _('Auto') }}</option>
+                                    <option value="dark">{{ _('Dark') }}</option>
+                                    <option value="light">{{ _('Light') }}</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="fm-settings-row">
+                            <div class="fm-settings-copy">
+                                <label class="fm-settings-label" for="fm_settings_full_width">{{ _('Full screen display') }}</label>
+                                <div class="fm-settings-desc">{{ _('Fill the available width when enabled, or center the file area when disabled. The LuCI menu stays unchanged.') }}</div>
+                            </div>
+                            <label class="fm-settings-switch" for="fm_settings_full_width">
+                                <input id="fm_settings_full_width" type="checkbox" checked>
+                                <span class="fm-settings-switch-slider"></span>
+                            </label>
+                        </div>
+                        <div class="fm-settings-row">
+                            <div class="fm-settings-copy">
                                 <span class="fm-settings-label">{{ _('Default view') }}</span>
                                 <div class="fm-settings-desc">{{ _('Choose how files and folders are shown when Harbor File opens.') }}</div>
                             </div>

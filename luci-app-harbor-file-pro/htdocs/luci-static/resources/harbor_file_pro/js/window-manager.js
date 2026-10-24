@@ -291,7 +291,8 @@
             if (!this.taskbar || this.taskbar.classList.contains('is-empty')) {
                 return area.bottom;
             }
-            return Math.max(0, area.bottom - Math.max(0, this.taskbar.offsetHeight || 0) - 6);
+            var bottom = parseFloat(window.getComputedStyle(this.taskbar).bottom);
+            return Math.max(area.top, area.bottom - Math.max(0, this.taskbar.offsetHeight || 0) - (isFinite(bottom) ? bottom : 6));
         };
 
         DesktopWindowManager.prototype.get_rect = function(record) {
@@ -318,6 +319,14 @@
             var max_left = Math.max(min_left, area.width - width - margin);
             var min_top = area.top + margin;
             var max_top = Math.max(min_top, area.bottom - height - margin);
+            if (!record.maximized && !record.modal) {
+                var visible_width = Math.min(width, Math.max(width / 2, 160));
+                var titlebar = record.element.querySelector('.fm-window-titlebar, .fm-dialog-header');
+                var title_height = Math.min(height, titlebar && titlebar.offsetHeight || 42);
+                min_left = margin + visible_width - width;
+                max_left = Math.max(min_left, area.width - margin - visible_width);
+                max_top = Math.max(min_top, this.taskbar_top(area) - title_height - margin);
+            }
             return {
                 left: clamp(isFinite(Number(rect.left)) ? Number(rect.left) : margin, min_left, max_left),
                 top: clamp(isFinite(Number(rect.top)) ? Number(rect.top) : min_top, min_top, max_top),

@@ -94,7 +94,7 @@ input:checked + .slider:before {
     margin-bottom: 12px;
 }
 
-[data-darkmode="true"] .form-desc {
+[data-harbor-theme="dark"] .form-desc {
     color:#c0c0c0;
 }
 

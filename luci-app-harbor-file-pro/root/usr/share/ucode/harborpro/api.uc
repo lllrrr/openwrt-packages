@@ -101,6 +101,8 @@ const PREFERENCE_DEFAULTS = {
 	mobile_window_width: 360,
 	mobile_window_height: 560,
 	view_mode: 1,
+	theme: 'auto',
+	full_width: 1,
 	allow_system_operations: 0,
 	show_hidden_files: 0,
 	home_dir: '/tmp/root',
@@ -112,6 +114,8 @@ const PREFERENCE_DEFAULTS = {
 	last_directory: '',
 	update_mirror: 'auto'
 };
+
+const THEME_VALUES = { auto: true, dark: true, light: true };
 
 const BOOLEAN_VALUES  = { "0": true, "1": true };
 
@@ -364,9 +368,12 @@ function read_preferences() {
 		return { ...PREFERENCE_DEFAULTS };
 
 	const g = (k) => uci.get(CONFIG, CONFIG_SECTION, k);
+	let theme = g('theme');
 
 	let p = {
 		view_mode:               normalize_number(g('view_mode'), PREFERENCE_DEFAULTS.view_mode, VIEW_MODE_VALUES),
+		theme:                   type(theme) == 'string' && THEME_VALUES[theme] ? theme : PREFERENCE_DEFAULTS.theme,
+		full_width:              normalize_number(g('full_width'), PREFERENCE_DEFAULTS.full_width, BOOLEAN_VALUES),
 		allow_system_operations: normalize_number(g('allow_system_operations'), PREFERENCE_DEFAULTS.allow_system_operations, BOOLEAN_VALUES),
 		show_hidden_files:       normalize_number(g('show_hidden_files'), PREFERENCE_DEFAULTS.show_hidden_files, BOOLEAN_VALUES),
 		home_dir:                normalize_home_dir(g('home_dir')),
@@ -1143,7 +1150,7 @@ function api_preferences() {
 const BOOL_KEYS = [
 	'allow_system_operations', 'show_hidden_files', 'enable_thumbnails',
 	'editor_auto_indent', 'editor_auto_wrap', 'restore_last_directory',
-	'show_line_numbers'
+	'show_line_numbers', 'full_width'
 ];
 
 function api_save_preferences() {
@@ -1234,6 +1241,10 @@ function api_save_preferences() {
 		if (v != null && match('' + v, /^[01]$/))
 			values[key] = v;
 	}
+
+	let theme = http.formvalue('theme');
+	if (type(theme) == 'string' && THEME_VALUES[theme])
+		values.theme = theme;
 
 	let mirror = http.formvalue('update_mirror');
 	if (mirror != null && (mirror == 'auto' || mirror == 'gitee' || mirror == 'github' || mirror == 'gitlab'))
@@ -3677,4 +3688,3 @@ return {
 	api_package_install_start, api_package_install_status,
 	api_thumbnail_generate_start, api_thumbnail_generate_status
 };
-

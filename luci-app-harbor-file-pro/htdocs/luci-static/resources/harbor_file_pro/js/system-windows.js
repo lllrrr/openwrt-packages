@@ -133,6 +133,8 @@
 
     HF.populate_settings_dialog = function populate_settings_dialog() {
         document.getElementById('fm_settings_view_mode').value = String(HF.state.preferences.view_mode);
+        document.getElementById('fm_settings_theme').value = HF.state.preferences.theme || 'auto';
+        document.getElementById('fm_settings_full_width').checked = HF.state.preferences.full_width !== 0;
         document.getElementById('fm_settings_home_dir').value = HF.state.preferences.home_dir || '/tmp/root';
         document.getElementById('fm_settings_system_operations').checked = HF.state.preferences.allow_system_operations === 1;
         document.getElementById('fm_settings_show_hidden').checked = HF.state.preferences.show_hidden_files === 1;
@@ -194,6 +196,8 @@
         HF.save_preferences({
             section: 'basic',
             view_mode: next_view_mode,
+            theme: document.getElementById('fm_settings_theme').value,
+            full_width: document.getElementById('fm_settings_full_width').checked ? 1 : 0,
             home_dir: next_home_dir,
             show_hidden_files: next_show_hidden,
             allow_system_operations: next_system_operations,
@@ -798,4 +802,3 @@
         start_nginx_install: HF.start_nginx_install
     };
 })(window.HarborFile = window.HarborFile || {});
-

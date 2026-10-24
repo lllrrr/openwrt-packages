@@ -909,6 +909,8 @@
         var request_buffering_value = Number(data && data.uwsgi_request_buffering);
         var body_size_value = Number(data && data.client_max_body_size);
         HF.state.preferences.view_mode = isNaN(view_value) ? 1 : view_value;
+        HF.state.preferences.theme = data && ['auto', 'dark', 'light'].indexOf(data.theme) >= 0 ? data.theme : 'auto';
+        HF.state.preferences.full_width = data && data.full_width != null && Number(data.full_width) === 0 ? 0 : 1;
         HF.state.preferences.allow_system_operations = allow_value === 1 ? 1 : 0;
         HF.state.preferences.show_hidden_files = hidden_value === 1 ? 1 : 0;
         HF.state.preferences.enable_thumbnails = thumbnail_value === 1 ? 1 : 0;
@@ -978,6 +980,8 @@
         }
         HF.state.view_mode = HF.value_to_view_mode(HF.state.preferences.view_mode);
         HF.apply_editor_wrap_to_windows();
+        HF.apply_theme();
+        HF.fit_frame();
     }
 
     HF.apply_editor_wrap_to_windows = function apply_editor_wrap_to_windows() {
@@ -1033,6 +1037,8 @@
             payload.show_hidden_files = options && options.show_hidden_files !== undefined ?
                 options.show_hidden_files : HF.state.preferences.show_hidden_files;
             payload.home_dir = options && options.home_dir !== undefined ? options.home_dir : HF.state.preferences.home_dir;
+            payload.theme = options && options.theme !== undefined ? options.theme : HF.state.preferences.theme;
+            payload.full_width = options && options.full_width !== undefined ? options.full_width : HF.state.preferences.full_width;
             payload.enable_thumbnails = options && options.enable_thumbnails !== undefined ?
                 options.enable_thumbnails : HF.state.preferences.enable_thumbnails;
             payload.editor_auto_indent = options && options.editor_auto_indent !== undefined ?
@@ -1349,13 +1355,17 @@
         HF.state.touch_scroll_lock = { owner: owner, entries: entries };
     }
 
-    HF.release_touch_scroll = function release_touch_scroll(owner) {
-        var lock = HF.state.touch_scroll_lock;
-        if (!lock || (owner && owner !== lock.owner)) return;
-        lock.entries.forEach(function(entry) {
+    HF.restore_inline_styles = function restore_inline_styles(entries) {
+        entries.forEach(function(entry) {
             if (entry.value) entry.node.style.setProperty(entry.property, entry.value, entry.priority);
             else entry.node.style.removeProperty(entry.property);
         });
+    }
+
+    HF.release_touch_scroll = function release_touch_scroll(owner) {
+        var lock = HF.state.touch_scroll_lock;
+        if (!lock || (owner && owner !== lock.owner)) return;
+        HF.restore_inline_styles(lock.entries);
         HF.state.touch_scroll_lock = null;
     }
 
@@ -2297,18 +2307,47 @@
         HF.state.page_still = state;
     }
 
+    HF.theme_media = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+
+    HF.apply_theme = function apply_theme() {
+        var mode = HF.state.preferences.theme;
+        var dark = mode === 'dark' || (mode !== 'light' && HF.theme_media && HF.theme_media.matches);
+        document.documentElement.setAttribute('data-harbor-theme', dark ? 'dark' : 'light');
+    }
+
+    if (HF.theme_media) {
+        if (HF.theme_media.addEventListener) HF.theme_media.addEventListener('change', HF.apply_theme);
+        else if (HF.theme_media.addListener) HF.theme_media.addListener(HF.apply_theme);
+    }
+    HF.apply_theme();
+
     HF.fit_frame = function fit_frame() {
         var frame = document.querySelector('.file-manager');
         if (!frame) return false;
         document.documentElement.setAttribute('data-harbor-file-manager', '');
-        var host = frame.parentElement;
-        while (host && host !== document.body) {
-            host.classList.add('fm-fluid-host');
-            ['width', 'max-width', 'margin-left', 'margin-right', 'padding-left', 'padding-right'].forEach(function(property) {
-                host.style.removeProperty(property);
+        var wide = HF.state.preferences.full_width !== 0;
+        var hosts = HF.state.fluid_hosts || (HF.state.fluid_hosts = []);
+        var properties = ['width', 'max-width', 'margin-left', 'margin-right', 'padding-left', 'padding-right'];
+        if (!wide) {
+            hosts.forEach(function(entry) {
+                HF.restore_inline_styles(entry.styles);
+                entry.node.classList.toggle('fm-fluid-host', entry.had_class);
             });
-            host = host.parentElement;
+            HF.state.fluid_hosts = [];
+        } else {
+            var host = frame.parentElement;
+            while (host && host !== document.body) {
+                if (!hosts.some(function(entry) { return entry.node === host; })) {
+                    hosts.push({ node: host, had_class: host.classList.contains('fm-fluid-host'), styles: properties.map(function(property) {
+                        return { node: host, property: property, value: host.style.getPropertyValue(property), priority: host.style.getPropertyPriority(property) };
+                    }) });
+                }
+                host.classList.add('fm-fluid-host');
+                properties.forEach(function(property) { host.style.removeProperty(property); });
+                host = host.parentElement;
+            }
         }
+        frame.parentElement.classList.toggle('fm-centered', !wide);
         var top = Math.max(0, frame.getBoundingClientRect().top + window.scrollY);
         frame.style.setProperty('--fm-top', Math.ceil(top) + 'px');
         return true;
