@@ -120,8 +120,16 @@ return Class.extend({
 	gradeClass: nfmt.gradeClass,
 	gradeText: nfmt.gradeText,
 	dotClass: nfmt.dotClass,
+	/* 延迟 -> 等级，与后端同口径的统一实现（详见 format.js）。
+	 * 各页面此前各写一份同名函数，阈值边界上差一个等号。 */
+	gradeForLatency: nfmt.gradeForLatency,
+	/* 丢包率 / 可用率 -> 语义类名，按 UCI 的 loss_warn / loss_critical 判定。
+	 * 各页面此前各写一份硬编码的 5 / 99 / 95。 */
+	lossGrade: nfmt.lossGrade,
+	rateGrade: nfmt.rateGrade,
+	/* 可用率 -> 仪表盘等级名（good / fair / down / unknown）。 */
+	rateGradeName: nfmt.rateGradeName,
 	regionText: nfmt.regionText,
-	regionTagClass: nfmt.regionTagClass,
 	errorText: nfmt.errorText,
 	localizeError: nfmt.localizeError,
 
@@ -139,6 +147,12 @@ return Class.extend({
 	kpiCard: nmw.kpiCard,
 	iconCard: nmw.iconCard,
 	banner: nmw.banner,
+	/* 区域胶囊标签：全库唯一实现（widgets.regionTag）。
+	 * 各页面不要再本地拼 chip / .nm-tag-*，避免同一标签四种长相。 */
+	regionTag: nmw.regionTag,
+	/* 空态 / 异常态占位：全库唯一实现（widgets.emptyState）。
+	 * 各页面不要再自己 new .nm-empty 再 inline 覆写 padding。 */
+	emptyState: nmw.emptyState,
 
 	/* ---- 展示层聚合引用 ---- */
 	icons: icons,

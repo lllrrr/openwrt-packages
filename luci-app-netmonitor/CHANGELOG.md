@@ -15,6 +15,321 @@
 辅助小节另用 `验证`（该版的验证结论）/`文档`（纯文档同步）/`撤回`（推翻上一版的决定）。
 
 
+## [1.6.1] - 2026-10-25
+
+本版**无代码变更**，内容与 1.6.0 完全一致：递增 `PKG_VERSION` 触发 CI 完整
+构建，产出 1.6.1 的 ipk / apk 产物对外分发。1.6.0 推送时触发的构建虽已通过，
+但按发布惯例每个对外分发的版本号都对应一次完整的流水线构建。
+
+### 验证
+
+| # | 验证项 | 结果 |
+|---|---|---|
+| 1 | 全部测试套件 | 与 1.6.0 相同：前端防护 291 / 图标 437 / 守护进程 136（bash）全绿，0 失败 |
+| 2 | CI 构建 | 由本版本推送触发，结论见 Actions 流水线 |
+
+## [1.6.0] - 2026-10-25
+
+本版是前端的一次**体系性重构**：把散落在七个页面里的控件与弹窗实现收敛为一套
+设计系统。业务逻辑、UCI 字段、RPC/ubus/ACL、接口路径与数据结构**一律未动**，
+改动集中在前端 UI/交互/样式三层。所有度量引用同一组 CSS 自定义属性（Token），
+弹层共用同一个模态外壳，页面不再自己拼 dialog / select / switch / toast。
+
+### 新增
+
+- **`ui.js` 设计系统原语**（`htdocs/luci-static/resources/netmonitor/ui.js`，395 → 1320 行）
+  - 表单控件九个工厂：`field`（label[for] + 说明 + 错误行 + `setError` 一次配齐）、
+    `textInput` / `numberInput` / `textareaInput` / `selectInput`（`.nm-ctl` 基线：
+    40px 高、聚焦环、禁用态、错误态、移动端 44px）、`switchControl`（44×26 四态：
+    on / off / busy / disabled，`role="switch"` 保留原生键盘语义）、`checkControl`、
+    `radioGroup`、`segmented`；另有 `bindLabel`（把行标题变成显式关联的
+    `<label for>`）与 `setBusy`（`is-busy` + `aria-busy`）。
+  - 完整弹窗体系：`dialog` 重写（`onBeforeClose` dismiss 拦截、`maskClose`、
+    `onOk` 返回 Promise 时确认按钮自动 busy + 禁用）、`confirm`（`danger: true` 时
+    确认按钮危险色且遮罩点击默认不关）、`panel`（PC 抽屉 / 窄屏底部面板）、
+    `popover`（实测 rect 自动翻转方向、危险项语义红分组）、`toast`（四级语义 +
+    队列去重 + 同屏上限 4 + 手动关闭）、`progress`（确定 / 不确定两种进度，
+    终态颜色 + 文案 + 满条三重区分，**禁假进度**）。
+  - `overlayShell` 模态外壳：`dialog` / `panel` / `progress` 共有的模态语义
+    （close 幂等、Tab 圈养、焦点还原、滚动锁引用计数、rAF 驱动 `is-open`）
+    收敛到一处，形态差异由调用方注入。
+- **总览页加载态**（`view/netmonitor/overview.js`）
+  在飞请求计数 `pending` + 最近一次成功数据 `lastD`：请求在飞时页脚状态行追加
+  旋转指示器与「刷新中」；首屏无数据时卡片区显示加载占位（此前的表现是空白）；
+  取数失败时卡片区切错误空态，并按旧数据重绘页脚收掉指示器。
+- **CSS 设计 Token**（`style.css`）：控件高度 / 内边距 / 字号 / 圆角 / 焦点环 /
+  动效时长 / 层级（sticky 100、pop 2000、dlg 2100、toast 2200）全部变量化，
+  明暗两套主题、`prefers-reduced-motion` 全覆盖（含挂在 body 下的弹窗与通知）、
+  `backdrop-filter` 不支持时的遮罩回退。
+
+### 变更
+
+- **控件统一取自工厂**：设置页四份本地控件工厂（switchControl / intControl /
+  enumControl / textControl）、targets 编辑器三份（selectInput / textInput /
+  numberInput）与四个页面各一份的 `makeSelect` 全部删除，改为委托
+  `common.ui.*`（保留各自 `{kind, el}` / 转调别名形状，collect / valueOf /
+  applyConfig 零改动）。此前同一套原生控件在全库有**九份**拷贝。
+- **弹窗体系统一**：页面不再直拼 `nm-dlg*` 外壳类；targets 编辑器字段包裹改走
+  `common.ui.field`，校验错误写到对应字段下方（不再是弹窗顶部一根孤零零的错误条），
+  提交改「onOk 返回 Promise」，连点防护由框架层保证。
+- **通知收敛**：`widgets.notify()` 委托 `nmui.toast()`（warning → warn 归并）。
+  旧实现基于未定义的全局 `E` / LuCI `ui.addNotification`，实际永远走 catch 落
+  console，用户看不到任何提示；`ui.button` 内部两处 `notify(...)` 同样改为
+  本模块 `toast(..., 'error')`。
+- **响应式断点收敛**：弹层形态（PC 居中框 / 窄屏底部面板）由 JS 按
+  `matchMedia` 加 `is-sheet` / `is-drawer` 类驱动，全库弹层断点唯一 768px，
+  禁止「仅用 CSS 把 PC 弹窗缩小」的伪适配。移动端控件升 44px 触控高度。
+- **清理冗余 CSS**：旧控件类名 `.nm-select` / `.nm-input` / `.nm-num-input`
+  自 v1.4.2 起零发送方（JS 全部改发 `.nm-ctl`），其样式规则（含 32px 基线块、
+  三处宽度覆写、旧类名兼容块）全部删除；弹窗表单 / 设置页的控件宽度规则改指
+  `.nm-ctl` 一条。
+
+### 修复
+
+- **按钮出错时用户看不到任何提示**（`ui.js` 的 `button()`）
+  错误处理调用的是一个从未定义的全局 `notify`，请求失败时提示直接落进
+  console。改为本模块 `toast(msg, 'error')`，顺带给 busy 态补上 `aria-busy`。
+- **五个行内操作按钮没有可访问名称**（`ui.js` 的 `button()`）
+  targets 行内的 Edit / ↑ / ↓ / Copy / Delete 一直传 `ariaLabel`，但此前只有
+  `iconButton` 处理该参数、`button` 静默丢弃——读屏软件只能念出「↑」这类
+  符号字符。此缺陷由本轮新增的页面级集成冒烟（真实 render 后按
+  `button[aria-label="Edit"]` 定位）暴露并修复。
+- **破坏性确认框可被误点遮罩关闭**（`ui.confirm`）
+  删除目标这类危险确认此前的遮罩点击与普通确认无异——误点遮罩等于误确认。
+  现在 `danger: true` 时 `maskClose` 默认 false，只保留取消 / 关闭按钮 / Esc
+  三条明确退出路径。
+- **设置页下拉兜底项漏译**（`settings.js` 的 `enumControl`）
+  未知当前值的兜底文案硬编码中文「（当前）」，英文界面下显示中文。统一走
+  `ui.selectInput` 的 `(current)` 后自动获得 po 翻译（zh_Hans：「（当前值）」）。
+- **总览页首屏卡片区空白**（`overview.js`）
+  `getStatus` 未返回数据时卡片区什么都不显示，用户分不清「在加载」还是「没数据」。
+  现在显示带旋转指示器的加载占位，与 `emptyState` 的「无数据」灰色空态语义区分。
+
+### 验证
+
+| # | 验证项 | 结果 |
+|---|---|---|
+| 1 | 守护进程单元测试 | 136 通过 / 0 失败（不变） |
+| 2 | 前端防护与生命周期 + 设计系统 | **291 通过 / 0 失败**（原 79，新增 212） |
+| 3 | 图标与视图断言 | 437 通过 / 0 失败（不变） |
+| 4 | ucode 语法近似校验 | 通过 |
+| 5 | 全部 JS 文件 `node --check` | 通过 |
+| 6 | 翻译漂移审计 | 186 条，untranslated 0（新增 Loading… / Refreshing） |
+| 7 | CSS 花括号平衡 | 593 / 593 |
+| 8 | 测试可重复执行 | 连跑 3 次结果一致 |
+
+新增断言覆盖：九个控件工厂的结构与关联关系（label[for] / aria-describedby /
+aria-invalid / role=switch / radiogroup / aria-pressed）、弹窗模态语义
+（aria、挂载、rAF is-open、close 幂等、onBeforeClose 拦截、Esc、onOk Promise
+的 busy → resolve 关闭 / reject 保持）、确认框危险语义、面板形态、浮层结构与
+点项关闭、通知三规则（去重 / 上限 4 / 手动关闭）、进度终态与假进度禁止、
+源码级单一来源（无页面自建控件、makeSelect 只许转调、无旧类名、matchMedia
+唯一 768px）、CSS 类与 Token 齐备、po 新文案入模版与译文，以及页面级集成
+冒烟（targets 真实 render → 点行内编辑 → 弹窗挂载 → 控件回填 → label[for]
+关联 → 清空名称触发字段级校验失败 → 合法提交走 onOk Promise 自动关闭并写入
+UCI 会话；history 工具栏控件与标签关联抽查）。
+
+**未完成的验证项**（本环境无 OpenWrt SDK 与实机，仅静态审查）：
+
+- OpenWrt / ImmortalWrt SDK 实际构建（ipk / apk 两种格式）。
+- 实机上七页的触控 / 键盘 / 读屏行为（断言覆盖结构语义，实机手感需人工确认）。
+- 窄屏底部面板形态的 safe-area 表现（需真机浏览器）。
+
+## [1.5.9] - 2026-10-25
+
+本版源自一次全量代码审查，修复项均**先复现、再修复、最后补测试**；
+每项修复都配了可重复的回归断言，并做过「注入缺陷 → 确认测试失败」的反向验证。
+涉及统计口径与 UI 语义的改动都保持了既有字段与配置的向后兼容。
+
+### 安全
+
+- **`clear_history` 的参数错误会放大成全量删除**（`root/usr/share/rpcd/ucode/luci.netmonitor`）
+  原先只要 `safeId(a.id)` 不通过就落进「清空全部目标历史」分支。调用方传错
+  一个 id（含路径分隔符、空格、超长或非法字符）就会抹掉全部历史，且不可撤销。
+  现在按意图分派：`id` 缺省或 `all` 才是显式全清；指定了就必须合法且目标存在，
+  否则返回 `invalid id` / `target not found` 且不删任何东西。
+- **`notify_url` 缺少 URL 校验**（同上文件）
+  原先只走 `validText()`（禁换行、限长度），不限 scheme。该字段当前是「预留」
+  （settings 页已标注通知后端尚未实现，眼下没有代码会请求它），但一旦将来
+  实现通知，最自然的写法就是直接拿它发请求——那便是一个现成的 SSRF：
+  LuCI 会话等价于 root，可把它指向内网管理接口或云元数据地址
+  （169.254.169.254）。新增 `validUrl()`：限定 `http` / `https`，拒绝控制字符
+  与非 ASCII（IDN 应先转 punycode），空值放行（出厂默认与「留空=未配置」依赖它）。
+- **消除 `readTail` 的命令注入面**（同上文件）
+  这是全模块唯一一处把 UCI 里的目标 id 拼进 shell 命令行
+  （`shcmd('tail -n ' + n + ' ' + path)`）。UCI 语法允许段名是任意不含单引号的
+  字符串，一旦配置文件被手工编辑或由其它途径写入，这里就是现成的命令执行入口
+  （rpcd 以 root 运行）。改为 ucode 直接 `readfile` 后自行截断；`readRing` /
+  `readAgg` / `cleanupTargetFiles` 另加 `safeId` 校验，杜绝含路径分隔符的
+  段名被用于访问预期之外的文件。
+
+### 修复
+
+- **服务停止后仍报告「运行中」**（同上文件，`serviceRunning()`）
+  兜底分支写作 `shcmd('pgrep -f "netmon-daemon" ...')`。它走 `popen`，实际执行的是
+  `/bin/sh -c 'pgrep -f "netmon-daemon" ...'`，而这个 sh 的命令行里就含
+  `netmon-daemon` —— `pgrep -f` 匹配完整命令行，于是每次都命中自己。
+  实测（无任何守护进程在跑的机器上）：`sh -c 'pgrep -f "netmon-daemon" ...'` 仍输出
+  一个 pid。后果是 pidfile 缺失时（服务停止后由 procd 清理）`running` 恒为 true：
+  概览页永不显示「后台服务未运行」，设置页「启动」按钮恒被禁用，真实故障被掩盖。
+  修复：模式改用 `[n]etmon-daemon` 自排除，再用 `/proc/<pid>/cmdline` 复核身份；
+  主路径同步校验命令行，顺带解决 pid 被内核回收给无关进程时的误判。
+- **TCP 探测的 `--noproxy` 参数形式**（`root/usr/libexec/netmonitor/netmon-daemon.sh`）
+  原先传 `'--noproxy=*'`。该等号写法在部分 curl 版本上直接报
+  `curl: option --noproxy=*: is unknown` 并以退出码 2 退出（curl 8.5.0 实测），
+  于是所有 TCP 目标统一显示「检查失败」，而真正的报错被吞进 stderr 文件里。
+  改为手册里的规范形式 `--noproxy '*'`（选项与参数两个独立元素）。
+- **无采样数据被判为「离线」**（`root/usr/share/rpcd/ucode/luci.netmonitor`）
+  `gradeOf()` 在 `last_latency` 为 null 时直接返回 `down`，而它覆盖的其实是两类
+  情况：「一次都还没探测过」与「探测过但最近这轮失败」。只有后者是故障。
+  后果是全新安装到第一次探测完成之前，所有目标显示「离线」、概览页 health 算成
+  `critical`、横幅写着「严重网络故障」。现在按 `total` 是否为 0 分岔：
+  无数据返回既有的 `unknown`（前端 `format.js` 已登记该等级）；
+  整体健康度同时新增「已启用但一个样本都没有 → unknown」分支，
+  避免首屏把「还没数据」显示成「网络健康」。
+- **`family=both` 双栈从未实现**（同上守护进程）
+  UCI、ucode 与前端都提供 `both`，但守护进程只对 `ipv6` 做了特判（换用 `ping6`），
+  `both` 与 `auto` 走完全相同的分支，配置项形同虚设。
+  现在 `both` 的语义为「双栈中任一栈可达即认为可达」：先按 IPv4 探测，失败再按
+  IPv6 探测，取第一个成功的结果。常态零额外开销（v4 成功就不再试 v6），
+  且保持一次探测一份结果的计数口径，`sent`/`recv` 不因开了双栈而翻倍。
+- **三个页面的轮询未随路由注销**（`overview.js` / `charts.js` / `regions.js`）
+  LuCI 是 SPA，路由切换只替换 view 容器、不清空 poll 队列。1.5.x 那次修复只补了
+  `realtime.js` 与 `settings.js`，这三页漏了：访问 N 次就是 N 路并发轮询持续打
+  rpcd。其中 `regions.js` 注册的还是匿名函数，外部连 `poll.remove()` 的入参都
+  拿不到，属结构性无法注销。现在统一改为具名函数 + `root.isConnected` 自判注销。
+- **编辑弹窗连点会重复提交**（`targets.js`）
+  `submit()` 恒返回 `false`（异步自行收尾），`ui.button` 因此拿不到 Promise、
+  不给确认按钮加 `is-busy`，按钮在整段提交期间始终可点。连点「保存并应用」
+  会连发两次 `saveConfig` / `addSection`——新增目标时一次建出两个一模一样的段。
+  在编辑器闭包内补了 `submitting` 守卫；`ui.js` 的 `dialog()` 文档同步写明
+  「onOk 返回 false 时按钮不会自动禁用，调用方需自行守卫」这一约定。
+- **状态文件与心跳文件的读写竞争**（同上守护进程）
+  `state/<id>` 与 `tick` 原先直接用 `>` 覆盖，会先截断再写入；rpcd 侧的读请求
+  若落在这个窗口里就拿到空内容，界面闪现「从未检测 / 离线」，刷新一次又恢复。
+  改为「临时文件 + `mv`」原子替换。持久化时间戳（`*.last`）同样处理——
+  它决定下次聚合的起点，写入中被截断会让一个窗口的数据被重复聚合。
+- **退出时不回收探测子进程**（同上守护进程）
+  `cleanup()` 只删 `TMP_DIR`。`run_check` 以后台子 shell 并发执行，ping / curl
+  又由子 shell 再派生，它们会继续跑完自己的 deadline，并往一个已被删除的目录
+  里写结果；restart 时还会出现新旧两批探测短暂并存。新增 `nm_kill_children()`
+  按父子关系回收子 shell 及其孙进程。**刻意不使用 `kill -TERM -$$` 按进程组
+  终止**：procd 及其 helper 可能与本进程同组，负 PID 会把信号送到它们头上。
+- **退出时序竞争导致日志刷屏**（同上守护进程，实跑复现）
+  `cleanup()` 原先会 `rm -rf $TMP_DIR`，但收到 TERM 时本轮往往还有探测在飞行
+  —— `wait` 被信号打断后不会重新等待，主循环随即退出，于是「删目录」与
+  「在途任务写结果文件」并发。实跑复现到的 stderr：
+  ```
+  awk: cannot open ".../tmp.<pid>/offline.out" (No such file or directory)
+  cannot create ".../tmp.<pid>/offline.res": Directory nonexistent
+  ```
+  一轮 N 个目标就是 N 条，且会盖过真正需要关注的探测失败日志。
+  现在 `cleanup()` 不再删目录：它带本实例 pid，生命周期由下一次启动时的
+  `setup_dirs()` 负责（只回收「进程已不存在」的目录），既消除了竞争也不泄漏。
+- **临时目录被外部清掉后每轮刷屏**（同上守护进程）
+  `/tmp` 是共享的，一旦 `tmp.<pid>` 被外部清掉（手工清理、个别固件的 tmp
+  清理脚本），此后每一轮采样都会在 stderr 上打一条
+  `cannot create ...: Directory nonexistent`。现在每轮兜底重建一次（一次
+  `mkdir` 的代价），并在 `run_check_family()` 入口检查目录、不存在则静默跳过。
+- **图表实例表无界增长**（`chart.js`）
+  `mount()` 只 push、从不移除，而调用方刷新数据的标准做法是 `clear(container)`
+  后重新 mount：DOM 随 clear 离开文档，记录却留了下来。2 秒刷新即每小时新增
+  1800 条死记录，`series` / `geo` / 闭包引用全被强持有，resize 回调遍历的列表
+  也越来越长。现在挂载时按容器精确摘除旧记录，并新增 `entry.destroy()`。
+- **历史页的请求竞态**（`history.js`）
+  三个筛选下拉都直接绑定 `query()`，连续切换会并发多个请求；响应到达顺序不保证
+  与发出顺序一致，先发的慢请求可能最后返回，把界面覆盖回旧筛选条件的结果。
+  加请求序号后只有最新一次响应落到界面，按钮也只在最新请求结束后解禁。
+- **分位数在计数不一致时返回虚构值**（`luci.netmonitor` 的 `percentile()`）
+  `total > 0` 但直方图累计追不上目标分位时（统计段文件被截断、残留旧格式），
+  原先返回最后一个桶的上界，等价于凭空编造一个「P95 恰好 1 秒」的样本。改为返回
+  `null`，让前端显示「—」。
+- **两个接口的分位数口径不一致**（`root/usr/share/rpcd/ucode/luci.netmonitor`）
+  `get_status` 用直方图桶内线性插值（它只有 O(1) 增量维护的直方图，拿不到原始
+  样本），`get_statistics` 用「最近邻取值」`lat[(n-1)*0.95|0]`。同一目标在概览页
+  与统计页会显示两个不同的 P95。新增 `quantileSorted()`，对已排序的原始样本做
+  线性插值，与 `percentile()` 统一算法形式——两者的差异现在只剩数据源精度
+  （原始样本 vs 直方图桶）。顺带把统计页的分位数计算从 O(n log n) 的排序
+  降为排序后 O(1) 取样（排序仍在，但不再对每个分位数各扫一次）。
+- **等级判定前后端相差一个等号**（`overview.js` / `realtime.js` / `history.js` /
+  `charts.js`）
+  四个页面各写了一份 `gradeOf`，用 `ms <= 阈值`；后端 `gradeOf()` 用 `lat >= 阈值`。
+  延迟恰好等于阈值时，卡片徽章显示「优秀」而后端给的是「良好」。
+  统一收敛到 `format.js` 的 `gradeForLatency()`，以后端为准（也符合设置页自己的
+  阈值描述：「延迟低于该值判定为优秀」是严格小于）。
+- **设置页缺少「双栈」选项**（`settings.js`）
+  `address_family` 的下拉只有 auto / ipv4 / ipv6，而 UCI 与后端都支持 `both`。
+  补齐选项并在描述里写清它与 auto 的差异；同时修正速览条与概览页的双栈图标：
+  `both` 此前会被画成「仅 IPv4」。
+
+### 变更
+
+- **环形缓冲裁剪改为两级阈值**（同上守护进程）
+  原先每追加一行就检查，超过 `max_points` 就 `tail` 重写整个文件：缓冲区填满后
+  **每一次采样**都要做一次 O(n) 读 + O(n) 写（默认 4320 点约 130 KB，
+  10 秒间隔即每 10 秒整体搬运一遍；`max_points` 配到上限 200000 时单次约 6 MB）。
+  现在超出软阈值（`max_points` 的 1.125 倍）才裁剪且一次裁回硬上限，重写频率
+  降为约 1/540，代价是缓冲区峰值多占 12.5% 的 tmpfs。对外可见的上限语义不变。
+- **历史读取不再 fork**（`luci.netmonitor` 的 `readTail()`）
+  原先每个目标每次调用都要 fork 一个 sh 再 fork 一个 tail（20 个目标、2 秒刷新
+  即每秒 10 次 fork），全部花在「取文件末尾几百行」上。改为 ucode 直接读取后
+  自行截断；大文件先按字节粗裁（64 KB）再按行精裁，避免把 20 万行一次性切成
+  二十万个字符串抬高 rpcd 的内存峰值。
+
+### 新增
+
+- `tests/test_frontend_guards.js`：前端防护与生命周期自检（79 条断言）。
+  自带一套最小 DOM，零外部依赖、可离线运行。覆盖存储型 XSS 载荷、后端字符串
+  数值归一化、布尔兼容、五个页面的轮询注销、图表实例表与请求竞态。
+- `tests/check_ucode_syntax.sh`：ucode 插件语法的近似校验（用 node 解析）。
+  ucode 语法错会让 rpcd 加载失败，表现为所有 RPC「对象不存在」而非编译错误，
+  排查成本很高；CI 与开发机上通常没有 ucode 解释器，故用 node 兜底。
+
+### 验证
+
+| # | 验证项 | 结果 |
+|---|---|---|
+| 1 | 守护进程单元测试 | 136 通过 / 0 失败（原 101，新增 35） |
+| 2 | 前端防护与生命周期 | 79 通过 / 0 失败（新增） |
+| 3 | 图标与视图断言 | 437 通过 / 0 失败（不变） |
+| 4 | ucode 语法近似校验 | 通过（新增） |
+| 5 | 全部 14 个 JS 文件 `node --check` | 通过 |
+| 6 | 翻译漂移审计 | 184 条，untranslated 0 |
+| 7 | 测试可重复执行 | 守护进程测试连跑 5 次结果一致 |
+| 8 | 守护进程集成冒烟测试 | 见下 |
+| 9 | 反向验证（注入缺陷确认测试有效） | 见下 |
+
+集成冒烟测试（用 `/lib/functions.sh` 替身喂配置，实跑守护进程 8~20 秒，
+两个目标：可达的 `127.0.0.1` 与不可达的 `192.0.2.1`，并开启持久化）：
+
+| 观察项 | 结果 |
+|---|---|
+| `targets.tsv` 字段 | 13 列，空字段为 `-` 占位 |
+| 状态文件字段 | 9 列；成功目标延迟为实测值，失败目标为 `-`（**不是 0**） |
+| 环形缓冲格式 | `ts \t lat \t ok \t eno`，多轮累计正常 |
+| 统计段直方图 | 17 个桶，与 ucode 的 `EDGES` 一致 |
+| 持久化产物 | `.agg` / `.last` 按预期落盘 |
+| 临时目录隔离 | 仅 `tmp.<本实例 pid>`，启动时回收死进程遗留目录 |
+| SIGHUP reload | 进程存活（原地重载，非重启），心跳继续更新 |
+| SIGTERM 退出 | 进程退出、无残留 daemon / ping 进程、退出日志 **0 行噪声** |
+
+反向验证（把修复回退后确认新增测试能捕获，避免「测试永远绿」）：
+
+| 注入的缺陷 | 捕获结果 |
+|---|---|
+| 移除 overview 的轮询自注销 | 2 条断言失败，精确定位到 overview |
+| `ui.el` 改用 `innerHTML` | 12 条断言失败，覆盖全部 6 个 XSS 载荷 |
+| `--noproxy` 改回等号形式 | 3 条断言失败 |
+| 移除双栈回退 | 4 条断言失败 |
+
+**未完成的验证项**（本环境无 OpenWrt SDK 与实机，仅静态审查）：
+
+- OpenWrt / ImmortalWrt SDK 实际构建（ipk / apk 两种格式）。
+- 实机上 rpcd 加载 ucode 插件、procd 拉起守护进程后的端到端行为。
+- `--noproxy=*` 在具体固件自带 curl 版本上的表现（本次按「所有版本都支持空格
+  形式」修，空格形式是 curl 手册的规范写法，风险最低）。
+- `pgrep` 兜底路径在实机 busybox 上的行为（`[n]` 自排除依赖 pgrep 的正则匹配）。
+
 ## [1.5.8] - 2026-10-10
 
 ### 文档

@@ -37,14 +37,21 @@ function check(name, cond, detail) {
 
 /* ---- 构造一个最小的 LuCI 模块运行环境，只提供 Class.extend ---- */
 function loadIcons() {
-	const src = fs.readFileSync(ICONS, 'utf8');
 	const Class = {
 		extend: function (props) { return props; },
 		isSubclass: function () { return true; }
 	};
-	/* 模块以 return Class.extend({...}) 结束，因此用 new Function 包一层 */
-	const factory = new Function('Class', 'L', '_', src);
-	return factory(Class, {}, (s) => s);
+	/* icons.js 自 1.6.0 起 'require netmonitor.format'：圆环配色改由
+	 * format.js 按 UCI 阈值给出，这里先把 format 装进同一套桩环境。
+	 * 两个模块都以 return Class.extend({...}) 结束，用 new Function 包一层。 */
+	const fmtSrc = fs.readFileSync(path.join(ROOT, 'htdocs', 'luci-static',
+		'resources', 'netmonitor', 'format.js'), 'utf8');
+	const fmtFactory = new Function('Class', '_', fmtSrc);
+	const fmtMod = fmtFactory(Class, (s) => s);
+
+	const src = fs.readFileSync(ICONS, 'utf8');
+	const factory = new Function('Class', 'L', '_', 'nmfmt', src);
+	return factory(Class, {}, (s) => s, fmtMod);
 }
 
 const icons = loadIcons();

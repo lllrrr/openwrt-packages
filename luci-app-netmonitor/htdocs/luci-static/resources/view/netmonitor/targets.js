@@ -220,10 +220,11 @@ return view.extend({
 			});
 		}
 
+		/* 区域标记：统一走 common.regionTag()（widgets.regionTag 的唯一实现）。
+		 * 本页此前自带一份 common.ui.chip({ kind: info|warn|idle }) 的拼装，
+		 * 而且不支持 t.label 兜底——自定义区域名的目标在这里显示原始 region 值。 */
 		function regionTag(t) {
-			var kind = (t.region === 'cn') ? 'info'
-				: ((t.region === 'overseas') ? 'warn' : 'idle');
-			return common.ui.chip({ text: common.regionText(t.region), kind: kind });
+			return common.regionTag(t.region, t.label);
 		}
 
 		/* ------------------------------------------------------------ 控件工厂 */
@@ -244,26 +245,27 @@ return view.extend({
 			return cb;
 		}
 
-		/* 启用开关：同样两处共用。
-		 * 请求期间禁用自身，防止快速连点发出两个相反的 enabled 请求
-		 * （响应顺序不保证，最终状态可能与用户最后一次点击相反）。 */
-		function enabledSwitch(t) {
-			var sw = common.el('input', 'nm-switch');
-			sw.type = 'checkbox';
-			sw.checked = boolOf(t.enabled);
-			sw.setAttribute('aria-label', _('Enabled'));
-			sw.addEventListener('change', function () {
-				var want = sw.checked;
-				common.ui.setDisabled(sw, true);
-				common.api.updateTarget({ id: t.id, enabled: want }).then(reload).catch(function (err) {
-					common.notify(String((err && err.message) || err), 'error');
-					sw.checked = !want;
-				}).then(function () {
-					common.ui.setDisabled(sw, false);
-				});
+	/* 启用开关：同样两处共用。统一走 ui.switchControl（role=switch，
+	 * 读屏播报「开关」语义）。
+	 * 请求期间禁用自身，防止快速连点发出两个相反的 enabled 请求
+	 * （响应顺序不保证，最终状态可能与用户最后一次点击相反）。 */
+	function enabledSwitch(t) {
+		var sw = common.ui.switchControl({
+			checked: boolOf(t.enabled),
+			ariaLabel: _('Enabled')
+		});
+		sw.addEventListener('change', function () {
+			var want = sw.checked;
+			common.ui.setDisabled(sw, true);
+			common.api.updateTarget({ id: t.id, enabled: want }).then(reload).catch(function (err) {
+				common.notify(String((err && err.message) || err), 'error');
+				sw.checked = !want;
+			}).then(function () {
+				common.ui.setDisabled(sw, false);
 			});
-			return sw;
-		}
+		});
+		return sw;
+	}
 
 		/* 后端可能返回 1 / '1' / true / 'on' 等多种真值表示，
 		 * 直接用 !!v 会把字符串 '0' 判成 true —— 已禁用的目标会显示为启用。 */
@@ -338,7 +340,7 @@ return view.extend({
 			common.clear(cards);
 			if (!list.length) {
 				var empty = common.tcard();
-				empty.appendChild(common.el('div', 'nm-empty', _('No targets')));
+				empty.appendChild(common.emptyState(_('No targets')));
 				cards.appendChild(empty);
 				return;
 			}
@@ -386,11 +388,8 @@ return view.extend({
 
 			if (!list.length) {
 				var tr0 = common.el('tr', '');
-				var td0 = common.el('td', 'nm-empty', _('No targets'));
-				td0.colSpan = 11;
-				td0.style.padding = '36px';
-				td0.style.textAlign = 'center';
-				tr0.appendChild(td0);
+				tr0.appendChild(common.emptyState(_('No targets'),
+					{ tag: 'td', size: 'sm', colspan: 11 }));
 				tbody.appendChild(tr0);
 				syncSelectAll();
 				syncBatchButtons();
@@ -449,199 +448,192 @@ return view.extend({
 			syncBatchButtons();
 		}
 
-		/* ------------------------------------------------------------ 编辑弹窗 */
+	/* ------------------------------------------------------------ 编辑弹窗 */
 
-		/* 下拉框工厂：当前值不在选项列表时（旧配置）补一个兜底选项，
-		 * 否则 select.value 赋值会落空、界面显示空白而实际值是旧值。 */
-		function selectInput(options, value) {
-			var sel = common.el('select', 'nm-select');
-			var cur = (value == null) ? '' : String(value);
-			var found = false;
-			options.forEach(function (o) {
-				var opt = common.el('option', '', o.label);
-				opt.value = o.value;
-				sel.appendChild(opt);
-				if (String(o.value) === cur) found = true;
-			});
-			if (!found && cur !== '') {
-				var optCur = common.el('option', '', cur + ' ' + _('(current)'));
-				optCur.value = cur;
-				sel.appendChild(optCur);
+	/* 整数解析并夹到 [min, max]。
+	 * <input type=number min=0> 的 min 只是表单校验提示，用户键入 -5
+	 * 不会被拦下；必须显式钳位，否则负数会原样写进 UCI。 */
+	function intOf(input, min, max) {
+		var n = parseInt(input.value, 10);
+		if (isNaN(n)) return min;
+		if (n < min) return min;
+		if (n > max) return max;
+		return n;
+	}
+
+	function openEditor(t) {
+		if (editorOpen) return;
+		editorOpen = true;
+
+		/* 提交守卫（第二道，与 dialog 的按钮 busy 双保险）。
+		 *
+		 * 【历史】submit() 曾恒返回 false（异步结果由它自己收尾），
+		 * 而旧 dialog 的确认按钮只在 onClick 返回 Promise 时才加
+		 * is-busy，于是整段提交期间按钮可连点——连发两次
+		 * saveConfig / addSection：新增时一次建出两个一模一样的目标段，
+		 * 编辑时后发请求覆盖先发请求。现在 dialog 的 onOk 直接返回
+		 * Promise，按钮自动 busy + 禁用；这里的标志只防程序性重入。 */
+		var submitting = false;
+
+		var body = common.el('div', 'nm-dialog-body');
+		var fields = {};
+		var wraps = {};
+
+		/* 字段包裹统一走 ui.field()：label[for] 关联 + 错误行 +
+		 * aria-invalid 一次配齐。校验失败时错误写到对应字段下方，
+		 * 不再是弹窗顶部一根孤零零的错误条。 */
+		function field(label, key, control) {
+			var f = common.ui.field(label, control);
+			fields[key] = control;
+			wraps[key] = f;
+			body.appendChild(f);
+		}
+
+		/* 控件全部取自 ui.js 统一工厂（.nm-ctl 基线：40px 高、
+		 * 聚焦环、禁用态、错误态、移动端 44px）。本页此前的
+		 * selectInput / textInput / numberInput 三份本地实现已删除。 */
+		var protoSel = common.ui.selectInput([
+			{ label: _('ICMP (ping)'), value: 'icmp' },
+			{ label: _('TCP connect'), value: 'tcp' }
+		], t ? (t.proto || 'icmp') : (cfg.default_proto || 'icmp'));
+
+		var portInp = common.ui.numberInput({
+			value: (t && t.tcp_port) ? t.tcp_port : 0,
+			min: 0,
+			max: 65535
+		});
+
+		function syncProto() {
+			var isTcp = (protoSel.value === 'tcp');
+			portInp.disabled = !isTcp;
+			portInp.setAttribute('placeholder', isTcp
+				? String(cfg.default_tcp_port || 80)
+				: _('Not used by ICMP'));
+			portInp.style.opacity = isTcp ? '1' : '0.5';
+		}
+		protoSel.addEventListener('change', syncProto);
+
+		field(_('Name'), 'name', common.ui.textInput({ value: t ? t.name : '', maxlength: 64 }));
+		field(_('Address'), 'host', common.ui.textInput({ value: t ? t.host : '', maxlength: 253 }));
+		field(_('Probe method'), 'proto', protoSel);
+		field(_('TCP port (0 = global default)'), 'tcp_port', portInp);
+		field(_('Region'), 'region', common.ui.selectInput([
+			{ label: _('China'), value: 'cn' },
+			{ label: _('Overseas'), value: 'overseas' },
+			{ label: _('Other'), value: 'other' }
+		], t ? t.region : 'cn'));
+		field(_('Custom label'), 'label', common.ui.textInput({ value: t ? t.label : '', maxlength: 32 }));
+		field(_('Address family'), 'family', common.ui.selectInput([
+			{ label: _('Auto'), value: 'auto' },
+			{ label: _('IPv4 only'), value: 'ipv4' },
+			{ label: _('IPv6 only'), value: 'ipv6' },
+			{ label: _('IPv4 + IPv6'), value: 'both' }
+		], t ? t.family : 'auto'));
+		field(_('Check interval (s, 0 = global)'), 'interval',
+			common.ui.numberInput({ value: t ? t.interval : 0, min: 0, max: 3600 }));
+		field(_('Timeout (s, 0 = global)'), 'timeout',
+			common.ui.numberInput({ value: t ? t.timeout : 0, min: 0, max: 30 }));
+		field(_('Interface (optional)'), 'interface',
+			common.ui.textInput({ value: t ? t.interface : '', maxlength: 64 }));
+		field(_('Source address (optional)'), 'source',
+			common.ui.textInput({ value: t ? t.source : '', maxlength: 64 }));
+		field(_('Remark'), 'remark', common.ui.textInput({ value: t ? t.remark : '', maxlength: 128 }));
+		syncProto();
+
+		var enRow = common.el('div', 'nm-row nm-row-inline');
+		/* 启用开关统一走 ui.switchControl（role=switch） */
+		var enSw = common.ui.switchControl({ checked: t ? boolOf(t.enabled) : true });
+		enRow.appendChild(enSw);
+		enRow.appendChild(common.el('span', '', _('Enabled')));
+		body.appendChild(enRow);
+
+		/* RPC 级错误（保存失败 / 应用失败）仍走顶部错误条：
+		 * 字段级错误在各自字段下方，两者分工明确。 */
+		var errBox = common.el('div', 'nm-modal-error');
+		body.appendChild(errBox);
+
+		function submit() {
+			if (submitting) return false;
+			var proto = fields.proto.value;
+			var port = intOf(fields.tcp_port, 0, 65535);
+			if (proto !== 'tcp') port = 0;
+
+			var data = {
+				name: String(fields.name.value || '').trim(),
+				host: String(fields.host.value || '').trim(),
+				proto: proto,
+				tcp_port: port,
+				region: fields.region.value,
+				label: String(fields.label.value || '').trim(),
+				family: fields.family.value,
+				interval: intOf(fields.interval, 0, 3600),
+				timeout: intOf(fields.timeout, 0, 30),
+				interface: String(fields.interface.value || '').trim(),
+				source: String(fields.source.value || '').trim(),
+				remark: String(fields.remark.value || '').trim(),
+				enabled: enSw.checked ? '1' : '0'
+			};
+
+			/* 先清掉上一轮的字段错误标记，再逐项校验：
+			 * 错误写到对应字段下方（setError → aria-invalid），
+			 * 视觉与读屏同时能定位到具体是哪一个字段。 */
+			for (var fk in wraps) wraps[fk].setError('');
+
+			if (!data.name) {
+				wraps.name.setError(_('Name and address are required'));
+				return false;
 			}
-			sel.value = cur;
-			return sel;
-		}
-
-		function textInput(value, extra) {
-			extra = extra || {};
-			var i = common.el('input', 'nm-input');
-			i.type = 'text';
-			if (value != null && value !== '') i.value = String(value);
-			if (extra.placeholder) i.setAttribute('placeholder', extra.placeholder);
-			if (extra.maxlength) i.setAttribute('maxlength', String(extra.maxlength));
-			return i;
-		}
-
-		function numberInput(value, extra) {
-			extra = extra || {};
-			var n = common.el('input', 'nm-num-input');
-			n.type = 'number';
-			if (value != null) n.value = value;
-			if (extra.min != null) n.min = extra.min;
-			if (extra.max != null) n.max = extra.max;
-			return n;
-		}
-
-		/* 整数解析并夹到 [min, max]。
-		 * <input type=number min=0> 的 min 只是表单校验提示，用户键入 -5
-		 * 不会被拦下；必须显式钳位，否则负数会原样写进 UCI。 */
-		function intOf(input, min, max) {
-			var n = parseInt(input.value, 10);
-			if (isNaN(n)) return min;
-			if (n < min) return min;
-			if (n > max) return max;
-			return n;
-		}
-
-		function openEditor(t) {
-			if (editorOpen) return;
-			editorOpen = true;
-
-			var body = common.el('div', 'nm-dialog-body');
-			var fields = {};
-
-			function field(label, key, control) {
-				var f = common.el('div', 'nm-field');
-				var lb = common.el('label', '', label);
-				lb.setAttribute('for', 'nm-f-' + key);
-				control.id = 'nm-f-' + key;
-				f.appendChild(lb);
-				f.appendChild(control);
-				fields[key] = control;
-				body.appendChild(f);
+			if (!data.host) {
+				wraps.host.setError(_('Name and address are required'));
+				return false;
+			}
+			/* cfg.default_tcp_port 是字符串，必须显式转数字再比较，
+			 * 否则 '' / '0' 会被隐式转换骗过判断 */
+			if (proto === 'tcp' && port === 0 && !(parseInt(cfg.default_tcp_port, 10) > 0)) {
+				wraps.tcp_port.setError(_('TCP targets need a port or a global default port'));
+				return false;
 			}
 
-			var protoSel = selectInput([
-				{ label: _('ICMP (ping)'), value: 'icmp' },
-				{ label: _('TCP connect'), value: 'tcp' }
-			], t ? (t.proto || 'icmp') : (cfg.default_proto || 'icmp'));
-
-			var portInp = numberInput((t && t.tcp_port) ? t.tcp_port : 0, { min: 0, max: 65535 });
-
-			function syncProto() {
-				var isTcp = (protoSel.value === 'tcp');
-				portInp.disabled = !isTcp;
-				portInp.setAttribute('placeholder', isTcp
-					? String(cfg.default_tcp_port || 80)
-					: _('Not used by ICMP'));
-				portInp.style.opacity = isTcp ? '1' : '0.5';
+			var p;
+			if (t) {
+				var ops = [];
+				for (var k in data)
+					ops.push({ sid: t.id, opt: k, val: data[k] });
+				p = common.saveConfig(ops);
+			} else {
+				p = common.addSection('netmonitor', 'target', data);
 			}
-			protoSel.addEventListener('change', syncProto);
 
-			field(_('Name'), 'name', textInput(t ? t.name : '', { maxlength: 64 }));
-			field(_('Address'), 'host', textInput(t ? t.host : '', { maxlength: 253 }));
-			field(_('Probe method'), 'proto', protoSel);
-			field(_('TCP port (0 = global default)'), 'tcp_port', portInp);
-			field(_('Region'), 'region', selectInput([
-				{ label: _('China'), value: 'cn' },
-				{ label: _('Overseas'), value: 'overseas' },
-				{ label: _('Other'), value: 'other' }
-			], t ? t.region : 'cn'));
-			field(_('Custom label'), 'label', textInput(t ? t.label : '', { maxlength: 32 }));
-			field(_('Address family'), 'family', selectInput([
-				{ label: _('Auto'), value: 'auto' },
-				{ label: _('IPv4 only'), value: 'ipv4' },
-				{ label: _('IPv6 only'), value: 'ipv6' },
-				{ label: _('IPv4 + IPv6'), value: 'both' }
-			], t ? t.family : 'auto'));
-			field(_('Check interval (s, 0 = global)'), 'interval',
-				numberInput(t ? t.interval : 0, { min: 0, max: 3600 }));
-			field(_('Timeout (s, 0 = global)'), 'timeout',
-				numberInput(t ? t.timeout : 0, { min: 0, max: 30 }));
-			field(_('Interface (optional)'), 'interface', textInput(t ? t.interface : '', { maxlength: 64 }));
-			field(_('Source address (optional)'), 'source', textInput(t ? t.source : '', { maxlength: 64 }));
-			field(_('Remark'), 'remark', textInput(t ? t.remark : '', { maxlength: 128 }));
-			syncProto();
-
-			var enRow = common.el('div', 'nm-row nm-row-inline');
-			var enSw = common.el('input', 'nm-switch');
-			enSw.type = 'checkbox';
-			enSw.checked = t ? boolOf(t.enabled) : true;
-			enRow.appendChild(enSw);
-			enRow.appendChild(common.el('span', '', _('Enabled')));
-			body.appendChild(enRow);
-
-			var errBox = common.el('div', 'nm-modal-error');
-			body.appendChild(errBox);
-
-			function submit() {
-				var proto = fields.proto.value;
-				var port = intOf(fields.tcp_port, 0, 65535);
-				if (proto !== 'tcp') port = 0;
-
-				var data = {
-					name: String(fields.name.value || '').trim(),
-					host: String(fields.host.value || '').trim(),
-					proto: proto,
-					tcp_port: port,
-					region: fields.region.value,
-					label: String(fields.label.value || '').trim(),
-					family: fields.family.value,
-					interval: intOf(fields.interval, 0, 3600),
-					timeout: intOf(fields.timeout, 0, 30),
-					interface: String(fields.interface.value || '').trim(),
-					source: String(fields.source.value || '').trim(),
-					remark: String(fields.remark.value || '').trim(),
-					enabled: enSw.checked ? '1' : '0'
-				};
-
-				if (!data.name || !data.host) {
-					errBox.textContent = _('Name and address are required');
-					return false;
+			/* 返回 Promise：dialog 给确认按钮加 busy + 禁用（连点不再
+			 * 重复提交），resolve 后自动关闭；reject 时错误写回 errBox
+			 * 并重新抛出，让 dialog 恢复按钮、弹窗保持打开。 */
+			submitting = true;
+			return p.then(function (changed) {
+				if (changed === 0) {
+					common.notify(_('No changes to save'));
+					return;
 				}
-				/* cfg.default_tcp_port 是字符串，必须显式转数字再比较，
-				 * 否则 '' / '0' 会被隐式转换骗过判断 */
-				if (proto === 'tcp' && port === 0 && !(parseInt(cfg.default_tcp_port, 10) > 0)) {
-					errBox.textContent = _('TCP targets need a port or a global default port');
-					return false;
-				}
-
-				var p;
-				if (t) {
-					var ops = [];
-					for (var k in data)
-						ops.push({ sid: t.id, opt: k, val: data[k] });
-					p = common.saveConfig(ops);
-				} else {
-					p = common.addSection('netmonitor', 'target', data);
-				}
-
-				p.then(function (changed) {
-					if (changed === 0) {
-						dlg.close();
-						common.notify(_('No changes to save'));
-						return null;
-					}
-					dlg.close();
-					return common.applyChanges();
-				}).catch(function (e) {
-					errBox.textContent = String((e && e.message) || e);
-				});
-				return false; /* 交由上面的 Promise 完成后自行关闭 */
-			}
-
-			var dlg = common.ui.dialog({
-				/* 挂到 root 而非 document.body：LuCI 的 SPA 路由切换只替换
-				 * view 容器，挂在 body 上的弹窗会带着遮罩永久残留。 */
-				host: root,
-				header: t ? _('Edit target') : _('Add target'),
-				body: body,
-				width: 'min(560px, calc(100vw - 24px))',
-				ok: _('Save & Apply'),
-				onOk: submit,
-				onClose: function () { editorOpen = false; }
+				return common.applyChanges();
+			}).catch(function (e) {
+				errBox.textContent = String((e && e.message) || e);
+				throw e;
+			}).then(function () {
+				submitting = false;
 			});
 		}
+
+		common.ui.dialog({
+			/* 挂到 root 而非 document.body：LuCI 的 SPA 路由切换只替换
+			 * view 容器，挂在 body 上的弹窗会带着遮罩永久残留。 */
+			host: root,
+			header: t ? _('Edit target') : _('Add target'),
+			body: body,
+			width: 'min(560px, calc(100vw - 24px))',
+			ok: _('Save & Apply'),
+			onOk: submit,
+			onClose: function () { editorOpen = false; }
+		});
+	}
 
 		/* ------------------------------------------------------------ 数据刷新 */
 

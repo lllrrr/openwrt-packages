@@ -6,7 +6,9 @@
  * （无 dialog 定位规则）而停在 display:none 状态，详见 netmonitor/ui.js 文件头。
  *
  * 明细表格保留 .nm-table 平面结构，动态呼吸 LED 与实时指标条保留。
- * 筛选下拉沿用原生 <select>：TDesign 的 t-select 在受控模式下实测无法展开。
+ * 筛选控件统一取 ui.js 工厂（selectInput / textInput，.nm-ctl 基线）：
+ * TDesign 的 t-select 在受控模式下实测无法展开，底层仍是原生 <select>，
+ * 交互由浏览器保证。
  * 手机端表格可横向平滑滚动，并支持自适应卡片流展示。
  */
 
@@ -41,19 +43,12 @@ return view.extend({
 		var page = common.el('div', 'nm-page');
 		root.appendChild(page);
 
-		/* 原生下拉：沿用 .nm-select 样式，交互由浏览器保证，
-		 * 兼容 LuCI 全部目标浏览器。 */
+		/* 原生下拉：统一取 ui.js 的 selectInput 工厂（.nm-ctl 基线：
+		 * 40px 高、聚焦环、移动端 44px），交互由浏览器保证，
+		 * 兼容 LuCI 全部目标浏览器。本页此前的 makeSelect 自建实现已删除，
+	 * 这里只保留一个转调别名，避免改动全部调用点。 */
 		function makeSelect(options, value) {
-			var sel = document.createElement('select');
-			sel.className = 'nm-select';
-			options.forEach(function(o) {
-				var opt = document.createElement('option');
-				opt.value = o.value;
-				opt.textContent = o.label;
-				sel.appendChild(opt);
-			});
-			sel.value = value;
-			return sel;
+			return common.ui.selectInput(options, value);
 		}
 
 		/* 工具栏 */
@@ -72,7 +67,8 @@ return view.extend({
 			filterRegion = selRegion.value;
 			renderTable();
 		});
-		fRegion.appendChild(common.el('label', '', _('区域')));
+		/* 标签与下拉显式关联：点击标签即聚焦控件 */
+		fRegion.appendChild(common.ui.bindLabel(_('区域'), selRegion));
 		fRegion.appendChild(selRegion);
 		barRow.appendChild(fRegion);
 
@@ -88,21 +84,20 @@ return view.extend({
 			filterStatus = selStatus.value;
 			renderTable();
 		});
-		fStatus.appendChild(common.el('label', '', _('状态')));
+		fStatus.appendChild(common.ui.bindLabel(_('状态'), selStatus));
 		fStatus.appendChild(selStatus);
 		barRow.appendChild(fStatus);
 
 		/* 关键字搜索 */
 		var fKw = common.el('div', 'nm-field-glass');
-		var inKw = document.createElement('input');
-		inKw.type = 'text';
-		inKw.className = 'nm-input';
-		inKw.setAttribute('placeholder', _('搜索名称或地址'));
+		var inKw = common.ui.textInput({
+			placeholder: _('搜索名称或地址')
+		});
 		inKw.addEventListener('input', function() {
 			keyword = String(inKw.value || '').toLowerCase();
 			renderTable();
 		});
-		fKw.appendChild(common.el('label', '', _('搜索')));
+		fKw.appendChild(common.ui.bindLabel(_('搜索'), inKw));
 		fKw.appendChild(inKw);
 		barRow.appendChild(fKw);
 
@@ -212,27 +207,19 @@ return view.extend({
 			return w;
 		}
 
+		/* 延迟 -> 等级：统一走 common.gradeForLatency()，与后端
+		 * luci.netmonitor 的 gradeOf() 同口径。本页此前自带的
+		 * gradeFromCfg() 用的是 `ms <= 阈值`，与后端的 `lat >= 阈值`
+		 * 在阈值边界上差一级。 */
 		function gradeFromCfg(ms) {
-			if (ms == null || isNaN(ms)) return 'unknown';
-			var ex = parseFloat(cfg.latency_excellent) || 50;
-			var gd = parseFloat(cfg.latency_good) || 100;
-			var fr = parseFloat(cfg.latency_fair) || 200;
-			var pr = parseFloat(cfg.latency_poor) || 500;
-			if (ms <= ex) return 'excellent';
-			if (ms <= gd) return 'good';
-			if (ms <= fr) return 'fair';
-			if (ms <= pr) return 'poor';
-			return 'severe';
+			return common.gradeForLatency(ms, cfg);
 		}
 
-		/* 区域标记 */
+		/* 区域标记：统一走 common.regionTag()（widgets.regionTag 的唯一实现），
+		 * 本页此前自带一份 common.ui.chip({ kind: info|warn|idle }) 的拼装，
+		 * 与目标卡片的 .nm-tag-* 是两套配色、两种形态。 */
 		function regionTag(t) {
-			var kind = (t.region === 'cn') ? 'info'
-				: ((t.region === 'overseas') ? 'warn' : 'idle');
-			return common.ui.chip({
-				text: t.label ? t.label : common.regionText(t.region),
-				kind: kind
-			});
+			return common.regionTag(t.region, t.label);
 		}
 
 		/* 指标速览小卡 */
@@ -285,8 +272,10 @@ return view.extend({
 				_('丢包率'),
 				common.fmt.percent(o.loss),
 				_('按样本加权'),
-				icons.lossRing(o.loss, 46),
-				(o.loss > 5) ? 'nm-c-bad' : (o.loss > 0 ? 'nm-c-warn' : 'nm-c-ok')
+				icons.lossRing(o.loss, 46, cfg),
+				/* 阈值配色按 UCI 的 loss_warn / loss_critical 判定，
+				 * 不再硬编码 5 —— 详见 format.js 的 lossGrade()。 */
+				'nm-c-' + common.lossGrade(o.loss, cfg)
 			));
 
 			strip.appendChild(makeStripCard(
@@ -306,15 +295,12 @@ return view.extend({
 			var list = (latest.targets || []).filter(match);
 			if (!list.length) {
 				var tr0 = common.el('tr', '');
-				var td0 = common.el('td', 'nm-empty', _('没有匹配的目标'));
-				td0.colSpan = heads.length;
-				td0.style.padding = '38px';
-				td0.style.textAlign = 'center';
-				tr0.appendChild(td0);
+				tr0.appendChild(common.emptyState(_('没有匹配的目标'),
+					{ tag: 'td', size: 'sm', colspan: heads.length }));
 				tbody.appendChild(tr0);
 
 				var emptyCard = common.tcard();
-				emptyCard.appendChild(common.el('div', 'nm-empty', _('没有匹配的目标')));
+				emptyCard.appendChild(common.emptyState(_('没有匹配的目标')));
 				cards.appendChild(emptyCard);
 				return;
 			}
@@ -405,10 +391,8 @@ return view.extend({
 			}).catch(function(e) {
 				common.clear(tbody);
 				var tr0 = common.el('tr', '');
-				var td0 = common.el('td', 'nm-empty', String(e.message || e));
-				td0.colSpan = heads.length;
-				td0.style.padding = '28px';
-				tr0.appendChild(td0);
+				tr0.appendChild(common.emptyState(String(e.message || e),
+					{ tag: 'td', size: 'sm', kind: 'error', colspan: heads.length }));
 				tbody.appendChild(tr0);
 			});
 		}

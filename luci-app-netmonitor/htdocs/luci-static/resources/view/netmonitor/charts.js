@@ -46,19 +46,12 @@ return view.extend({
 		var page = common.el('div', 'nm-page');
 		root.appendChild(page);
 
-		/* 原生下拉工厂：替代 t-select（TDesign 下拉在受控模式下无法打开，
-		 * 见 settings.js 同类改造说明）。样式沿用 .nm-select。 */
+		/* 原生下拉工厂：统一取 ui.js 的 selectInput（.nm-ctl 基线）。
+		 * 替代 t-select（TDesign 下拉在受控模式下无法打开，
+		 * 见 settings.js 同类改造说明）。本页此前的 makeSelect 自建实现已删除，
+	 * 这里只保留一个转调别名，避免改动全部调用点。 */
 		function makeSelect(options, value) {
-			var sel = document.createElement('select');
-			sel.className = 'nm-select';
-			options.forEach(function(o) {
-				var opt = document.createElement('option');
-				opt.value = o.value;
-				opt.textContent = o.label;
-				sel.appendChild(opt);
-			});
-			sel.value = value;
-			return sel;
+			return common.ui.selectInput(options, value);
 		}
 
 		/* 工具栏（TDesign 视觉卡） */
@@ -74,7 +67,8 @@ return view.extend({
 			range = selRange.value;
 			reload();
 		});
-		fRange.appendChild(common.el('label', '', _('Time range')));
+		/* 标签与下拉显式关联：点击标签即聚焦控件 */
+		fRange.appendChild(common.ui.bindLabel(_('Time range'), selRange));
 		fRange.appendChild(selRange);
 		row.appendChild(fRange);
 
@@ -97,7 +91,7 @@ return view.extend({
 			}
 			drawChart();
 		});
-		fPreset.appendChild(common.el('label', '', _('Quick filter')));
+		fPreset.appendChild(common.ui.bindLabel(_('Quick filter'), selPreset));
 		fPreset.appendChild(selPreset);
 		row.appendChild(fPreset);
 
@@ -128,18 +122,12 @@ return view.extend({
 
 		page.appendChild(card);
 
-		/* 阈值判定函数（与后端一致，阈值取自 UCI） */
+		/* 阈值判定函数（与后端一致，阈值取自 UCI）。
+		 * 统一走 common.gradeForLatency()：本页此前自带一份
+		 * `ms <= 阈值` 的实现，与后端 luci.netmonitor 的 `lat >= 阈值`
+		 * 在阈值边界上差一级。 */
 		function gradeOf(ms) {
-			if (ms == null || isNaN(ms)) return 'unknown';
-			var ex = parseFloat(cfg.latency_excellent) || 50;
-			var gd = parseFloat(cfg.latency_good) || 100;
-			var fr = parseFloat(cfg.latency_fair) || 200;
-			var pr = parseFloat(cfg.latency_poor) || 500;
-			if (ms <= ex) return 'excellent';
-			if (ms <= gd) return 'good';
-			if (ms <= fr) return 'fair';
-			if (ms <= pr) return 'poor';
-			return 'severe';
+			return common.gradeForLatency(ms, cfg);
 		}
 
 		/* 动态 SVG 实时采样声波柱生成器（动效类收口在 style.css） */
@@ -250,10 +238,7 @@ return view.extend({
 			}
 
 			if (!series.length) {
-				var emptyEl = common.el('div', 'nm-empty', _('No target selected'));
-				emptyEl.style.padding = '44px';
-				emptyEl.style.textAlign = 'center';
-				chartBox.appendChild(emptyEl);
+				chartBox.appendChild(common.emptyState(_('No target selected'), { size: 'lg' }));
 				releaseHold();
 				return;
 			}
@@ -331,14 +316,38 @@ return view.extend({
 				var bh = chartBox.offsetHeight || 0;
 				if (bh > 0) chartBox.style.minHeight = bh + 'px';
 				common.clear(chartBox);
-				var errEl = common.el('div', 'nm-empty', String(e.message || e));
-				errEl.style.padding = '30px';
-				chartBox.appendChild(errEl);
+				chartBox.appendChild(common.emptyState(String(e.message || e), { kind: 'error', size: 'lg' }));
 				chartBox.style.minHeight = '';
 			});
 		}
 
-		poll.add(reload, refresh);
+		/* 轮询自注销。
+		 *
+		 * 与 overview.js / realtime.js 同理：LuCI 是 SPA，路由切换只替换
+		 * view 容器、不清空 poll 队列；reload 是 render() 内的闭包，
+		 * 页面离开后外部拿不到引用，只能自己判断承载 DOM 是否还在文档里。
+		 * 缺了这一步，访问 N 次本页就留下 N 路并发轮询持续打 rpcd。
+		 *
+		 * 【本次修复】本页此前直接 poll.add(reload, refresh) 且无任何注销，
+		 * 是 1.5.x 那次「SPA 路由切换导致弹窗与轮询泄漏」修复的遗漏点
+		 * （realtime / settings 已补，overview / charts / regions 三页漏了）。
+		 *
+		 * 首次调用必须豁免：render() 末尾会同步调一次 reload() 拉取首屏数据，
+		 * 而那时 LuCI 还没把 root 挂进文档，isConnected 同样为 false。
+		 * 不豁免就会当场自注销，页面永远空白。 */
+		var firstRun = true;
+
+		function pollTick() {
+			if (firstRun)
+				firstRun = false;
+			else if (!root.isConnected) {
+				poll.remove(pollTick);
+				return Promise.resolve();
+			}
+			return reload();
+		}
+
+		poll.add(pollTick, refresh);
 		reload();
 
 		return root;

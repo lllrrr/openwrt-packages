@@ -91,6 +91,10 @@ G_PERSISTENCE=0
 G_HISTORY=24h
 G_PERSIST_INTERVAL=300
 G_MAX_POINTS=4320
+# 环形缓冲的软阈值，由 load_config 按 max_points 重算；这里给一个与默认
+# max_points 匹配的安全初值，避免未走 load_config 的代码路径（单元测试、
+# 异常配置）拿到空值后让 shell 的整数比较报错。
+RING_TRIM_AT=4860
 G_LOG_LEVEL=info
 G_FAIL_WARN=3
 G_FAIL_CRITICAL=5
@@ -248,6 +252,10 @@ load_config() {
 	G_CONCURRENCY=$(clamp "$G_CONCURRENCY" 1 50)
 	G_PERSIST_INTERVAL=$(clamp "$G_PERSIST_INTERVAL" 60 3600)
 	G_MAX_POINTS=$(clamp "$G_MAX_POINTS" 60 200000)
+	# 环形缓冲的「软阈值」：实际裁剪到 G_MAX_POINTS，但要超过 RING_TRIM_AT
+	# 才动手。多出来的这段余量用来摊薄重写开销，详见 trim_ring() 的说明。
+	RING_TRIM_AT=$((G_MAX_POINTS + G_MAX_POINTS / 8))
+	[ "$RING_TRIM_AT" -lt 120 ] && RING_TRIM_AT=120
 	G_FAIL_WARN=$(clamp "$G_FAIL_WARN" 1 100)
 	G_FAIL_CRITICAL=$(clamp "$G_FAIL_CRITICAL" 1 1000)
 
@@ -498,14 +506,24 @@ run_check_tcp() {
 		url="http://$tc:$port/"
 
 		# -q                  忽略 ~/.curlrc
-		# --noproxy=*         避免被环境里的 http_proxy 改写探测目标
 		# -m / --connect-timeout  限定整体与握手超时
 		# -w '%{time_connect}'    TCP 握手耗时（秒，微秒精度）
 		set -- curl -q -s -o /dev/null \
 			-m "$timeout" --connect-timeout "$timeout" \
-			'--noproxy=*' -w '%{time_connect}'
+			-w '%{time_connect}'
 		[ -n "$fam_opt" ] && set -- "$@" "$fam_opt"
 		[ -n "$dev" ] && set -- "$@" --interface "$dev"
+		# --noproxy：避免被环境里的 http_proxy 改写探测目标。
+		#
+		# 必须写成「选项 + 独立参数」两个元素，不能写 '--noproxy=*'：
+		# curl 的等号写法在部分版本上直接报
+		#     curl: option --noproxy=*: is unknown
+		# 并以退出码 2 退出（curl 8.5.0 实测）。此时 time_connect 恒为 0、
+		# rc=2 被归到 errno=4（其它错误），所有 TCP 目标统一显示「检查失败」，
+		# 而真正的报错被吞进 stderr 文件里，界面上看不出是参数问题。
+		# 手册里该选项的规范形式就是 `--noproxy <list>`，按空格形式传参
+		# 在所有版本上都成立。
+		set -- "$@" --noproxy '*'
 		set -- "$@" "$url"
 
 		rc=0
@@ -566,14 +584,24 @@ run_check_tcp() {
 }
 
 # ---------------------------------------------------------------- 单次检测
-run_check() {
-	# run_check <id> <host> <proto> <port> <timeout> <family> <iface> <source>
+# 按指定地址族执行一次探测。真正的执行体，入口是文件末尾的 run_check()。
+run_check_family() {
+	# run_check_family <id> <host> <proto> <port> <timeout> <family> <iface> <source>
 	local id="$1" host="$2" proto="$3" port="$4" timeout="$5" family="$6"
 	local iface="$7" source="$8"
 	local out="$TMP_DIR/$id.out"
 	local res="$TMP_DIR/$id.res"
 	local cmd=ping
 	local deadline rc parsed lat ok eno sent recv cap
+
+	# 临时目录已不在时静默跳过。
+	#
+	# 典型场景：收到 TERM 后主循环退出、cleanup() 删掉了 $TMP_DIR，而本轮
+	# 还有探测任务在飞行（wait 被信号中断后不会重新等待）。此时结果文件
+	# 写不出来，探测本身也没有任何意义，硬着头皮执行只会在 stderr 上留下
+	#     cannot create .../tmp.<pid>/<id>.out: Directory nonexistent
+	# 一轮 N 个目标就是 N 条；它还会盖过真正需要关注的探测失败日志。
+	[ -d "$TMP_DIR" ] || return 0
 
 	if ! valid_host "$host"; then
 		printf '%s\t%s\t%s\t%s\t%s\n' '-' '0' "$E_INVALID" "$G_COUNT" '0' > "$res"
@@ -663,6 +691,88 @@ run_check() {
 	return 0
 }
 
+# 单次检测入口：负责地址族分派，具体探测交给 run_check_family()。
+#
+# 【family=both 双栈】
+# UCI、ucode 与前端都提供 both 选项，但此前守护进程只在 run_check 里对
+# ipv6 做了特判（换用 ping6），both 与 auto 走完全相同的分支——等于
+# 配置项形同虚设，用户选了「IPv4 + IPv6」拿到的仍是系统默认解析顺序。
+#
+# both 的语义定为「双栈中任一栈可达即认为可达」：先按 IPv4 探测，只有失败
+# （超时 / DNS / 不可达 / 工具错误）才再按 IPv6 探测一次，取第一个成功的结果。
+# 与 auto 的差别在于 auto 完全交给系统解析顺序（取决于 gai.conf 与解析结果，
+# 不会主动重试另一栈），both 则明确覆盖两个栈。
+#
+# 这样常态下不增加任何开销（v4 成功就不再试 v6），也保持了一次探测一份
+# 结果的计数口径：sent/recv 不会因为开了双栈而翻倍。
+run_check() {
+	# run_check <id> <host> <proto> <port> <timeout> <family> <iface> <source>
+	local id="$1" host="$2" proto="$3" port="$4" timeout="$5" family="$6"
+	local iface="$7" source="$8"
+	local res="$TMP_DIR/$id.res" ok
+
+	# 非法目标直接记账，两个栈都不必试
+	if ! valid_host "$host"; then
+		printf '%s\t%s\t%s\t%s\t%s\n' '-' '0' "$E_INVALID" "$G_COUNT" '0' > "$res"
+		return 0
+	fi
+
+	if [ "$family" != "both" ]; then
+		run_check_family "$id" "$host" "$proto" "$port" "$timeout" \
+			"$family" "$iface" "$source"
+		return 0
+	fi
+
+	run_check_family "$id" "$host" "$proto" "$port" "$timeout" \
+		ipv4 "$iface" "$source"
+	# 结果文件是本函数唯一的输出通道：v4 已成功就到此为止
+	ok=$(cut -f2 < "$res" 2>/dev/null)
+	[ "$ok" = "1" ] && return 0
+
+	run_check_family "$id" "$host" "$proto" "$port" "$timeout" \
+		ipv6 "$iface" "$source"
+	return 0
+}
+
+# 终止本实例派生的探测子进程。
+#
+# run_check 以后台子 shell 方式并发执行，ping / curl 又由子 shell 再派生，
+# 因此真正的探测进程是「孙进程」。procd 发 TERM 后主循环退出、cleanup 删掉
+# TMP_DIR，但若不同时终止这些进程：
+#   * 它们继续跑完自己的 deadline，白占 CPU 与文件描述符；
+#   * 结果文件写进一个已被删除的目录，rm 清理时静默失败，留下脏 inode；
+#   * restart 时新旧两批探测短暂并存，探测目标收到的包数翻倍。
+#
+# 优先按进程组整体终止（只有在本进程确实是该组组长时才这么做，否则负 PID
+# 会打到同组的其它进程上）；拿不到进程组信息时退化为按父子关系终止直接子进程。
+nm_kill_children() {
+	local p c kids
+
+	# run_check 以后台方式执行，所以直接子进程就是那批子 shell。
+	kids=$(jobs -p 2>/dev/null)
+	[ -n "$kids" ] || return 0
+
+	for p in $kids; do
+		# 孙进程：ping / curl 由子 shell 再派生，只杀子 shell 会让它们变孤儿
+		# 继续跑完自己的 deadline。这里按父子关系先收掉孙辈、再收子 shell。
+		#
+		# 刻意不使用「按进程组整体 kill」：`kill -TERM -$$` 的前提是本进程
+		# 确为该组组长，而 procd 启动本脚本时进程组如何安排取决于 procd 的
+		# 实现与版本；一旦本进程与 procd（或其 helper）同组，负 PID 会把信号
+		# 送到它们头上。为了收尾几个探测进程去冒误杀 init 管理进程的风险，
+		# 不划算。pgrep 缺失时索性跳过这一层：探测命令自身都带 deadline
+		# （ping -w / curl -m），最坏情形是孤儿进程再跑完一次探测预算后自行
+		# 退出，且结果文件已随 TMP_DIR 删除、无人消费。
+		if command -v pgrep >/dev/null 2>&1; then
+			for c in $(pgrep -P "$p" 2>/dev/null); do
+				kill -TERM "$c" 2>/dev/null
+			done
+		fi
+		kill -TERM "$p" 2>/dev/null
+	done
+	return 0
+}
+
 # ---------------------------------------------------------------- 统计段维护
 update_stats() {
 	# update_stats <id> <ts> <lat|-> <ok> <sent> <recv>
@@ -725,13 +835,28 @@ update_stats() {
 	fi
 }
 
+# 环形缓冲裁剪。
+#
+# 【为什么要留余量】
+# 原实现是「每次追加一行后就检查，超过 max_points 就 tail 重写整个文件」。
+# 缓冲区一旦填满，此后**每一次采样**都要做一次 O(n) 读 + O(n) 写：
+# 默认 4320 点约 130 KB，10 秒间隔下相当于每 10 秒把 130 KB 整体搬运一遍；
+# 把 max_points 配到上限 200000 时，单次搬运约 6 MB，在低端路由器的 tmpfs
+# 上这是一笔持续存在、与采样频率成正比的开销。
+#
+# 现在改成两级阈值：超过 RING_TRIM_AT（max_points 的 1.125 倍）才裁剪，
+# 且一次裁回 max_points。重写频率因此降为原来的约 1/540（默认配置下每多
+# 累积 540 个样本才搬运一次），代价是缓冲区峰值多占 12.5% 的 tmpfs。
+# tmpfs 上的这点内存换取 CPU 与写放大的持续下降是划算的，且裁剪后缓冲区
+# 仍严格不超过 max_points，对外可见的上限语义没有变化。
+#
+# 行数统计（wc）是纯顺序读、不产生写入，开销比重写低一个量级，保留。
 trim_ring() {
 	local f="$RING_DIR/$1.tsv" c
 	[ -f "$f" ] || return 0
 	c=$(wc -l < "$f")
-	if [ "$c" -gt "$G_MAX_POINTS" ]; then
-		tail -n "$G_MAX_POINTS" "$f" > "$f.tmp" && mv "$f.tmp" "$f"
-	fi
+	[ "$c" -gt "$RING_TRIM_AT" ] || return 0
+	tail -n "$G_MAX_POINTS" "$f" > "$f.tmp" && mv "$f.tmp" "$f"
 }
 
 # ---------------------------------------------------------------- 一轮检测
@@ -742,6 +867,17 @@ run_round() {
 
 	now=$(date +%s)
 	running=0
+
+	# 兜底重建本实例的临时目录。
+	#
+	# 正常情况下它由 setup_dirs() 建好且不会被别人动：目录名带本进程 pid，
+	# 且启动时的清理只回收「进程已不存在」的遗留目录。但 /tmp 是共享的，
+	# 一旦被外部清掉（有人手工清理、个别固件的 tmp 清理脚本），此后每一轮
+	# 采样都会在 stderr 上打一条
+	#     cannot create .../tmp.<pid>/<id>.out: Directory nonexistent
+	# 一轮 N 个目标就是 N 条，长驻运行会把系统日志刷满，而真正的探测结果
+	# 反而在噪声里看不见。这里每轮兜一次，代价是一次 mkdir。
+	[ -d "$TMP_DIR" ] || mkdir -p "$TMP_DIR" 2>/dev/null
 
 	while IFS="$TAB" read -r id name host region proto timeout tinterval family iface source label remark port; do
 		[ -n "$id" ] || continue
@@ -841,8 +977,16 @@ collect_results() {
 			fi
 		fi
 
+		# 状态文件用「临时文件 + mv」原子替换。
+		#
+		# 它是 ucode readState() 读取目标运行时状态的唯一来源。直接 `>` 覆盖
+		# 会先把文件截断、再逐字节写入，rpcd 侧的读请求若恰好落在这个窗口
+		# 里就会拿到空内容（readState 随即返回全零，界面闪现「从未检测 /
+		# 离线」，刷新一次又恢复）—— 一个只在高频轮询下偶发、几乎无法复现
+		# 的抖动。mv 在同一 tmpfs 内是原子的，读者要么看到旧值要么看到新值。
 		printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-			"$now" "$((now + iv))" "$lat" "$ok" "$eno" "$sfail" "$sok" "$last_ok" "$total" > "$st"
+			"$now" "$((now + iv))" "$lat" "$ok" "$eno" "$sfail" "$sok" "$last_ok" "$total" > "$st.tmp" \
+			&& mv -f "$st.tmp" "$st"
 
 		printf '%s\t%s\t%s\t%s\n' "$now" "$lat" "$ok" "$eno" >> "$RING_DIR/$id.tsv"
 		trim_ring "$id"
@@ -850,7 +994,9 @@ collect_results() {
 		update_stats "$id" "$now" "$lat" "$ok" "$sent" "$recv"
 	done < "$RUN_DIR/targets.tsv"
 
-	printf '%s\n' "$now" > "$RUN_DIR/tick"
+	# 心跳文件同样原子替换：它是前端判断「后台是否真的在跑」的依据，
+	# 截断窗口里被读到会让 tick 变成 0，界面误报「服务未运行」。
+	printf '%s\n' "$now" > "$RUN_DIR/tick.tmp" && mv -f "$RUN_DIR/tick.tmp" "$RUN_DIR/tick"
 	maybe_persist "$now"
 }
 
@@ -908,7 +1054,10 @@ maybe_persist() {
 		if [ -n "$agg" ]; then
 			printf '%s\n' "$agg" >> "$pf"
 		fi
-		printf '%s\n' "$now" > "$lastf"
+		# 落盘到 Flash 的时间戳必须原子替换：这个文件决定下次聚合的起点，
+		# 若在写入过程中掉电被截断成半行，恢复后 last 会被 is_uint 判为
+		# 非法而回退到 now-interval，导致一个窗口的数据被重复聚合。
+		printf '%s\n' "$now" > "$lastf.tmp" && mv -f "$lastf.tmp" "$lastf"
 
 		if [ -f "$pf" ]; then
 			awk -F'\t' -v c="$cut" '$1 >= c' "$pf" > "$pf.tmp" && mv "$pf.tmp" "$pf"
@@ -928,7 +1077,22 @@ sleep_tick() {
 }
 
 cleanup() {
-	rm -rf "$TMP_DIR" 2>/dev/null
+	# 终止仍在跑的探测子进程，避免它们变成孤儿白跑到 deadline 为止。
+	nm_kill_children
+
+	# 【刻意不再在这里删除 $TMP_DIR】
+	#
+	# 先前 cleanup 会 rm -rf $TMP_DIR，但收到 TERM 时本轮往往还有探测任务
+	# 在飞行：`wait` 被信号打断后不会重新等待，主循环随即退出，于是
+	# cleanup 删目录与那些任务写结果文件是并发的。实测 stderr 上会稳定留下
+	#     awk: cannot open ".../tmp.<pid>/<id>.out" (No such file or directory)
+	#     cannot create ".../tmp.<pid>/<id>.res": Directory nonexistent
+	# 一轮 N 个目标就是 N 条，且这类噪声会盖过真正需要关注的探测失败日志。
+	#
+	# 目录名本来就带本实例 pid，其生命周期由下一次启动时的 setup_dirs()
+	# 负责——它只回收「进程已不存在」的 tmp.<pid>，正在运行的实例不受影响。
+	# 因此这里留着不删既消除了竞争，也不会造成泄漏（最多残留一个空目录，
+	# 下次启动即被回收；init.d 的注释里写的也是这个分工）。
 	log_msg info "daemon exited"
 }
 

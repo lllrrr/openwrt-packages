@@ -222,6 +222,21 @@ function mount(container, series, opts) {
 	 * 线宽在任何设备上都按名义像素渲染，窄屏只会变窄、不会变小。 */
 	function width() { return container.clientWidth || 720; }
 
+	/* 同一容器重复 mount（切换筛选、轮询刷新数据）时，先把旧 entry 摘掉。
+	 *
+	 * 【本次修复】此前 registry 只 push、从不移除，而调用方刷新数据时的
+	 * 标准做法是 common.clear(container) 后重新 mount：DOM 节点随 clear
+	 * 离开文档，registry 里的记录却留了下来。于是
+	 *   * 每刷新一次就多一条死记录（2 秒刷新 = 每小时 1800 条），
+	 *     series / geo / 闭包引用全部被强持有，无法回收；
+	 *   * window 的 resize 监听是全模块共享的，遍历的列表越来越长。
+	 * 这里按容器精确摘除：只删指向同一个 container 的旧记录，
+	 * 不做全局清理（其它容器上仍在使用的图表不受影响）。 */
+	for (var ri = registry.length - 1; ri >= 0; ri--) {
+		if (registry[ri].container === container)
+			registry.splice(ri, 1);
+	}
+
 	var entry = { container: container, holder: holder, tip: tip, series: series, opts: opts, geo: null };
 	registry.push(entry);
 
@@ -402,6 +417,8 @@ function mount(container, series, opts) {
 		window.addEventListener('resize', function() {
 			for (var i = 0; i < registry.length; i++) {
 				var e = registry[i];
+				/* 只跳过、不删除：容器可能只是暂时不在文档里
+				 * （例如页面尚未挂载完成就被 resize），删掉就再也重绘不了了。 */
 				if (!e.container || !e.container.isConnected) continue;
 				if (e.redraw) e.redraw();
 			}
@@ -412,6 +429,17 @@ function mount(container, series, opts) {
 	 * 这里暴露 redraw 供 resize 回调复用，并让调用方可以主动重绘。 */
 	entry.redraw = redraw;
 	entry.hide = hide;
+
+	/* 主动销毁：从注册表摘除并移除自己创建的节点。
+	 * 供页面在离开 / 重建图表时调用，避免只依赖 mount 时的按容器清理。 */
+	entry.destroy = function() {
+		for (var i = registry.length - 1; i >= 0; i--) {
+			if (registry[i] === entry)
+				registry.splice(i, 1);
+		}
+		if (holder.parentNode) holder.parentNode.removeChild(holder);
+		if (tip.parentNode) tip.parentNode.removeChild(tip);
+	};
 
 	return entry;
 }

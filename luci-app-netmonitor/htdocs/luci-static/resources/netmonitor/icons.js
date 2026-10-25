@@ -12,6 +12,7 @@
  */
 
 'use strict';
+'require netmonitor.format as nmfmt';
 
 /* ---------------------------------------------------------------- 配色映射 */
 
@@ -529,18 +530,37 @@ function multiTarget(list, size) {
 
 /* ---------------------------------------------------------------- 16 成功率圆环 */
 
-function successRing(pct, size) {
-	var v = (pct == null || isNaN(pct)) ? 0 : pct;
-	return ringProgress(v / 100, v >= 99 ? 'green' : (v >= 95 ? 'yellow' : 'red'),
-		size, 'success-rate', num(v, 0) + '%');
+/* 语义档位（lossGrade / rateGrade 的返回值）-> 图标配色词。
+ *
+ * 【统一口径】successRing / lossRing 此前各自硬编码
+ * `v >= 99 ? green : (v >= 95 ? yellow : red)` 与
+ * `v <= 0 ? green : (v <= 5 ? yellow : red)`，而这两个数字与设置页里
+ * 可改的 loss_warn / loss_critical 毫无关系——用户把告警线改成 10%，
+ * 圆环照样按 5% 变色，与旁边的数字卡片自相矛盾。
+ *
+ * 现在配色统一由 format.js 的 lossGrade() / rateGrade() 按 UCI 阈值给出，
+ * 本文件只负责把语义档位翻译成图标词表里的颜色名。 */
+function gradeColorName(g) {
+	if (g === 'ok') return 'green';
+	if (g === 'warn') return 'yellow';
+	if (g === 'bad') return 'red';
+	return 'idle';
+}
+
+/* th 为阈值对象（来自 get_config 的 loss_warn / loss_critical 字段），
+ * 缺省时 format.js 会退回与后端一致的默认值 5 / 20。 */
+function successRing(pct, size, th) {
+	var v = (pct == null || isNaN(pct)) ? null : pct;
+	return ringProgress(v == null ? 0 : v / 100, gradeColorName(nmfmt.rateGrade(v, th)),
+		size, 'success-rate', v == null ? '--' : num(v, 0) + '%');
 }
 
 /* ---------------------------------------------------------------- 17 丢包率圆环 */
 
-function lossRing(pct, size) {
-	var v = (pct == null || isNaN(pct)) ? 0 : pct;
-	return ringProgress(v / 100, v <= 0 ? 'green' : (v <= 5 ? 'yellow' : 'red'),
-		size, 'packet-loss', num(v, 1) + '%');
+function lossRing(pct, size, th) {
+	var v = (pct == null || isNaN(pct)) ? null : pct;
+	return ringProgress(v == null ? 0 : v / 100, gradeColorName(nmfmt.lossGrade(v, th)),
+		size, 'packet-loss', v == null ? '--' : num(v, 1) + '%');
 }
 
 /* ---------------------------------------------------------------- 18 检测时间 */

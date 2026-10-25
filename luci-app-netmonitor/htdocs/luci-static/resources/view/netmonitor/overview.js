@@ -47,20 +47,14 @@ return view.extend({
 		page.appendChild(cards);
 		page.appendChild(foot);
 
-		/* 阈值等级判定工具函数 */
-		function gradeOf(ms, th) {
-			if (ms == null || isNaN(ms)) return 'unknown';
-			th = th || {};
-			var ex = parseFloat(th.latency_excellent) || 50;
-			var gd = parseFloat(th.latency_good) || 100;
-			var fr = parseFloat(th.latency_fair) || 200;
-			var pr = parseFloat(th.latency_poor) || 500;
-			if (ms <= ex) return 'excellent';
-			if (ms <= gd) return 'good';
-			if (ms <= fr) return 'fair';
-			if (ms <= pr) return 'poor';
-			return 'severe';
-		}
+		/* 阈值等级判定：统一走 common.gradeForLatency()。
+		 *
+		 * 【本次统一】本页此前自带一份 `ms <= 阈值` 的实现，而后端
+		 * luci.netmonitor 的 gradeOf() 用的是 `lat >= 阈值`——两者相差一个
+		 * 等号，延迟恰好等于阈值时本页显示「优秀」而后端给的是「良好」。
+		 * 与它同名的函数在 realtime / history / charts 三页还各有一份，
+		 * 现在一并收敛到 format.js 的单一实现。 */
+		var gradeOf = common.gradeForLatency;
 
 		/* 动态 SVG 徽章生成器：多层雷达扩散 + 旋转光环 + 状态核心 */
 		function buildHeroSvg(state) {
@@ -273,7 +267,7 @@ return view.extend({
 			var rate = (samples > 0) ? (acc / samples) : null;
 
 			live.appendChild(makeGlassCard(_('Success rate'), common.fmt.percent(rate, 1),
-				_('Samples') + ': ' + samples, icons.successRing(rate, 44)));
+				_('Samples') + ': ' + samples, icons.successRing(rate, 44, cfgv)));
 
 			live.appendChild(makeGlassCard(_('Abnormal'), String(o.offline || 0) + ' / ' + String(o.total || 0),
 				_('Online') + ': ' + (o.online || 0), icons.bell(o.offline, 44)));
@@ -293,10 +287,12 @@ return view.extend({
 			var v6 = false;
 			for (var j = 0; j < list.length; j++) {
 				var h = String(list[j].host || '');
-				if (list[j].family === 'ipv6' || h.indexOf(':') >= 0) v6 = true;
+				/* both 会让该目标同时走两个栈，因此同样计入 IPv6 */
+				if (list[j].family === 'ipv6' || list[j].family === 'both' ||
+					h.indexOf(':') >= 0) v6 = true;
 			}
 			var v4 = (fam !== 'ipv6');
-			if (fam === 'ipv6') v6 = true;
+			if (fam === 'ipv6' || fam === 'both') v6 = true;
 			live.appendChild(makeGlassCard(_('Dual stack'),
 				(v4 && v6) ? 'IPv4 + IPv6' : (v6 ? 'IPv6' : 'IPv4'),
 				_('Address family') + ': ' + fam, icons.dualStack(fam, v4, v6, 44)));
@@ -306,10 +302,7 @@ return view.extend({
 			common.clear(cards);
 			var list = d.targets || [];
 			if (!list.length) {
-				var e = common.el('div', 'nm-empty', _('No targets configured'));
-				e.style.padding = '36px';
-				e.style.textAlign = 'center';
-				cards.appendChild(e);
+				cards.appendChild(common.emptyState(_('No targets configured')));
 				return;
 			}
 			for (var i = 0; i < list.length; i++) {
@@ -318,16 +311,30 @@ return view.extend({
 			}
 		}
 
-		function renderFoot(d) {
-			common.clear(foot);
-			foot.classList.add('nm-foot-bar');
+	/* 状态行：服务状态 + 最后更新时间。
+	 *
+	 * 【本次统一】有请求在飞（pending > 0）时追加旋转指示器与「刷新中」
+	 * 文案——此前页面在两次轮询之间与卡住不动长得一模一样，用户无法
+	 * 判断「数据是旧的」还是「请求根本发不出去」。指示器随数据到达
+	 * 自动消失，不需要额外的显隐控制。 */
+	function renderFoot(d) {
+		common.clear(foot);
+		foot.classList.add('nm-foot-bar');
 
-			/* 状态行：服务状态 + 动态 SVG 均衡柱图，占满剩余空间 */
-			var row = common.el('div', 'nm-foot-status');
-			row.appendChild(common.inlineIcon(icons.service(d.running, 30)));
-			row.appendChild(common.el('div', '',
-				(d.running ? _('Service running') : _('Service stopped')) +
-				' · ' + _('Last update') + ': ' + common.fmt.ago(d.tick)));
+		var row = common.el('div', 'nm-foot-status');
+		row.appendChild(common.inlineIcon(icons.service(d.running, 30)));
+
+		var statusText = (d.running ? _('Service running') : _('Service stopped')) +
+			' · ' + _('Last update') + ': ' + common.fmt.ago(d.tick);
+		var statusCell = common.el('div', '', statusText);
+		if (pending > 0) {
+			statusCell.classList.add('nm-foot-refreshing');
+			var spin = common.el('span', 'nm-spin');
+			spin.setAttribute('aria-hidden', 'true');
+			statusCell.appendChild(spin);
+			statusCell.appendChild(common.el('span', '', _('Refreshing')));
+		}
+		row.appendChild(statusCell);
 
 			var bars = [];
 			var tl = d.targets || [];
@@ -370,26 +377,78 @@ return view.extend({
 			foot.appendChild(actRow);
 		}
 
-		function apply(d) {
-			renderHero(d);
-			renderBanners(d);
-			renderKpi(d);
-			renderLive(d);
-			renderCards(d);
-			renderFoot(d);
-		}
+	function apply(d) {
+		lastD = d;
+		renderHero(d);
+		renderBanners(d);
+		renderKpi(d);
+		renderLive(d);
+		renderCards(d);
+		renderFoot(d);
+	}
 
-		function update() {
-			return common.api.getStatus(true).then(apply).catch(function(e) {
-				common.clear(cards);
-				var err = common.el('div', 'nm-empty', String(e.message || e));
-				err.style.padding = '24px';
-				cards.appendChild(err);
-			});
-		}
+		/* 首次加载标记。
+		 *
+		 * 与 realtime.js / settings.js 同理：LuCI 是 SPA，路由切换只替换
+		 * view 容器，并不清空 poll 队列。update 是 render() 内的闭包，
+		 * 页面离开后外部既拿不到引用也无法调用 poll.remove，于是这一路
+		 * 轮询会永久保留、持续请求 rpcd —— 访问 N 次本页就是 N 路并发。
+		 *
+		 * 【本次修复】本页此前缺少这道自注销（realtime / settings 两个页面
+		 * 在 1.5.x 的重构里已经补上，overview / charts / regions 三页漏了），
+		 * 是同一个缺陷的残留。判据是承载 DOM 是否已脱离文档：
+		 * root.isConnected 为 false 即说明页面已被路由换掉，此时自注销。
+		 *
+		 * 首次调用要豁免：poll.add 之后若框架尚未把 root 挂进文档，
+		 * isConnected 同样是 false，若不豁免会当场自注销、再无数据。 */
+	var firstRun = true;
 
-		if (first) apply(first);
-		poll.add(update, refresh);
+	/* 在飞请求计数与最近一次成功数据。
+	 *
+	 * pending 供页脚显示「刷新中」指示器；lastD 供取数失败时按旧数据
+	 * 收掉指示器（否则一次失败的轮询会让「刷新中」永久停在上屏）。 */
+	var pending = 0;
+	var lastD = null;
+
+	/* 卡片区加载占位：首屏数据尚未到达（或上一次取数失败且无旧数据
+	 * 可回退）时，卡片区不呈现为空白，而是统一给出旋转指示器 + 文案，
+	 * 与 widgets.emptyState 的「无数据」灰色空态在语义上区分开——
+	 * 一个是「正在来」，一个是「没有」。 */
+	function showCardsLoading() {
+		common.clear(cards);
+		var box = common.el('div', 'nm-loading-inline');
+		box.setAttribute('role', 'status');
+		var spin = common.el('span', 'nm-spin');
+		spin.setAttribute('aria-hidden', 'true');
+		box.appendChild(spin);
+		box.appendChild(common.el('span', '', _('Loading…')));
+		cards.appendChild(box);
+	}
+
+	function update() {
+		if (!firstRun && !root.isConnected) {
+			poll.remove(update);
+			return Promise.resolve();
+		}
+		firstRun = false;
+		pending++;
+		return common.api.getStatus(true).then(function(d) {
+			pending--;
+			apply(d);
+		}).catch(function(e) {
+			pending--;
+			/* 取数失败：卡片区切错误空态；若此前有成功数据，按旧数据
+			 * 重绘一次页脚以收掉刷新指示器（hero / kpi / live 等区保留
+			 * 上一次的画面，不整页清空造成闪烁）。 */
+			common.clear(cards);
+			cards.appendChild(common.emptyState(String(e.message || e), { kind: 'error' }));
+			if (lastD) renderFoot(lastD);
+		});
+	}
+
+	if (first) apply(first);
+	else showCardsLoading();
+	poll.add(update, refresh);
 
 		return root;
 	}

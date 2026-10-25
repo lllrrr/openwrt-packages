@@ -274,6 +274,8 @@ ZH = {
     'Enable selected': '批量启用',
     'Disable selected': '批量禁用',
     'Refresh': '刷新',
+    'Refreshing': '刷新中',
+    'Loading…': '载入中…',
     'Global interval': '全局间隔',
     'Family': '地址族',
     'Interface': '接口',

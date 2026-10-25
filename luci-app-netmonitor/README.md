@@ -5,12 +5,12 @@
 **面向 OpenWrt 主线（Mainline）的高性能网络延迟与连通性实时监控系统**
 
 [![License](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.5.8-informational.svg?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.6.1-informational.svg?style=flat-square)](CHANGELOG.md)
 [![OpenWrt](https://img.shields.io/badge/OpenWrt-23.05%20%7C%2024.10%20%7C%2025.x-00A0D0.svg?logo=openwrt&logoColor=white&style=flat-square)](#-系统与版本兼容性)
 [![LuCI Architecture](https://img.shields.io/badge/LuCI-JS%20View%20%2B%20ucode%20RPC-FF6B35.svg?style=flat-square)](#-系统架构)
 [![Package arch](https://img.shields.io/badge/arch-all%20(PKGARCH%3Dall)-lightgrey.svg?style=flat-square)](#-快速安装与验证)
 [![Build](https://github.com/LianXia233/luci-app-netmonitor/actions/workflows/build.yml/badge.svg?style=flat-square)](https://github.com/LianXia233/luci-app-netmonitor/actions/workflows/build.yml)
-[![Tests](https://img.shields.io/badge/tests-538%20passing-2e9e5b.svg?style=flat-square)](#-测试与断言规范)
+[![Tests](https://img.shields.io/badge/tests-864%20passing-2e9e5b.svg?style=flat-square)](#-测试与断言规范)
 [![i18n](https://img.shields.io/badge/i18n-zh__Hans%20%7C%20en%20(100%25)-2e9e5b.svg?style=flat-square)](#-关键开发约定与工业级避坑指南)
 
 *基于 procd 常驻守护进程与轻量 tmpfs 直方图存储 · 关闭网页后台持续采样 · 拒绝虚假 0ms 延迟*
@@ -27,7 +27,7 @@
 - 🧮 **轻量流式统计**：基于内存环形缓冲区与 17 桶直方图进行 $O(1)$ 增量计算，实时输出 P50 / P95 / P99 百分位分位数，CPU 消耗与历史长度彻底解耦。
 - 🛡️ **Flash 零损耗设计**：高频点阵全量驻留 `/tmp`（tmpfs），仅可选开启低频聚合落盘；无磁盘写放大，保障路由器闪存寿命。
 - 🎨 **自研动态矢量可视化**：内置 24 个动态响应式 SVG 状态仪表与多维度面积折线图，支持时间切片对齐 Tooltip 与丢包异常标记。
-- 🧩 **零依赖原生组件层**：七个视图页的卡片 / 按钮 / 标签 / 提示条 / 弹窗全部由项目自建的 `ui.js` 提供，纯原生 DOM 实现、**不携带任何第三方运行时**（1.5.0 起移除 TDesign，前端资源由 7.4 MB 降到 159 KB）；主题变量对接 LuCI 现有主题与暗色模式；动态 SVG 状态动效由真实测量值驱动。
+- 🧩 **零依赖原生设计系统**：七个视图页的表单控件 / 弹窗 / 抽屉 / 浮层 / 通知 / 进度全部由项目自建的 `ui.js` 提供（同一套控件全库唯一实现），纯原生 DOM 实现、**不携带任何第三方运行时**（1.5.0 起移除 TDesign，前端资源由 7.4 MB 降到 159 KB）；控件度量与弹层行为统一走 CSS 设计 Token；主题变量对接 LuCI 现有主题与暗色模式；动态 SVG 状态动效由真实测量值驱动。
 
 ---
 
@@ -146,7 +146,7 @@ ubus call luci.netmonitor get_status
 | `interval` | `10` | `1 - 3600` (s) | 全局探测轮询间隔 |
 | `timeout` | `3` | `1 - 30` (s) | 单次检测超时阈值 |
 | `concurrency` | `5` | `1 - 50` | 并发执行探测的任务上限 |
-| `address_family` | `auto` | `auto` \| `ipv4` \| `ipv6` | 全局地址族路由偏好 |
+| `address_family` | `auto` | `auto` \| `ipv4` \| `ipv6` \| `both` | 全局地址族路由偏好（`both` = 先 IPv4、失败再 IPv6，任一栈可达即视为可达） |
 | `default_proto` | `icmp` | `icmp` \| `tcp` | 默认探测链路方式 |
 | `default_tcp_port` | `80` | `1 - 65535` | TCP 探测未指明端口时的回退端口 |
 | `persistence` | `0` | `0` \| `1` | Flash 聚合历史记录持久化（默认关闭以保护闪存） |
@@ -167,7 +167,7 @@ config target 'baidu'
     option label     '搜索服务'     # 自定义标签
     option proto     'icmp'        # 探测方式: icmp | tcp
     option tcp_port  '0'           # 0 表示沿用全局 default_tcp_port
-    option family    'auto'        # auto | ipv4 | ipv6 | both (目标级支持 both 双栈)
+    option family    'auto'        # auto | ipv4 | ipv6 | both（双栈：先 IPv4，失败再 IPv6）
     option interval  '0'           # 局部覆盖: 0 表示继承全局
     option timeout   '3'           # 局部覆盖: 超时时长
     option interface ''            # 绑定出口网卡 (如 wan, wwan)
@@ -232,8 +232,10 @@ luci-app-netmonitor/
 │   ├── gen_po.py                                   # 跨平台 AST 翻译提取与冲突检测工具
 │   └── zh_Hans/luci-app-netmonitor.po
 ├── tests/                                          # 自动化断言测试套件
-│   ├── test_netmon_daemon.sh                       # 守护进程核心算法单元测试 (101 assertions)
+│   ├── test_netmon_daemon.sh                       # 守护进程核心算法单元测试 (136 assertions)
 │   ├── test_icons.js                               # SVG 动态图标与渲染断言 (437 assertions)
+│   ├── test_frontend_guards.js                     # 前端防护 / 生命周期 / 设计系统断言 (291 assertions)
+│   ├── check_ucode_syntax.sh                       # ucode 插件语法近似校验
 │   └── preview/index.html                          # 本地离线预览页（无需路由器，假数据驱动）
 ├── root/                                           # 系统根预置资产
 │   ├── etc/
@@ -254,7 +256,7 @@ luci-app-netmonitor/
     │   ├── widgets.js                              # 业务组件层：目标卡 / KPI 卡 / 图标卡 / 横幅 / 迷你曲线
     │   ├── chart.js                                # 自研轻量级 SVG 时序图表库（含配色 palette）
     │   ├── icons.js                                # 动态 SVG 图标库：24 个编号图标 + dot 状态点 + gradeColor 辅助（共 26 个导出）
-    │   ├── ui.js                                   # 原生 UI 组件层：按钮 / 标签 / 提示条 / 弹窗（无第三方依赖）
+    │   ├── ui.js                                   # 原生 UI 设计系统层：表单控件九工厂 + 弹窗/面板/浮层/通知/进度全套原语（无第三方依赖）
     │   └── common.js                               # 资源加载（样式表注入 / i18n）+ 向后兼容聚合转发
     └── view/netmonitor/                            # 纯客户端渲染单页视图
         ├── overview.js   realtime.js   charts.js
@@ -289,10 +291,28 @@ LuCI 模块加载器强制执行类检查（`Class.isSubclass(_class)`），随�
 | 数值格式化、状态→类名/文案、后端报错本地化 | `format.js` | **零依赖**：不 require rpc/ui/uci，不碰 DOM，因此可被任意模块安全依赖 |
 | RPC 调用、字符串数值归一化、UCI 读改写与提交 | `api.js` | **数据层不依赖展示层**：不许 require `ui` / `icons` / `widgets` |
 | 目标卡 / KPI 卡 / 图标卡 / 横幅 / 迷你曲线 | `widgets.js` | **组件层不发请求**：只负责把数据画成 DOM，不调 RPC |
-| 按钮 / 标签 / 提示条 / 弹窗（无业务语义） | `ui.js` | 通用控件原语，不认识 target / grade / region 等领域概念 |
+| 按钮 / 标签 / 提示条 / 弹窗 / 表单控件 / 通知 / 进度（无业务语义） | `ui.js` | 通用设计系统原语，不认识 target / grade / region 等领域概念。**页面不允许自己拼控件与弹窗外壳**：select / input / switch / dialog / toast 一律取这里的工厂 |
 | 动态 SVG 图标 | `icons.js` | 状态驱动；配色来自 CSS，另有 `currentColor` 兜底保证样式表缺失时仍可见 |
 
 反向依赖（数据层引用组件层）是被禁止的，否则会出现「为拿一个 `percent()` 而把图标库拖进来」的耦合。
+
+### 2.2 前端设计系统约定（1.6.0 起）
+
+控件与弹窗的全部度量引用 `style.css` 顶部的一组 CSS 自定义属性（Token），
+弹层共用一个模态外壳（`ui.js` 的 `overlayShell`）。硬约束如下：
+
+| 主题 | 约定 |
+|---|---|
+| 控件来源 | 表单控件一律取 `ui.js` 工厂（`.nm-ctl` 基线：40px 高、聚焦环、禁用态、错误态；移动端 44px）。**禁止页面自建 select / input / textarea / switch**，也禁止直拼已废弃的 `.nm-select` / `.nm-input` / `.nm-num-input` 类名 |
+| 标签关联 | 标签必须是 `<label for>`（`ui.bindLabel` / `ui.field` 自动生成），**不得用 placeholder 代替标签**；说明与错误经 `aria-describedby` 关联，错误态打 `aria-invalid` |
+| 弹窗来源 | 一律 `ui.dialog` / `ui.confirm` / `ui.panel` / `ui.popover` / `ui.toast` / `ui.progress`，禁止直拼 `nm-dlg*` 外壳类 |
+| 危险操作 | 破坏性确认必须 `confirm({ danger: true })`：确认按钮危险色，且遮罩点击默认不关（误点遮罩 = 误确认） |
+| 异步提交 | `dialog` 的 `onOk` 返回 Promise 即自动获得按钮 busy + 禁用 + resolve 关闭 + reject 保持打开，**不需要调用方自己写 submitting 守卫** |
+| 响应式 | 弹层形态由 JS 按 `matchMedia('(max-width: 768px)')` 加 `is-sheet` / `is-drawer` 类（PC 居中框 ↔ 窄屏底部面板），全库弹层断点唯一；**禁止仅用 CSS 把 PC 弹窗缩小了事** |
+| 通知 | 统一 `ui.toast(msg, kind)`；同文案同等级 2s 去重、同屏上限 4 条、可手动关闭；TTL 分级（info/success 3200ms、warn 4200、error 5200） |
+| 进度 | 禁假进度：`indeterminate` 仅用于真不确定场景；确定进度的百分比必须来自真实 `setValue()` 回调 |
+| 无障碍 | 弹窗开合走焦点圈养与还原；Esc / 遮罩 / 关闭按钮统一走 `requestClose`（可被 `onBeforeClose` 拦截）；状态变化不得只靠颜色区分 |
+| 动效 | 统一 `--nm-dur`（180ms）量级；`prefers-reduced-motion` 下全部关动画（选择器覆盖挂在 body 下的弹窗与通知） |
 
 ### 3. TSV 空字段塌陷灾难（POSIX IFS 陷阱）
 
@@ -370,15 +390,27 @@ LuCI 加载翻译时，`base.zh-cn.lmo` 的词频优先级高于插件。若插�
 项目在本地及 GitHub Actions CI 流水线中集成了多层自动化验证护栏：
 
 ```sh
-# 1. 运行守护进程核心逻辑单元测试 (101 assertions)
-# 涵盖: 异常错误分类、TSV 占位容错、分段直方图数学模型、TCP 握手判定
+# 1. 运行守护进程核心逻辑单元测试 (136 assertions)
+# 涵盖: 异常错误分类、TSV 占位容错、分段直方图数学模型、TCP 握手判定、
+#       双栈探测回退、--noproxy 参数形式、状态文件原子写、缓冲区裁剪、子进程回收
 sh tests/test_netmon_daemon.sh
 
 # 2. 运行 SVG 动态矢量图标自动化断言 (437 assertions)
 # 涵盖: 零三方依赖、数据变化敏感性、空值边界防御、视口尺寸阈值
 node tests/test_icons.js
 
-# 3. 运行静态翻译完整性与 AST 代码冲突扫描
+# 3. 运行前端防护 / 生命周期 / 设计系统断言 (291 assertions)
+# 涵盖: 存储型 XSS 载荷、后端字符串数值归一化、布尔兼容、轮询随路由注销、
+#       图表实例表、请求竞态、控件工厂结构与无障碍关联、弹窗模态语义、
+#       通知去重与同屏上限、进度终态、源码级单一来源、CSS Token 齐备、
+#       页面级集成冒烟（targets 编辑器全流程 / history 工具栏）
+node tests/test_frontend_guards.js
+
+# 4. 校验 ucode 插件语法（用 node 近似解析；语法错会让 rpcd 加载失败，
+#    表现为所有 RPC「对象不存在」而不是一条编译错误）
+sh tests/check_ucode_syntax.sh
+
+# 5. 运行静态翻译完整性与 AST 代码冲突扫描
 python3 po/gen_po.py --audit
 ```
 

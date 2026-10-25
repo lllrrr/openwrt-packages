@@ -172,6 +172,31 @@ function validIface(v) {
 	return true;
 }
 
+/* URL 校验：只接受 http / https，且不含控制字符与空白。
+ *
+ * 通知后端目前尚未实现（settings 页把这两个字段标注为「预留」），
+ * 因此 notify_url 暂时不会被任何代码发起请求。但只要它进了配置，
+ * 将来实现通知时最自然的写法就是「直接拿这个 URL 发请求」——那便是一个
+ * 现成的 SSRF：LuCI 会话等价于 root，攻击者可以把它指向内网管理接口或
+ * 云厂商的元数据地址（169.254.169.254）。因此在写入时就限定 scheme，
+ * 而不是等实现时再补。
+ *
+ * 空值必须放行：出厂默认与「留空表示未配置」都依赖它。 */
+function validUrl(v) {
+	if (v == null || v == '')
+		return true;
+	if (!validText(v, 512))
+		return false;
+	/* 控制字符既可能被用来绕过 scheme 判定（"http://x\nHost: y"），
+	 * 也会污染日志；非 ASCII 一并拒绝（IDN 应先转 punycode）。 */
+	for (let i = 0; i < length(v); i++) {
+		let c = substr(v, i, 1);
+		if (c < ' ' || c > '~')
+			return false;
+	}
+	return (substr(v, 0, 7) == 'http://') || (substr(v, 0, 8) == 'https://');
+}
+
 function validText(s, maxlen) {
 	if (s == null)
 		return true;
@@ -318,6 +343,32 @@ function fxInt(v) {
 	return "" + ((v * 1 + 0.5) | 0);
 }
 
+/* 对**已排序**的原始样本取分位数，桶内线性插值。
+ *
+ * 与下面的 percentile() 保持同一算法形式（都是线性插值），只是数据源不同：
+ *   percentile()        吃直方图，用于 get_status —— 它只有 O(1) 增量维护的
+ *                       直方图，拿不到原始样本；
+ *   quantileSorted()    吃原始样本，用于 get_statistics —— 它确实把采样点
+ *                       读出来了，可以直接排序，精度高于直方图。
+ *
+ * 统一算法形式是必要的：此前 get_statistics 用的是「最近邻取值」
+ * （lat[(n-1)*0.95|0]），与 get_status 的桶内插值口径不同，同一目标在
+ * 概览页与统计页会显示两个不同的 P95。两者的差异现在只剩数据源精度
+ * （原始样本 vs 直方图桶），这一点在 get_statistics 里另行注明。 */
+function quantileSorted(arr, p) {
+	let n = length(arr);
+	if (n == 0)
+		return null;
+	if (n == 1)
+		return arr[0];
+	let pos = (n - 1) * p / 100.0;
+	let lo = pos | 0;
+	if (lo >= n - 1)
+		return arr[n - 1];
+	let frac = pos - lo;
+	return arr[lo] + (arr[lo + 1] - arr[lo]) * frac;
+}
+
 function percentile(hist, total, p) {
 	if (!(total > 0))
 		return null;
@@ -339,7 +390,12 @@ function percentile(hist, total, p) {
 			cum += c;
 		}
 	}
-	return EDGES[length(EDGES) - 1];
+	/* 走到这里说明累计计数始终追不上目标分位——即 total 与直方图各桶之和
+	 * 不一致（统计段文件被截断、或残留旧版本格式时会出现）。
+	 * 此时没有任何依据可以给出分位值，返回 null 让前端显示「—」。
+	 * 原先返回 EDGES 的最后一个上界（1000），等价于凭空编造一个
+	 * 「P95 恰好 1 秒」的样本，图表 Y 轴与阈值配色都会据此误判。 */
+	return null;
 }
 
 function gradeOf(lat, loss, cfg) {
@@ -430,16 +486,79 @@ function latCap(cfg, t) {
 	return c;
 }
 
+/* 取字符串末尾的 n 行。
+ *
+ * 大文件先按字节粗裁、再按行精裁：采样行结构固定（t \t lat \t ok \t eno，
+ * 约 24 字节/行），取末尾 64 KB 至少覆盖两千多行，远大于前端实际需要的点数。
+ *
+ * 需要说明的是：ucode 的 fs 模块没有 seek / 分段读，readfile() 仍会把整个
+ * 文件读进内存，这一步省不掉（max_points 配到上限 20 万行时约 6 MB）。
+ * 这里省下的是另外两笔更大的开销：
+ *   * 对整个文件 split —— 20 万行会一次性产生二十万个字符串对象；
+ *   * 每个目标 fork 一个 sh 再 fork 一个 tail（见 readTail 的注释）。 */
+function tailLines(raw, n) {
+	if (n < 1)
+		return [];
+	let chunk = raw;
+	let MAX_BYTES = 65536;
+	let truncated = (length(raw) > MAX_BYTES);
+	if (truncated)
+		chunk = substr(raw, length(raw) - MAX_BYTES);
+
+	let lines = split(chunk, '\n');
+
+	/* 粗裁几乎必然把第一行切成半行。半行要么字段不足被解析侧跳过，
+	 * 要么带着一个被截断的时间戳——两种都不该进曲线，直接丢掉。 */
+	if (truncated && length(lines) > 0) {
+		let keep = [];
+		for (let i = 1; i < length(lines); i++)
+			push(keep, lines[i]);
+		lines = keep;
+	}
+
+	if (length(lines) > n) {
+		let start = length(lines) - n;
+		let keep2 = [];
+		for (let i = start; i < length(lines); i++)
+			push(keep2, lines[i]);
+		lines = keep2;
+	}
+	return lines;
+}
+
+/*
+ * 读取采样文件的最后 n 行。
+ *
+ * 【本次修复】原先写作 shcmd('tail -n ' + n + ' ' + path)，有两个问题：
+ *
+ *   1. 注入面。path 里含有来自 UCI 的目标 id，而这是全模块唯一一处把配置
+ *      里的字符串拼进 shell 命令行。正常路径下 id 是 ucode 生成的 cfg<hex>，
+ *      add_target 也用 safeId() 约束了自定义 id；但 UCI 语法允许
+ *      `config target '任意不含单引号的字符串'`——一旦配置文件被手工编辑或
+ *      由其它途径写入，这里就是现成的命令执行入口（rpcd 以 root 运行）。
+ *      纵深防御的原则是：不能在只有一道上游校验的情况下拼 shell。
+ *
+ *   2. 进程开销。get_history 与 get_status(spark=1) 对**每个目标**调用一次，
+ *      每次 fork 一个 sh 再 fork 一个 tail。20 个目标、2 秒刷新就是每秒
+ *      10 次 fork，全部花在「取文件末尾几百行」这一件事上。
+ *
+ * 改为 ucode 直接读文件再自行截断，既消掉 fork，也不再有任何命令行拼接。
+ */
 function readTail(path, n) {
 	if (stat(path) == null)
 		return [];
-	let out = shcmd('tail -n ' + n + ' ' + path);
-	if (out == '')
+	let raw = readfile(path);
+	if (raw == null || raw == '')
 		return [];
-	return split(out, '\n');
+	return tailLines(raw, n);
 }
 
 function readRing(id, cutoff, limit, cap) {
+	/* id 会进入文件路径。所有正常 id（ucode 生成的 cfg<hex>、经 add_target
+	 * 校验的自定义 id）都能通过 safeId()；这里再挡一道，杜绝手工编辑配置
+	 * 产生的含路径分隔符的段名被用于访问预期之外的文件。 */
+	if (!safeId(id))
+		return [];
 	let lines = readTail(RING_DIR + '/' + id + '.tsv', limit);
 	let pts = [];
 	for (let i = 0; i < length(lines); i++) {
@@ -467,6 +586,8 @@ function readRing(id, cutoff, limit, cap) {
 }
 
 function readAgg(id, cutoff, limit, cap) {
+	if (!safeId(id))
+		return [];
 	let lines = readTail(PERSIST_DIR + '/' + id + '.agg', limit);
 	let pts = [];
 	for (let i = 0; i < length(lines); i++) {
@@ -603,13 +724,36 @@ function statOf(id, cfg, cap) {
 	let p95 = percentile(st.hist, st.ok, 95);
 	let p99 = percentile(st.hist, st.ok, 99);
 	let cur = s.last_latency;
-	let grade = gradeOf(cur, loss, cfg);
 
-	/* 连续失败次数达到阈值时，等级直接下沉 */
-	if (s.streak_fail >= num(cfg.fail_critical))
-		grade = 'down';
-	else if (s.streak_fail >= num(cfg.fail_warn) && grade != 'down')
-		grade = 'severe';
+	/* 【本次修复】「还没有数据」不等于「离线」。
+	 *
+	 * 原先 cur（上次探测延迟）为 null 就走 gradeOf() 直接返回 'down'，而
+	 * cur 为 null 覆盖的其实是两类完全不同的情况：
+	 *   1. 一次都还没探测过（全新安装、守护进程刚启动的头一个周期、
+	 *      目标刚被启用还没轮到、历史刚被清空）；
+	 *   2. 探测过，但最近这轮失败了。
+	 * 只有第 2 类是故障。第 1 类被一律判成 down 的后果是：装好插件到第一次
+	 * 探测完成之前，所有目标显示「离线」、概览页 health 直接算成 critical，
+	 * 横幅写着「严重网络故障」——而此时网络一切正常，只是还没有样本。
+	 *
+	 * 因此按「是否探测过」先分岔：total 为 0 时返回 unknown，其余情况仍然
+	 * 走原来的失败链路。unknown 是既有等级值（前端 format.js 的
+	 * GRADE_CLASS / GRADE_TEXT 已登记），页面无需改动即可显示为「未知」。 */
+	let grade;
+	if (num(s.total) == 0)
+		grade = 'unknown';
+	else
+		grade = gradeOf(cur, loss, cfg);
+
+	/* 连续失败次数达到阈值时，等级直接下沉。
+	 * 只对「已经探测过」的目标生效：一次都没探测过时 total 为 0、
+	 * streak_fail 也必然为 0，上面已判为 unknown，这里不会误伤。 */
+	if (grade != 'unknown') {
+		if (s.streak_fail >= num(cfg.fail_critical))
+			grade = 'down';
+		else if (s.streak_fail >= num(cfg.fail_warn) && grade != 'down')
+			grade = 'severe';
+	}
 
 	return {
 		count: st.count,
@@ -637,16 +781,73 @@ function statOf(id, cfg, cap) {
 	};
 }
 
+/* 读取进程命令行（NUL 分隔，readfile 返回的字符串里原样保留分隔符）。
+ * 返回 null 表示读不到（进程已退出或内核限制）。 */
+function procCmdline(pid) {
+	if (!isNum(pid) || pid == '')
+		return null;
+	if (stat('/proc/' + pid) == null)
+		return null;
+	return readfile('/proc/' + pid + '/cmdline');
+}
+
+/* 该 pid 是否确实是本守护进程。
+ *
+ * 「/proc/<pid> 存在」只能说明进程还活着，不足以说明它是谁：pidfile 因异常
+ * 掉电残留时，该 pid 可能早已被内核回收给无关进程。守护进程由 procd 以
+ * `command /bin/sh /usr/libexec/netmonitor/netmon-daemon.sh` 启动，
+ * 命令行里必然带这一段，据此判定身份。 */
+function pidIsDaemon(pid) {
+	let cmd = procCmdline(pid);
+	/* 读不到命令行时不妄下结论：交给调用方按原有（仅存活）口径处理，
+	 * 避免把「读不到」误判成「不是守护进程」而掩盖真实状态。 */
+	if (cmd == null || cmd == '')
+		return null;
+	return (index(cmd, 'netmon-daemon') >= 0);
+}
+
+/*
+ * 守护进程是否在跑。
+ *
+ * 【本次修复的自匹配缺陷】
+ * 兜底分支原先写作 shcmd('pgrep -f "netmon-daemon" ...')。shcmd 走 popen，
+ * 实际执行的是
+ *     /bin/sh -c 'pgrep -f "netmon-daemon" 2>/dev/null | head -n 1'
+ * 而这个 sh 自身的命令行里就含 netmon-daemon —— pgrep -f 匹配完整命令行，
+ * 于是它每次都命中自己，返回自己的 pid。
+ *
+ * 实测（无任何 netmon-daemon 在跑的机器上）：
+ *     $ sh -c 'pgrep -f "netmon-daemon" 2>/dev/null | head -n 1'
+ *     233984                       <- 输出的正是这个 sh 自己
+ *
+ * 后果：只要 pidfile 缺失（服务停止后由 procd 清理），running 就恒为 true ——
+ * 概览页永不显示「后台服务未运行」，设置页服务状态恒显示「运行中」且
+ * 「启动」按钮恒被禁用，真实故障被掩盖。
+ *
+ * 两道修复：
+ *   1. 模式写成 '[n]etmon-daemon'。pgrep -f 的模式是正则，`[n]etmon-daemon`
+ *      匹配字面量 netmon-daemon，而命令行里带方括号的 '[n]etmon-daemon'
+ *      不含该字面量，于是排除掉执行它的 shell 自身（经典自排除写法）。
+ *   2. 命中后再用 /proc/<pid>/cmdline 复核身份，杜绝任何残留的误匹配。
+ */
 function serviceRunning() {
 	let raw = readfile(PID_FILE);
 	if (raw != null) {
 		let pid = trim(raw);
-		if (pid != '' && stat('/proc/' + pid) != null)
+		if (pid != '' && stat('/proc/' + pid) != null) {
+			let isDaemon = pidIsDaemon(pid);
+			/* 读得到命令行时以身份为准；读不到时退回原有的存活判定 */
+			if (isDaemon == null || isDaemon)
+				return true;
+		}
+	}
+
+	let out = shcmd("pgrep -f '[n]etmon-daemon' 2>/dev/null | head -n 1");
+	if (out != '') {
+		let pid = trim(out);
+		if (isNum(pid) && pidIsDaemon(pid) == true)
 			return true;
 	}
-	let out = shcmd('pgrep -f "netmon-daemon" 2>/dev/null | head -n 1');
-	if (out != '' && isNum(out))
-		return true;
 	return false;
 }
 
@@ -658,6 +859,10 @@ function serviceAction(action) {
 }
 
 function cleanupTargetFiles(id) {
+	/* 本函数执行的是删除，id 又直接进入文件路径：先挡一道，
+	 * 避免非法 id 被用来删除预期之外的文件。 */
+	if (!safeId(id))
+		return;
 	unlink(RING_DIR + '/' + id + '.tsv');
 	unlink(HIST_DIR + '/' + id + '.cur');
 	unlink(HIST_DIR + '/' + id + '.seg');
@@ -697,7 +902,10 @@ const methods = {
 			let agg = {
 				total: 0, online: 0, offline: 0, disabled: 0,
 				lat_sum: 0, lat_n: 0, loss_sum: 0, loss_n: 0, down: 0,
-				sent_sum: 0, recv_sum: 0
+				sent_sum: 0, recv_sum: 0,
+				/* 已经探测过（累计样本数 > 0）的目标数。用来区分
+				 * 「全部目标都正常」与「一个样本都还没有」——后者不能算健康。 */
+				sampled: 0
 			};
 
 			for (let i = 0; i < length(targets); i++) {
@@ -758,6 +966,7 @@ const methods = {
 				agg.total++;
 				if (st.streak_fail > 0) agg.offline++; else agg.online++;
 				if (st.grade == 'down') agg.down++;
+				if (num(st.total) > 0) agg.sampled++;
 				if (st.latency != null) { agg.lat_sum += st.latency; agg.lat_n++; }
 				if (st.count > 0) {
 					agg.loss_sum += st.loss; agg.loss_n++;
@@ -820,6 +1029,11 @@ const methods = {
 				health = 'unknown';
 			else if (agg.down > 0 || agg.offline > 0)
 				health = (agg.down > 0) ? 'critical' : 'warning';
+			else if (agg.sampled == 0)
+				/* 目标都已启用、守护进程也在跑，但一个样本都还没有（刚启动、
+				 * 刚清空历史）。这既不是「健康」也不是「故障」：按未知处理，
+				 * 否则首屏会把「还没数据」直接显示成「网络健康」。 */
+				health = 'unknown';
 			else
 				health = 'good';
 
@@ -1007,8 +1221,11 @@ const methods = {
 					if (pts[k].s) push(lat, pts[k].l);
 				lat = sort(lat);
 
-				let p95 = (length(lat) > 0) ? lat[((length(lat) - 1) * 0.95) | 0] : null;
-				let p50 = (length(lat) > 0) ? lat[((length(lat) - 1) * 0.50) | 0] : null;
+				/* 与 get_status 的 percentile() 同为线性插值口径，只是这里
+				 * 吃的是原始样本（精度更高），那边吃的是直方图桶。
+				 * 原先这里用「最近邻取值」，与概览页差一个插值步长。 */
+				let p95 = quantileSorted(lat, 95);
+				let p50 = quantileSorted(lat, 50);
 				let loss = (n > 0) ? ((n - okc) * 100.0 / n) : 0;
 
 				push(rows, {
@@ -1095,7 +1312,9 @@ const methods = {
 						return err('invalid value for ' + k);
 					v = (v == null) ? '' : v;
 				} else if (spec.type == 'url') {
-					if (!validText(v, 512))
+					/* validUrl() 而非 validText()：限定 scheme 与字符集，
+					 * 见该函数的注释（防的是未来实现通知时的 SSRF）。 */
+					if (!validUrl(v))
 						return err('invalid value for ' + k);
 					v = (v == null) ? '' : v;
 				}
@@ -1336,12 +1555,28 @@ const methods = {
 		args: { id: 'string' },
 		call: function(req) {
 			const a = nmArgs(req);
-			let u = uciOpen();
-			let targets = getTargets(u);
-			if (a != null && a.id != null && safeId(a.id)) {
-				cleanupTargetFiles(a.id);
+			let id = (a != null && a.id != null) ? a.id : '';
+
+			/* 【本次修复】原先只要 safeId() 不通过就落进「清空全部目标」分支，
+			 * 等于把一次参数错误放大成不可逆的全量删除：调用方传错一个 id
+			 * （含路径分隔符、含空格、超长、非法字符）就会抹掉全部历史。
+			 *
+			 * 现在按意图显式分派：
+			 *   id 缺省 / 'all'  -> 显式要求清空全部（前端「清空历史」按钮走这里）
+			 *   id 指定了        -> 必须合法且目标确实存在，否则报错且不删任何东西
+			 */
+			if (id !== '' && id !== 'all') {
+				if (!safeId(id))
+					return err('invalid id');
+				let uv = uciOpen();
+				if (uv.get('netmonitor', id) == null)
+					return err('target not found');
+				cleanupTargetFiles(id);
 				return { cleared: 1 };
 			}
+
+			let u = uciOpen();
+			let targets = getTargets(u);
 			for (let i = 0; i < length(targets); i++)
 				cleanupTargetFiles(targets[i].id);
 			shcmd('rm -f ' + PERSIST_DIR + '/*.agg ' + PERSIST_DIR + '/*.last 2>/dev/null');

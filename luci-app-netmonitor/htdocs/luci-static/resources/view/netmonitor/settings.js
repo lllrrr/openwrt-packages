@@ -7,9 +7,12 @@
  * （无 dialog 定位规则）而停在 display:none 状态，导致弹窗点了毫无反应，
  * 详见 netmonitor/ui.js 文件头。
  *
- * 表单控件（开关 / 数字 / 下拉 / 文本）本来就是原生 HTML 元素：早期版本的
- * t-switch / t-input-number / t-select / t-input 基于 Omi 框架，受控模式下
- * 点击与下拉交互实测失效，故早已改为原生控件，本次不再改动。
+ * 表单控件（开关 / 数字 / 下拉 / 文本）统一取自 ui.js 的控件工厂
+ * （switchControl / numberInput / selectInput / textInput，.nm-ctl /
+ * .nm-switch 基线）。底层仍是原生 HTML 元素：早期版本基于 Omi 框架的
+ * t-switch / t-input-number / t-select / t-input 在受控模式下交互实测
+ * 失效，故早已改为原生控件；本次统一工厂只收敛外观与无障碍语义，
+ * 交互仍由浏览器原生保证。行标题经 ui.bindLabel 与控件显式关联。
  *
  * 采用纯 DOM 渲染，杜绝 CBI/JSONMap 静默吞选项问题。
  */
@@ -67,8 +70,12 @@ function fieldGroups() {
 				{
 					key: 'address_family', kind: 'enum',
 					title: _('地址族'),
-					desc: _('探测使用的协议族，单个目标可单独覆盖。'),
-					values: [['auto', _('自动')], ['ipv4', _('仅 IPv4')], ['ipv6', _('仅 IPv6')]]
+					/* 把 both 的语义写清楚：它与 auto 的差异只体现在
+					 * 「IPv4 探测失败时是否明确再试一次 IPv6」，
+					 * 不看这行的话两者很容易被当成同一个选项。 */
+					desc: _('探测使用的协议族，单个目标可单独覆盖。自动：交给系统的地址解析顺序；双栈：先按 IPv4 探测，失败再按 IPv6 探测，任一栈可达即视为可达。'),
+					values: [['auto', _('自动')], ['ipv4', _('仅 IPv4')], ['ipv6', _('仅 IPv6')],
+					         ['both', _('双栈（IPv4 + IPv6）')]]
 				},
 				{
 					key: 'interface', kind: 'text',
@@ -409,7 +416,11 @@ return view.extend({
 			var enabled = String(v.enabled == null ? '1' : v.enabled);
 			var proto = String(v.default_proto == null ? 'icmp' : v.default_proto);
 			var port = String(v.default_tcp_port == null ? '80' : v.default_tcp_port);
-			var v6 = (fam === 'ipv6');
+			/* both（双栈）两个栈都会走：先 IPv4、失败再 IPv6，故 v4 与 v6
+			 * 同时成立。此前 v6 只判 ipv6，选中双栈时速览条上的图标会被
+			 * 画成「仅 IPv4」，与配置不符。 */
+			var v6 = (fam === 'ipv6' || fam === 'both');
+			var v4 = (fam !== 'ipv6');
 
 			strip.appendChild(makeStripCard(
 				_('默认探测方式'),
@@ -446,7 +457,7 @@ return view.extend({
 				_('地址族'),
 				fam,
 				_('总开关') + ': ' + ((enabled === '1') ? _('已启用') : _('已停用')),
-				icons.dualStack(fam, fam !== 'ipv6', v6, 44)
+				icons.dualStack(fam, v4, v6, 44)
 			));
 
 			strip.appendChild(makeStripCard(
@@ -464,69 +475,58 @@ return view.extend({
 			));
 		}
 
-		/* ---------------------------------------------------- 表单控件工厂（原生控件）
-		 *
-		 * 表单控件一开始就是原生 HTML 元素，早期尝试过用 TDesign 的
-		 * t-switch / t-select / t-input-number / t-input，但它们基于 Omi 框架，
-		 * 受控模式下点击与下拉交互实测失效（真实浏览器点击也打不开下拉、
-		 * 开关不切换状态）。这里保持原生控件并沿用自有样式
-		 * （见 style.css 的 .nm-switch / .nm-select / .nm-input），
-		 * 交互由浏览器原生保证，兼容 LuCI 全部目标浏览器。 */
-		function switchControl(key, value) {
-			var sw = document.createElement('input');
-			sw.type = 'checkbox';
-			sw.className = 'nm-switch';
-			sw.checked = (value === '1' || value === 1 || value === true);
-			sw.addEventListener('change', markDirty);
-			return { kind: 'flag', el: sw };
-		}
+	/* ---------------------------------------------------- 表单控件（统一工厂）
+	 *
+	 * 控件全部取自 ui.js 的统一工厂（.nm-ctl / .nm-switch 基线：
+	 * 40px 高、聚焦环、禁用态、错误态，移动端升 44px）。本页此前
+	 * 自带四份控件实现（switchControl / intControl / enumControl /
+	 * textControl），与其他页面的 makeSelect、targets 编辑器的
+	 * textInput 是同一套原生控件的五份拷贝，现在收敛到一处。
+	 *
+	 * 交互仍由浏览器原生保证（受控模式下第三方组件实测失效，
+	 * 见文件头），统一工厂只提供一致的外观、键盘行为与无障碍语义。
+	 * 每个控件带稳定 id（nm-set-<key>），行标题经 ui.bindLabel
+	 * 变成 <label for> 与它显式关联。 */
+	function switchControl(key, value) {
+		var sw = common.ui.switchControl({
+			id: 'nm-set-' + key,
+			checked: (value === '1' || value === 1 || value === true)
+		});
+		sw.addEventListener('change', markDirty);
+		return { kind: 'flag', el: sw };
+	}
 
-		function intControl(key, value, min, max) {
-			var n = document.createElement('input');
-			n.type = 'number';
-			n.className = 'nm-num-input';
-			n.min = min;
-			n.max = max;
-			n.value = (value == null || value === '') ? '' : Number(value);
-			n.addEventListener('input', markDirty);
-			n.addEventListener('change', markDirty);
-			return { kind: 'int', el: n, min: min, max: max };
-		}
+	function intControl(key, value, min, max) {
+		var n = common.ui.numberInput({
+			id: 'nm-set-' + key,
+			value: (value == null || value === '') ? '' : Number(value),
+			min: min,
+			max: max
+		});
+		n.addEventListener('input', markDirty);
+		n.addEventListener('change', markDirty);
+		return { kind: 'int', el: n, min: min, max: max };
+	}
 
-		function enumControl(key, value, values) {
-			var sel = document.createElement('select');
-			sel.className = 'nm-select';
-			var options = values.map(function(o) {
-				return { label: o[1], value: o[0] };
-			});
-			/* 当前值不在选项列表时（例如旧配置），补一个「当前值」兜底选项 */
-			var cur = (value == null ? '' : String(value));
-			var found = false;
-			for (var i = 0; i < options.length; i++) {
-				if (String(options[i].value) === cur) { found = true; break; }
-			}
-			if (!found && cur !== '')
-				options.push({ label: cur + ' ' + _('（当前）'), value: cur });
-			options.forEach(function(o) {
-				var opt = document.createElement('option');
-				opt.value = o.value;
-				opt.textContent = o.label;
-				sel.appendChild(opt);
-			});
-			sel.value = cur;
-			sel.addEventListener('change', markDirty);
-			return { kind: 'enum', el: sel };
-		}
+	function enumControl(key, value, values) {
+		/* values 是 [[value, label], ...]；未知当前值由
+		 * ui.selectInput 自动补「（当前）」兜底项 */
+		var sel = common.ui.selectInput(values.map(function (o) {
+			return { label: o[1], value: o[0] };
+		}), value, { id: 'nm-set-' + key });
+		sel.addEventListener('change', markDirty);
+		return { kind: 'enum', el: sel };
+	}
 
-		function textControl(key, value) {
-			var i = document.createElement('input');
-			i.type = 'text';
-			i.className = 'nm-input';
-			i.value = (value == null ? '' : String(value));
-			i.addEventListener('input', markDirty);
-			i.addEventListener('change', markDirty);
-			return { kind: 'text', el: i };
-		}
+	function textControl(key, value) {
+		var i = common.ui.textInput({
+			id: 'nm-set-' + key,
+			value: (value == null ? '' : String(value))
+		});
+		i.addEventListener('input', markDirty);
+		i.addEventListener('change', markDirty);
+		return { kind: 'text', el: i };
+	}
 
 		/* ---------------------------------------------------- 表单渲染 */
 		var groups = fieldGroups();
@@ -547,31 +547,35 @@ return view.extend({
 			card.appendChild(head);
 			card.appendChild(common.el('div', 'nm-group-divider'));
 
-			g.fields.forEach(function(f) {
-				var row = common.el('div', 'nm-setting');
-				var main = common.el('div', 'nm-setting-main');
-				main.appendChild(common.el('div', 'nm-setting-title', f.title));
-				if (f.desc)
-					main.appendChild(common.el('div', 'nm-setting-desc', f.desc));
-				row.appendChild(main);
+		g.fields.forEach(function(f) {
+			var row = common.el('div', 'nm-setting');
+			var main = common.el('div', 'nm-setting-main');
 
-				var ctlBox = common.el('div', 'nm-setting-ctl');
-				var ctl;
-				if (f.kind === 'flag')
-					ctl = switchControl(f.key, cfg[f.key]);
-				else if (f.kind === 'int')
-					ctl = intControl(f.key, cfg[f.key], f.min, f.max);
-				else if (f.kind === 'enum')
-					ctl = enumControl(f.key, cfg[f.key], f.values);
-				else
-					ctl = textControl(f.key, cfg[f.key]);
+			var ctlBox = common.el('div', 'nm-setting-ctl');
+			var ctl;
+			if (f.kind === 'flag')
+				ctl = switchControl(f.key, cfg[f.key]);
+			else if (f.kind === 'int')
+				ctl = intControl(f.key, cfg[f.key], f.min, f.max);
+			else if (f.kind === 'enum')
+				ctl = enumControl(f.key, cfg[f.key], f.values);
+			else
+				ctl = textControl(f.key, cfg[f.key]);
 
-				ctl.el.setAttribute('data-nm-key', f.key);
-				ctlBox.appendChild(ctl.el);
-				row.appendChild(ctlBox);
-				card.appendChild(row);
-				controls[f.key] = ctl;
-			});
+			ctl.el.setAttribute('data-nm-key', f.key);
+			/* 行标题即标签：与右侧控件显式关联（label[for]）。
+			 * 点击标题聚焦控件，读屏逐项导航时报出标题，
+			 * 而不是光秃秃一个下拉框——此前标题只是普通 div。 */
+			main.appendChild(common.ui.bindLabel(f.title, ctl.el, 'nm-setting-title'));
+			if (f.desc)
+				main.appendChild(common.el('div', 'nm-setting-desc', f.desc));
+			row.appendChild(main);
+
+			ctlBox.appendChild(ctl.el);
+			row.appendChild(ctlBox);
+			card.appendChild(row);
+			controls[f.key] = ctl;
+		});
 
 			page.appendChild(card);
 		});
@@ -598,23 +602,30 @@ return view.extend({
 			return o;
 		}
 
-		function validate(v) {
-			for (var k in controls) {
-				var c = controls[k];
-				if (c.kind !== 'int') continue;
-				var s = v[k];
-				if (s === '' || !/^[0-9]+$/.test(s)) {
-					var t = c.el.getAttribute('data-title') || k;
-					return t + ': ' + _('请输入整数');
-				}
-				var n = parseInt(s, 10);
-				if (n < c.min || n > c.max) {
-					var t2 = c.el.getAttribute('data-title') || k;
-					return t2 + ': ' + _('允许范围') + ' ' + c.min + '-' + c.max;
-				}
+	function validate(v) {
+		/* 先清掉上一轮的错误标记：避免「改对了还挂着红框」。
+		 * 错误态由 .nm-ctl[aria-invalid=true] 的 CSS 渲染
+		 * （边框 + 聚焦环 + 文案三处同时变化，不只靠颜色）。 */
+		for (var k0 in controls)
+			controls[k0].el.removeAttribute('aria-invalid');
+		for (var k in controls) {
+			var c = controls[k];
+			if (c.kind !== 'int') continue;
+			var s = v[k];
+			if (s === '' || !/^[0-9]+$/.test(s)) {
+				c.el.setAttribute('aria-invalid', 'true');
+				var t = c.el.getAttribute('data-title') || k;
+				return t + ': ' + _('请输入整数');
 			}
-			return null;
+			var n = parseInt(s, 10);
+			if (n < c.min || n > c.max) {
+				c.el.setAttribute('aria-invalid', 'true');
+				var t2 = c.el.getAttribute('data-title') || k;
+				return t2 + ': ' + _('允许范围') + ' ' + c.min + '-' + c.max;
+			}
 		}
+		return null;
+	}
 
 		function sameAsBaseline(v) {
 			for (var k in baseline)

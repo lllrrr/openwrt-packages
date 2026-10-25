@@ -57,6 +57,9 @@ msgstr ""
 msgid "Icon"
 msgstr ""
 
+msgid "(current)"
+msgstr ""
+
 msgid "Close"
 msgstr ""
 
@@ -267,6 +270,9 @@ msgstr ""
 msgid "Last update"
 msgstr ""
 
+msgid "Refreshing"
+msgstr ""
+
 msgid "Operation completed"
 msgstr ""
 
@@ -277,6 +283,9 @@ msgid "Stop"
 msgstr ""
 
 msgid "Restart"
+msgstr ""
+
+msgid "Loading…"
 msgstr ""
 
 msgid "Region latency comparison"
@@ -385,9 +394,6 @@ msgid "IPv4 + IPv6"
 msgstr ""
 
 msgid "Global"
-msgstr ""
-
-msgid "(current)"
 msgstr ""
 
 msgid "Not used by ICMP"

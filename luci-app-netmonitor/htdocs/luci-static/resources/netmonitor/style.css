@@ -22,10 +22,21 @@
  * 看起来「保存按钮不见了」。
  *
  * 本项目弹窗默认挂在页面 root 下（随 SPA 路由销毁），此时仍在 .nm-root
- * 子树里；但确认框允许外部挂载，故保留这一作用域兜底。 */
+ * 子树里；但确认框允许外部挂载，故保留这一作用域兜底。
+ *
+ * .nm-toast-host 同理：toast 挂在 body 下（消息要活过 SPA 路由切换），
+ * 必须能取到同一套变量，否则通知条会退化成无底色无文字色的透明块。
+ *
+ * .nm-dlg / .nm-dlg-mask 也在此列：弹窗允许挂到 document.body
+ * （ui.dialog 的 host 参数默认值），挂在 body 下时它不在任何 .nm-root
+ * 子树里，若变量不跟着元素走，整块弹窗会退化成透明底、无边框、
+ * 按钮白字落白底——把变量定义在组件自身类名上，挂载点就再也无关了。 */
 .nm-root,
 .nm-modal,
-.nm-dlg-host {
+.nm-dlg-host,
+.nm-toast-host,
+.nm-dlg,
+.nm-dlg-mask {
 	--nm-bg: var(--background-color, Canvas);
 	--nm-fg: var(--text-color, CanvasText);
 	/* 容器底色：主题没给就用 transparent，由主题自己的底色承载，
@@ -48,9 +59,45 @@
 	--nm-cyan: #0f8fb8;
 	--nm-blue: #2f6fed;
 
+	/* 区域胶囊专用色（.nm-chip-region-*，见下方「徽章」一节）。
+	 * 海外色曾硬编码为 #8a63d2：深色主题下文字与边框同色糊成一片，
+	 * 且切换明暗模式时不跟随。现在按主题各给一值，其余两个区域
+	 * 直接复用语义变量，不新增色板。 */
+	--nm-region-cn: var(--nm-accent);
+	--nm-region-overseas: #7e57c2;
+	--nm-region-other: var(--nm-muted);
+
 	--nm-radius: 14px;
 	--nm-radius-sm: 9px;
 	--nm-gap: 14px;
+
+	/* ---------------------------------------------------------------- 设计 Token
+	 *
+	 * 统一控件与弹窗体系（表单控件 / 弹窗 / 抽屉 / 浮层 / 通知 / 进度）的
+	 * 公共度量全部收敛到下面这组变量，组件规则只允许引用变量、不允许
+	 * 再出现裸数字——历史上「44px 输入框 vs 32px 选择框 vs 40px 开关」
+	 * 这类尺寸漂移，根源就是每个组件各写一个高度。
+	 *
+	 * 触控目标：可点击元素不低于 40px（PC）/ 44px（触屏），
+	 * 与 WCAG 2.5.5 与主流移动端规范对齐。 */
+	--nm-ctl-h: 40px;          /* 表单控件基准高度（PC） */
+	--nm-ctl-h-touch: 44px;    /* 触屏 / 手机端控件高度 */
+	--nm-ctl-pad-x: 12px;      /* 控件水平内边距 */
+	--nm-ctl-font: 13px;       /* 控件字号 */
+	--nm-radius-ctl: 8px;      /* 控件圆角（8–10px 区间） */
+	--nm-radius-panel: 14px;   /* 弹窗 / 抽屉圆角 */
+	--nm-focus-w: 2px;         /* 焦点环宽度 */
+	--nm-focus-gap: 2px;       /* 焦点环与元素间距 */
+	--nm-dur: 180ms;           /* 基准动效时长（150–220ms 区间） */
+	--nm-dur-fast: 140ms;
+	--nm-ease: cubic-bezier(.2, .6, .2, 1);
+
+	/* 层级：全库只允许引用这四个值，不允许组件各自写 z-index 裸数字。
+	 * 量程拉开 100，方便后续在相邻两层之间插入新层。 */
+	--nm-z-sticky: 100;   /* 吸顶工具栏 / 表格头 */
+	--nm-z-pop: 2000;     /* 浮层（popover / action sheet） */
+	--nm-z-dlg: 2100;     /* 模态弹窗与遮罩 */
+	--nm-z-toast: 2200;   /* 通知（永远在最上，不被任何弹窗盖住） */
 }
 
 /* ------------------------------------------------- 主题对接
@@ -70,7 +117,10 @@
 @media (prefers-color-scheme: dark) {
 	.nm-root,
 	.nm-modal,
-	.nm-dlg-host {
+	.nm-dlg-host,
+	.nm-toast-host,
+	.nm-dlg,
+	.nm-dlg-mask {
 		--nm-bg: var(--background-color, Canvas);
 		--nm-fg: var(--text-color, CanvasText);
 		--nm-card: var(--light-bg-color, transparent);
@@ -80,6 +130,9 @@
 
 		--nm-cyan: #36d9ff;
 		--nm-blue: #72a9ff;
+
+		/* 深色主题下的海外色：提亮一档，保证与底色的对比度 */
+		--nm-region-overseas: #b39ddb;
 	}
 }
 
@@ -485,21 +538,6 @@
 	white-space: nowrap;
 }
 
-.nm-tag {
-	font-size: 11px;
-	padding: 1px 8px;
-	border-radius: 999px;
-	border: 1px solid var(--nm-border);
-	color: var(--nm-muted);
-	background: transparent;
-	white-space: nowrap;
-	flex: 0 0 auto;
-}
-
-.nm-tag-cn { color: var(--nm-accent); border-color: color-mix(in srgb, var(--nm-accent) 40%, transparent); }
-.nm-tag-overseas { color: #8a63d2; border-color: rgba(138, 99, 210, 0.4); }
-.nm-tag-other { color: var(--nm-muted); }
-
 .nm-target-latency {
 	display: flex;
 	align-items: baseline;
@@ -689,26 +727,13 @@
 
 /* ---------------------------------------------------------------- 控件 */
 
-.nm-select,
-.nm-input {
-	font: inherit;
-	font-size: 13px;
-	color: var(--nm-fg);
-	background: transparent;
-	border: 1px solid var(--nm-border);
-	border-radius: var(--nm-radius-sm);
-	padding: 6px 12px;
-	min-height: 32px;
-	box-sizing: border-box;
-}
+/* 表单控件基线统一定义在文件末尾「原生 UI 组件」段的 .nm-ctl
+ * （input / select / textarea 共用）。此处不再保留第二套。 */
 
 /* 按钮样式统一在文件末尾的「原生 UI 组件」段定义（.nm-btn 系列）。
  * 此处刻意不再重复：同一个类被定义两次时，后写的规则会静默覆盖前者，
  * 而「主题色」与「变体」分处两处时优先级相同、书写顺序又不可见，
  * 极易出现「危险按钮被文本变体的颜色盖掉」这类问题（已实际发生过）。 */
-
-.nm-select { min-width: 120px; }
-.nm-input { min-width: 140px; }
 
 .nm-field {
 	display: flex;
@@ -722,11 +747,31 @@
 	color: var(--nm-muted);
 }
 
+/* 空态 / 异常态占位（widgets.emptyState 的统一产物）。
+ *
+ * 三档尺寸对应三类容器：sm 表格单元格、md 卡片流、lg 图表容器。
+ * 此前这些内边距由各调用点 inline 覆写，同一句提示七种间距；
+ * error 档用告警色 + 加粗，与「无数据」的灰色明确区分——
+ * 用户从此分得清「没配目标」和「请求失败」。 */
 .nm-empty {
 	padding: 34px 16px;
 	text-align: center;
 	color: var(--nm-muted);
 	font-size: 13px;
+}
+
+.nm-empty-sm {
+	padding: 20px 12px;
+	font-size: 12px;
+}
+
+.nm-empty-lg {
+	padding: 48px 16px;
+}
+
+.nm-empty-error {
+	color: var(--nm-bad);
+	font-weight: 600;
 }
 
 /* ---------------------------------------------------------------- 图表 */
@@ -1010,18 +1055,14 @@
 	.nm-root .nm-chart-toolbar { padding: 14px 16px; gap: 12px; }
 	.nm-root .nm-field-glass { width: 100%; gap: 8px; }
 	.nm-root .nm-field-glass select,
-	.nm-root .nm-field-glass input,
-	.nm-root .nm-input-glass,
-	.nm-root .nm-select-glass {
+	.nm-root .nm-field-glass input {
 		flex: 1 1 auto;
 		min-width: 0;
 	}
 
 	/* 按钮与输入框触控面积 */
 	.nm-root .nm-btn-mini { padding: 7px 12px; min-height: 34px; }
-	.nm-root .nm-btn,
-	.nm-root .nm-select,
-	.nm-root .nm-input { min-height: 38px; }
+	.nm-root .nm-btn { min-height: 38px; }
 
 	/* 时间范围胶囊（图表页 / 区域页）：加大触控面积，窄屏下折行更整齐 */
 	.nm-root .nm-chip-btn {
@@ -1053,14 +1094,6 @@
 	.nm-root .nm-summary-pill { width: 100%; justify-content: flex-start; flex-wrap: wrap; }
 	.nm-root .nm-svc-panel { padding: 18px 16px; }
 	.nm-root .nm-action-bar-glass { flex-wrap: wrap; gap: 10px; }
-
-	/* 弹窗：窄屏贴边显示，操作按钮通栏 */
-	body .nm-modal { padding: 10px; }
-	body .nm-modal-box { padding: 20px 18px 12px; max-height: 92vh; }
-	body .nm-modal-actions { flex-wrap: wrap; gap: 8px; }
-
-	/* 设置项数字输入框占满一行 */
-	.nm-root .nm-num-input { width: 100%; }
 
 	/* 图表 Tooltip：手机上加大字号、允许折行，避免多条曲线数值溢出屏外 */
 	.nm-root .nm-tip { font-size: 13px; max-width: 78vw; white-space: normal; }
@@ -1095,68 +1128,6 @@
 .nm-table-wrap::-webkit-scrollbar-track { background: var(--nm-card); }
 .nm-table-wrap::-webkit-scrollbar-thumb { background: var(--nm-border); border-radius: 4px; }
 
-/* ---------------------------------------------------------------- 弹窗 */
-
-.nm-modal {
-	position: fixed;
-	inset: 0;
-	z-index: 1000;
-	background: rgba(12, 16, 24, 0.45);
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	padding: 16px;
-	box-sizing: border-box;
-}
-
-.nm-modal-box {
-	background: var(--nm-bg);
-	color: var(--nm-fg, #20242c);
-	border: 1px solid var(--nm-border);
-	border-radius: var(--nm-radius);
-	width: 100%;
-	max-width: 420px;
-	max-height: 88vh;
-	overflow-y: auto;
-	/* 底部不留内边距：操作区用 sticky 贴住滚动容器底部，
-	 * 由它自己提供下内边距，否则贴底时会露出一条背景缝。 */
-	padding: 18px 20px 0 20px;
-	box-shadow: 0 12px 34px rgba(0, 0, 0, 0.20);
-}
-
-.nm-modal-title {
-	margin: 0 0 12px 0;
-	font-size: 17px;
-	font-weight: 650;
-}
-
-.nm-modal-box .nm-field { margin-bottom: 10px; }
-.nm-modal-box .nm-input,
-.nm-modal-box .nm-select { width: 100%; }
-
-/* 操作区（取消 / 保存并应用）固定在弹窗可视区底部。
- *
- * 实测：字段多时 .nm-modal-box 内容高 960px、可视仅 634px，
- * 操作区落在滚动折叠区之外（y=952，视口只有 720 高），
- * 不滚动弹窗内部就完全看不到主按钮。sticky 贴底后无需滚动即可见。 */
-.nm-modal-actions {
-	display: flex;
-	justify-content: flex-end;
-	gap: 10px;
-	position: sticky;
-	bottom: 0;
-	margin: 14px -20px 0 -20px;
-	padding: 12px 20px;
-	background: var(--nm-bg);
-	border-top: 1px solid var(--nm-border);
-}
-
-.nm-modal-error {
-	color: var(--nm-bad);
-	font-size: 12.5px;
-	min-height: 16px;
-	margin-top: 6px;
-}
 
 /* ---------------------------------------------------------------- 设置页 */
 
@@ -1196,22 +1167,14 @@
 	min-width: 210px;
 }
 
-/* 设置页右侧控件统一宽度：下拉 / 文本输入占满 210px 控制区，
- * 数字输入保持紧凑步进宽度（132px），所有控件右缘对齐。
- * 自 v1.4.2 起表单控件改为原生元素（select / input），此处覆盖
- * .nm-select / .nm-input，保留 t-* 选择器兼容历史主题覆盖。 */
-.nm-setting-ctl t-select,
-.nm-setting-ctl t-input,
-.nm-setting-ctl .nm-select,
-.nm-setting-ctl .nm-input {
+/* 设置页右侧控件统一宽度：全部控件（.nm-ctl 基线：下拉 / 文本 /
+ * 数字 / 多行）占满 210px 控制区，右缘对齐。
+ * 历史上这里按 .nm-select / .nm-input / .nm-num-input 三个旧类名
+ * 分别设宽（数字输入还单独 132px），控件统一到 .nm-ctl 后只需一条。 */
+.nm-setting-ctl .nm-ctl {
 	width: 100%;
 	min-width: 0;
 	box-sizing: border-box;
-}
-
-.nm-setting-ctl .nm-num-input {
-	width: 132px;
-	min-width: 110px;
 }
 
 /* 原生开关（替代 t-switch）。
@@ -1416,8 +1379,7 @@
 		width: 100%;
 	}
 
-	.nm-setting-ctl .nm-input,
-	.nm-setting-ctl .nm-select { width: 100%; }
+	.nm-setting-ctl .nm-ctl { width: 100%; }
 }
 
 /* ------------------------------------------------- TDesign 平面化页面布局
@@ -2114,41 +2076,26 @@
 	color: var(--nm-muted);
 }
 
-.nm-dialog-body .nm-input,
-.nm-dialog-body .nm-select,
-.nm-dialog-body .nm-num-input {
+.nm-dialog-body .nm-ctl {
 	width: 100%;
 	box-sizing: border-box;
 }
 
-.nm-modal-actions {
-	display: flex;
-	justify-content: flex-end;
-	gap: 10px;
-}
-
-/* 弹窗错误提示（表单末尾） */
+/* 弹窗内联错误提示（表单末尾，targets 编辑器在用）。
+ * min-height 占位：错误出现 / 消失时不引起底部按钮跳动。 */
 .nm-modal-error {
 	color: var(--nm-bad);
 	font-size: 12.5px;
 	min-height: 16px;
-}
-
-/* 设置页数字输入宽度 */
-.nm-num-input {
-	width: 132px;
+	margin-top: 6px;
 }
 
 /* 手机端 TDesign 控件适配 */
 @media (max-width: 640px) {
 	.nm-field-glass { width: 100%; gap: 8px; }
 	.nm-field-glass > label { font-size: 12px; }
-	.nm-field-glass t-select,
-	.nm-field-glass t-input,
-	.nm-field-glass t-input-number,
 	.nm-field-glass select,
 	.nm-field-glass input { min-width: 0; }
-	.nm-num-input { width: 100%; }
 }
 
 
@@ -2335,6 +2282,32 @@
 	color: var(--nm-muted, #7b8494);
 	background: color-mix(in srgb, var(--nm-muted, #7b8494) 12%, transparent);
 	border-color: color-mix(in srgb, var(--nm-muted, #7b8494) 28%, transparent);
+}
+
+/* 区域胶囊（国内 / 海外 / 其他）：与等级徽章共用 .nm-chip 骨架，仅换色。
+ *
+ * 全库唯一的区域标签实现是 widgets.regionTag()（页面经 common.regionTag
+ * 调用），颜色一律取自 --nm-region-* 主题变量。此前这里有过一套独立的
+ * .nm-tag-cn / .nm-tag-overseas / .nm-tag-other（描边 + 透明底），
+ * 其中海外色硬编码 #8a63d2，与 history / realtime / targets 三页用
+ * common.ui.chip 拼的「淡色填充 + warn 黄」长期并存，同一个「海外」
+ * 在四个页面两种颜色两种形态；现已全部删除，只保留本组规则。 */
+.nm-chip-region-cn {
+	color: var(--nm-region-cn, var(--nm-accent, #2f6fed));
+	background: color-mix(in srgb, var(--nm-region-cn, var(--nm-accent, #2f6fed)) 12%, transparent);
+	border-color: color-mix(in srgb, var(--nm-region-cn, var(--nm-accent, #2f6fed)) 30%, transparent);
+}
+
+.nm-chip-region-overseas {
+	color: var(--nm-region-overseas, #7e57c2);
+	background: color-mix(in srgb, var(--nm-region-overseas, #7e57c2) 12%, transparent);
+	border-color: color-mix(in srgb, var(--nm-region-overseas, #7e57c2) 30%, transparent);
+}
+
+.nm-chip-region-other {
+	color: var(--nm-region-other, var(--nm-muted, #7b8494));
+	background: color-mix(in srgb, var(--nm-region-other, var(--nm-muted, #7b8494)) 12%, transparent);
+	border-color: color-mix(in srgb, var(--nm-region-other, var(--nm-muted, #7b8494)) 28%, transparent);
 }
 
 /* ------------------------------------------------------------ 提示条 */
@@ -2619,3 +2592,701 @@
  * 兜底，填充类图形（圆点、脉冲点）会跟着继承出一圈描边。样式表正常时
  * 在这里把填充元素的描边去掉，保证视觉与改造前一致。 */
 .nm-svg [class*="nm-fill-"] { stroke: none; }
+
+/* ================================================================ 统一控件与弹窗体系
+ *
+ * 本节是「设计 Token」的落地：所有度量引用上方变量，不再出现裸数字。
+ * 与 ui.js 的导出一一对应：
+ *   .nm-ctl / .nm-switch / .nm-check / .nm-seg   <- ui.textInput / numberInput /
+ *                                                    selectInput / switchControl /
+ *                                                    checkControl / segmented
+ *   .nm-field-err                                 <- ui.field() 的错误行
+ *   .nm-dlg.is-sheet                              <- ui.dialog() 窄屏底部形态
+ *   .nm-panel.is-drawer / .nm-panel.is-sheet      <- ui.panel()（PC 抽屉 / 移动底部面板）
+ *   .nm-pop                                       <- ui.popover()
+ *   .nm-toast-host / .nm-toast                    <- ui.toast()
+ *   .nm-prog / .nm-spin                           <- ui.progress()
+ *
+ * 断点约定（全库唯一，不要再引入新断点）：
+ *   > 768px   PC / 平板横屏：居中弹窗、右侧抽屉、右上角通知
+ *   <= 768px  手机 / 平板竖屏：底部面板、底部通知、通栏操作按钮
+ * 形态由 JS 按 matchMedia 决定并加类（is-drawer / is-sheet），
+ * 不允许只把 PC 弹窗用 CSS 缩小了事——内容排列、滚动与操作区
+ * 在两种形态下是不同结构。 */
+
+/* ------------------------------------------------------------ 表单控件基类 */
+
+/* input / select / textarea 共用：高度、内边距、圆角、字号、聚焦环、
+ * 禁用态、错误态一次定义齐。历史上 .nm-select 32px、.nm-input 32px、
+ * .nm-num-input 132px 各写各的，同一行里三个控件三种高度。 */
+.nm-ctl {
+	font: inherit;
+	font-size: var(--nm-ctl-font);
+	color: var(--nm-fg);
+	background: var(--nm-card, transparent);
+	border: 1px solid var(--nm-border);
+	border-radius: var(--nm-radius-ctl);
+	padding: 0 var(--nm-pad-x, var(--nm-ctl-pad-x));
+	height: var(--nm-ctl-h);
+	box-sizing: border-box;
+	transition: border-color var(--nm-dur-fast) var(--nm-ease),
+		box-shadow var(--nm-dur-fast) var(--nm-ease);
+}
+
+textarea.nm-ctl {
+	height: auto;
+	min-height: calc(var(--nm-ctl-h) * 2);
+	padding: 8px var(--nm-ctl-pad-x);
+	line-height: 1.5;
+	resize: vertical;
+}
+
+/* 聚焦环：与全站 :focus-visible 同色，加一圈柔光提升在深色背景上的可读性 */
+.nm-ctl:focus-visible {
+	outline: none;
+	border-color: var(--nm-accent);
+	box-shadow: 0 0 0 var(--nm-focus-gap) var(--nm-bg),
+		0 0 0 calc(var(--nm-focus-gap) + var(--nm-focus-w)) var(--nm-accent);
+}
+
+.nm-ctl:disabled,
+.nm-ctl.is-disabled {
+	opacity: .55;
+	cursor: not-allowed;
+}
+
+/* 错误态：边框 + 环 + 文字三处同时变化，不只靠颜色区分（色盲用户） */
+.nm-ctl[aria-invalid="true"],
+.nm-ctl.is-error {
+	border-color: var(--nm-bad);
+}
+
+.nm-ctl[aria-invalid="true"]:focus-visible,
+.nm-ctl.is-error:focus-visible {
+	box-shadow: 0 0 0 var(--nm-focus-gap) var(--nm-bg),
+		0 0 0 calc(var(--nm-focus-gap) + var(--nm-focus-w)) var(--nm-bad);
+}
+
+/* 占位文字：不与标签文案抢权重（标签才是主标识，placeholder 只是示例） */
+.nm-ctl::placeholder {
+	color: var(--nm-muted);
+	opacity: .8;
+}
+
+/* 字段错误行：图标 + 文案，与输入框用 aria-describedby 关联 */
+.nm-field-err {
+	display: flex;
+	align-items: flex-start;
+	gap: 6px;
+	font-size: 12px;
+	color: var(--nm-bad);
+	margin-top: 4px;
+	min-height: 16px;
+}
+
+.nm-field-err:empty { display: none; }
+
+.nm-field-err::before {
+	content: "!";
+	flex: 0 0 auto;
+	width: 14px;
+	height: 14px;
+	margin-top: 1px;
+	border-radius: 50%;
+	background: var(--nm-bad);
+	color: var(--nm-bg);
+	font-size: 10px;
+	font-weight: 700;
+	line-height: 14px;
+	text-align: center;
+}
+
+/* 字段标签与说明（ui.field 的产物）。.nm-field 的 flex 骨架定义在
+ * 上方；标签始终与控件显式关联（label[for]），点击即聚焦控件。 */
+.nm-field-label {
+	font-size: 11.5px;
+	color: var(--nm-muted);
+	line-height: 1.4;
+	cursor: pointer;
+}
+
+.nm-field-desc {
+	font-size: 11.5px;
+	color: var(--nm-muted);
+	opacity: .85;
+	line-height: 1.5;
+}
+
+/* 单选组（ui.radioGroup）：纵向排列；触屏下拉大行距防误点 */
+.nm-radio-group {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+@media (max-width: 768px) {
+	.nm-radio-group { gap: 10px; }
+}
+
+/* ------------------------------------------------------------ 开关（增强） */
+
+/* 基础轨道 / 滑块见上方 .nm-switch 段（46×26，与规格 44×26 同量级，
+ * 项目已有主题对抗规则建立在 46/26/22/2 四个变量上，改动会牵连
+ * LuCI 主题特异性对抗，故保留现值）。这里只补执行中与禁用两态。 */
+
+/* 执行中：滑块呼吸 + 轨道半透明，配合 aria-busy 与 is-busy 类。
+ * 用于「保存中 / 应用中的开关」——异步操作期间视觉上明确不可再点。 */
+.nm-root input[type="checkbox"].nm-switch.is-busy {
+	opacity: .75;
+	cursor: progress;
+}
+
+.nm-root input[type="checkbox"].nm-switch.is-busy::before {
+	animation: nm-switch-busy 1s var(--nm-ease) infinite;
+}
+
+@keyframes nm-switch-busy {
+	0%, 100% { transform: translateX(0); }
+	50% { transform: translateX(3px); }
+}
+
+.nm-root input[type="checkbox"].nm-switch:disabled {
+	opacity: .5;
+	cursor: not-allowed;
+}
+
+/* ------------------------------------------------------------ 勾选框 / 单选 */
+
+.nm-check {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	min-height: 24px;
+	cursor: pointer;
+	user-select: none;
+}
+
+.nm-check input {
+	flex: 0 0 auto;
+	width: 17px;
+	height: 17px;
+	margin: 0;
+	accent-color: var(--nm-accent);
+	cursor: pointer;
+}
+
+.nm-check span { font-size: var(--nm-ctl-font); line-height: 1.4; }
+
+.nm-check input:disabled { cursor: not-allowed; }
+.nm-check:has(input:disabled) { opacity: .55; cursor: not-allowed; }
+
+/* ------------------------------------------------------------ 分段控制 */
+
+/* 选项较少（2–5 个）时的轻量选择器：全部选项可见、一步切换，
+ * 比下拉少一次点按；选项多或文案长时仍应使用 select。 */
+.nm-seg {
+	display: inline-flex;
+	align-items: stretch;
+	gap: 2px;
+	padding: 2px;
+	border: 1px solid var(--nm-border);
+	border-radius: var(--nm-radius-ctl);
+	background: var(--nm-card, transparent);
+}
+
+.nm-seg-item {
+	appearance: none;
+	border: 0;
+	background: transparent;
+	color: var(--nm-muted);
+	font: inherit;
+	font-size: 12.5px;
+	line-height: 1.3;
+	padding: 6px 12px;
+	border-radius: calc(var(--nm-radius-ctl) - 2px);
+	cursor: pointer;
+	white-space: nowrap;
+	transition: background-color var(--nm-dur-fast) var(--nm-ease),
+		color var(--nm-dur-fast) var(--nm-ease);
+}
+
+.nm-seg-item:hover:not(.is-on):not(:disabled) { color: var(--nm-fg); }
+
+.nm-seg-item.is-on {
+	background: var(--nm-accent);
+	color: #fff;
+	font-weight: 600;
+}
+
+.nm-seg-item:disabled { opacity: .5; cursor: not-allowed; }
+
+.nm-seg-item:focus-visible {
+	outline: 2px solid var(--nm-accent);
+	outline-offset: var(--nm-focus-gap);
+}
+
+/* ------------------------------------------------------------ 弹窗：窄屏底部形态 */
+
+/* PC 端 .nm-dlg 是居中模态（见上方「弹窗」段）。窄屏下**换成底部面板**
+ * 而不是缩小居中框：类名由 ui.dialog() 按 matchMedia 添加，
+ * 内容排列（通栏按钮、顶部把手）与 PC 是两套结构。 */
+.nm-dlg.is-sheet {
+	top: auto;
+	bottom: 0;
+	left: 0;
+	right: 0;
+	width: 100%;
+	max-width: 100%;
+	max-height: 88vh;
+	transform: translateY(16px);
+	border-radius: var(--nm-radius-panel) var(--nm-radius-panel) 0 0;
+	border-bottom: 0;
+	/* 底部安全区：全面屏手势条不遮挡操作按钮 */
+	padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+.nm-dlg.is-sheet.is-open { transform: translateY(0); }
+
+/* 顶部把手：明确「这是可以划下去的底部面板」 */
+.nm-dlg.is-sheet .nm-dlg-head {
+	position: relative;
+	padding-top: 22px;
+}
+
+.nm-dlg.is-sheet .nm-dlg-head::before {
+	content: "";
+	position: absolute;
+	top: 9px;
+	left: 50%;
+	transform: translateX(-50%);
+	width: 36px;
+	height: 4px;
+	border-radius: 999px;
+	background: var(--nm-border);
+}
+
+/* 底部面板的操作区：主按钮通栏置顶（移动端拇指热区），取消次之 */
+.nm-dlg.is-sheet .nm-dlg-foot {
+	flex-direction: column-reverse;
+	gap: 8px;
+}
+
+.nm-dlg.is-sheet .nm-dlg-foot .nm-btn {
+	width: 100%;
+	min-height: var(--nm-ctl-h-touch);
+}
+
+/* ------------------------------------------------------------ 抽屉 / 底部面板 */
+
+/* 同一组件的两种形态，由 .is-drawer / .is-sheet 区分（JS 按断点加类）。
+ * 用于设备详情、复杂配置等「重内容、需要保留背景上下文」的场景。 */
+.nm-panel {
+	position: fixed;
+	z-index: var(--nm-z-dlg);
+	display: flex;
+	flex-direction: column;
+	background: var(--nm-bg);
+	color: var(--nm-fg);
+	border: 1px solid var(--nm-border);
+	box-shadow: 0 18px 48px rgba(0, 0, 0, .22);
+	box-sizing: border-box;
+	transition: transform var(--nm-dur) var(--nm-ease), opacity var(--nm-dur) var(--nm-ease);
+}
+
+/* PC：右侧滑入，宽度 400–560px 区间 */
+.nm-panel.is-drawer {
+	top: 0;
+	right: 0;
+	bottom: 0;
+	width: min(520px, 94vw);
+	border-radius: var(--nm-radius-panel) 0 0 var(--nm-radius-panel);
+	border-right: 0;
+	transform: translateX(24px);
+	opacity: 0;
+}
+
+.nm-panel.is-drawer.is-open { transform: translateX(0); opacity: 1; }
+
+/* 移动：底部滑入，接近全宽，最大高度按视口计算 */
+.nm-panel.is-sheet {
+	left: 0;
+	right: 0;
+	bottom: 0;
+	width: 100%;
+	max-height: 88vh;
+	border-radius: var(--nm-radius-panel) var(--nm-radius-panel) 0 0;
+	border-bottom: 0;
+	transform: translateY(24px);
+	opacity: 0;
+	/* 底部安全区：避免操作栏被系统手势区域遮挡 */
+	padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+.nm-panel.is-sheet.is-open { transform: translateY(0); opacity: 1; }
+
+.nm-panel-head {
+	flex: 0 0 auto;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 16px 18px;
+	border-bottom: 1px solid var(--nm-border);
+}
+
+.nm-panel-title {
+	font-size: 15px;
+	font-weight: 600;
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.nm-panel-body {
+	flex: 1 1 auto;
+	overflow-y: auto;
+	/* 阻止面板内滚动穿透到背景页面（链式滚动） */
+	overscroll-behavior: contain;
+	padding: 18px;
+	min-height: 0;
+}
+
+.nm-panel-foot {
+	flex: 0 0 auto;
+	display: flex;
+	justify-content: flex-end;
+	gap: 10px;
+	padding: 14px 18px;
+	border-top: 1px solid var(--nm-border);
+}
+
+/* ------------------------------------------------------------ 浮层 Popover */
+
+.nm-pop {
+	position: absolute;
+	z-index: var(--nm-z-pop);
+	min-width: 160px;
+	max-width: min(320px, 92vw);
+	background: var(--nm-bg);
+	color: var(--nm-fg);
+	border: 1px solid var(--nm-border);
+	border-radius: var(--nm-radius-ctl);
+	box-shadow: 0 10px 30px rgba(0, 0, 0, .18);
+	box-sizing: border-box;
+	padding: 6px;
+	font-size: var(--nm-ctl-font);
+}
+
+.nm-pop-item {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	box-sizing: border-box;
+	border: 0;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	padding: 8px 10px;
+	border-radius: calc(var(--nm-radius-ctl) - 3px);
+	cursor: pointer;
+}
+
+.nm-pop-item:hover:not(:disabled) { background: color-mix(in srgb, var(--nm-fg) 8%, transparent); }
+.nm-pop-item:disabled { opacity: .5; cursor: not-allowed; }
+
+.nm-pop-item:focus-visible {
+	outline: 2px solid var(--nm-accent);
+	outline-offset: -2px;
+}
+
+/* 危险操作：语义红，与普通操作分组时自然区分 */
+.nm-pop-item.is-danger { color: var(--nm-bad); }
+.nm-pop-item.is-danger:hover:not(:disabled) { background: color-mix(in srgb, var(--nm-bad) 12%, transparent); }
+
+.nm-pop-sep {
+	height: 1px;
+	margin: 5px 2px;
+	background: var(--nm-border);
+}
+
+.nm-pop-title {
+	padding: 6px 10px 4px;
+	font-size: 11.5px;
+	font-weight: 600;
+	color: var(--nm-muted);
+}
+
+/* ------------------------------------------------------------ 通知 Toast */
+
+/* 挂在 body 下的固定容器：消息要活过 SPA 路由切换（保存成功的提示
+ * 不该因为切页而消失）。PC 右上、移动底部，由媒体Query切换——
+ * 通知是纯展示层，两种形态共用同一 DOM 与排列，允许 CSS 适配。 */
+.nm-toast-host {
+	position: fixed;
+	z-index: var(--nm-z-toast);
+	top: 14px;
+	right: 14px;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	width: min(340px, calc(100vw - 28px));
+	pointer-events: none;
+}
+
+.nm-toast {
+	display: flex;
+	align-items: flex-start;
+	gap: 9px;
+	pointer-events: auto;
+	background: var(--nm-bg);
+	color: var(--nm-fg);
+	border: 1px solid var(--nm-border);
+	border-left-width: 3px;
+	border-radius: var(--nm-radius-ctl);
+	box-shadow: 0 8px 24px rgba(0, 0, 0, .16);
+	padding: 10px 10px 10px 12px;
+	font-size: 12.5px;
+	line-height: 1.5;
+	/* 进场：透明度 + 轻微上移，克制不弹跳 */
+	animation: nm-toast-in var(--nm-dur) var(--nm-ease);
+}
+
+.nm-toast.is-leaving { animation: nm-toast-out var(--nm-dur-fast) var(--nm-ease) forwards; }
+
+@keyframes nm-toast-in {
+	from { opacity: 0; transform: translateY(-6px); }
+	to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes nm-toast-out {
+	to { opacity: 0; transform: translateY(-6px); }
+}
+
+.nm-toast-dot {
+	flex: 0 0 auto;
+	width: 8px;
+	height: 8px;
+	margin-top: 5px;
+	border-radius: 50%;
+	background: var(--nm-muted);
+}
+
+.nm-toast-ok { border-left-color: var(--nm-ok); }
+.nm-toast-ok .nm-toast-dot { background: var(--nm-ok); }
+.nm-toast-info { border-left-color: var(--nm-accent); }
+.nm-toast-info .nm-toast-dot { background: var(--nm-accent); }
+.nm-toast-warn { border-left-color: var(--nm-warn); }
+.nm-toast-warn .nm-toast-dot { background: var(--nm-warn); }
+.nm-toast-bad { border-left-color: var(--nm-bad); }
+.nm-toast-bad .nm-toast-dot { background: var(--nm-bad); }
+
+.nm-toast-text { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+
+.nm-toast-x {
+	flex: 0 0 auto;
+	width: 22px;
+	height: 22px;
+	padding: 0;
+	border: 0;
+	border-radius: 5px;
+	background: transparent;
+	color: var(--nm-muted);
+	font-size: 15px;
+	line-height: 1;
+	cursor: pointer;
+}
+
+.nm-toast-x:hover { background: color-mix(in srgb, var(--nm-fg) 10%, transparent); color: var(--nm-fg); }
+
+/* 移动端：底部 Snackbar 形态，避开手势区 */
+@media (max-width: 768px) {
+	.nm-toast-host {
+		top: auto;
+		bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+		left: 14px;
+		right: 14px;
+		width: auto;
+	}
+
+	.nm-toast { animation-name: nm-toast-in-up; }
+
+	@keyframes nm-toast-in-up {
+		from { opacity: 0; transform: translateY(8px); }
+		to { opacity: 1; transform: translateY(0); }
+	}
+}
+
+/* ------------------------------------------------------------ 进度 / 加载 */
+
+/* 模态进度面板：只在「确实需要阻止其他交互」时使用
+ * （服务重启、批量应用更改）。轻量的按钮内加载态请用 .is-busy。 */
+.nm-prog-mask {
+	position: fixed;
+	inset: 0;
+	z-index: var(--nm-z-dlg);
+	background: rgba(0, 0, 0, .42);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 16px;
+	box-sizing: border-box;
+	opacity: 0;
+	transition: opacity var(--nm-dur) var(--nm-ease);
+}
+
+.nm-prog-mask.is-open { opacity: 1; }
+
+.nm-prog {
+	width: min(400px, calc(100vw - 32px));
+	background: var(--nm-bg);
+	color: var(--nm-fg);
+	border: 1px solid var(--nm-border);
+	border-radius: var(--nm-radius-panel);
+	box-shadow: 0 18px 48px rgba(0, 0, 0, .22);
+	box-sizing: border-box;
+	padding: 20px;
+}
+
+.nm-prog-title {
+	font-size: 15px;
+	font-weight: 600;
+	margin-bottom: 4px;
+}
+
+.nm-prog-stage {
+	font-size: 12.5px;
+	color: var(--nm-muted);
+	margin-bottom: 14px;
+	min-height: 18px;
+}
+
+.nm-prog-track {
+	height: 6px;
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--nm-fg) 10%, transparent);
+	overflow: hidden;
+}
+
+.nm-prog-bar {
+	height: 100%;
+	width: 0;
+	border-radius: 999px;
+	background: var(--nm-accent);
+	transition: width var(--nm-dur) var(--nm-ease);
+}
+
+/* 不确定进度：条纹往复，明示「在动但不知道多少」 */
+.nm-prog.is-indeterminate .nm-prog-bar {
+	width: 36% !important;
+	animation: nm-prog-slide 1.2s var(--nm-ease) infinite;
+}
+
+@keyframes nm-prog-slide {
+	0% { transform: translateX(-100%); }
+	100% { transform: translateX(280%); }
+}
+
+.nm-prog-pct {
+	margin-top: 8px;
+	font-size: 12px;
+	color: var(--nm-muted);
+	font-variant-numeric: tabular-nums;
+}
+
+/* 终态：成功 / 失败 / 超时——颜色 + 图标 + 文案三重区分 */
+.nm-prog.is-ok .nm-prog-bar { background: var(--nm-ok); }
+.nm-prog.is-bad .nm-prog-bar { background: var(--nm-bad); }
+.nm-prog.is-ok .nm-prog-title { color: var(--nm-ok); }
+.nm-prog.is-bad .nm-prog-title { color: var(--nm-bad); }
+
+.nm-prog-acts {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	margin-top: 14px;
+}
+
+.nm-prog-acts:empty { display: none; }
+
+/* 旋转指示器：区域级轻量加载（表格刷新、图表重绘） */
+.nm-spin {
+	display: inline-block;
+	width: 15px;
+	height: 15px;
+	border: 2px solid color-mix(in srgb, var(--nm-fg) 25%, transparent);
+	border-top-color: var(--nm-accent);
+	border-radius: 50%;
+	animation: nm-spin .8s linear infinite;
+	vertical-align: -2px;
+}
+
+@keyframes nm-spin {
+	to { transform: rotate(360deg); }
+}
+
+/* 行内加载占位：卡片区 / 面板等待数据时的统一表现。
+ * 与 .nm-empty 保持同一套内边距量级，但带旋转指示器——
+ * 用户从此分得清「正在加载」与「没有数据」。 */
+.nm-loading-inline {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	padding: 34px 16px;
+	color: var(--nm-muted);
+	font-size: 13px;
+}
+
+/* 页脚「刷新中」指示：状态文字与旋转指示器同行排布，
+ * 间距按设计 Token 级 6px（比卡片区 8px 更紧凑，页脚信息密度高）。 */
+.nm-foot-refreshing {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+}
+
+/* ------------------------------------------------------------ 手机端控件触控尺寸 */
+
+/* 触屏设备控件升到 44px：规格要求移动端表单控件 44–48px 高。
+ * 这里只调高度，排列由页面自己的响应式规则负责。 */
+@media (max-width: 768px) {
+	.nm-ctl {
+		height: var(--nm-ctl-h-touch);
+		font-size: 14px;
+	}
+
+	.nm-seg { width: 100%; }
+	.nm-seg-item { flex: 1 1 0; text-align: center; padding: 9px 8px; }
+
+	.nm-panel-foot { flex-direction: column-reverse; }
+	.nm-panel-foot .nm-btn { width: 100%; min-height: var(--nm-ctl-h-touch); }
+}
+
+/* ------------------------------------------------------------ 动效偏好与回退 */
+
+/* prefers-reduced-motion：全部组件一律关动画。
+ * 注意选择器必须覆盖挂在 body 下的弹窗 / 通知（不在 .nm-root 内），
+ * 上方 .nm-root * 规则管不到它们。 */
+@media (prefers-reduced-motion: reduce) {
+	.nm-dlg,
+	.nm-dlg.is-sheet,
+	.nm-panel,
+	.nm-panel.is-drawer,
+	.nm-panel.is-sheet,
+	.nm-toast,
+	.nm-toast.is-leaving,
+	.nm-prog-mask,
+	.nm-prog.is-indeterminate .nm-prog-bar,
+	.nm-spin,
+	.nm-root input[type="checkbox"].nm-switch.is-busy::before {
+		animation: none !important;
+		transition: none !important;
+	}
+}
+
+/* backdrop-filter 回退：遮罩的轻度模糊在不支持的浏览器上
+ * 换成更实的暗色，保证内容与背景仍有对比度（不是透明糊成一团）。 */
+@supports not (backdrop-filter: blur(2px)) {
+	.nm-dlg-mask { background: rgba(0, 0, 0, .58); }
+}

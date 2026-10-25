@@ -39,19 +39,12 @@ return view.extend({
 		var page = common.el('div', 'nm-page');
 		root.appendChild(page);
 
-		/* 原生下拉工厂：替代 t-select（TDesign 下拉在受控模式下无法打开，
-		 * 见 settings.js 同类改造说明）。样式沿用 .nm-select。 */
+		/* 原生下拉工厂：统一取 ui.js 的 selectInput（.nm-ctl 基线）。
+		 * 替代 t-select（TDesign 下拉在受控模式下无法打开，
+		 * 见 settings.js 同类改造说明）。本页此前的 makeSelect 自建实现已删除，
+		 * 这里只保留一个转调别名，避免改动全部调用点。 */
 		function makeSelect(options, value) {
-			var sel = document.createElement('select');
-			sel.className = 'nm-select';
-			options.forEach(function(o) {
-				var opt = document.createElement('option');
-				opt.value = o.value;
-				opt.textContent = o.label;
-				sel.appendChild(opt);
-			});
-			sel.value = value;
-			return sel;
+			return common.ui.selectInput(options, value);
 		}
 
 		/* 工具栏（TDesign 视觉卡） */
@@ -63,7 +56,8 @@ return view.extend({
 			return { label: _(r[1]), value: r[0] };
 		}), range);
 		selRange.addEventListener('change', function() { range = selRange.value; reload(true); });
-		fRange.appendChild(common.el('label', '', _('Time range')));
+		/* 标签与下拉显式关联：点击标签即聚焦控件 */
+		fRange.appendChild(common.ui.bindLabel(_('Time range'), selRange));
 		fRange.appendChild(selRange);
 		row.appendChild(fRange);
 
@@ -147,11 +141,13 @@ return view.extend({
 				box.appendChild(txt);
 				return box;
 			}
-			rings.appendChild(ring(icons.lossRing(x.loss, 44), _('Loss'), common.fmt.percent(x.loss, 1),
-				(x.loss > 5) ? 'nm-c-bad' : (x.loss > 0 ? 'nm-c-warn' : 'nm-c-ok')));
-			rings.appendChild(ring(icons.successRing(x.online_rate, 44), _('Availability'),
+			/* 阈值配色按 UCI 的 loss_warn / loss_critical 判定，
+			 * 不再各写一份硬编码的 5 / 99 / 95 —— 详见 format.js。 */
+			rings.appendChild(ring(icons.lossRing(x.loss, 44, cfg), _('Loss'), common.fmt.percent(x.loss, 1),
+				'nm-c-' + common.lossGrade(x.loss, cfg)));
+			rings.appendChild(ring(icons.successRing(x.online_rate, 44, cfg), _('Availability'),
 				common.fmt.percent(x.online_rate, 0),
-				(x.online_rate >= 99) ? 'nm-c-ok' : (x.online_rate >= 95 ? 'nm-c-warn' : 'nm-c-bad')));
+				'nm-c-' + common.rateGrade(x.online_rate, cfg)));
 			c.appendChild(rings);
 
 			return c;
@@ -184,11 +180,8 @@ return view.extend({
 			});
 			if (!list.length) {
 				var tr0 = common.el('tr', '');
-				var td0 = common.el('td', 'nm-empty', _('No targets'));
-				td0.colSpan = 6;
-				td0.style.padding = '24px';
-				td0.style.textAlign = 'center';
-				tr0.appendChild(td0);
+				tr0.appendChild(common.emptyState(_('No targets'),
+					{ tag: 'td', size: 'sm', colspan: 6 }));
 				tbody.appendChild(tr0);
 			}
 			for (var i = 0; i < list.length; i++) {
@@ -247,10 +240,7 @@ return view.extend({
 			if (cn.length) series.push({ name: _('China'), color: '#3b82f6', points: cn });
 			if (ov.length) series.push({ name: _('Overseas'), color: '#8b5cf6', points: ov });
 			if (!series.length) {
-				var emptyEl = common.el('div', 'nm-empty', _('No data in this range'));
-				emptyEl.style.padding = '36px';
-				emptyEl.style.textAlign = 'center';
-				compareBox.appendChild(emptyEl);
+				compareBox.appendChild(common.emptyState(_('No data in this range'), { size: 'lg' }));
 				return;
 			}
 			chart.mount(compareBox, series, { height: 260 });
@@ -286,13 +276,37 @@ return view.extend({
 				drawCompare();
 			}).catch(function(e) {
 				common.clear(compareBox);
-				var errEl = common.el('div', 'nm-empty', String(e.message || e));
-				errEl.style.padding = '24px';
-				compareBox.appendChild(errEl);
+				compareBox.appendChild(common.emptyState(String(e.message || e), { kind: 'error', size: 'lg' }));
 			});
 		}
 
-		poll.add(function() { return reload(false); }, refresh);
+		/* 轮询自注销。
+		 *
+		 * 与 overview.js / realtime.js 同理：LuCI 的 SPA 路由切换只替换
+		 * view 容器、不清空 poll 队列，页面离开后这一路轮询会继续打 rpcd，
+		 * 访问 N 次就是 N 路并发。
+		 *
+		 * 【本次修复】本页此前注册的是一个**匿名**函数
+		 * （poll.add(function(){ return reload(false); }, refresh)），
+		 * 不只是「忘了注销」——匿名函数每次 render 都是新的函数对象，
+		 * 外部连 poll.remove() 的入参都拿不到，属于结构性地无法注销。
+		 * 改为具名函数后按 isConnected 自判注销。
+		 *
+		 * 首次调用豁免：render() 末尾同步调 reload(true) 拉首屏，
+		 * 那时 root 尚未入文档。 */
+		var firstRun = true;
+
+		function pollTick() {
+			if (firstRun)
+				firstRun = false;
+			else if (!root.isConnected) {
+				poll.remove(pollTick);
+				return Promise.resolve();
+			}
+			return reload(false);
+		}
+
+		poll.add(pollTick, refresh);
 		reload(true);
 
 		return root;

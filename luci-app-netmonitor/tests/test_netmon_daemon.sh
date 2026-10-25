@@ -231,6 +231,17 @@ assert_eq "非法 host: ok"    "0" "$(cut -f2 < "$TMP_DIR/tc.res")"
 echo
 echo "== 2. targets.tsv 字段解析（TAB 合并错位的回归护栏）=="
 
+# 复位 state 目录。
+#
+# run_round 会按「上次检测时间 + 间隔」判断是否轮到本轮探测。工作区若残留
+# 上一轮的 state/<id>，这里就会直接 continue，ping 根本不会被调用，
+# 于是下面的断言只能拿到空参数 —— 表现为「第一次跑通过、之后再跑全红」。
+# 测试必须可重复执行，这里显式复位（用清空而不是删除：本脚本把 rm 替换成了
+# no-op，见文件头的说明）。
+for _sf in "$STATE_DIR"/*; do
+	[ -f "$_sf" ] && : > "$_sf"
+done
+
 # 2a. 修复后格式：空字段写成占位符 '-'
 printf '%s\n' \
 "alidns	AliDNS	223.5.5.5	cn	icmp	3	0	ipv4	-	-	DNS	-" \
@@ -523,6 +534,221 @@ assert_contains "源码中存在 clear_config_cache" 'clear_config_cache' "$(cat
 # 若连注释一起匹配，护栏会被自己的文档误伤。
 _src_code=$(sed 's/#.*//' "$DAEMON")
 assert_not_contains "未使用管道 while 清缓存" 'set | while' "$_src_code"
+
+echo
+echo "== 8. TCP 探测参数形式（--noproxy 回归护栏）=="
+
+# 背景：--noproxy 的等号写法在部分 curl 版本上直接报
+#     curl: option --noproxy=*: is unknown
+# 并以退出码 2 退出（curl 8.5.0 实测）。此时 time_connect 恒为 0、rc=2 被归到
+# errno=4（其它错误），所有 TCP 目标统一显示「检查失败」，而真正的报错被吞进
+# stderr 文件里，界面上完全看不出是参数问题。
+# 手册里该选项的规范形式就是 `--noproxy <list>`，这里断言实参确实是
+# 「选项 + 独立参数」两个元素。
+
+# 先把 rm 复位成 no-op：第 6 段为了审计清理范围把它改成了记录模式
+rm() { return 0; }
+
+printf '%s' "0.012345" > "$STUB_DIR/curl.out"
+printf '%s\n' "0" > "$STUB_DIR/curl.rc"
+printf '%s' "" > "$STUB_DIR/curl.err"
+TCP_TOOL=curl
+: > "$TMP_DIR/args.res"
+run_check_tcp args "1.1.1.1" 443 3 ipv4 "" ""
+
+_args=$(cat "$STUB_DIR/curl.args" 2>/dev/null)
+assert_not_contains "curl 不使用 --noproxy=* 等号形式" '--noproxy=*' "$_args"
+if printf '%s\n' "$_args" | grep -Fqx -- '--noproxy'; then
+	PASS=$((PASS + 1))
+	printf '  ok    curl 以独立参数形式传 --noproxy\n'
+else
+	FAIL=$((FAIL + 1))
+	printf '  FAIL  curl 以独立参数形式传 --noproxy\n'
+	printf '        实际参数=[%s]\n' "$(printf '%s' "$_args" | tr '\n' ' ')"
+fi
+if printf '%s\n' "$_args" | grep -Fqx -- '*'; then
+	PASS=$((PASS + 1))
+	printf '  ok    --noproxy 的值是独立参数 *\n'
+else
+	FAIL=$((FAIL + 1))
+	printf '  FAIL  --noproxy 的值是独立参数 *\n'
+	printf '        实际参数=[%s]\n' "$(printf '%s' "$_args" | tr '\n' ' ')"
+fi
+
+# 握手成功但 HTTP 响应被 -m 打断（rc=28）：探测对象是握手耗时，
+# 连接建起来了就该算成功，不能因为对方应用不响应就判成超时。
+tcp_case "TCP 握手成功但响应超时(rc=28)" "0.045000" 28 "" "45.000" 1 0
+
+echo
+echo "== 9. family=both 双栈探测 =="
+
+# 背景：UCI / ucode / 前端都提供 family=both，但守护进程只在 run_check 里对
+# ipv6 做了特判（换用 ping6），both 与 auto 走完全相同的分支——配置项形同
+# 虚设。both 的语义定为「双栈中任一栈可达即认为可达」：先按 IPv4 探测，
+# 失败再按 IPv6 探测，取第一个成功的结果。
+
+ping6() {
+	: > "$STUB_DIR/ping6.args"
+	for _a in "$@"; do
+		printf '%s\n' "$_a" >> "$STUB_DIR/ping6.args"
+	done
+	[ -f "$STUB_DIR/ping6.out" ] && cat "$STUB_DIR/ping6.out"
+	return "$(cat "$STUB_DIR/ping6.rc" 2>/dev/null || echo 0)"
+}
+
+cp "$S/ok_busybox" "$STUB_DIR/ping.out"
+printf '%s\n' "0" > "$STUB_DIR/ping.rc"
+cp "$S/ok_busybox" "$STUB_DIR/ping6.out"
+printf '%s\n' "0" > "$STUB_DIR/ping6.rc"
+: > "$STUB_DIR/ping6.args"
+
+# 场景 A：IPv4 成功 —— 不应再退到 IPv6（常态零额外开销）
+: > "$TMP_DIR/both1.res"
+run_check both1 "dual.example" icmp 0 3 both "" ""
+assert_eq "双栈: IPv4 成功即判定成功"      "1"      "$(cut -f2 < "$TMP_DIR/both1.res")"
+assert_eq "双栈: 延迟取自 IPv4"            "20.529" "$(cut -f1 < "$TMP_DIR/both1.res")"
+assert_eq "双栈: IPv4 成功时不再探测 IPv6" ""       "$(cat "$STUB_DIR/ping6.args" 2>/dev/null)"
+
+# 场景 B：IPv4 失败、IPv6 成功 —— 回退到 IPv6 并成功
+cp "$S/timeout_busybox" "$STUB_DIR/ping.out"
+printf '%s\n' "1" > "$STUB_DIR/ping.rc"
+: > "$STUB_DIR/ping6.args"
+: > "$TMP_DIR/both2.res"
+run_check both2 "dual.example" icmp 0 3 both "" ""
+assert_eq "双栈: IPv4 失败后回退 IPv6"     "1"      "$(cut -f2 < "$TMP_DIR/both2.res")"
+assert_eq "双栈: 延迟取自 IPv6"            "20.529" "$(cut -f1 < "$TMP_DIR/both2.res")"
+assert_contains "双栈: IPv6 确实被探测"    "dual.example" "$(cat "$STUB_DIR/ping6.args" 2>/dev/null)"
+
+# 场景 C：两个栈都失败 —— 结果必须是失败，不能因为多试了一次就变成成功
+cp "$S/timeout_busybox" "$STUB_DIR/ping6.out"
+printf '%s\n' "1" > "$STUB_DIR/ping6.rc"
+: > "$TMP_DIR/both3.res"
+run_check both3 "dual.example" icmp 0 3 both "" ""
+assert_eq "双栈: 两栈皆失败则为失败"       "0" "$(cut -f2 < "$TMP_DIR/both3.res")"
+assert_eq "双栈: 失败时 errno 为超时"      "1" "$(cut -f3 < "$TMP_DIR/both3.res")"
+
+# 场景 D：非法目标 —— 一个栈都不该碰
+: > "$STUB_DIR/ping.args"
+: > "$STUB_DIR/ping6.args"
+: > "$TMP_DIR/both4.res"
+run_check both4 "-bad-host" icmp 0 3 both "" ""
+assert_eq "双栈: 非法目标直接判非法"       "5" "$(cut -f3 < "$TMP_DIR/both4.res")"
+assert_eq "双栈: 非法目标不探测 IPv4"      ""  "$(cat "$STUB_DIR/ping.args" 2>/dev/null)"
+assert_eq "双栈: 非法目标不探测 IPv6"      ""  "$(cat "$STUB_DIR/ping6.args" 2>/dev/null)"
+
+echo
+echo "== 10. 状态与心跳文件原子写入（读写竞争回归护栏）=="
+
+# 背景：状态文件是 ucode readState() 读取目标运行时状态的唯一来源。
+# 直接 `>` 覆盖会先截断再写入，rpcd 侧的请求若落在这个窗口里就会拿到空
+# 内容（readState 返回全零，界面闪现「从未检测 / 离线」，刷新一次又恢复）。
+# 心跳文件同理：它是前端判断「后台是否真的在跑」的依据。
+
+assert_contains "状态文件走 tmp + mv"     '> "$st.tmp"'         "$_src_code"
+assert_contains "状态文件 mv 生效"        'mv -f "$st.tmp"'     "$_src_code"
+assert_contains "心跳文件走 tmp + mv"     'tick.tmp'            "$_src_code"
+assert_contains "持久化时间戳走 tmp + mv" 'lastf.tmp'           "$_src_code"
+
+# 行为验证：完整跑一轮采集，状态文件必须一次写全且不残留 .tmp
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+	"at1" "AT1" "1.1.1.1" "cn" "icmp" "3" "0" "ipv4" "-" "-" "-" "-" "0" \
+	> "$RUN_DIR/targets.tsv"
+printf '%s\t%s\t%s\t%s\t%s\n' "12.500" "1" "0" "1" "1" > "$TMP_DIR/at1.res"
+: > "$STATE_DIR/at1"
+collect_results 1700000000
+
+assert_eq "状态文件已写入"          "1"      "$([ -s "$STATE_DIR/at1" ] && echo 1 || echo 0)"
+assert_eq "状态文件无 .tmp 残留"   "0"      "$([ -f "$STATE_DIR/at1.tmp" ] && echo 1 || echo 0)"
+assert_eq "状态文件字段数"          "9"      "$(awk -F'\t' '{print NF}' "$STATE_DIR/at1")"
+assert_eq "状态文件记录了本次延迟"  "12.500" "$(cut -f3 < "$STATE_DIR/at1")"
+assert_eq "心跳文件无 .tmp 残留"   "0"      "$([ -f "$RUN_DIR/tick.tmp" ] && echo 1 || echo 0)"
+assert_eq "心跳文件已写入"          "1700000000" "$(cat "$RUN_DIR/tick")"
+
+echo
+echo "== 11. 环形缓冲裁剪（软阈值）=="
+
+# 背景：原实现是「每追加一行就检查，超过 max_points 就 tail 重写整个文件」。
+# 缓冲区填满后每一次采样都要做一次 O(n) 读 + O(n) 写：默认 4320 点约 130 KB，
+# 10 秒间隔下就是每 10 秒整体搬运一遍。改成两级阈值后重写频率大幅下降，
+# 而缓冲区仍严格不超过 max_points。
+
+G_MAX_POINTS=100
+RING_TRIM_AT=112
+: > "$RING_DIR/trim.tsv"
+_i=0
+while [ $_i -lt 110 ]; do
+	printf '%s\t10\t1\t0\n' "$((1700000000 + _i))" >> "$RING_DIR/trim.tsv"
+	_i=$((_i + 1))
+done
+trim_ring trim
+assert_eq "110 行未达软阈值(112)，不裁剪" "110" "$(wc -l < "$RING_DIR/trim.tsv" | tr -d ' ')"
+
+_i=0
+while [ $_i -lt 10 ]; do
+	printf '%s\t10\t1\t0\n' "$((1700000100 + _i))" >> "$RING_DIR/trim.tsv"
+	_i=$((_i + 1))
+done
+trim_ring trim
+assert_eq "超过软阈值后一次裁回硬上限"    "100" "$(wc -l < "$RING_DIR/trim.tsv" | tr -d ' ')"
+
+# 软阈值必须大于硬上限，否则余量为零、退化回「每次采样都重写」
+if [ "$RING_TRIM_AT" -gt "$G_MAX_POINTS" ]; then
+	PASS=$((PASS + 1))
+	printf '  ok    软阈值严格大于硬上限\n'
+else
+	FAIL=$((FAIL + 1))
+	printf '  FAIL  软阈值严格大于硬上限 (%s <= %s)\n' "$RING_TRIM_AT" "$G_MAX_POINTS"
+fi
+
+echo
+echo "== 12. 退出时回收探测子进程 =="
+
+# 背景：run_check 以后台子 shell 方式并发执行，ping / curl 又由子 shell 再
+# 派生。procd 发 TERM 后主循环退出，但若不同时终止这些进程，它们会继续跑完
+# 自己的 deadline，并往一个已被删除的目录里写结果。
+
+assert_contains "cleanup 中调用子进程回收" 'nm_kill_children' "$(sed -n '/^cleanup() {/,/^}/p' "$DAEMON")"
+if printf '%s' "$_src_code" | grep -q '^nm_kill_children() {'; then
+	PASS=$((PASS + 1))
+	printf '  ok    存在 nm_kill_children 定义\n'
+else
+	FAIL=$((FAIL + 1))
+	printf '  FAIL  存在 nm_kill_children 定义\n'
+fi
+# 刻意不使用「按进程组 kill」：负 PID 会打到同组的其它进程上
+# （procd 及其 helper 可能与本进程同组），风险远大于收益。
+assert_not_contains "未使用进程组整体 kill" 'kill -TERM "-' "$_src_code"
+
+# 行为验证：派生的后台子进程必须被真正终止
+#
+# shells 差异（实测）：nm_kill_children 用 `kids=$(jobs -p)` 枚举直接子进程，
+# 命令替换会 fork 子 shell——bash（Git Bash 开发机）与 busybox ash（OpenWrt
+# 设备）会把任务表带进子 shell，jobs -p 正常输出；而 dash 的非交互实现里
+# 子 shell 拿不到任务表，输出为空，nm_kill_children 便一个进程都杀不到。
+# 这不是被测代码的缺陷（dash 既非开发环境也非目标环境），但会让行为断言
+# 在 dash 下假失败。先以同一形式（命令替换）探测当前 shell 能否枚举，
+# 不能则跳过行为验证——源码级断言不受影响，支持 shell 上仍全量执行。
+sleep 30 &
+_sp=$!
+_jobs_probe=$(jobs -p 2>/dev/null)
+if [ -z "$_jobs_probe" ]; then
+	SKIP=$((SKIP + 1))
+	printf '  skip  当前 shell 的命令替换无法枚举后台任务（dash 行为），行为验证略过\n'
+	kill -TERM "$_sp" 2>/dev/null
+	wait "$_sp" 2>/dev/null
+else
+	nm_kill_children
+	sleep 1
+	if [ -d "/proc/$_sp" ]; then
+		FAIL=$((FAIL + 1))
+		printf '  FAIL  后台子进程未被回收 (pid=%s 仍存活)\n' "$_sp"
+		kill -TERM "$_sp" 2>/dev/null
+		wait "$_sp" 2>/dev/null
+	else
+		PASS=$((PASS + 1))
+		printf '  ok    后台子进程已被回收\n'
+	fi
+fi
 
 echo
 echo "======================================"

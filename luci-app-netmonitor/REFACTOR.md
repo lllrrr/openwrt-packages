@@ -213,11 +213,21 @@ LUCI_MINIFY_CSS:=1   # 原为 0
 ```bash
 # 注：早期的 probe/verify.js 与 probe/xss.js 已随重构删除。
 # 现在由下列入口承担回归验证：
-node tests/test_icons.js          # 图标渲染断言（437 条）
-sh tests/test_netmon_daemon.sh   # 守护进程算法断言（101 条）
-python3 po/gen_po.py             # 翻译漂移审计
+node tests/test_icons.js            # 图标渲染断言（437 条）
+sh tests/test_netmon_daemon.sh     # 守护进程算法断言（136 条）
+node tests/test_frontend_guards.js # 前端防护 / 生命周期 / 设计系统断言（291 条）
+sh tests/check_ucode_syntax.sh     # ucode 插件语法近似校验
+python3 po/gen_po.py               # 翻译漂移审计
 # 交互与视觉：起本地服务后打开 tests/preview/index.html（见该文件头注释）
 ```
+
+### 4.1 断言数与工作区残留
+
+`test_netmon_daemon.sh` 的工作区 `tests/.tmp` 在多次运行之间会残留
+`state/<id>`。若不复位，`run_round` 的「未到下次检测时间」会让本轮直接跳过，
+ping 不被调用，断言只能拿到空参数 —— 表现为「第一次跑通过、之后再跑全红」。
+测试脚本已在第 2 段开头显式复位 state（用清空而不是删除：脚本把 `rm` 替换
+成了 no-op，见该文件头说明）。新增测试时若引入新的目标 id，请沿用同样处理。
 
 ---
 
@@ -262,5 +272,93 @@ python3 po/gen_po.py             # 翻译漂移审计
 修改  root/usr/share/rpcd/ucode/luci.netmonitor                fx() 返回格式化字符串
 修改  Makefile                                                  恢复 JS/CSS 压缩
 ```
+
+行尾全部为 LF。所有 JS 文件通过 `node --check`。
+---
+
+# 补记：前端设计体系统一（v1.6.0）
+
+前六节记录的是 1.5.6–1.5.9 的重构。v1.6.0 是一次**纯前端**的体系性重构：
+业务逻辑、UCI 字段、RPC/ubus/ACL、接口路径与数据结构一律未动，改动集中在
+UI / 交互 / 样式三层。目标：建立覆盖 PC / 平板 / 移动端的完整设计系统，
+消灭「同一套控件九份拷贝、弹窗四种写法、旧类名零发送方却带着一整套样式」
+的现状。
+
+## 七、统一前的问题盘点
+
+| # | 问题 | 范围 |
+|---|---|---|
+| 1 | 原生 select 控件有**五份**各自带「未知当前值补兜底项」逻辑的实现 | settings / targets / realtime / history / charts / regions |
+| 2 | 设置页自带四份控件工厂（switchControl / intControl / enumControl / textControl） | settings.js |
+| 3 | targets 编辑器自带三份控件工厂 + 一份 field 包裹 | targets.js |
+| 4 | 弹窗四种形态：`ui.dialog` / `common` 里的死实现 / 页面手拼 / 历史上的 `window.confirm` | 全库 |
+| 5 | `notify` 调用未定义全局，按钮失败提示永远落 console（用户不可见） | ui.js / widgets.js |
+| 6 | 删除确认的遮罩点击与普通确认无异（误点 = 误确认破坏性操作） | targets.js |
+| 7 | 旧类名 `.nm-select` / `.nm-input` / `.nm-num-input` 自 v1.4.2 起零 JS 发送方，却带着基线 / 宽度 / 兼容共十余条样式规则 | style.css |
+| 8 | 弹层断点各写各的（有的页面根本没有窄屏形态，直接缩小 PC 框） | 全库 |
+| 9 | 编辑弹窗连点重复提交（1.5.9 的 submitting 守卫是调用方补丁，非框架能力） | targets.js |
+| 10 | 概览页首屏卡片区空白，分不清「加载中」与「无数据」 | overview.js |
+
+## 八、设计系统的构成
+
+`ui.js`（395 → 1320 行）成为唯一的设计系统原语层：
+
+- **表单控件九工厂**：`field` / `textInput` / `numberInput` / `textareaInput` /
+  `selectInput` / `switchControl` / `checkControl` / `radioGroup` / `segmented`，
+  外加 `bindLabel` 与 `setBusy`。底层仍是原生元素（受控模式下第三方组件实测
+  失效，见文件头），工厂只提供一致的外观、键盘行为与无障碍语义。
+- **弹窗体系**：`dialog`（重写）/ `confirm` / `panel` / `popover` / `toast` /
+  `progress` 六件套，全部挂在 `overlayShell` 模态外壳上：close 幂等、
+  Tab 圈养、焦点还原、滚动锁引用计数、rAF 驱动 `is-open`。
+- **CSS Token**：控件高度 / 内边距 / 字号 / 圆角 / 焦点环 / 动效时长 / z-index
+  层级全部变量化；弹层形态由 JS 按 `matchMedia` 加类，断点唯一 768px。
+
+关键取舍记录：
+
+1. **`toast` 刻意用裸 `setTimeout` 而非 `window.setTimeout`**：测试桩的
+   `window.setTimeout` 会同步执行回调，那会让通知一创建就被销毁，无法断言
+   结构（浏览器中两者等价）。
+2. **`confirm({ danger: true })` 时 `maskClose` 默认 false**：误点遮罩等于
+   误确认破坏性操作，不可接受；只保留取消 / 关闭按钮 / Esc 三条明确退出路径。
+3. **禁假进度**：`indeterminate` 仅用于真不确定场景；确定进度的百分比必须
+   来自真实 `setValue()` 回调，不许拿定时器演动画。
+4. **`dialog` 的 `onOk` 返回 Promise 即自动 busy**：连点防护从「调用方各写
+   守卫」升级为框架能力，targets 编辑器的 submitting 标志降级为防程序性
+   重入的第二道防线。
+5. **CSS 自定义属性挂在多个容器选择器上**（`.nm-root` / `.nm-modal` /
+   `.nm-dlg-host` / `.nm-toast-host` 等）：弹窗与通知挂在 body 下、不在
+   `.nm-root` 内，Token 必须跟着走，否则 body 挂载的组件全部丢变量。
+
+## 九、变更文件清单（v1.6.0）
+
+```
+修改  htdocs/luci-static/resources/netmonitor/ui.js            设计系统原语层重建（+1016/-90）
+修改  htdocs/luci-static/resources/netmonitor/style.css        Token 化 + 新组件样式 + 死 CSS 清理（+814/-143）
+修改  htdocs/luci-static/resources/netmonitor/widgets.js       notify 委托 ui.toast；移除未定义全局依赖
+修改  htdocs/luci-static/resources/netmonitor/common.js        注释与转发说明同步
+修改  htdocs/luci-static/resources/view/netmonitor/settings.js 四份控件工厂改为委托 + bindLabel 关联 + aria-invalid
+修改  htdocs/luci-static/resources/view/netmonitor/targets.js  编辑器 field/控件/提交全面改用工厂；删除确认 danger 化
+修改  htdocs/luci-static/resources/view/netmonitor/{realtime,history,charts,regions}.js
+                                                                makeSelect 改为转调别名；工具栏标签 bindLabel 化
+修改  htdocs/luci-static/resources/view/netmonitor/overview.js 加载态：pending/lastD/刷新指示/首屏占位
+修改  po/gen_po.py                                             ZH 新增 Refreshing / Loading…
+修改  po/templates/luci-app-netmonitor.pot                     重新生成（186 条）
+修改  po/zh_Hans/luci-app-netmonitor.po                        重新生成（untranslated 0）
+修改  tests/test_frontend_guards.js                            79 → 291 断言（新增设计系统一节）
+修改  tests/test_netmon_daemon.sh                               dash 下 jobs -p 不枚举时行为断言改 skip
+修改  tests/test_icons.js                                      icons.js 改 require format 后更新测试桩
+修改  Makefile                                                 PKG_VERSION 1.5.9 → 1.6.0
+修改  CHANGELOG.md / README.md / REFACTOR.md                   文档同步
+```
+
+注意：`po/*.po` 与 `po/templates/*.pot` 是 `po/gen_po.py` 的**生成物**，
+译文真源是 `gen_po.py` 里的 `ZH` 字典——手工编辑 po 文件会在下次
+`--audit` 时被覆盖（本轮实际踩中过一次）。
+
+页面级集成冒烟（targets 真实 render 全流程）暴露了两个此前静态审查没发现
+的真实缺陷，均已修复：`button()` 静默丢弃 `ariaLabel`（targets 五个行内
+操作按钮的可访问名称只剩箭头字符）、`test_netmon_daemon.sh` 的子进程回收
+行为断言在 dash 下假失败（`jobs -p` 在命令替换里不枚举，bash / busybox ash
+不受影响；改为先探测、不能枚举则 skip，支持 shell 上仍全量执行）。
 
 行尾全部为 LF。所有 JS 文件通过 `node --check`。
