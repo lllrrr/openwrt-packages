@@ -2,7 +2,7 @@
 'require baseclass';
 'require rpc';
 
-var LUCKY_ASSET_VERSION = '2.0.10-r4';
+var LUCKY_ASSET_VERSION = '2.0.10-r13';
 var themeMode = 'auto';
 var themeMedia = window.matchMedia
     ? window.matchMedia('(prefers-color-scheme: dark)')
@@ -286,19 +286,10 @@ function hexToRgba(hex, a) {
     var c = hexToRgb(hex);
     return 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + a + ')';
 }
-function removeStyle(id) { var el = document.getElementById(id); if (el) el.parentNode.removeChild(el); }
-function injectStyle(id, css) {
-    removeStyle(id);
-    var s = document.createElement('style');
-    s.id = id;
-    s.textContent = css;
-    document.head.appendChild(s);
-}
 function applyPrimaryColor(hex, alpha) {
     var a = (typeof alpha === 'number') ? alpha : 1;
     var root = document.documentElement;
-    ['--lucky-primary','--lucky-primary-hover','--lucky-on-primary','--lucky-focus-ring','--lucky-tab-active'].forEach(function(v) { root.style.removeProperty(v); });
-    removeStyle('lucky-color-primary');
+    ['--lucky-primary','--lucky-primary-hover','--lucky-on-primary','--lucky-focus-ring','--lucky-tab-active','--lucky-primary-gradient','--lucky-primary-border','--lucky-primary-shadow'].forEach(function(v) { root.style.removeProperty(v); });
     if (!hex) return;
     var end = shiftHue(hex, 30);
     var hsl = hexToHsl(hex);
@@ -306,15 +297,15 @@ function applyPrimaryColor(hex, alpha) {
     var p = a < 1 ? hexToRgba(hex, a) : hex;
     var e = a < 1 ? hexToRgba(end, a) : end;
     var hv = a < 1 ? hexToRgba(darkenHex(hex, 10), a) : darkenHex(hex, 10);
+    var gradient = 'linear-gradient(135deg,'+p+' 0%,'+e+' 100%)';
     root.style.setProperty('--lucky-primary', p);
     root.style.setProperty('--lucky-primary-hover', hv);
     root.style.setProperty('--lucky-on-primary', onPri);
     root.style.setProperty('--lucky-focus-ring', hexToRgba(hex, 0.18 * a));
-    root.style.setProperty('--lucky-tab-active', 'linear-gradient(135deg,'+p+' 0%,'+e+' 100%)');
-    var css = '.lucky-btn-primary{background:linear-gradient(135deg,'+p+' 0%,'+e+' 100%)!important;border-color:'+hexToRgba(end,0.45*a)+'!important;box-shadow:0 2px 10px '+hexToRgba(hex,0.28*a)+',inset 0 1px 0 rgba(255,255,255,'+(0.28*a)+')!important}';
-    css += '#tabmenu ul.cbi-tabmenu li.cbi-tab a,#tabmenu ul.tabs li.active a{background:linear-gradient(135deg,'+p+' 0%,'+e+' 100%)!important;border-color:'+hexToRgba(end,0.4*a)+'!important;box-shadow:0 4px 14px '+hexToRgba(hex,0.35*a)+',inset 0 1px 0 rgba(255,255,255,'+(0.25*a)+')!important}';
-    css += '#mainmenu li.mainmenu-item-lucky.selected>a,#mainmenu li.lucky-menu-parent.selected>a{background:linear-gradient(135deg,'+p+' 0%,'+e+' 100%)!important;box-shadow:0 4px 14px '+hexToRgba(hex,0.35*a)+'!important}';
-    injectStyle('lucky-color-primary', css);
+    root.style.setProperty('--lucky-tab-active', gradient);
+    root.style.setProperty('--lucky-primary-gradient', gradient);
+    root.style.setProperty('--lucky-primary-border', hexToRgba(end, 0.45 * a));
+    root.style.setProperty('--lucky-primary-shadow', '0 2px 10px '+hexToRgba(hex,0.28*a)+',inset 0 1px 0 rgba(255,255,255,'+(0.28*a)+')');
 }
 function applyTextColor(hex, alpha) {
     var a = (typeof alpha === 'number') ? alpha : 1;
@@ -368,8 +359,7 @@ function clearColor(key) {
     colorSettings[key] = '';
     var root = document.documentElement;
     if (key === 'color_primary') {
-        ['--lucky-primary','--lucky-primary-hover','--lucky-on-primary','--lucky-focus-ring','--lucky-tab-active'].forEach(function(v) { root.style.removeProperty(v); });
-        removeStyle('lucky-color-primary');
+        ['--lucky-primary','--lucky-primary-hover','--lucky-on-primary','--lucky-focus-ring','--lucky-tab-active','--lucky-primary-gradient','--lucky-primary-border','--lucky-primary-shadow'].forEach(function(v) { root.style.removeProperty(v); });
     } else if (key === 'color_text') {
         ['--lucky-text','--lucky-text-2','--lucky-text-3'].forEach(function(v) { root.style.removeProperty(v); });
     } else if (key === 'color_card') {
