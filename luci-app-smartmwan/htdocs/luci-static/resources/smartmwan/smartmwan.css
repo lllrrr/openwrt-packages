@@ -1,0 +1,265 @@
+/*
+ * smartmwan —— LuCI 视图样式（零 Lua）
+ * 放置于 htdocs/luci-static/resources/smartmwan/smartmwan.css。
+ * 布局用 Grid + Flexbox；所有选择器以 .smw- 作用域，绝不污染 LuCI 全局样式。
+ */
+
+.smw-panel {
+	display: flex;
+	flex-direction: column;
+	gap: 1.25em;
+}
+
+.smw-panel h2 {
+	margin-bottom: 0.25em;
+}
+
+.smw-panel h3 {
+	margin: 0.5em 0 0.25em;
+}
+
+.smw-panel h4 {
+	margin: 0.5em 0 0.25em;
+}
+
+/* ---- 四态 ---- */
+
+.smw-state {
+	padding: 1em 1.25em;
+	border-radius: 4px;
+	background: var(--bg, #f7f7f7);
+}
+
+.smw-state-loading {
+	color: var(--muted, #666);
+}
+
+.smw-state-empty {
+	color: var(--muted, #666);
+	font-style: italic;
+}
+
+.smw-state-error {
+	border-left: 4px solid var(--danger, #c0392b);
+}
+
+.smw-error-code {
+	margin-top: 0.4em;
+	font-size: 0.9em;
+	opacity: 0.85;
+}
+
+.smw-error-details {
+	margin: 0.4em 0 0;
+	padding-left: 1.2em;
+	font-size: 0.9em;
+}
+
+/* ---- 卡片（Grid） ---- */
+
+.smw-cards {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+	gap: 0.75em;
+}
+
+.smw-card {
+	display: flex;
+	flex-direction: column;
+	gap: 0.25em;
+	padding: 0.75em 1em;
+	border: 1px solid var(--border, #ddd);
+	border-radius: 4px;
+	background: var(--bg-alt, #fff);
+}
+
+.smw-card-title {
+	font-size: 0.85em;
+	color: var(--muted, #666);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.smw-card-value {
+	font-size: 1.25em;
+	font-weight: 600;
+	word-break: break-all;
+}
+
+.smw-card-note {
+	font-size: 0.85em;
+	color: var(--warn, #b9770e);
+}
+
+/* ---- 徽标 ---- */
+
+.smw-badge {
+	display: inline-block;
+	padding: 0.1em 0.55em;
+	border-radius: 3px;
+	font-size: 0.85em;
+	font-weight: 600;
+	white-space: nowrap;
+}
+
+.smw-badge-ok {
+	background: rgba(46, 204, 113, 0.18);
+	color: #1e8449;
+}
+
+.smw-badge-warn {
+	background: rgba(243, 156, 18, 0.18);
+	color: #b9770e;
+}
+
+.smw-badge-bad {
+	background: rgba(231, 76, 60, 0.18);
+	color: #c0392b;
+}
+
+.smw-badge-info {
+	background: rgba(52, 152, 219, 0.18);
+	color: #2471a3;
+}
+
+.smw-badge-muted {
+	background: rgba(127, 140, 141, 0.18);
+	color: #566573;
+}
+
+/* ---- 表格 ---- */
+
+.smw-table {
+	overflow-x: auto;
+}
+
+.smw-table table {
+	width: 100%;
+}
+
+.smw-table .th {
+	white-space: nowrap;
+}
+
+/* ---- 列表 ---- */
+
+.smw-notes {
+	margin: 0.25em 0;
+	padding-left: 1.2em;
+}
+
+.smw-notes li {
+	margin-bottom: 0.2em;
+}
+
+.smw-muted {
+	color: var(--muted, #666);
+	font-size: 0.9em;
+}
+
+.smw-warn {
+	color: var(--warn, #b9770e);
+}
+
+.smw-error {
+	color: var(--danger, #c0392b);
+}
+
+/* ---- 线路卡片（Grid） ---- */
+
+.smw-line-card {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5em;
+	padding: 0.75em 1em;
+	border: 1px solid var(--border, #ddd);
+	border-radius: 4px;
+}
+
+.smw-line-head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.5em;
+}
+
+.smw-line-actions,
+.smw-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5em;
+}
+
+/* ---- 份额条 ---- */
+
+.smw-bars {
+	display: flex;
+	flex-direction: column;
+	gap: 0.4em;
+}
+
+.smw-bar-row {
+	display: flex;
+	align-items: center;
+	gap: 0.6em;
+}
+
+.smw-bar-label {
+	flex: 0 0 6em;
+	text-align: right;
+}
+
+.smw-bar-track {
+	flex: 1;
+	height: 0.9em;
+	border-radius: 3px;
+	background: var(--border, #ddd);
+	overflow: hidden;
+}
+
+.smw-bar-fill {
+	display: block;
+	height: 100%;
+	background: var(--primary, #337ab7);
+}
+
+.smw-bar-value {
+	flex: 0 0 4.5em;
+	font-variant-numeric: tabular-nums;
+}
+
+/* ---- 桶图 ---- */
+
+.smw-bucketmap {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.25em;
+}
+
+.smw-bucket {
+	padding: 0.1em 0.4em;
+	border: 1px solid var(--border, #ddd);
+	border-radius: 3px;
+	font-family: monospace;
+	font-size: 0.85em;
+}
+
+.smw-bucket-zero {
+	color: var(--muted, #666);
+	background: var(--bg, #f7f7f7);
+}
+
+/* ---- 主备顺序 ---- */
+
+.smw-order {
+	margin: 0.25em 0;
+	padding-left: 1.5em;
+}
+
+/* ---- 区块 ---- */
+
+.smw-block {
+	display: flex;
+	flex-direction: column;
+	gap: 0.4em;
+}

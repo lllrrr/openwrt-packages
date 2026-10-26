@@ -1,0 +1,65 @@
+{
+	"admin/smartmwan": {
+		"title": "Smart MWAN",
+		"order": 45,
+		"action": {
+			"type": "firstchild"
+		}
+	},
+	"admin/smartmwan/status": {
+		"title": "Status",
+		"order": 10,
+		"action": {
+			"type": "view",
+			"path": "smartmwan/status"
+		}
+	},
+	"admin/smartmwan/lines": {
+		"title": "Lines",
+		"order": 20,
+		"action": {
+			"type": "view",
+			"path": "smartmwan/lines"
+		}
+	},
+	"admin/smartmwan/balance": {
+		"title": "Balancing",
+		"order": 30,
+		"action": {
+			"type": "view",
+			"path": "smartmwan/balance"
+		}
+	},
+	"admin/smartmwan/failover": {
+		"title": "Failover",
+		"order": 40,
+		"action": {
+			"type": "view",
+			"path": "smartmwan/failover"
+		}
+	},
+	"admin/smartmwan/games": {
+		"title": "Game Routing",
+		"order": 50,
+		"action": {
+			"type": "view",
+			"path": "smartmwan/games"
+		}
+	},
+	"admin/smartmwan/traffic": {
+		"title": "Connections",
+		"order": 60,
+		"action": {
+			"type": "view",
+			"path": "smartmwan/traffic"
+		}
+	},
+	"admin/smartmwan/config": {
+		"title": "Settings",
+		"order": 70,
+		"action": {
+			"type": "view",
+			"path": "smartmwan/config"
+		}
+	}
+}

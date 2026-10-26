@@ -1,0 +1,49 @@
+{
+	"luci-app-smartmwan": {
+		"description": "Grant access to smartmwan multi-WAN routing (method-level; no wildcard objects)",
+		"read": {
+			"ubus": {
+				"smartmwan": [
+					"hello",
+					"getStatus",
+					"getLines",
+					"getLine",
+					"getBalance",
+					"getFailover",
+					"getGames",
+					"getGameQuality",
+					"getConnections",
+					"getTraffic",
+					"getLogs",
+					"getConfig",
+					"getCapabilities",
+					"validate",
+					"diff"
+				]
+			}
+		},
+		"write": {
+			"ubus": {
+				"smartmwan": [
+					"save",
+					"apply",
+					"rollback",
+					"forceWan",
+					"releaseForced",
+					"setMaintenance",
+					"reload"
+				]
+			}
+		}
+	},
+	"luci-app-smartmwan-probe": {
+		"description": "Grant on-demand probing (network side effect; audited by the daemon)",
+		"read": {
+			"ubus": {
+				"smartmwan": [
+					"probeNow"
+				]
+			}
+		}
+	}
+}

@@ -1,0 +1,63 @@
+[package]
+name = "smartmwan"
+version = "0.4.0"
+edition = "2021"
+rust-version = "1.77"
+authors = ["luci-app-smartmwan 维护者"]
+description = "OpenWrt 25.12 / ImmortalWrt 多 WAN 策略路由守护进程（firewall4 + nftables + 策略路由）"
+license = "GPL-3.0-or-later"
+publish = false
+
+[[bin]]
+name = "smartmwand"
+path = "src/main.rs"
+
+[lib]
+name = "smartmwan"
+path = "src/lib.rs"
+
+[dependencies]
+# 运行时：多线程 work-stealing + 定时器 + 信号 + 子进程，全部开启；
+# 目标设备为现代多核路由 SoC，不追求极限内存占用，可靠性与超时控制优先。
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "time",
+    "net",
+    "io-util",
+    "sync",
+    "signal",
+    "process",
+] }
+
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+# 明确不引入的依赖及原因（详见 docs/architecture.md「依赖策略」）：
+#   nix / rustix        —— 只用到少量 socket/ioctl 调用，直接 libc 更好审计
+#   rtnetlink 0.23      —— 依赖 tokio 抽象但只覆盖 link/addr/route，不含 FIBRULE 的
+#                          完整安装语义；本项目的 netlink 编解码自行实现并单测
+#   conntrack 0.1       —— 下载量小、维护面窄；连接统计改用 nft counter + procfs
+#   ubus 0.1.7          —— 上游标注 WIP 且仅客户端；RPC 走 Unix socket + rpcd ucode 桥
+#   libuci FFI          —— 破坏可复现交叉构建，改为原生解析 UCI 文本格式
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.dev]
+opt-level = 0
+debug = 1
+
+[features]
+default = []
+# SDK 构建时由 Makefile 打开：跳过需要 root 权限的 netlink / 原始 ICMP 测试。
+unprivileged-tests = []

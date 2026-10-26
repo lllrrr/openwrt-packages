@@ -1,0 +1,11 @@
+# smartmwan 静态占位（由 luci-app-smartmwan 安装）。
+# 这里只声明 table inet smw 与一条空的 prerouting 链；具体规则由 smartmwand 运行期写入。
+# output 链**不在这里声明**：它需要 `type route hook output`，该语法由守护进程在设备上
+# 实测能力后再决定是否使用（见 probe_scripts / Capabilities::route_hook_output），
+# 占位文件必须只含确定可用的语法，否则 fw4 启动就会失败。
+# 删除本文件并重启 fw4 即可完全移除插件留下的内核对象（配合 uci delete firewall 的 include 段）。
+table inet smw {
+	chain prerouting {
+		type filter hook prerouting priority -150; policy accept;
+	}
+}
