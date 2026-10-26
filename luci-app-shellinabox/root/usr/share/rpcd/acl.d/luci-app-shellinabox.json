@@ -1,0 +1,17 @@
+{
+	"luci-app-shellinabox": {
+		"description": "Grant UCI access for luci-app-shellinabox",
+		"read": {
+			"uci": [ "shellinabox" ]
+		},
+		"write": {
+			"uci": [ "shellinabox" ]
+		}
+	},
+	"luci-app-shellinabox-launch": {
+		"description": "Allow starting an on-demand ShellInABox terminal",
+		"read": {
+			"uci": [ "shellinabox" ]
+		}
+	}
+}

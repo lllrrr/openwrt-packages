@@ -1,0 +1,42 @@
+{
+	"admin/system/shellinabox": {
+		"title": "Terminal",
+		"order": 20,
+		"action": {
+			"type": "firstchild"
+		},
+		"depends": {
+			"acl": [ "luci-app-shellinabox" ],
+			"uci": { "shellinabox": true }
+		}
+	},
+
+	"admin/system/shellinabox/terminal": {
+		"title": "Terminal",
+		"order": 1,
+		"action": {
+			"type": "view",
+			"path": "shellinabox/term"
+		}
+	},
+
+	"admin/system/shellinabox/config": {
+		"title": "Config",
+		"order": 2,
+		"action": {
+			"type": "view",
+			"path": "shellinabox/config"
+		}
+	},
+
+	"admin/system/shellinabox/launch": {
+		"action": {
+			"type": "function",
+			"module": "luci.controller.shellinabox",
+			"function": "launch"
+		},
+		"depends": {
+			"acl": [ "luci-app-shellinabox-launch" ]
+		}
+	}
+}

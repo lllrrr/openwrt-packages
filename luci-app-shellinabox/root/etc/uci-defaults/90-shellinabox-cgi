@@ -1,0 +1,7 @@
+#!/bin/sh
+
+# The LuCI frontend uses --cgi; do not run the standalone init service.
+/etc/init.d/shellinaboxd stop
+/etc/init.d/shellinaboxd disable
+
+exit 0
