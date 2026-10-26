@@ -4,6 +4,7 @@
 'require ui';
 'require uci';
 'require rpc';
+'require bandix.geoip as geoip';
 'require tools.widgets as widgets';
 
 
@@ -230,6 +231,13 @@ return view.extend({
 		s = m.section(form.NamedSection, 'general', 'general', _('Basic Settings'));
 		s.description = _('Configure basic parameters for Bandix service');
 		s.addremove = false;
+
+		o = s.option(form.Value, 'host', _('Listen Address'),
+			_('IP address for Bandix to listen on. Use 127.0.0.1 for local access or 0.0.0.0 / :: for all interfaces.'));
+		o.default = '127.0.0.1';
+		o.datatype = 'ipaddr("nomask")';
+		o.placeholder = '127.0.0.1';
+		o.rmempty = false;
 
 		// 添加端口设置选项
 		o = s.option(form.Value, 'port', _('Port'),
@@ -655,12 +663,12 @@ return view.extend({
 									}
 								})
 								.catch(function (err) {
-									ui.addNotification(null, E('p', _('Failed to restart service: ') + err.message), 'error');
-								});
-						}
-					}, _('Confirm'))
-				])
-			]);
+		o = s.option(form.Button, 'feedback_info', _('Feedback'));
+		o.inputtitle = _('Feedback');
+		o.inputstyle = 'link';
+		o.onclick = function () {
+			window.open('https://github.com/timsaya', '_blank');
+			return false;
 		};
 
 		// 2. 流量监控设置部分 (traffic)
@@ -773,6 +781,16 @@ return view.extend({
 		o = s.option(form.Flag, 'enabled', _('Enable Connection Monitoring'),
 			_('Enable Bandix connection monitoring'));
 		o.default = '0';
+		o.rmempty = false;
+
+		o = s.option(form.DummyValue, '_geoip_manager', _('IP location database'));
+		o.renderWidget = function () { return geoip.render(); };
+
+		o = s.option(form.Value, 'geoip_dir', _('Database directory'),
+			_('Use persistent storage or an external drive. Save and apply directory changes before downloading.'));
+		o.default = '/usr/share/bandix-geoip';
+		o.placeholder = '/usr/share/bandix-geoip';
+		o.datatype = 'directory';
 		o.rmempty = false;
 
 		// 4. DNS监控设置部分 (dns)
