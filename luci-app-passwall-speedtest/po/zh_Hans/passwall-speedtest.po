@@ -1,0 +1,471 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: \n"
+"POT-Creation-Date: \n"
+"PO-Revision-Date: 2022-02-10 20:44+0000\n"
+"Last-Translator: mingxiaoyu <fengying0347@163.com>\n"
+"Language: zh_Hans\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"X-Generator: Weblate 4.8-dev\n"
+
+msgid "<a href=\"https://github.com/urbanescavenger/luci-app-passwall-speedtest\" target=\"_blank\">⭐ Star on GitHub</a>"
+msgstr "<a href=\"https://github.com/urbanescavenger/luci-app-passwall-speedtest\" target=\"_blank\">⭐ 在 GitHub 上关注</a>"
+
+msgid "PassWall Speed Test"
+msgstr "PassWall 节点测速"
+
+msgid "Schedules and runs a PassWall node-based Cloudflare IP test: latency screening first, then a real download test on the fastest candidates; the best IP is written back to the selected passwall nodes and other integrations"
+msgstr "定时通过 PassWall 节点优选 Cloudflare IP：先做延迟初筛，再对最优候选做真实下载实测，把最优 IP 写回所选 passwall 节点及其它集成"
+
+msgid "Plugin Settings"
+msgstr "插件设置"
+
+msgid "Time-boxed iterative test"
+msgstr "限时迭代测速"
+
+msgid "Run the test in time-boxed mode: each tested node runs its own independent loop until the duration elapses. After its first pass, a node only re-tests the IPs that passed its previous pass, so its candidate pool shrinks toward the most stable, lowest-latency IPs. Nothing is written to result.csv or passwall during the run; when the timer ends, each node's best remaining IP is written back."
+msgstr "计时模式：每个待测节点跑独立的收敛循环，直到累计时长达配置的时长——第 1 遍测完自己的候选后，此后每遍只测上一遍通过的 IP，候选池逐遍收敛到最稳定、延迟最低的 IP。运行期间不写 result.csv、不写回 passwall；计时结束后一次性把各节点剩余通过集中的最优 IP 写回。"
+
+msgid "Iterative test duration (minutes)"
+msgstr "迭代测速时长（分钟）"
+
+msgid "Total wall-clock budget for the iterative test. The run stops after the round that is in progress when the deadline passes."
+msgstr "迭代测速的总时长预算。到达时限后，正在运行的一轮跑完即停，不再开始新一轮。"
+
+msgid "Duration must be at least 1 minute when the iterative test is enabled"
+msgstr "启用迭代测速时时长至少为 1 分钟"
+
+msgid "Third Party Settings"
+msgstr "第三方设置"
+
+msgid "Basic Settings"
+msgstr "基础设置"
+
+msgid "Crontab Settings"
+msgstr "计划任务设置"
+
+msgid "Logs"
+msgstr "日志"
+
+msgid "Two-stage test through the selected passwall node(s): first probes every candidate Cloudflare IP via a local SOCKS and measures HTTP HEAD latency (<code>time_pretransfer</code>); then downloads a real file through up to 5 lowest-latency IPs of each worker to measure actual throughput. The best IP by download speed is written back to each passwall worker node (if every download test fails, the latency ranking is kept)."
+msgstr "通过所选 passwall 节点做两阶段测速：先经本地 SOCKS 对全部候选 Cloudflare IP 做 HTTP HEAD 延迟探测（<code>time_pretransfer</code>），再对每个 worker 延迟最优的最多 5 个 IP 真实下载文件、测实际吞吐。按下载速度选出的最优 IP 写回每个 passwall worker 节点；若全部下载测试失败则保留延迟排序。"
+
+msgid "Enabled"
+msgstr "启用"
+
+msgid "Enable scheduled task to test the selected IP list"
+msgstr "启用计划任务测试所选 IP 列表"
+
+msgid "Enable custom cron"
+msgstr "启用自定义 Cron"
+
+msgid "Custom Cron"
+msgstr "自定义 Cron"
+
+msgid "Example: 0 */3 * * *"
+msgstr "例如: 0 */3 * * *"
+
+msgid "Interval"
+msgstr "间隔"
+
+msgid "Every %d hour(s)"
+msgstr "每 %d 小时"
+
+msgid "ShadowSocksR Plus+ Enabled"
+msgstr "启用 ShadowSocksR Plus+"
+
+msgid "Passwall Enabled"
+msgstr "启用 Passwall"
+
+msgid "PassWall2 Enabled"
+msgstr "启用 PassWall2"
+
+msgid "Bypass Enabled"
+msgstr "启用 Bypass"
+
+msgid "Vssr Enabled"
+msgstr "启用 Vssr"
+
+msgid "ShadowSocksR Servers"
+msgstr "ShadowSocksR Plus+ 服务"
+
+msgid "Passwall Servers"
+msgstr "Passwall 服务"
+
+msgid "Passwall2 Servers"
+msgstr "Passwall2 服务"
+
+msgid "Bypass Servers"
+msgstr "Bypass 服务"
+
+msgid "Vssr Servers"
+msgstr "Vssr 服务"
+
+msgid "Please select a service"
+msgstr "请选择一项服务"
+
+msgid "Speed test"
+msgstr "测速"
+
+msgid "Best IP"
+msgstr "最佳 IP"
+
+msgid "History Charts"
+msgstr "历史图表"
+
+msgid "Start"
+msgstr "开始"
+
+msgid "Stop"
+msgstr "停止"
+
+msgid "Latency cap (ms)"
+msgstr "延迟上限 (ms)"
+
+msgid "Discard candidate IPs whose average latency is above this threshold (measured via the node's local SOCKS)."
+msgstr "丢弃平均延迟高于此阈值的候选 IP（经节点本地 SOCKS 测得）。"
+
+msgid "Latency lower bound (ms)"
+msgstr "延迟下限 (ms)"
+
+msgid "Discard candidate IPs whose average latency is below this threshold."
+msgstr "丢弃平均延迟低于此阈值的候选 IP。"
+
+msgid "Packet loss rate cap"
+msgstr "丢包率上限"
+
+msgid "Discard candidate IPs whose packet loss ratio exceeds this value (0–1)."
+msgstr "丢弃丢包率超过此值（0–1）的候选 IP。"
+
+msgid "IP list source"
+msgstr "IP 列表来源"
+
+msgid "Select the built-in Cloudflare IP list, an online CM source, or a custom file used as candidates"
+msgstr "选择内置 Cloudflare IP 列表、在线 CM 源或自定义文件作为候选"
+
+msgid "Online CM source"
+msgstr "在线 CM 源"
+
+msgid "Online source URL"
+msgstr "在线源 URL"
+
+msgid "Source list in <code>IP:PORT#country</code> format. Shared by all 5 CM IP lists below; each list keeps only its own port."
+msgstr "源列表格式为 <code>IP:端口#国家</code>；下方 5 个 CM IP 列表共用此源，各自只保留自己配置的端口。"
+
+msgid "Country filter"
+msgstr "国家过滤"
+
+msgid "Only keep IPs tagged with the selected countries. Leave none selected to keep every country on this port."
+msgstr "只保留标了所选国家的 IP；不勾选任何国家则该端口下所有国家都保留。"
+
+msgid "Port"
+msgstr "端口"
+
+msgid "Keep only source entries on this port (Cloudflare serves 443 / 8443 / 2053 / 2083 / 2087 / 2096). Default 443."
+msgstr "只保留源里该端口的条目（Cloudflare 常见 443 / 8443 / 2053 / 2083 / 2087 / 2096），默认 443。"
+
+msgid "Define up to 5 CM-source IP lists. All share the online URL above; each filters by its own country set and port. Assign one list per passwall worker node in the Third-Party tab. Workers without an explicit list use the first enabled list. Only used when IP list source = Online CM source. Note: the port only picks the candidates — the port actually probed is the worker node's own port, so set the node to the same port."
+msgstr "最多定义 5 个 CM 源 IP 列表，共用上面的在线源 URL，各自按自己的国家集合与端口筛选。在「第三方设置」里给每个 passwall worker 节点指派一个列表；未指派的节点回退到第一个启用的列表。仅在「IP 列表来源 = 在线 CM 源」时生效。注意：这里的端口只用于挑候选 IP，真正探测用的端口是 worker 节点自身的 port，请把节点端口设为同一个。"
+
+msgid "Japan"
+msgstr "日本"
+
+msgid "Singapore"
+msgstr "新加坡"
+
+msgid "South Korea"
+msgstr "韩国"
+
+msgid "Hong Kong"
+msgstr "香港"
+
+msgid "Taiwan"
+msgstr "台湾"
+
+msgid "Thailand"
+msgstr "泰国"
+
+msgid "Vietnam"
+msgstr "越南"
+
+msgid "Indonesia"
+msgstr "印度尼西亚"
+
+msgid "Philippines"
+msgstr "菲律宾"
+
+msgid "Malaysia"
+msgstr "马来西亚"
+
+msgid "India"
+msgstr "印度"
+
+msgid "Cambodia"
+msgstr "柬埔寨"
+
+msgid "Germany"
+msgstr "德国"
+
+msgid "Netherlands"
+msgstr "荷兰"
+
+msgid "France"
+msgstr "法国"
+
+msgid "United Kingdom"
+msgstr "英国"
+
+msgid "Finland"
+msgstr "芬兰"
+
+msgid "Sweden"
+msgstr "瑞典"
+
+msgid "Switzerland"
+msgstr "瑞士"
+
+msgid "Russia"
+msgstr "俄罗斯"
+
+msgid "Turkey"
+msgstr "土耳其"
+
+msgid "Ukraine"
+msgstr "乌克兰"
+
+msgid "United States"
+msgstr "美国"
+
+msgid "Canada"
+msgstr "加拿大"
+
+msgid "Brazil"
+msgstr "巴西"
+
+msgid "Australia"
+msgstr "澳大利亚"
+
+msgid "United Arab Emirates"
+msgstr "阿联酋"
+
+msgid "South Africa"
+msgstr "南非"
+
+msgid "Built-in IPv4 list"
+msgstr "内置 IPv4 列表"
+
+msgid "Built-in IPv6 list"
+msgstr "内置 IPv6 列表"
+
+msgid "Custom file"
+msgstr "自定义文件"
+
+msgid "Custom IP list file"
+msgstr "自定义 IP 列表文件"
+
+msgid "Enter a local file path, for example: /etc/passwall-speedtest/ip.txt"
+msgstr "输入本地文件路径，例如：/etc/passwall-speedtest/ip.txt"
+
+msgid "Scan all IPs in each /24"
+msgstr "扫描每个 /24 中的全部 IP"
+
+msgid "Only applies to custom IP lists. Disabled by default: one random IP per /24 is tested. Enable to test every IP in each /24 (slower)."
+msgstr "仅对自定义 IP 列表生效。默认关闭：每个 /24 只随机测 1 个 IP。开启后会扫描每个 /24 中的全部 IP（更慢）。"
+
+msgid "Custom IP list file is required when using Custom file"
+msgstr "当 IP 列表来源使用自定义文件时，必须填写自定义 IP 列表文件"
+
+msgid "Passwall node to test through (single-node fallback)"
+msgstr "用于测速的 passwall 节点（单节点回退）"
+
+msgid "Used only when no passwall workers are selected in the Third-Party tab. Select a CF-CDN-fronted passwall node (VLESS/VMess/Trojan/SS…). Its <em>address</em> will be cycled through candidate IPs and finally set to the fastest one. SOCKS-type nodes (e.g. a local load-balance entry) are listed but cannot be tested through — their <em>address</em> is the SOCKS server itself."
+msgstr "仅在「第三方设置」里未选 passwall worker 时使用。选择一个 CF-CDN 前置的 passwall 节点（VLESS/VMess/Trojan/SS…），其 <em>address</em> 会被候选 IP 轮换，最终设为最快 IP。SOCKS 类型节点（例如本地负载均衡入口）仍会列出，但不能用于测速——它的 <em>address</em> 就是 SOCKS 服务器本身。"
+
+msgid "Socks — cannot be tested through"
+msgstr "Socks 类型，不能用于测速"
+
+msgid "During a speed test, passwall's global node is temporarily switched to this stable node and restored afterwards, so your live traffic is unaffected by the tested nodes' <em>address</em> being rewritten. <strong>Required.</strong> Must NOT equal the tested node (single-node fallback) or any selected passwall worker node. If your current global node is a shunt (分流) node, its shunt rules are suspended for the duration of the test and all traffic goes through this stable node."
+msgstr "测速期间 passwall 的全局节点会临时切到该稳定节点，测速结束后还原，使你的实流量不受被测节点 <em>address</em> 被改写的影响。<strong>必填。</strong>不得与被测节点（单节点回退）或任何已选 passwall worker 节点相同。若你当前的全局节点是分流（shunt）节点，测速期间其分流规则会暂停，全部流量走该稳定节点。"
+
+msgid "Probe URL"
+msgstr "探测 URL"
+
+msgid "URL probed via the node's local SOCKS; only the HTTP HEAD latency is measured. generate_204 / connectivity-check endpoints are preferred."
+msgstr "经节点本地 SOCKS 探测的 URL；只测 HTTP HEAD 延迟。建议用 generate_204 / 连通性检测端点。"
+
+msgid "Max IPs to test"
+msgstr "最大测速 IP 数"
+
+msgid "This mode tests IPs through the node (~3-7s each). Cap the count to avoid long runs; use a smaller IP list or lower this value for faster results. With the online CM source the filtered candidate list may reach hundreds of IPs — raise this value (e.g. 100-300) or only the first N are tested."
+msgstr "此模式经节点逐个测 IP（每个约 3-7 秒）。限制数量避免耗时过长；用更小的 IP 列表或更小的值以加快结果。使用在线 CM 源时，过滤后候选可能达数百个——请调大此值（如 100-300），否则只测前 N 个。"
+
+msgid "Probe timeout (s)"
+msgstr "探测超时 (秒)"
+
+msgid "Per-IP curl <code>--max-time</code> in seconds."
+msgstr "每个 IP 的 curl <code>--max-time</code>，单位秒。"
+
+msgid "Probes per IP"
+msgstr "每 IP 探测次数"
+
+msgid "How many curl probes per candidate IP. Each probe is a full SOCKS+curl, so higher values are slower. If <strong>any</strong> single probe fails, that IP is discarded immediately and the remaining probes are skipped — only IPs that succeed on <em>all</em> probes are kept, so the best IP is a stable one."
+msgstr "每个候选 IP 的 curl 探测次数。每次探测都是完整的 SOCKS+curl，次数越多越慢。<strong>任意一次</strong>探测失败该 IP 立即丢弃并跳过后续探测——只有<em>全部</em>探测都成功的 IP 才保留，确保选中的 IP 稳定。"
+
+msgid "Max parallel workers"
+msgstr "最大并发 worker"
+
+msgid "Cap on concurrently running passwall workers (only relevant when passwall nodes are selected in the Third-Party tab). 0 means run all workers at once. Each worker runs its own SOCKS+curl chain, so high values need more RAM/CPU — keep ≤ node count and mind router limits."
+msgstr "并发运行的 passwall worker 上限（仅在「第三方设置」里选了 passwall 节点时生效）。0 表示一次性跑全部 worker。每个 worker 跑自己的 SOCKS+curl 链路，并发越高越吃内存/CPU——建议 ≤ 节点数，注意路由器承受能力。"
+
+msgid "Retest current best IPs"
+msgstr "复测现有最优 IP"
+
+msgid "Runs ONE latency round + the download test only on the IPs already in the current best list (result.csv) and each node's current address. The online IP list is NOT re-downloaded. The best IP is written back as usual."
+msgstr "只对当前 Best IP 表（result.csv）里已有的 IP 和各节点当前 address 做一轮延迟测速 + 下载实测，不重新下载在线 IP 列表；最优 IP 照常写回。"
+
+msgid "A test is already running"
+msgstr "已有测速在运行"
+
+msgid "Real download speed test"
+msgstr "真实下载测速"
+
+msgid "After latency screening, download a real file through up to 5 lowest-latency IPs of each worker to measure actual throughput (MB/s). The final best IP is chosen by download speed; IPs whose download test fails are dropped. If every download test fails (e.g. the URL is unreachable through that node), the latency ranking is kept. Each download runs through the node's local SOCKS exactly like the latency probe, and the generated SOCKS config is verified to point at the candidate IP before it is accepted."
+msgstr "延迟初筛后，经每个 worker 延迟最优的最多 5 个 IP 真实下载文件，测实际吞吐（MB/s）。最终按下载速度选最优；下载测试失败的 IP 剔除。若全部下载测试失败（例如测试 URL 经该节点不可达），保留延迟排序。每次下载与延迟探测一样走节点本地 SOCKS，并在接受速度前校验生成的 SOCKS 配置确实指向该候选 IP。"
+
+msgid "Download-test candidates per worker"
+msgstr "每 worker 下载测速候选数"
+
+msgid "Only the N lowest-latency IPs of each worker are download-tested (default 5, max 5). Each candidate downloads the file below (10 MB by default), so keep it small to limit proxy traffic and runtime."
+msgstr "只对每个 worker 延迟最优的前 N 个 IP 做下载实测（默认 5，最多 5）。每个候选都会下载下面的文件（默认 10 MB），数量越小越省代理流量、耗时越短。"
+
+msgid "At most 5 IPs can be download-tested per worker"
+msgstr "每个 worker 最多只能对 5 个 IP 做下载测速"
+
+msgid "Download test URL"
+msgstr "下载测速 URL"
+
+msgid "A fixed-size file downloaded through the node's local SOCKS. Cloudflare's speed endpoint works best for CF-fronted nodes. The response must be HTTP 2xx with at least 16 KB."
+msgstr "经节点本地 SOCKS 下载的固定大小文件。对 CF 前置节点，Cloudflare 的测速端点效果最好。响应必须是 HTTP 2xx 且至少收到 16 KB。"
+
+msgid "Cloudflare 10 MB"
+msgstr "Cloudflare 10 MB"
+
+msgid "Cloudflare 20 MB"
+msgstr "Cloudflare 20 MB"
+
+msgid "Download test time limit (s)"
+msgstr "下载测速单 IP 时限（秒）"
+
+msgid "Per-IP curl <code>--max-time</code> for the download test. A partial transfer cut off by this limit still yields a valid average speed."
+msgstr "下载测速时每个 IP 的 curl <code>--max-time</code>。被该时限截断的部分下载仍会按已下载字节算出有效平均速度。"
+
+msgid "Download speed"
+msgstr "下载速度"
+
+msgid "RUNNING"
+msgstr "运行中"
+
+msgid "NOT RUNNING"
+msgstr "未运行"
+
+msgid "Crontab enabled"
+msgstr "定时运行已启用"
+
+msgid "Crontab disabled"
+msgstr "定时运行已禁用"
+
+msgid "Collecting data..."
+msgstr "收集数据中..."
+
+msgid "Third Party Application Settings"
+msgstr "第三方应用设置"
+
+msgid "Auto refresh"
+msgstr "自动刷新"
+
+msgid "Latency"
+msgstr "延迟"
+
+msgid "Time"
+msgstr "时间"
+
+msgid "Region"
+msgstr "地区"
+
+msgid "DNS"
+msgstr "DNS"
+
+msgid "DNS Enabled"
+msgstr "启用 DNS"
+
+msgid "DNS Type"
+msgstr "DNS 类型"
+
+msgid "Alibaba Cloud DNS"
+msgstr "阿里云 DNS"
+
+msgid "Access Key ID"
+msgstr "Access Key ID"
+
+msgid "Access Key Secret"
+msgstr "Access Key Secret"
+
+msgid "Main Domain"
+msgstr "主域名"
+
+msgid "Sub Domain"
+msgstr "子域名"
+
+msgid "For example: test.github.com -> github.com"
+msgstr "例如: test.github.com 则填: github.com"
+
+msgid "For example: test.github.com -> test"
+msgstr "例如: test.github.com, 则填: test"
+
+msgid "Lines"
+msgstr "解析线路"
+
+msgid "default"
+msgstr "默认"
+
+msgid "telecom"
+msgstr "电信"
+
+msgid "unicom"
+msgstr "联通"
+
+msgid "mobile"
+msgstr "移动"
+
+msgid "AliDNS IP Count"
+msgstr "阿里云 DNS IP 数量"
+
+msgid "HOST Enabled"
+msgstr "启用 HOST"
+
+msgid "Domain"
+msgstr "域名"
+
+msgid "MosDNS Enabled"
+msgstr "写入 MosDNS"
+
+msgid "MosDNS IP Count"
+msgstr "MosDNS IP 数量"
+
+msgid "OpenClash Restart"
+msgstr "重启 OpenClash"
+
+msgid "astra-dns"
+msgstr "astra-dns"
+
+msgid "astra-dns Enabled"
+msgstr "写入 astra-dns"
+
+msgid "astra-dns Config Path"
+msgstr "astra-dns 配置文件路径"
+
+msgid "astra-dns Binary Path"
+msgstr "astra-dns 二进制路径"

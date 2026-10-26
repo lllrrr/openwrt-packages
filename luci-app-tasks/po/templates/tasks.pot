@@ -1,0 +1,643 @@
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8"
+
+#: htdocs/luci-static/resources/view/tasks/log.js:64
+msgid "%d line(s)"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/startup.js:84
+msgid "-- Please choose a service --"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:203
+msgid ""
+"/tmp lives in memory. Removing old files there frees RAM without "
+"touching any settings."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:216
+msgid "1 day"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:214
+msgid "1 hour"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:217
+msgid "3 days"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:213
+msgid "30 minutes"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:215
+msgid "6 hours"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:218
+msgid "7 days"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/startup.js:79
+msgid "A custom command"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/startup.js:78
+msgid "A system service"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:298
+msgid "Action completed: %s"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:301
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:308
+msgid "Action failed: %s (%s)"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:208
+msgid "Caches and files older than the age below"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/log.js:78
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:322
+msgid "Cancel"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:180
+msgid ""
+"Choose what should happen and when. The application writes the "
+"needed cron entries for you, no command line or cron syntax "
+"required."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/startup.js:57
+msgid ""
+"Choose what should start automatically after every boot. Select an "
+"existing service or type a command; no script or cron syntax is "
+"needed."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:36
+msgid "Clean temporary files"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:44
+msgid "Clean temporary files now"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/log.js:95
+#: htdocs/luci-static/resources/view/tasks/log.js:132
+msgid "Clear log"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/startup.js:87
+msgid "Command"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:389
+msgid ""
+"Configuration was saved, but the schedule could not be rebuilt. "
+"Reboot the device to retry."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/startup.js:140
+msgid ""
+"Configuration was saved, but the startup script could not be "
+"rebuilt. Reboot the device to retry."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/log.js:75
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:315
+msgid "Confirm"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/log.js:92
+msgid "Could not clear the log: %s"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:265
+msgid ""
+"Cron entries written by this application will appear here after "
+"saving."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/startup.js:65
+msgid "Custom startup entry"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:137
+msgid "Day of the month"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:127
+msgid "Day of the week"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/log.js:76
+msgid "Delete all log entries? This cannot be undone."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/startup.js:74
+msgid "Description"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:316
+msgid "Do you really want to run “%s” now?"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/log.js:128
+msgid "Download"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:93
+#: htdocs/luci-static/resources/view/tasks/startup.js:70
+msgid "Enable"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:246
+msgid "Enable scheduled tasks"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:356
+msgid "Enabled tasks"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/startup.js:127
+msgid ""
+"Entries run as root a few seconds after boot. A service entry calls "
+"“/etc/init.d/<service> start”; it does not change whether that "
+"service starts on boot on its own."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:98
+msgid "Every day"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:103
+msgid "Every few hours"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:102
+msgid "Every few minutes"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:101
+msgid "Every hour"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:100
+msgid "Every month"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:99
+msgid "Every week"
+msgstr ""
+
+#: root/usr/share/luci/menu.d/luci-app-tasks.json:30
+msgid "Execution Log"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:37
+msgid "Free memory"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:45
+msgid "Free memory now"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:29
+msgid "Friday"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:357
+msgid "Generated cron entries"
+msgstr ""
+
+#: root/usr/share/rpcd/acl.d/luci-app-tasks.json:3
+msgid "Grant access to the Tasks application"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:107
+msgid "Hour"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/log.js:88
+msgid "Log cleared."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:230
+msgid "Master switch"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:116
+msgid "Minute"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:28
+msgid "Monday"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:128
+msgid "Monday to Friday"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/log.js:142
+msgid "Newest first"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:281
+msgid "No scheduled jobs yet. Enable a task below and click “Save & Apply”."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:152
+msgid "Number of hours"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:145
+msgid "Number of minutes"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:207
+msgid "Only known caches (safe)"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:33
+msgid "Reboot"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:41
+msgid "Reboot now"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/log.js:124
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:361
+msgid "Refresh"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:226
+msgid ""
+"Releases cached file data from RAM. Safe to run at any time, but "
+"running it very often can slow the device down."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:198
+msgid "Reload the firewall rules. Existing connections are usually kept."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:212
+msgid "Remove files older than (minutes)"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:35
+msgid "Restart firewall"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:43
+msgid "Restart firewall now"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:34
+msgid "Restart network"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:42
+msgid "Restart network now"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:188
+msgid ""
+"Restart the device automatically. All connections are dropped for a "
+"short time."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:193
+msgid ""
+"Restart the network service (for example to renew a DHCP lease or "
+"recover a stalled connection)."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:97
+msgid "Run"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:343
+msgid "Run a task once, right now"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:330
+msgid "Run now"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:290
+msgid "Running “%s”…"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:29
+msgid "Saturday"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:129
+msgid "Saturday and Sunday"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:395
+msgid "Schedule applied. The generated cron entries are up to date."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:197
+msgid "Scheduled firewall restart"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:225
+msgid "Scheduled memory cleanup"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:192
+msgid "Scheduled network restart"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:187
+msgid "Scheduled reboot"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:202
+msgid "Scheduled temporary file cleanup"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/startup.js:83
+msgid "Service"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:365
+msgid "Show generated cron entries"
+msgstr ""
+
+#: root/usr/share/luci/menu.d/luci-app-tasks.json:22
+msgid "Startup Services"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/startup.js:61
+msgid "Startup entries"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/startup.js:146
+msgid "Startup entries applied. They will run on the next boot."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:354
+msgid "Status"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:28
+msgid "Sunday"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:247
+msgid "Task"
+msgstr ""
+
+#: root/usr/share/luci/menu.d/luci-app-tasks.json:3
+msgid "Tasks"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:319
+msgid "The device reboots immediately and this page will become unreachable."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/log.js:58
+msgid ""
+"The log is empty. Scheduled and manually started tasks are recorded "
+"here."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:270
+msgid "The master switch is off, so no generated task will run."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:29
+msgid "Thursday"
+msgstr ""
+
+#: root/usr/share/luci/menu.d/luci-app-tasks.json:14
+msgid "Timed Tasks"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:28
+msgid "Tuesday"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/log.js:146
+msgid "Updates automatically every 5 seconds."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/startup.js:93
+msgid "Wait before starting (seconds)"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:28
+msgid "Wednesday"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:206
+msgid "What to remove"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/startup.js:77
+msgid "What to start"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:231
+msgid ""
+"When disabled, all scheduled tasks, startup entries and access "
+"control rules are skipped, but their settings are kept."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/log.js:92
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:302
+#: htdocs/luci-static/resources/view/tasks/scheduled.js:308
+msgid "unknown error"
+msgstr ""
+
+#: root/usr/share/luci/menu.d/luci-app-tasks.json:24
+msgid "Internet Access Control"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/access.js
+msgid ""
+"Block internet access for selected devices outside their allowed "
+"time window. A blocked device can still reach the router itself. "
+"The rule is checked every minute; no cron syntax or shell command "
+"is needed."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/access.js
+msgid "Access control"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/access.js
+msgid ""
+"When enabled, the devices below lose internet access outside their "
+"allowed window. Start and end are inclusive; if both are equal the "
+"whole day is allowed."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/access.js
+msgid "Enable access control"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/access.js
+msgid "Devices"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/access.js
+msgid "New device"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/access.js
+msgid "For example: kids tablet"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/access.js
+msgid "MAC or IP address"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/access.js
+msgid ""
+"A MAC address is recommended: it also covers IPv6 and keeps "
+"working when DHCP assigns a new IP. An IPv4 address or subnet only "
+"blocks IPv4 traffic."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/access.js
+msgid "Enter a MAC address, an IPv4 address or an IPv4 subnet."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/access.js
+msgid ""
+"Enter a MAC address, an IPv4 address or an IPv4 subnet (for "
+"example 192.168.1.0/24)."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/access.js
+msgid "Mode"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/access.js
+msgid "Allowed during the time window"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/access.js
+msgid "Blocked all the time"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/access.js
+msgid "Days"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/access.js
+msgid "Start hour"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/access.js
+msgid "Start minute"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/access.js
+msgid "End hour"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/access.js
+msgid "End minute"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/access.js
+msgid "Access control is active."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/access.js
+msgid "Access control is disabled."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/access.js
+msgid "Access control could not be applied."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/access.js
+msgid "The tasks service is not running."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/access.js
+msgid "Not applied yet. Save and apply the page to write the rules."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/access.js
+msgid "Firewall backend: %s"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/access.js
+msgid "none"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/access.js
+msgid "Blocked devices: %s"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/access.js
+msgid "Last check: %s"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/access.js
+msgid "never"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/access.js
+msgid "unknown host"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/access.js
+msgid "No device is blocked right now."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/access.js
+msgid "The master switch is off, so access control will not run."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/access.js
+msgid "Access control applied. The firewall rules are up to date."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/access.js
+msgid ""
+"Configuration was saved, but the access rules could not be "
+"rebuilt. Reboot the device to retry."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js
+msgid "Turn WiFi on"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js
+msgid "Turn WiFi off"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js
+msgid "Scheduled WiFi on"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js
+msgid "Scheduled WiFi off"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js
+msgid ""
+"Turn all wireless radios on at the scheduled time. The setting is kept "
+"across reboots."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/tasks/scheduled.js
+msgid ""
+"Turn all wireless radios off at the scheduled time. Wired devices and "
+"the router itself keep working. The setting is kept across reboots."
+msgstr ""

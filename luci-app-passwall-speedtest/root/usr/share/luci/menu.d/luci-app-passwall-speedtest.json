@@ -1,0 +1,40 @@
+{
+	"admin/services/passwall-speedtest": {
+		"title": "PassWall Speed Test",
+		"order": 99,
+		"action": {
+			"type": "firstchild"
+		},
+		"depends": {
+			"acl": [ "luci-app-passwall-speedtest" ],
+			"uci": { "passwall-speedtest": true }
+		}
+	},
+
+	"admin/services/passwall-speedtest/general": {
+		"title": "Plugin Settings",
+		"order": 1,
+		"action": {
+			"type": "view",
+			"path": "passwall-speedtest/general"
+		}
+	},
+
+	"admin/services/passwall-speedtest/third-party": {
+		"title": "Third Party Settings",
+		"order": 2,
+		"action": {
+			"type": "view",
+			"path": "passwall-speedtest/third-party"
+		}
+	},
+
+	"admin/services/passwall-speedtest/logread": {
+		"title": "Logs",
+		"order": 3,
+		"action": {
+			"type": "view",
+			"path": "passwall-speedtest/logread"
+		}
+	}
+}

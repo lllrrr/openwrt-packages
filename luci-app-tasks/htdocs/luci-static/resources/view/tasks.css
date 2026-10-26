@@ -1,0 +1,210 @@
+/*
+ * Shared styles for luci-app-tasks.
+ *
+ * The pages have to look native in luci-theme-bootstrap (light and dark) as
+ * well as in Argon 2.x / 3.x. No theme-specific colour is hardcoded: every
+ * rule uses a CSS variable with a chain of fallbacks, because the themes do
+ * not share names.
+ *
+ *   Bootstrap 24.10 / 25.12 : --background-color-*, --text-color-*,
+ *                             --border-color-*, --primary-color-high
+ *                             (--font-mono only since 25.12)
+ *   Argon 2.x / 3.x         : --background-color, --primary,
+ *                             --dark-primary, --font-family-monospace
+ *                             (2.x); dark mode is a separate dark.css,
+ *                             so it needs no media query here
+ *
+ * The last fallback is always colour-neutral: text is inherited and surfaces
+ * use a translucent grey, so a theme that defines none of them still renders
+ * dark text on a light card and light text on a dark card instead of one
+ * fixed scheme. That is why there is no `[data-darkmode]` or media query
+ * below.
+ */
+
+/* --- Scroll boxes (log, generated cron entries) ------------------------- */
+
+.tasks-log,
+.tasks-cron-list {
+	display: block;
+	max-height: 60vh;
+	overflow: auto;
+	margin: .5rem 0 0;
+	padding: .75rem;
+
+	color: inherit;
+	font-family: var(--font-mono, var(--font-family-monospace, monospace));
+	font-size: .8125rem;
+	line-height: 1.5;
+	white-space: pre-wrap;
+	overflow-wrap: break-word;
+	word-break: break-word;
+	tab-size: 4;
+
+	border: 1px solid var(--border-color, var(--border-color-low, rgba(127, 127, 127, .35)));
+	border-radius: var(--radius-control, .25rem);
+	background-color: var(--surface-inset, var(--background-color-low, rgba(127, 127, 127, .08)));
+}
+
+.tasks-cron-list {
+	max-height: 40vh;
+}
+
+/* The log box sits directly on the card, not inside a .cbi-value, so it needs
+ * the card inset on both sides (and a little room at the bottom). */
+.tasks-log {
+	margin: .5rem var(--section-inset, 1rem);
+}
+
+/* --- Button rows -------------------------------------------------------- */
+
+.tasks-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: .5rem;
+	margin: .5rem 0 1rem;
+
+	/* Argon gives a .cbi-section no padding of its own; it indents the
+	 * elements it knows (h3 by 1.25rem, p, .cbi-value and the section
+	 * description by 1rem). The plain divs, lists and <details> this app
+	 * adds are not covered, so they carry the inset themselves.
+	 * --section-inset is an app-level hook (no stock theme defines it);
+	 * 1rem matches Argon's form rows and keeps the row off the page edge
+	 * in Bootstrap, which has no cards. */
+	padding-left: var(--section-inset, 1rem);
+	padding-right: var(--section-inset, 1rem);
+}
+
+.tasks-toolbar > .cbi-button,
+.tasks-toolbar > button {
+	margin: 0;
+}
+
+.tasks-toolbar > label {
+	display: inline-flex;
+	align-items: center;
+	gap: .35em;
+	margin: 0;
+	white-space: nowrap;
+}
+
+/* --- Task picker -------------------------------------------------------- */
+
+/* Every task card is rendered by the form, but only the selected one is
+ * displayed. This row is plain DOM, not a form field. */
+.tasks-picker {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: .5rem;
+	padding: .5rem var(--section-inset, 1rem);
+}
+
+.tasks-picker > label {
+	margin: 0;
+	font-weight: bold;
+}
+
+.tasks-picker > select {
+	margin: 0;
+	min-width: 14em;
+}
+
+/* --- Status strip ------------------------------------------------------- */
+
+/* Argon's `.cbi-section p` rule (specificity 0,1,1) overrides this padding
+ * with its own 1rem, which is the same inset. The rule is still needed for
+ * Bootstrap, where the theme has no such rule and cards do not exist. */
+.tasks-status {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: .35rem .75rem;
+	margin: .25rem 0 .5rem;
+	padding-left: var(--section-inset, 1rem);
+	padding-right: var(--section-inset, 1rem);
+}
+
+.tasks-status .cbi-button {
+	margin: 0;
+}
+
+.tasks-status strong {
+	font-variant-numeric: tabular-nums;
+}
+
+.tasks-details {
+	padding-left: var(--section-inset, 1rem);
+	padding-right: var(--section-inset, 1rem);
+	margin-bottom: .5rem;
+}
+
+.tasks-details > summary {
+	cursor: pointer;
+	margin-top: .5rem;
+}
+
+/* LuCI renders an <em> placeholder ("This section contains no values yet")
+ * inside an empty typed section. Neither Argon build pads it, so without
+ * this the text would sit against the left edge of the card. */
+.cbi-section > em {
+	display: block;
+	padding-left: var(--section-inset, 1rem);
+	padding-right: var(--section-inset, 1rem);
+}
+
+/* Shown inside the status card when the master switch is off. */
+.tasks-warning {
+	margin-left: var(--section-inset, 1rem);
+	margin-right: var(--section-inset, 1rem);
+}
+
+/* --- Internet access control ------------------------------------------- */
+
+/* list of devices that are currently cut off from the internet */
+.tasks-access-devices {
+	margin: .25rem 0 .75rem;
+	padding-left: calc(var(--section-inset, 1rem) + 1.25rem);
+	padding-right: var(--section-inset, 1rem);
+}
+
+.tasks-access-devices > li {
+	/* Argon hides every list marker (`li { list-style-type: none }`), and
+	 * Bootstrap pins a fixed 18px line-height on `li`. Restore the marker
+	 * and a normal line-height so the blocked-device list reads the same
+	 * in both themes. */
+	list-style: disc;
+	line-height: 1.4;
+	margin: .15rem 0;
+	overflow-wrap: anywhere;
+}
+
+/* The log page has no heading, so its toolbar is the first thing on the card
+ * and would otherwise touch the top edge. */
+.tasks-log-section {
+	padding-top: .75rem;
+}
+
+.tasks-log-section .tasks-toolbar {
+	margin-top: 0;
+}
+
+/* --- Narrow screens ----------------------------------------------------- */
+
+@media screen and (max-width: 600px) {
+	.tasks-toolbar {
+		gap: .4rem;
+	}
+
+	.tasks-toolbar > .cbi-button {
+		flex: 1 1 46%;
+		margin: 0;
+	}
+
+	.tasks-log,
+	.tasks-cron-list {
+		font-size: .75rem;
+		padding: .5rem;
+		max-height: 50vh;
+	}
+}

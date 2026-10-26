@@ -1,0 +1,89 @@
+#!/bin/sh /etc/rc.common
+
+START=99
+
+USE_PROCD=1
+
+CRON_FILE=/etc/crontabs/root
+CRON_COMMAND=/usr/bin/passwall-speedtest/passwall-speedtest.sh
+CRON_PATTERN="$CRON_COMMAND start"
+
+service_triggers() {
+	procd_add_reload_trigger "passwall-speedtest"
+}
+
+write_cron_if_changed() {
+	local tmp
+
+	tmp="$(mktemp /tmp/passwall-speedtest-cron.XXXXXX)" || return 1
+	if [ -f "$CRON_FILE" ]; then
+		grep -Fv "$CRON_PATTERN" "$CRON_FILE" > "$tmp"
+	else
+		: > "$tmp"
+	fi
+
+	if [ -n "$1" ]; then
+		echo "$1" >> "$tmp"
+	fi
+
+	if [ -f "$CRON_FILE" ] && cmp -s "$tmp" "$CRON_FILE"; then
+		rm -f "$tmp"
+		return 0
+	fi
+
+	if [ ! -f "$CRON_FILE" ] && [ ! -s "$tmp" ]; then
+		rm -f "$tmp"
+		return 0
+	fi
+
+	mkdir -p "$(dirname "$CRON_FILE")"
+	cat "$tmp" > "$CRON_FILE"
+	rm -f "$tmp"
+	/etc/init.d/cron restart
+}
+
+add_cron(){
+	local enabled
+	local cron_line
+	config_get_bool enabled "$1" enabled
+
+	if	[ "$enabled" = 1 ] ; then
+		local hour
+		local custom_cron_enabled
+		local custom_cron
+
+		config_get hour "$1" hour
+		config_get_bool custom_cron_enabled "$1" custom_cron_enabled
+		config_get custom_cron "$1" custom_cron
+
+		if [ "$custom_cron_enabled" = 1 ] ; then
+ 			cron_line="$custom_cron $CRON_PATTERN"
+		else
+			cron_line="0 */$hour * * * $CRON_PATTERN"
+		fi
+	fi
+
+	write_cron_if_changed "$cron_line"
+}
+
+del_cron(){
+	[ -f "$CRON_FILE" ] || return 0
+	grep -Fq "$CRON_PATTERN" "$CRON_FILE" || return 0
+	write_cron_if_changed
+}
+
+stop_instance(){
+	del_cron
+}
+
+stop_service() {
+	config_load passwall-speedtest
+	config_foreach stop_instance global
+}
+start_service() {
+	config_load passwall-speedtest
+	config_foreach add_cron global
+}
+reload_service() {
+	start_service
+}

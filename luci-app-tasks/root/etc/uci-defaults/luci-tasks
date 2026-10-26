@@ -1,0 +1,39 @@
+#!/bin/sh
+# First-install / upgrade initialization for luci-app-tasks.
+
+mkdir -p /etc/tasks
+[ -f /etc/tasks/tasks.log ] || : >/etc/tasks/tasks.log
+
+# Make sure every fixed section exists even if the user has an old config.
+# wifion / wifioff were added in 1.1.0; the generic loop covers them too.
+for section in global reboot network firewall cleantmp clearmem wifion wifioff; do
+	if ! uci -q get "tasks.$section" >/dev/null 2>&1; then
+		if [ "$section" = "global" ]; then
+			uci set tasks.global=global
+		else
+			uci set "tasks.$section=task"
+		fi
+	fi
+done
+
+if ! uci -q get tasks.global.enabled >/dev/null 2>&1; then
+	uci set tasks.global.enabled='1'
+fi
+
+# Access control was added in 1.1.0; older configurations have no section.
+if ! uci -q get tasks.access >/dev/null 2>&1; then
+	uci set tasks.access=access
+	uci set tasks.access.enabled='0'
+fi
+
+uci commit tasks
+
+chmod +x /usr/bin/tasks-handler /etc/init.d/tasks 2>/dev/null
+chmod 644 /usr/lib/tasks/common.sh 2>/dev/null
+
+/etc/init.d/tasks enable >/dev/null 2>&1
+/etc/init.d/tasks reload >/dev/null 2>&1
+
+rm -rf /tmp/luci-modulecache /tmp/luci-indexcache*
+
+exit 0

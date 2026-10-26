@@ -1,0 +1,513 @@
+#!/bin/sh
+# luci-app-tasks action dispatcher.
+#
+# Usage:
+#   tasks-handler run <action>       scheduled by cron
+#   tasks-handler exec <action>      one-click button in LuCI
+#   tasks-handler startup <section>  generated boot script
+#   tasks-handler apply-access       rebuild the access control rules
+#   tasks-handler stop-access        remove the access control rules
+#
+# Only whitelisted action names are executed. User supplied commands are
+# read from UCI and executed with /bin/sh; they are never embedded in cron.
+
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+
+. /usr/lib/tasks/common.sh
+
+clean_tmp() {
+	local source=$1
+	local mode age before after freed
+
+	mode=$(tasks_cfg cleantmp clean_mode cache)
+	age=$(tasks_int "$(tasks_cfg cleantmp clean_age '')" 1 525600 1440)
+	before=$(df -k /tmp 2>/dev/null | awk 'NR == 2 { print $4 }')
+
+	# Known LuCI / opkg caches: always safe to drop.
+	rm -rf /tmp/luci-modulecache /tmp/luci-indexcache* 2>/dev/null
+	rm -rf /tmp/cache/* /tmp/opkg-lists/* 2>/dev/null
+	find /tmp -maxdepth 1 -type f -name '*.ipk' -delete 2>/dev/null
+
+	if [ "$mode" = "age" ]; then
+		# Older temporary files, but never locks or PID files.
+		find /tmp -mindepth 1 -maxdepth 3 -type f -mmin +"$age" \
+			! -name '*.pid' ! -name '*.lock' -delete 2>/dev/null
+		find /tmp -mindepth 1 -maxdepth 3 -type d -empty -delete 2>/dev/null
+	fi
+
+	after=$(df -k /tmp 2>/dev/null | awk 'NR == 2 { print $4 }')
+	freed=0
+	[ -n "$before" ] && [ -n "$after" ] && freed=$((after - before))
+	tasks_log "$source" "tmp cleaned (mode=$mode, freed=${freed}KB)"
+}
+
+clean_mem() {
+	local source=$1
+	local before after
+
+	before=$(awk '/^MemAvailable:/ { print $2 }' /proc/meminfo 2>/dev/null)
+	sync
+
+	if [ -w /proc/sys/vm/drop_caches ]; then
+		echo 3 >/proc/sys/vm/drop_caches 2>/dev/null
+	else
+		tasks_log "$source" "drop_caches is not available"
+		return 1
+	fi
+
+	after=$(awk '/^MemAvailable:/ { print $2 }' /proc/meminfo 2>/dev/null)
+	tasks_log "$source" "memory caches dropped (available ${before:-?}kB -> ${after:-?}kB)"
+}
+
+# Enable or disable every wireless radio. The disabled flag is committed so
+# the last scheduled action survives a reboot.
+# wifi_power <on|off> <source>
+wifi_power() {
+	local want=$1 source=$2 radio count=0 enable
+
+	case "$want" in
+		on)  enable=0 ;;
+		off) enable=1 ;;
+		*)   return 1 ;;
+	esac
+
+	if [ ! -f /etc/config/wireless ]; then
+		tasks_log "$source" "wireless configuration not found"
+		return 1
+	fi
+
+	for radio in $(uci -q show wireless 2>/dev/null |
+			sed -n 's/^wireless\.\([^.=]*\)=wifi-device$/\1/p'); do
+		uci -q set "wireless.$radio.disabled=$enable" || continue
+		count=$((count + 1))
+	done
+
+	if [ "$count" -eq 0 ]; then
+		tasks_log "$source" "no wireless radio found"
+		return 1
+	fi
+
+	uci -q commit wireless
+
+	if ! command -v wifi >/dev/null 2>&1; then
+		tasks_log "$source" "wifi command not found"
+		return 1
+	fi
+
+	if ! wifi reload >>"$TASKS_LOG" 2>&1; then
+		tasks_log "$source" "wifi reload failed"
+		return 1
+	fi
+
+	tasks_log "$source" "wifi turned $want ($count radio(s))"
+}
+
+do_action() {
+	local action=$1
+	local source=$2
+
+	case "$action" in
+		reboot)
+			tasks_log "$source" "reboot requested"
+			sync
+			reboot
+			;;
+		network)
+			tasks_log "$source" "restarting network"
+			if [ -x /etc/init.d/network ]; then
+				/etc/init.d/network restart >>"$TASKS_LOG" 2>&1
+			else
+				tasks_log "$source" "network service not found"
+				return 1
+			fi
+			;;
+		firewall)
+			tasks_log "$source" "restarting firewall"
+			if [ -x /etc/init.d/firewall ]; then
+				/etc/init.d/firewall restart >>"$TASKS_LOG" 2>&1
+			else
+				tasks_log "$source" "firewall service not found"
+				return 1
+			fi
+			;;
+		cleantmp)
+			clean_tmp "$source"
+			;;
+		clearmem)
+			clean_mem "$source"
+			;;
+		wifion)
+			wifi_power on "$source"
+			;;
+		wifioff)
+			wifi_power off "$source"
+			;;
+		access)
+			access_apply
+			;;
+		*)
+			tasks_log "$source" "unknown action '$action'"
+			return 1
+			;;
+	esac
+}
+
+# --- Internet access control ------------------------------------------------
+
+ACCESS_STATE=$TASKS_DIR/access.state
+ACCESS_RULES=$TASKS_DIR/access.rules
+ACCESS_BLOCKED=$TASKS_DIR/access.blocked
+ACCESS_BLOCKED_NEW=$TASKS_DIR/access.blocked.new
+
+# Prefer nftables: it is what firewall4 uses, and it also works when an old
+# firewall3 system happens to have the nft binary installed. Firewall3 systems
+# fall back to iptables.
+access_backend() {
+	if command -v nft >/dev/null 2>&1; then
+		printf 'nftables'
+	elif command -v iptables >/dev/null 2>&1; then
+		printf 'iptables'
+	else
+		printf 'none'
+	fi
+}
+
+access_enabled() {
+	[ "$(tasks_cfg global enabled 1)" = "1" ] || return 1
+	[ "$(tasks_cfg access enabled 0)" = "1" ] || return 1
+	return 0
+}
+
+# Compose the HH:MM value for the start or end field of a device section.
+# access_device_time <section> <start|end>
+access_device_time() {
+	local section=$1 prefix=$2 hour minute
+
+	hour=$(tasks_int "$(tasks_cfg "$section" "${prefix}_hour" '')" 0 23 0)
+	minute=$(tasks_int "$(tasks_cfg "$section" "${prefix}_minute" '')" 0 59 0)
+
+	printf '%02d:%02d' "$hour" "$minute"
+}
+
+# Return success when the device should be blocked right now.
+# access_device_blocked <section>
+access_device_blocked() {
+	local section=$1 mode week start end now
+
+	mode=$(tasks_cfg "$section" mode period)
+
+	case "$mode" in
+		block|always)
+			return 0
+			;;
+	esac
+
+	week=$(tasks_cfg "$section" week '*')
+	tasks_week_allowed "$week" "$(date +%w)" || return 1
+
+	start=$(access_device_time "$section" start)
+	end=$(access_device_time "$section" end)
+	now=$(date +%H:%M)
+
+	tasks_in_window "$start" "$end" "$now" && return 1
+
+	return 0
+}
+
+# Build the firewall rule list and the list of blocked devices from UCI.
+access_collect() {
+	local section target comment kind
+
+	: >"$ACCESS_RULES"
+	: >"$ACCESS_BLOCKED_NEW"
+
+	for section in $(tasks_access_sections); do
+		tasks_valid_section "$section" || continue
+		[ "$(tasks_cfg "$section" enabled 0)" = "1" ] || continue
+
+		target=$(tasks_normalize_target "$(tasks_cfg "$section" target '')")
+		[ -n "$target" ] || continue
+
+		# Invalid targets are ignored here. The web UI validates input, and
+		# logging every minute would flood the bounded log file.
+		kind=$(tasks_target_kind "$target") || continue
+
+		access_device_blocked "$section" || continue
+
+		comment=$(tasks_cfg "$section" comment '')
+		[ -n "$comment" ] || comment=$target
+
+		if [ "$kind" = "mac" ]; then
+			printf 'ether saddr %s drop\n' "$target" >>"$ACCESS_RULES"
+		else
+			printf 'ip saddr %s drop\n' "$target" >>"$ACCESS_RULES"
+		fi
+
+		printf '%s\t%s\n' "$target" "$comment" >>"$ACCESS_BLOCKED_NEW"
+	done
+}
+
+access_rules_apply_nft() {
+	local line
+
+	# Rebuild the complete table: old rules may belong to removed devices.
+	nft delete table inet tasks_access 2>/dev/null
+
+	[ -s "$ACCESS_RULES" ] || return 0
+
+	nft add table inet tasks_access || return 1
+	nft add chain inet tasks_access forward \
+		'{ type filter hook forward priority -100; policy accept; }' ||
+		return 1
+
+	while IFS= read -r line; do
+		[ -n "$line" ] || continue
+		nft add rule inet tasks_access forward $line || return 1
+	done <"$ACCESS_RULES"
+
+	return 0
+}
+
+access_rules_apply_iptables() {
+	local line addr
+
+	# Drop the jump first so the chain can be rebuilt safely.
+	while iptables -D FORWARD -j TASKS_ACCESS 2>/dev/null; do :; done
+	iptables -F TASKS_ACCESS 2>/dev/null
+
+	if [ ! -s "$ACCESS_RULES" ]; then
+		iptables -X TASKS_ACCESS 2>/dev/null
+		return 0
+	fi
+
+	iptables -n -L TASKS_ACCESS >/dev/null 2>&1 ||
+		iptables -N TASKS_ACCESS || return 1
+
+	while IFS= read -r line; do
+		case "$line" in
+			ip\ saddr\ *\ drop)
+				addr=${line#ip saddr }
+				addr=${addr% drop}
+				iptables -A TASKS_ACCESS -s "$addr" -j DROP || return 1
+				;;
+			ether\ saddr\ *\ drop)
+				addr=${line#ether saddr }
+				addr=${addr% drop}
+				iptables -A TASKS_ACCESS -m mac --mac-source "$addr" \
+					-j DROP || return 1
+				;;
+		esac
+	done <"$ACCESS_RULES"
+
+	iptables -I FORWARD -j TASKS_ACCESS || return 1
+
+	return 0
+}
+
+access_rules_apply() {
+	case "$1" in
+		nftables)
+			access_rules_apply_nft
+			;;
+		iptables)
+			access_rules_apply_iptables
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
+# Remove every rule this feature may have installed with either backend.
+access_rules_teardown() {
+	nft delete table inet tasks_access 2>/dev/null
+
+	if command -v iptables >/dev/null 2>&1; then
+		while iptables -D FORWARD -j TASKS_ACCESS 2>/dev/null; do :; done
+		iptables -F TASKS_ACCESS 2>/dev/null
+		iptables -X TASKS_ACCESS 2>/dev/null
+	fi
+}
+
+# Publish the enforcement state for the web UI. Device entries are stored as
+# "<target>\t<comment>", the same format as access.blocked.
+access_write_state() {
+	local state=$1 backend=$2 count=0 line
+
+	if [ -f "$ACCESS_BLOCKED_NEW" ]; then
+		count=$(wc -l <"$ACCESS_BLOCKED_NEW" 2>/dev/null)
+	fi
+	count=$(printf '%s' "$count" | tr -d '[:space:]')
+	[ -n "$count" ] || count=0
+
+	{
+		printf 'state=%s\n' "$state"
+		printf 'backend=%s\n' "$backend"
+		printf 'checked=%s\n' "$(date '+%Y-%m-%d %H:%M:%S')"
+		printf 'blocked=%s\n' "$count"
+
+		if [ -f "$ACCESS_BLOCKED_NEW" ]; then
+			while IFS= read -r line; do
+				[ -n "$line" ] || continue
+				printf 'device=%s\n' "$line"
+			done <"$ACCESS_BLOCKED_NEW"
+		fi
+	} >"$ACCESS_STATE.tmp" 2>/dev/null &&
+		mv "$ACCESS_STATE.tmp" "$ACCESS_STATE"
+}
+
+# Log only transitions, so a device blocked for hours appears once.
+access_log_changes() {
+	local target comment key
+
+	[ -f "$ACCESS_BLOCKED" ] || : >"$ACCESS_BLOCKED"
+
+	while IFS="$(printf '\t')" read -r target comment; do
+		[ -n "$target" ] || continue
+		key=$(printf '%s\t%s' "$target" "$comment")
+		grep -Fxq "$key" "$ACCESS_BLOCKED" 2>/dev/null ||
+			tasks_log access "internet blocked: $comment ($target)"
+	done <"$ACCESS_BLOCKED_NEW"
+
+	while IFS="$(printf '\t')" read -r target comment; do
+		[ -n "$target" ] || continue
+		key=$(printf '%s\t%s' "$target" "$comment")
+		grep -Fxq "$key" "$ACCESS_BLOCKED_NEW" 2>/dev/null ||
+			tasks_log access "internet allowed: $comment ($target)"
+	done <"$ACCESS_BLOCKED"
+
+	mv "$ACCESS_BLOCKED_NEW" "$ACCESS_BLOCKED" 2>/dev/null
+}
+
+access_apply() {
+	local backend prev_state
+
+	mkdir -p "$TASKS_DIR" 2>/dev/null
+	touch "$TASKS_LOG" 2>/dev/null
+
+	backend=$(access_backend)
+	prev_state=$(sed -n 's/^state=//p' "$ACCESS_STATE" 2>/dev/null | head -n 1)
+
+	: >"$ACCESS_BLOCKED_NEW"
+
+	if ! access_enabled; then
+		access_rules_teardown
+		: >"$ACCESS_BLOCKED"
+		access_write_state disabled "$backend"
+		return 0
+	fi
+
+	access_collect
+
+	if [ "$backend" = "none" ]; then
+		access_rules_teardown
+		access_write_state error none
+
+		[ "$prev_state" = "error" ] ||
+			tasks_log access "no firewall backend (nftables or iptables) found"
+
+		return 1
+	fi
+
+	if ! access_rules_apply "$backend"; then
+		access_write_state error "$backend"
+
+		[ "$prev_state" = "error" ] ||
+			tasks_log access "failed to apply access rules with $backend"
+
+		return 1
+	fi
+
+	access_write_state active "$backend"
+	access_log_changes
+
+	return 0
+}
+
+access_stop() {
+	access_rules_teardown
+	: >"$ACCESS_BLOCKED"
+	: >"$ACCESS_BLOCKED_NEW"
+	access_write_state inactive "$(access_backend)"
+}
+
+run_startup() {
+	local section=$1
+	local kind service cmd
+
+	if ! tasks_valid_section "$section"; then
+		tasks_log startup "invalid startup section name"
+		return 1
+	fi
+
+	if [ "$(tasks_cfg "$section" enabled 0)" != "1" ]; then
+		tasks_log startup "skip disabled section $section"
+		return 0
+	fi
+
+	kind=$(tasks_cfg "$section" kind command)
+
+	case "$kind" in
+		service)
+			service=$(tasks_cfg "$section" service '')
+			if ! tasks_valid_service "$service"; then
+				tasks_log startup "invalid service name in $section"
+				return 1
+			fi
+
+			if [ -x "/etc/init.d/$service" ]; then
+				tasks_log startup "starting service $service"
+				"/etc/init.d/$service" start >>"$TASKS_LOG" 2>&1
+			else
+				tasks_log startup "service $service not found"
+				return 1
+			fi
+			;;
+		command)
+			cmd=$(tasks_cfg "$section" command '')
+			if [ -n "$cmd" ]; then
+				tasks_log startup "running command from $section"
+				sh -c "$cmd" >>"$TASKS_LOG" 2>&1
+			else
+				tasks_log startup "empty command in $section"
+			fi
+			;;
+		*)
+			tasks_log startup "unknown kind '$kind' in $section"
+			return 1
+			;;
+	esac
+}
+
+main() {
+	local mode=$1
+	local arg=$2
+
+	mkdir -p "$TASKS_DIR" 2>/dev/null
+	touch "$TASKS_LOG" 2>/dev/null
+
+	case "$mode" in
+		run)
+			do_action "$arg" "scheduled:$arg"
+			;;
+		exec)
+			do_action "$arg" "manual:$arg"
+			;;
+		startup)
+			run_startup "$arg"
+			;;
+		apply-access)
+			access_apply
+			;;
+		stop-access)
+			access_stop
+			;;
+		*)
+			tasks_log cli "usage: tasks-handler {run|exec|startup} <arg>"
+			exit 1
+			;;
+	esac
+}
+
+main "$@"

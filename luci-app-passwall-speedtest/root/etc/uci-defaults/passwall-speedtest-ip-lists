@@ -1,0 +1,31 @@
+#!/bin/sh
+# 一次性迁移：升级到「5 个 CM 备选 IP 列表」版本时，旧 /etc/config/passwall-speedtest
+# 没有 list1..list5 段（OpenWrt 升级保留用户配置），导致 LuCI 的「CM IP lists」表格空、
+# 无法编辑。这里补建缺失的命名段（type ip_list），表格才有 5 行。
+# list1 默认 enabled=1（默认列表），其 regions 留空——由 passwall-speedtest.sh 的
+# migrate_ip_online_regions 在首次 online 运行时从旧 ip_online_regions 填入（若有）。
+# 已存在的段不动（fresh install 用 shipped 默认值）。
+# 另：给所有 listN 补上 port（升级到「列表可按端口筛选」版本），默认 443 ——
+# 旧段的 regions 保留，只补缺失的 port；表格里不写该值会显示为空，故一并落到 uci。
+[ -f /etc/config/passwall-speedtest ] || exit 0
+
+if ! uci -q get passwall-speedtest.list1 >/dev/null 2>&1; then
+	uci -q set passwall-speedtest.list1=ip_list
+	uci -q set passwall-speedtest.list1.enabled='1'
+fi
+
+for n in 2 3 4 5; do
+	if ! uci -q get passwall-speedtest.list${n} >/dev/null 2>&1; then
+		uci -q set passwall-speedtest.list${n}=ip_list
+		uci -q set passwall-speedtest.list${n}.enabled='0'
+	fi
+done
+
+for n in 1 2 3 4 5; do
+	if [ -z "$(uci -q get passwall-speedtest.list${n}.port)" ]; then
+		uci -q set passwall-speedtest.list${n}.port='443'
+	fi
+done
+
+uci -q commit passwall-speedtest
+exit 0

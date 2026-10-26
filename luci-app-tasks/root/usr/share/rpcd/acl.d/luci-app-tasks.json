@@ -1,0 +1,28 @@
+{
+	"luci-app-tasks": {
+		"description": "Grant access to the Tasks application",
+		"read": {
+			"uci": [ "tasks" ],
+			"file": {
+				"/etc/config/tasks": [ "read" ],
+				"/etc/crontabs/root": [ "read" ],
+				"/etc/tasks/tasks.log": [ "read" ],
+				"/etc/tasks/access.state": [ "read" ],
+				"/etc/init.d": [ "list" ]
+			}
+		},
+		"write": {
+			"uci": [ "tasks" ],
+			"file": {
+				"/etc/config/tasks": [ "write" ],
+				"/etc/tasks/tasks.log": [ "write" ],
+				"/etc/init.d/tasks reload": [ "exec" ],
+				"/usr/bin/tasks-handler exec reboot": [ "exec" ],
+				"/usr/bin/tasks-handler exec network": [ "exec" ],
+				"/usr/bin/tasks-handler exec firewall": [ "exec" ],
+				"/usr/bin/tasks-handler exec cleantmp": [ "exec" ],
+				"/usr/bin/tasks-handler exec clearmem": [ "exec" ]
+			}
+		}
+	}
+}
