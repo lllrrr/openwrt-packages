@@ -1,0 +1,17 @@
+{
+	"luci-app-server-ctl": {
+		"description": "Grant access to manual and scheduled server power control",
+		"read": {
+			"ubus": {
+				"serverctl": [ "ping", "sshtest" ]
+			},
+			"uci": [ "serverctl" ]
+		},
+		"write": {
+			"ubus": {
+				"serverctl": [ "wake", "suspend", "poweroff" ]
+			},
+			"uci": [ "serverctl" ]
+		}
+	}
+}

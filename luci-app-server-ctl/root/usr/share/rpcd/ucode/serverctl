@@ -1,0 +1,25 @@
+#!/usr/bin/ucode
+
+'use strict';
+
+import core from '/usr/share/serverctl/core.uc';
+
+function method(action) {
+	return {
+		args: { server: 'string' },
+
+		call: function(request) {
+			return core.execute(action, request.args.server);
+		}
+	};
+}
+
+return {
+	serverctl: {
+		ping: method('ping'),
+		sshtest: method('sshtest'),
+		wake: method('wake'),
+		suspend: method('suspend'),
+		poweroff: method('poweroff'),
+	}
+};

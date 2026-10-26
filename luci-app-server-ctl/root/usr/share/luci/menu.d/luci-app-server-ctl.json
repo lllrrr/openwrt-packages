@@ -1,0 +1,14 @@
+{
+	"admin/services/serverctl": {
+		"title": "Server Control",
+		"action": {
+			"type": "view",
+			"path": "serverctl/main"
+		},
+		"depends": {
+			"acl": [ "luci-app-server-ctl" ],
+			"uci": { "serverctl": true }
+		},
+		"order": 90
+	}
+}

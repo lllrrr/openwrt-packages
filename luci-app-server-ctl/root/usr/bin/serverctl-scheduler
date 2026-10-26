@@ -1,0 +1,130 @@
+#!/usr/bin/ucode
+
+'use strict';
+
+import { popen } from 'fs';
+import core from '/usr/share/serverctl/core.uc';
+
+function readnow() {
+	const fd = popen("date '+%Y-%m-%d %H %M %w'");
+
+	if (fd == null)
+		return null;
+
+	const out = trim(core.str(fd.read('all')));
+	fd.close();
+
+	const parts = split(out, ' ');
+
+	if (length(parts) != 4)
+		return null;
+
+	return {
+		date: parts[0],
+		hour: int(parts[1]),
+		minute: int(parts[2]),
+		weekday: int(parts[3]),
+	};
+}
+
+function tick() {
+	const ctx = core.get_cursor();
+	const results = [];
+	const nowinfo = readnow();
+
+	if (nowinfo == null)
+		return results;
+
+	ctx.load('serverctl');
+
+	if (core.str(ctx.get('serverctl', 'defaults', 'enabled') ?? '1') == '0')
+		return results;
+
+	const all = ctx.get_all('serverctl');
+	let deleted = false;
+
+	if (all == null)
+		return results;
+
+	for (let sid in all) {
+		const s = all[sid];
+		let wd;
+
+		if (s['.type'] != 'task')
+			continue;
+
+		if (core.str(s['enabled'] ?? '1') == '0')
+			continue;
+
+		if (int(core.str(s['hour'])) != nowinfo.hour)
+			continue;
+
+		if (int(core.str(s['minute'])) != nowinfo.minute)
+			continue;
+
+		const schedule = core.str(s['schedule'] ?? 'daily');
+
+		if (schedule == 'weekly') {
+			wd = int(core.str(s['weekday']));
+
+			if (wd == 7)
+				wd = 0;
+
+			if (wd != nowinfo.weekday)
+				continue;
+		}
+		else if (schedule == 'once') {
+			if (core.str(s['date'] ?? '') != nowinfo.date)
+				continue;
+		}
+		else if (schedule != 'daily') {
+			continue;
+		}
+
+		const action = core.str(s['action'] ?? '');
+
+		if (action == '' || core.str(s['server'] ?? '') == '')
+			continue;
+
+		const res = core.execute(action, core.str(s['server']));
+
+		push(results, sprintf('%s %s %s code=%d output=%s',
+			sid, core.str(s['server']), action, res.code, trim(res.output)));
+
+		if (schedule == 'once') {
+			ctx.delete('serverctl', sid);
+			deleted = true;
+		}
+	}
+
+	if (deleted)
+		ctx.commit('serverctl');
+
+	return results;
+}
+
+if (length(ARGV) > 0 && ARGV[0] == 'tick') {
+	const results = tick();
+
+	for (let line in results)
+		printf('%s\n', line);
+
+	exit(0);
+}
+
+let last = '';
+
+while (true) {
+	const nowinfo = readnow();
+
+	if (nowinfo != null) {
+		const stamp = sprintf('%s %02d:%02d', nowinfo.date, nowinfo.hour, nowinfo.minute);
+
+		if (stamp != last) {
+			last = stamp;
+			tick();
+		}
+	}
+
+	sleep(3000);
+}

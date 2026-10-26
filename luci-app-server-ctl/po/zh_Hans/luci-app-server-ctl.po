@@ -1,0 +1,161 @@
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8"
+
+msgid "Server Control"
+msgstr "服务器控制"
+
+msgid "Manually or on a schedule: wake, suspend or power off your LAN servers."
+msgstr "支持手动或按计划唤醒、休眠或关机局域网内的服务器。"
+
+msgid "Manual/Scheduled Control"
+msgstr "手动/定时控制"
+
+msgid "Server Maintenance"
+msgstr "服务器维护"
+
+msgid "Manual Control"
+msgstr "手动控制"
+
+msgid "No servers configured yet. Please add servers on the \"%s\" tab first."
+msgstr "尚未配置服务器，请先在“%s”选项卡中添加服务器。"
+
+msgid "— Select a server —"
+msgstr "— 请选择服务器 —"
+
+msgid "Server"
+msgstr "服务器"
+
+msgid "Name"
+msgstr "名称"
+
+msgid "IP Address"
+msgstr "IP 地址"
+
+msgid "MAC Address"
+msgstr "MAC 地址"
+
+msgid "Username"
+msgstr "用户名"
+
+msgid "Password"
+msgstr "密码"
+
+msgid "Show"
+msgstr "显示"
+
+msgid "Hide"
+msgstr "隐藏"
+
+msgid "Ping Test"
+msgstr "Ping测试"
+
+msgid "SSH Test"
+msgstr "SSH测试"
+
+msgid "Wake"
+msgstr "唤醒"
+
+msgid "Suspend"
+msgstr "休眠"
+
+msgid "Power Off"
+msgstr "关机"
+
+msgid "Please select a server first."
+msgstr "请先选择服务器。"
+
+msgid "Error"
+msgstr "错误"
+
+msgid "Confirm %s"
+msgstr "确认%s"
+
+msgid "Are you sure you want to %s the server \"%s\"?"
+msgstr "确定要%s服务器“%s”吗？"
+
+msgid "Duplicate server name"
+msgstr "服务器名称重复"
+
+msgid "Run"
+msgstr "执行"
+
+msgid "Cancel"
+msgstr "取消"
+
+msgid "Scheduled Tasks"
+msgstr "定时任务"
+
+msgid "Run wake, suspend or power off actions on a server at a given time."
+msgstr "在指定时间对服务器执行唤醒、休眠或关机操作。"
+
+msgid "Add task"
+msgstr "新建任务"
+
+msgid "Edit task"
+msgstr "编辑任务"
+
+msgid "Action"
+msgstr "操作"
+
+msgid "Schedule"
+msgstr "计划类型"
+
+msgid "Daily"
+msgstr "每天"
+
+msgid "Weekly"
+msgstr "每周"
+
+msgid "Once"
+msgstr "单次"
+
+msgid "Weekday"
+msgstr "星期"
+
+msgid "Monday"
+msgstr "周一"
+
+msgid "Tuesday"
+msgstr "周二"
+
+msgid "Wednesday"
+msgstr "周三"
+
+msgid "Thursday"
+msgstr "周四"
+
+msgid "Friday"
+msgstr "周五"
+
+msgid "Saturday"
+msgstr "周六"
+
+msgid "Sunday"
+msgstr "周日"
+
+msgid "Date (YYYY-MM-DD)"
+msgstr "日期 (YYYY-MM-DD)"
+
+msgid "Invalid date, expected format YYYY-MM-DD"
+msgstr "日期无效，应为 YYYY-MM-DD 格式"
+
+msgid "Hour (0-23)"
+msgstr "小时 (0-23)"
+
+msgid "Minute (0-59)"
+msgstr "分钟 (0-59)"
+
+msgid "Enabled"
+msgstr "启用"
+
+msgid "Time"
+msgstr "时间"
+
+msgid "Manage the server inventory used by manual and scheduled control."
+msgstr "管理用于手动与定时控制的服务器信息表。"
+
+msgid "Add server"
+msgstr "新建服务器"
+
+msgid "Edit server"
+msgstr "编辑服务器"
