@@ -1,0 +1,40 @@
+{
+	"luci-app-rtfwupgrade": {
+		"description": "Grant access to the LuCI router firmware update checker",
+		"read": {
+			"uci": ["rtfwupgrade"],
+			"ubus": {
+				"rtfwupgrade": [
+					"status",
+					"sources",
+					"channels",
+					"check",
+					"version",
+					"download_status",
+					"flash_status",
+					"logs",
+					"schedule_status"
+				]
+			}
+		},
+		"write": {
+			"uci": ["rtfwupgrade"],
+			"ubus": {
+				"rtfwupgrade": [
+					"set_active",
+					"set_channel",
+					"set_options",
+					"source_add",
+					"source_set",
+					"source_del",
+					"download",
+					"flash",
+					"flash_clear",
+					"cancel",
+					"cleanup",
+					"logs_clear"
+				]
+			}
+		}
+	}
+}

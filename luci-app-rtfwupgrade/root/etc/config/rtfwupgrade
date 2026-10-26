@@ -1,0 +1,34 @@
+
+config globals 'globals'
+	# 0 = 仅检测并通知, 1 = 检测后自动下载, 2 = 检测后自动下载并刷写
+	option unattended '0'
+	# 自动检测的调度：off / daily / weekly / monthly
+	option schedule_kind 'daily'
+	# 24 小时制时间
+	option schedule_time '04:00'
+	# weekly 用：1=周一 … 7=周日
+	option schedule_weekday '1'
+	# monthly 用：1-28
+	option schedule_day '1'
+	# 通用 webhook（POST JSON），留空则关闭
+	option webhook ''
+	# 同一时刻只激活一个源；此值会随「切换源」改变
+	option active_source 'openwrt'
+	# 用户确认过的固件来源（源段名）。留空表示尚未确认，
+	# 概览页会提示先到设置页确认来源；确认或放行跨源刷写后写入。
+	# 更新通道按源存放：源段的 channel 选项留空表示「当前通道」，
+	# 也可写 snapshots 或 releases/<版本>（仅 official 布局有效）
+
+# 内置只有两个官方源，用于演示 official 布局。
+# 聚合站与自建站请通过界面「预设」添加。
+config source 'openwrt'
+	option label 'OpenWrt 官方'
+	option url 'https://downloads.openwrt.org'
+	option layout 'official'
+	option system ''
+
+config source 'immortalwrt'
+	option label 'ImmortalWrt 官方'
+	option url 'https://downloads.immortalwrt.org'
+	option layout 'official'
+	option system ''

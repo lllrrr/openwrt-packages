@@ -1,0 +1,45 @@
+{
+	"admin/system/rtfwupgrade/": {
+		"title": "Router Firmware Update",
+		"order": 45,
+		"action": {
+			"type": "firstchild"
+		},
+		"depends": {
+			"acl": ["luci-app-rtfwupgrade"]
+		}
+	},
+	"admin/system/rtfwupgrade/overview": {
+		"title": "Overview",
+		"order": 1,
+		"action": {
+			"type": "view",
+			"path": "rtfwupgrade/overview"
+		},
+		"depends": {
+			"acl": ["luci-app-rtfwupgrade"]
+		}
+	},
+	"admin/system/rtfwupgrade/settings": {
+		"title": "Settings",
+		"order": 2,
+		"action": {
+			"type": "view",
+			"path": "rtfwupgrade/settings"
+		},
+		"depends": {
+			"acl": ["luci-app-rtfwupgrade"]
+		}
+	},
+	"admin/system/rtfwupgrade/logs": {
+		"title": "Logs",
+		"order": 3,
+		"action": {
+			"type": "view",
+			"path": "rtfwupgrade/logs"
+		},
+		"depends": {
+			"acl": ["luci-app-rtfwupgrade"]
+		}
+	}
+}

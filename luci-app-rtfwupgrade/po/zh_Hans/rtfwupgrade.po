@@ -1,0 +1,950 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: luci-app-rtfwupgrade\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: \n"
+"PO-Revision-Date: \n"
+"Last-Translator: Shuery-Shuai <2463253700@qq.com>\n"
+"Language-Team: Chinese (Simplified)\n"
+"Language: zh_Hans\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+# menu
+msgid "Router Firmware Update"
+msgstr "路由器固件更新"
+
+msgid "Settings"
+msgstr "设置"
+
+# overview
+
+msgid "Check for updates"
+msgstr "检查更新"
+
+msgid "System info"
+msgstr "系统信息"
+
+msgid "Build id"
+msgstr "构建标识"
+
+msgid "Build time"
+msgstr "构建时间"
+
+msgid "Target hardware"
+msgstr "目标硬件"
+
+msgid "System version"
+msgstr "系统版本"
+
+# 检测结果对照表里的行：两侧各是什么发行版
+msgid "Distribution"
+msgstr "发行系统"
+
+msgid "Result"
+msgstr "检测结果"
+
+msgid "No check has been run yet."
+msgstr "尚未检测。"
+
+msgid "checked at"
+msgstr "检测于"
+
+msgid "cached result from"
+msgstr "缓存结果，来自"
+
+msgid "Local build id"
+msgstr "本机构建标识"
+
+msgid "Local build time"
+msgstr "本机构建时间"
+
+msgid "Remote build id"
+msgstr "远端构建标识"
+
+msgid "Remote build time"
+msgstr "远端构建时间"
+
+msgid "Detection failed"
+msgstr "检测失败"
+
+msgid "Unknown error"
+msgstr "未知错误"
+
+msgid "Item"
+msgstr "项目"
+
+msgid "Local"
+msgstr "本机"
+
+msgid "Remote"
+msgstr "远端"
+
+msgid "Source time"
+msgstr "源码时间"
+
+msgid "Update channel"
+msgstr "更新通道"
+
+msgid "Actions"
+msgstr "操作"
+
+msgid "The last table row is quick add: fill the required fields and press Add."
+msgstr "表格最后一行是快速添加：填必填项后点「添加」。"
+
+msgid "Press Advanced when you need to set the identifier and other parameters yourself."
+msgstr "需要自己指定标识等参数时点「高级」。"
+
+msgid "No channel information available for this source."
+msgstr "暂时取不到这个源的通道信息。"
+
+msgid "A default-layout source has a single directory (root/targets), so there is no channel to choose."
+msgstr "default 布局的源只有一层目录（root/targets），没有可选的通道。"
+
+msgid "The channel belongs to the active source and decides which release line is probed."
+msgstr "更新通道属于当前激活源，决定探测哪条发布线。"
+
+msgid "Fixed by layout"
+msgstr "由布局固定"
+
+msgid "The page is running stale code"
+msgstr "页面正在运行旧代码"
+
+msgid "The backend reports version %s but this page was loaded from an older cached copy. Reload the page with Ctrl+Shift+R (Cmd+Shift+R on macOS) to see the current interface."
+msgstr "后端报告的版本是 %s，而本页加载的是更早的缓存副本。请用 Ctrl+Shift+R（macOS 为 Cmd+Shift+R）强制刷新后查看当前界面。"
+
+msgid "Result came from another source"
+msgstr "结果来自另一个源"
+
+msgid "This result was produced by %s, but the active source is %s. Run a check to get a verdict for the active source."
+msgstr "这份结果由 %s 产生，而当前激活源是 %s。请重新检测以获得激活源的判定。"
+
+
+msgid "Allow cross-source change"
+msgstr "允许跨源更换"
+
+
+msgid "Confirm the firmware source first"
+msgstr "请先确认固件来源"
+
+msgid "This device has no confirmed firmware source yet, so the check would compare against a source you have not chosen."
+msgstr "这台设备还没有确认过固件来源，此时检测会拿一个你尚未选定的源来做比较。"
+
+msgid "This device has no confirmed firmware source yet, so the download would come from a source you have not chosen."
+msgstr "这台设备还没有确认过固件来源，此时下载会从你尚未选定的源取文件。"
+
+msgid "This device has no confirmed firmware source yet, so flashing would write an image from a source you have not chosen."
+msgstr "这台设备还没有确认过固件来源，此时刷写会写入你尚未选定的源的镜像。"
+
+msgid "What to do"
+msgstr "该怎么办"
+
+msgid "Open the settings page, add the source that matches your build, then select it in the Active column."
+msgstr "到设置页添加与你的固件相符的源，然后在「激活」列里选中它。"
+
+msgid "Continue anyway"
+msgstr "仍然继续"
+
+msgid "Set the firmware source for this device to %s?"
+msgstr "把这台设备的固件来源设为 %s？"
+
+msgid "Why this matters"
+msgstr "这一步的作用"
+
+msgid "This becomes the reference for every later comparison: the page judges whether an image is newer, older or the same by comparing against the source you pick here."
+msgstr "这里选定的源会成为后续所有比较的基准：页面判断镜像更新、更旧还是相同，都是拿它来对照。"
+
+msgid "If you pick a source that builds for a different system, the image it offers is not the one this device is running."
+msgstr "如果选中的源构建的是另一套系统，它提供的镜像就不是本机正在运行的那个。"
+
+msgid "Set as firmware source"
+msgstr "设为固件来源"
+
+msgid "Confirm the firmware source"
+msgstr "请确认固件来源"
+
+msgid "No firmware source has been confirmed on this device yet. Pick the source that matches your build in the settings page; until then this page cannot tell whether the image belongs to the same distribution as this device."
+msgstr "这台设备还没有确认过固件来源。请到设置页选中与你固件相符的源；在此之前，本页无法判断该镜像是否与本机属于同一发行版。"
+
+msgid "Go to sources"
+msgstr "前往检测源"
+
+msgid "The active source was switched from %s to %s, but the new one has not been confirmed yet."
+msgstr "当前激活源已从 %s 切到 %s，但新的源尚未确认。"
+
+msgid "Flash this source image only if you accept writing another distribution over the running system. Confirming it in the settings page clears this notice without flashing."
+msgstr "只有在你接受用另一个发行版覆盖当前系统时，才刷写该源的镜像。到设置页确认这个源即可消除提示，无需刷写。"
+
+msgid "The active source has not been confirmed yet. Tick the cross-source override first."
+msgstr "当前激活源尚未确认，请先勾选跨源放行。"
+
+msgid "No firmware source has been confirmed on this device yet. Add the source that matches your build, then select it in the Active column."
+msgstr "这台设备还没有确认过固件来源。请添加与你的固件相符的源，然后在「激活」列里选中它。"
+
+msgid "Selecting it records the source as this device firmware origin. Until that is done, the overview page asks you to confirm the source before flashing."
+msgstr "选中它会把这个源记为本机的固件来源。在此之前，概览页会在刷写前要求你先确认来源。"
+
+msgid "Cross-source change"
+msgstr "跨源更换"
+
+
+
+msgid "Switch active source"
+msgstr "切换激活源"
+
+msgid "Move the active source from %s to %s?"
+msgstr "把激活源从 %s 切换到 %s？"
+
+msgid "none"
+msgstr "无"
+
+msgid "The last check result is discarded, because it came from the other source."
+msgstr "上一次的检测结果会被作废，因为它来自另一个源。"
+
+msgid "The next check probes the new source: a different build series may look newer or older than the one running now."
+msgstr "下一次检测会去探测新源：不同的构建序列可能比当前运行的显得更新或更旧。"
+
+msgid "The scheduled task and unattended level 2 follow this source too, so automatic flashing will target it."
+msgstr "定时任务与无人值守档位 2 也遵循这个源，自动刷写会以它为目标。"
+
+msgid "Switch source"
+msgstr "切换源"
+
+msgid "The active source is already %s."
+msgstr "当前激活源已经是 %s。"
+
+msgid "Change in settings"
+msgstr "在设置页更改"
+
+msgid "Ready to upgrade"
+msgstr "可以升级"
+
+msgid "The remote build is newer than the one running: this is a normal upgrade. The verdict basis is shown in the result section below."
+msgstr "远端构建比当前运行的更新，属于正常升级。判定依据见下方的检测结果。"
+
+msgid "Same version, different build"
+msgstr "同版本，不同构建"
+
+msgid "The version and build time match while the build id differs: the upgrade changes nothing visible, and the automatic path only downloads it."
+msgstr "版本与构建时间相同而构建标识不同：这次升级不会带来可见变化，自动路径也只下载不刷写。"
+
+msgid "The remote build is older"
+msgstr "远端构建更旧"
+
+msgid "Flashing writes an older build over the running one: this is a downgrade, and settings the newer build relies on may be lost."
+msgstr "刷写会用更旧的构建覆盖当前系统，属于降级：较新构建依赖的设置可能会丢失。"
+
+msgid "Already on this build"
+msgstr "已是同一构建"
+
+msgid "The running build id matches the remote one, so flashing writes the identical image."
+msgstr "当前运行的构建标识与远端一致，刷写写入的是同一个镜像。"
+
+msgid "Verdict unavailable"
+msgstr "无法判定"
+
+msgid "The two sides could not be compared, so the outcome of this flash is unknown."
+msgstr "两侧无法比较，因此这次刷写的后果未知。"
+
+msgid "What each channel means"
+msgstr "各通道的含义"
+
+msgid "Uses the release line this device already runs: a snapshot build probes the snapshots directory, a release build probes its own version line."
+msgstr "沿用本机正在运行的那条线：快照构建探测 snapshots 目录，发布版探测自身的版本线。"
+
+msgid "Always probes the snapshots directory, whatever this device runs."
+msgstr "始终探测 snapshots 目录，与本机运行什么无关。"
+
+msgid "Probes the version the source currently publishes as its stable release. Moves on when the source moves."
+msgstr "探测源站当前公布的稳定版。源站的稳定版前进时，探测目标随之前进。"
+
+msgid "Probes the version the source publishes as its old stable release. Moves on when the source moves."
+msgstr "探测源站公布的旧稳定版。源站的旧稳定版变化时，探测目标随之变化。"
+
+msgid "Probes the newest release within the same major version as this device."
+msgstr "探测与本机同一主版本内的最新发布版。"
+
+msgid "Probes the newest release within the same version line as this device."
+msgstr "探测与本机同一版本线内的最新发布版。"
+
+msgid "Semantic channels are resolved against the source on every check, so a pick is not tied to one patch release. The image, the sha256 check and the update verdict work the same way for every channel."
+msgstr "语义通道在每次检测时按源站现算目录，因此不会绑定到某个补丁版本。无论选哪个通道，镜像选择、sha256 校验与升级判定都遵循同一套规则。"
+
+msgid "This device runs %s."
+msgstr "本机运行 %s。"
+
+msgid "Snapshot builds"
+msgstr "快照版"
+
+msgid "Stable release"
+msgstr "稳定版"
+
+msgid "Old stable release"
+msgstr "旧稳定版"
+
+msgid "Current major version"
+msgstr "当前主版本"
+
+msgid "Current minor version"
+msgstr "当前子版本"
+
+msgid "Follow a version line"
+msgstr "跟随版本线"
+
+msgid "Current channel"
+msgstr "当前通道"
+
+msgid "Not on this source"
+msgstr "该源上已没有这个通道"
+
+msgid "Switch update channel"
+msgstr "切换更新通道"
+
+msgid "You are switching this source from %s to %s."
+msgstr "正在把这个源从 %s 切换到 %s。"
+
+msgid "What this changes"
+msgstr "这会带来什么变化"
+
+msgid "The last check result is discarded, because it was produced by another channel."
+msgstr "上一次的检测结果会被作废，因为它是由另一个通道产生的。"
+
+msgid "Builds from different channels are not comparable: pinning an older release makes the remote look older, and the verdict turns into a downgrade."
+msgstr "不同通道的构建无法直接比较：钉在较旧的发布版本上时，远端会显得更旧，判定结果会变成「可降级」。"
+
+msgid "The scheduled task follows this setting too, so unattended level 2 will flash from the channel you pick here."
+msgstr "定时任务也遵循这个设置，因此无人值守档位 2 会按你在这里选择的通道刷写。"
+
+msgid "Switch channel"
+msgstr "切换通道"
+
+msgid "Switch failed"
+msgstr "切换失败"
+
+msgid "Switch failed: "
+msgstr "切换失败："
+
+msgid "Update channel switched to %s. Run a check again."
+msgstr "更新通道已切换为 %s，请重新检测。"
+
+msgid "System update channel"
+msgstr "系统更新通道"
+
+msgid "Unknown"
+msgstr "未知"
+
+msgid "Firmware source"
+msgstr "固件来源"
+
+msgid "Target device"
+msgstr "目标设备"
+
+msgid "Verdict basis"
+msgstr "判定依据"
+
+msgid "Candidate image"
+msgstr "候选镜像"
+
+msgid "Value"
+msgstr "值"
+
+msgid "File"
+msgstr "文件"
+
+msgid "Size"
+msgstr "体积"
+
+msgid "All images (%d)"
+msgstr "全部镜像（%d）"
+
+msgid "Images not used by this app"
+msgstr "本应用不会使用的镜像"
+
+msgid "Only the squashfs sysupgrade image is offered as a candidate. The other images listed here rewrite the boot chain or the partition table and are not used by this app."
+msgstr "只有 squashfs 的 sysupgrade 镜像会作为候选。此处列出的其它镜像会改写引导链或分区表，本应用不会使用。"
+
+msgid "Type"
+msgstr "类型"
+
+msgid "Filesystem"
+msgstr "文件系统"
+
+msgid "Warning"
+msgstr "提示"
+
+msgid "Check failed: "
+msgstr "检测失败："
+
+# sources
+msgid "Active source"
+msgstr "激活"
+
+msgid "Name"
+msgstr "名称"
+
+msgid "Layout"
+msgstr "布局"
+
+msgid "Address"
+msgstr "地址"
+
+msgid "One source is active at a time. It supplies the build metadata and the image the device is compared against."
+msgstr "同一时刻只有一个源生效，它提供用于比对的构建元数据与镜像。"
+
+msgid "Save and apply"
+msgstr "保存并应用"
+
+msgid "Active source updated."
+msgstr "激活源已更新。"
+
+msgid "Save failed"
+msgstr "保存失败"
+
+msgid "Save failed: "
+msgstr "保存失败："
+
+# settings
+msgid "Unattended level"
+msgstr "无人值守档位"
+
+msgid "detect and notify"
+msgstr "仅检测并通知"
+
+msgid "download automatically"
+msgstr "自动下载"
+
+msgid "flash automatically"
+msgstr "自动刷写"
+
+msgid "Webhook URL"
+msgstr "Webhook 地址"
+
+msgid "Settings saved."
+msgstr "设置已保存。"
+
+msgid "Where settings live"
+msgstr "配置存放位置"
+
+msgid "All settings live in /etc/config/rtfwupgrade. Flashing runs sysupgrade with -c -k, so the configuration, the installed-package list and changed files under /etc/ are carried over."
+msgstr "全部设置存放在 /etc/config/rtfwupgrade。刷写以 sysupgrade -c -k 执行，配置、已装包列表与 /etc 下改动过的文件都会保留。"
+
+# M2 下载
+msgid "Checks build metadata against the active source, downloads the matching sysupgrade image and verifies its sha256. Flashing reboots the device and keeps the current configuration."
+msgstr "按当前激活源比对构建元数据，下载对应的 sysupgrade 镜像并校验 sha256。刷写会重启设备并保留现有配置。"
+
+msgid "Image download"
+msgstr "镜像下载"
+
+msgid "Downloads the candidate image to /tmp and checks its sha256 against the value published by the source."
+msgstr "把候选镜像下载到 /tmp，并按源站公布的值校验 sha256。"
+
+msgid "Download image"
+msgstr "下载镜像"
+
+msgid "Downloading…"
+msgstr "下载中…"
+
+msgid "The file goes to /tmp (RAM), so it does not survive a reboot."
+msgstr "文件落在 /tmp（内存），重启后不会保留。"
+
+msgid "resumed"
+msgstr "（续传）"
+
+msgid "Cancel"
+msgstr "取消"
+
+msgid "Cancel failed"
+msgstr "取消失败"
+
+msgid "Cancel failed: "
+msgstr "取消失败："
+
+msgid "Downloaded and verified"
+msgstr "已下载并通过校验"
+
+msgid "The sha256 matches the one published by the source. The image is ready to flash."
+msgstr "sha256 与源站公布的一致，镜像已可用于刷写。"
+
+msgid "Download failed"
+msgstr "下载失败"
+
+msgid "Download failed: "
+msgstr "下载失败："
+
+msgid "Retry download"
+msgstr "重试下载"
+
+msgid "Resume download"
+msgstr "继续下载"
+
+msgid "Delete file"
+msgstr "删除文件"
+
+msgid "Downloaded file deleted."
+msgstr "已删除下载的文件。"
+
+msgid "Delete failed: "
+msgstr "删除失败："
+
+msgid "Download cancelled"
+msgstr "下载已取消"
+
+msgid "The partial file is kept, so a retry resumes with curl -C - after comparing the ETag and Last-Modified."
+msgstr "已下载的部分会保留，重试时在比对 ETag 与 Last-Modified 之后用 curl -C - 续传。"
+
+# 源管理（自定义源）与设置（定时任务）
+
+msgid "Preset"
+msgstr "预设"
+
+msgid "— pick a preset —"
+msgstr "— 选择预设 —"
+
+msgid "Identifier"
+msgstr "标识"
+
+msgid "My mirror"
+msgstr "我的镜像站"
+
+msgid "optional, e.g. immortalwrt"
+msgstr "可选，例如 immortalwrt"
+
+msgid "System"
+msgstr "系统"
+
+msgid "path segment for mirrors that host several systems, e.g. rtfw/immortalwrt"
+msgstr "聚合站的系统路径段，例如 rtfw 的 immortalwrt"
+
+msgid "Add"
+msgstr "添加"
+
+msgid "Add failed"
+msgstr "添加失败"
+
+msgid "Add failed: "
+msgstr "添加失败："
+
+msgid "Delete"
+msgstr "删除"
+
+msgid "Delete failed"
+msgstr "删除失败"
+
+msgid "Actions"
+msgstr "操作"
+
+msgid "Source added."
+msgstr "源已添加。"
+
+msgid "Source deleted."
+msgstr "源已删除。"
+
+msgid "ImmortalWrt official"
+msgstr "ImmortalWrt 官方"
+
+msgid "OpenWrt official"
+msgstr "OpenWrt 官方"
+
+msgid "Multi-distribution mirror"
+msgstr "多发行版聚合站"
+
+msgid "Mirror"
+msgstr "聚合站"
+
+msgid "Single-version release site"
+msgstr "单版本发布站"
+
+msgid "Single-version"
+msgstr "单版站"
+
+msgid "Scheduled task"
+msgstr "定时任务"
+
+msgid "Daily"
+msgstr "每天"
+
+msgid "Weekly"
+msgstr "每周"
+
+msgid "Disabled"
+msgstr "关闭"
+
+# 面向用户的文案（去掉开发术语）
+msgid "Checks and notifies only."
+msgstr "仅检测并通知。"
+
+msgid "Also downloads the image and verifies its sha256."
+msgstr "额外自动下载镜像并校验 sha256。"
+
+msgid "Also flashes the image, but only when the verdict is an update (see below)."
+msgstr "额外自动刷写镜像，但仅限判定为「可升级」时（见下）。"
+
+msgid "How \"update\" is decided"
+msgstr "「可升级」如何判定"
+
+msgid "Identical build id means \"already up to date\"; nothing is downloaded or flashed."
+msgstr "两侧构建标识相同即「已是最新」，不下载也不刷写。"
+
+msgid "When both sides report a release version, the higher version number wins."
+msgstr "两侧都有发布版本号时，按版本号比较，远端更高即为可升级。"
+
+msgid "Otherwise the build timestamp is compared: a newer remote counts as an update."
+msgstr "否则比较构建时间戳：远端更新即为可升级。"
+
+msgid "Same version or timestamp but a different build id is a rebuild: it is downloaded, never flashed automatically."
+msgstr "版本号或时间戳相同而构建标识不同，属于重编：只下载，不会自动刷写。"
+
+msgid "For level 2 to flash, all of these must hold"
+msgstr "档位 2 真正发起刷写还需同时满足"
+
+msgid "The verdict is an update, not a rebuild or a downgrade."
+msgstr "判定为可升级，而不是重编或可降级。"
+
+msgid "The image was downloaded and its sha256 verified on an earlier run."
+msgstr "镜像已在之前的某一轮下载并通过 sha256 校验。"
+
+msgid "The image is a sysupgrade squashfs one and the source is the same distribution."
+msgstr "镜像是 sysupgrade 的 squashfs 格式，且源与本机属于同一发行版。"
+
+msgid "No earlier flash is still waiting for a reboot check."
+msgstr "没有仍待重启确认的上一次刷写。"
+
+msgid "POST JSON when update events happen. Leave empty to disable."
+msgstr "发生更新事件时以 POST JSON 通知，留空即关闭。"
+
+msgid "Delete source"
+msgstr "删除源"
+
+msgid "Delete source %s? Its section is removed from the configuration and the last check result is discarded."
+msgstr "删除源 %s？该段会从配置中移除，最近一次检测结果也会作废。"
+
+# 结构与日志（第二轮界面意见）
+
+msgid "Logs"
+msgstr "日志"
+
+msgid "Check sources"
+msgstr "检测源"
+
+msgid "Detection and notification"
+msgstr "检测与通知"
+
+msgid "Save settings"
+msgstr "保存设置"
+
+msgid "Detection, source, download and flash events, newest first, stored under /tmp. A reboot clears them; a pending flash result is kept in /etc until it is confirmed."
+msgstr "检测、源、下载与刷写事件，最新的在前，存放在 /tmp。重启会清空；待确认的刷写结果保存在 /etc，直到确认为止。"
+
+msgid "Refresh"
+msgstr "刷新"
+
+msgid "Clear log"
+msgstr "清空日志"
+
+msgid "Log cleared."
+msgstr "日志已清空。"
+
+msgid "Clear failed: "
+msgstr "清空失败："
+
+msgid "Refresh failed: "
+msgstr "刷新失败："
+
+msgid "No events yet."
+msgstr "还没有事件。"
+
+msgid "No downloader output yet."
+msgstr "还没有下载器输出。"
+
+msgid "Raw downloader output (tail)"
+msgstr "下载器原始输出（尾部）"
+
+msgid "Time"
+msgstr "时间"
+
+msgid "Event"
+msgstr "事件"
+
+msgid "Detail"
+msgstr "说明"
+
+msgid "Files: %s , %s"
+msgstr "文件：%s 、%s"
+
+# 添加源：字段顺序跟随表格；标识可自动生成
+msgid "fills the fields below; you can edit everything afterwards"
+msgstr "会自动填入下面的字段，填完仍可修改"
+
+msgid "shown in the table; free text, duplicates allowed"
+msgstr "表格里显示的就是它；随意写，允许重复"
+
+msgid "auto-generated when empty"
+msgstr "留空则自动生成"
+
+msgid "internal UCI section name (lower-case letters, digits, underscore); normally you do not need to set it"
+msgstr "内部用的 UCI 段名（小写字母、数字、下划线）；一般不需要填"
+
+msgid "identifier"
+msgstr "标识"
+
+# 调度与日志筛选（第四轮界面意见）
+msgid "Runs unattended on this schedule. The entry is written into /etc/crontabs/root inside its own marked block."
+msgstr "按此时刻表无人值守执行。条目写入 /etc/crontabs/root 的独立标记块中。"
+
+msgid "Monthly"
+msgstr "每月"
+
+msgid "Weekday"
+msgstr "星期"
+
+msgid "Day of month"
+msgstr "号数"
+
+msgid "1-28 only, so that every month triggers"
+msgstr "只提供 1-28，保证每个月都有这一天"
+
+msgid "Time (24h)"
+msgstr "时间（24 小时制）"
+
+msgid "The scheduled check is disabled."
+msgstr "定时检测已关闭。"
+
+msgid "Monday"
+msgstr "周一"
+
+msgid "Tuesday"
+msgstr "周二"
+
+msgid "Wednesday"
+msgstr "周三"
+
+msgid "Thursday"
+msgstr "周四"
+
+msgid "Friday"
+msgstr "周五"
+
+msgid "Saturday"
+msgstr "周六"
+
+msgid "Sunday"
+msgstr "周日"
+
+msgid "Level"
+msgstr "级别"
+
+msgid "All levels"
+msgstr "全部级别"
+
+msgid "All events"
+msgstr "全部事件"
+
+msgid "Search"
+msgstr "搜索"
+
+msgid "substring of the message"
+msgstr "按说明内容模糊匹配"
+
+msgid "Shown %d of %d events"
+msgstr "显示 %d / %d 条事件"
+
+msgid "No events match the filter."
+msgstr "没有符合筛选条件的事件。"
+
+# 快速添加行 + 高级对话框
+msgid "Advanced"
+msgstr "高级"
+
+msgid "Quick add needs a label and an address at least — use Advanced for the rest."
+msgstr "快速添加至少需要名称与地址；其它参数请用「高级」。"
+
+# 与 luci-base 的「卷标」区分开：同一个概念统一叫「名称」
+msgid "Source label"
+msgstr "名称"
+
+# 对话框与快速添加行共用的文案
+msgid "Add source"
+msgstr "添加源"
+
+msgid "optional placeholder"
+msgstr "可选"
+
+msgid "Overview"
+msgstr "概览"
+
+# 布局说明：official / default 的固定目录结构
+# 标题单独一条：这两行会出现在源表格之外，必须先说明「这是布局类型」，
+# 否则用户会看到两行孤立文本（界面评审反馈）。
+msgid "Layouts"
+msgstr "布局"
+
+msgid "OpenWRT/ImmortalWRT official release page directory structure"
+msgstr "OpenWRT/ImmortalWRT 官方发布页的目录结构"
+
+msgid "Default build output directory structure"
+msgstr "编译输出的默认目录结构"
+
+# 源编辑（source_set）
+msgid "Edit"
+msgstr "编辑"
+
+msgid "Edit source"
+msgstr "编辑源"
+
+msgid "It is the UCI section name and cannot be changed."
+msgstr "它是内部 UCI 段名，不可修改。"
+
+msgid "Save"
+msgstr "保存"
+
+msgid "Source updated."
+msgstr "源已更新。"
+
+msgid "Update failed"
+msgstr "更新失败"
+
+msgid "Update failed: "
+msgstr "更新失败："
+
+# 定时任务状态（schedule_status）
+msgid "Scheduled task status"
+msgstr "定时任务状态"
+
+msgid "Written to crontab"
+msgstr "已写入"
+
+msgid "Not written"
+msgstr "未写入"
+
+msgid "Out of sync"
+msgstr "不一致"
+
+msgid "Task diagnostics"
+msgstr "任务诊断"
+
+msgid "Wanted: %s"
+msgstr "期望：%s"
+
+msgid "Applied: %s"
+msgstr "实际：%s"
+
+msgid "Crontab path: %s"
+msgstr "crontab 路径：%s"
+
+msgid "The managed block matches the current schedule."
+msgstr "受管块与当前调度一致。"
+
+msgid "The managed block differs from the current schedule; save the settings to rewrite it."
+msgstr "受管块与当前调度不一致；保存设置即可重写。"
+
+msgid "The scheduled task is off, so no crontab entry is expected."
+msgstr "定时任务已关闭，因此不应存在 crontab 条目。"
+
+msgid "The managed block has not been written yet; save the settings to write it."
+msgstr "受管块尚未写入；保存设置即可写入。"
+
+msgid "A managed crontab block is still present; save the settings to remove it."
+msgstr "仍残留受管 crontab 块；保存设置即可移除。"
+
+msgid "The schedule status is not available yet. Save the settings once to sync the crontab."
+msgstr "暂时读不到定时任务状态；保存一次设置即可同步 crontab。"
+
+# 下载续传检查原因
+msgid "Resume check: %s"
+msgstr "续传检查：%s"
+
+# 日志：定时任务原始输出
+msgid "Raw scheduled-task output (tail)"
+msgstr "定时任务原始输出（尾部）"
+
+msgid "No scheduled-task output yet."
+msgstr "还没有定时任务输出。"
+
+msgid "Scheduled-task log: %s"
+msgstr "定时任务日志：%s"
+# M3 刷写（前端 → rpcd → flash.uc）
+msgid "Flash firmware"
+msgstr "刷写固件"
+
+msgid "Target version"
+msgstr "目标版本"
+
+msgid "Target build id"
+msgstr "目标构建"
+
+msgid "Image file"
+msgstr "镜像文件"
+
+msgid "Image size"
+msgstr "镜像体积"
+
+msgid "This cannot be undone"
+msgstr "此操作不可逆"
+
+msgid "Flashing reboots the router: the network drops until it is back, and everything written to /tmp is lost. Existing configuration is kept, because sysupgrade runs with -c -k."
+msgstr "刷写会重启设备：重启期间断网，/tmp 里的内容全部丢失。系统刷写用 -c -k 执行，因此现有配置会保留。"
+
+msgid "I confirm: flash this image and reboot the router."
+msgstr "我确认：刷写这个镜像并重启设备。"
+
+msgid "Allow cross-distribution flashing"
+msgstr "允许跨发行版刷写"
+
+msgid "Cross-distribution flashing"
+msgstr "跨发行版刷写"
+
+msgid "Flash now"
+msgstr "立即刷写"
+
+msgid "The command is: %s"
+msgstr "将执行命令：%s"
+
+msgid "No blocking problem found so far."
+msgstr "目前没有发现阻断问题。"
+
+msgid "Flashing is blocked"
+msgstr "刷写被阻断"
+
+msgid "Flashing is blocked: fix the problems listed above."
+msgstr "刷写被阻断：请先解决上面列出的问题。"
+
+msgid "Flashing failed: "
+msgstr "刷写失败："
+
+msgid "A flash is already pending. Reboot the router and let the boot check confirm it first."
+msgstr "已有一笔刷写待重启确认。请先重启设备，让开机检查确认结果。"
+
+msgid "Run a check first: nothing tells which image this device should be flashed with."
+msgstr "请先做一次检测：现在没有任何依据能确定该刷哪个镜像。"
+
+msgid "The image has not been downloaded and verified yet."
+msgstr "镜像还没有下载并通过校验。"
+
+msgid "This source belongs to a different distribution. Tick the cross-distribution override first."
+msgstr "该源属于另一个发行版。请先勾选跨发行版放行。"
+
+msgid "Waiting for reboot confirmation"
+msgstr "等待重启确认"
+
+msgid "The image was written and sysupgrade was started. The state is confirmed after the router reboots."
+msgstr "镜像已写入、刷写已发起。设备重启后才会确认这次刷写的结果。"
+
+msgid "Flash confirmed after reboot"
+msgstr "重启后已确认刷写成功"
+
+msgid "The build id after reboot matches the target: %s"
+msgstr "重启后的构建标识与目标一致：%s"
+
+msgid "Flash not confirmed"
+msgstr "刷写未被确认"
+
+msgid "After reboot the build id is %s while the target was %s."
+msgstr "重启后的构建标识是 %s，而目标是 %s。"
+
+msgid "Clear flash state"
+msgstr "清除刷写状态"
+
+msgid "Flash state cleared."
+msgstr "刷写状态已清除。"

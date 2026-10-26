@@ -1,0 +1,52 @@
+#!/bin/sh
+# 安装/升级时：迁移旧配置、确保存在一个可用的激活源、同步 crontab 受管块。
+# 只改本包自己的配置与标记块，不碰用户已有的其它 cron 行。
+
+CONFIG=/etc/config/rtfwupgrade
+OLD_CONFIG=/etc/config/lucisysupgrade
+DEFAULT_CONFIG=/usr/share/rtfwupgrade/config.default
+
+# 旧包升级到新包名时，尽量把旧配置带过来。
+if [ ! -f "$CONFIG" ]; then
+	if [ -f "$OLD_CONFIG" ]; then
+		cp "$OLD_CONFIG" "$CONFIG"
+	elif [ -f "$DEFAULT_CONFIG" ]; then
+		cp "$DEFAULT_CONFIG" "$CONFIG"
+	fi
+fi
+
+[ -f "$CONFIG" ] || exit 0
+
+# 常规升级时新包会先装一份默认配置；只有它仍是默认内容时才用旧配置覆盖，
+# 避免把用户已经在新配置里做过的修改冲掉。
+if [ -f "$OLD_CONFIG" ] && [ -f "$DEFAULT_CONFIG" ] && command -v sha256sum >/dev/null 2>&1 &&
+	[ "$(sha256sum "$CONFIG" | cut -d' ' -f1)" = "$(sha256sum "$DEFAULT_CONFIG" | cut -d' ' -f1)" ]; then
+	cp "$OLD_CONFIG" "$CONFIG"
+fi
+
+# 旧设计的残留选项：enabled（源只有存在/激活两态）、interval（已由调度取代）。
+# 只删这两个键，块外其它配置一字不动。
+sed -i -e '/^[[:space:]]*option[[:space:]][[:space:]]*enabled[[:space:]]/d' \
+	-e '/^[[:space:]]*option[[:space:]][[:space:]]*interval[[:space:]]/d' "$CONFIG" 2>/dev/null || true
+
+active="$(uci -q get rtfwupgrade.globals.active_source)"
+if [ -z "$active" ] || [ -z "$(uci -q get "rtfwupgrade.${active}.url")" ]; then
+	uci -q show rtfwupgrade | sed -n 's/^rtfwupgrade\.\([^.=]*\)=source$/\1/p' | while read -r s; do
+		url="$(uci -q get "rtfwupgrade.${s}.url")"
+		if [ -n "$url" ]; then
+			uci -q set "rtfwupgrade.globals.active_source=${s}"
+			uci -q commit rtfwupgrade
+			break
+		fi
+	done
+fi
+
+# cron 重定向依赖这个目录，首次安装/重启后都要提前建好。
+mkdir -p /tmp/rtfwupgrade
+
+# 按当前配置同步 crontab（只动自己的标记块；旧包标记块由 scheduler 一并移除）。
+if [ -x /usr/bin/rtfwupgrade.sh ]; then
+	/usr/bin/rtfwupgrade.sh schedule --apply >/dev/null 2>&1 || true
+fi
+
+exit 0

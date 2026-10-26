@@ -1,0 +1,652 @@
+/* luci-app-rtfwupgrade 视图样式：只用中性半透明底与语义色，深浅主题通用 */
+
+/* 工具栏：一排按钮/控件。上下外边距保持一致 —— 原来写成 0.25rem 0 1rem，
+   上 4px 下 16px，同一组件在两个方向用了不同尺度，看起来像「上面贴着、下面空着」。
+   块间距交给父元素（段落、callout、h3 各自的 margin）统一处理。 */
+.rtfw-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+	align-items: center;
+	margin: 0.5rem 0;
+}
+
+/* 勾选框与说明文字同一水平线。
+   Argon 给 label>input[type="checkbox"] 加了 position:relative + top:.4rem + right:.2rem
+   （为它自己的行内表单排版准备的），放进 flex 容器就会把框顶偏。
+   只作用于带 .rtfw-check 的 label：日志页的纵向筛选项（.rtfw-filter）
+   与设置页的两列表单标签不受影响。
+   不用 :has()——现场还有 Chrome 90 这类早于其支持起点的浏览器。
+   .rtfw-app 前缀用于盖过主题的 label>input 规则。 */
+.rtfw-app .rtfw-check {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.45rem;
+	vertical-align: middle;
+}
+
+.rtfw-app .rtfw-check > input[type='checkbox'],
+.rtfw-app .rtfw-check > input[type='radio'] {
+	position: static;
+	top: auto;
+	right: auto;
+	margin: 0;
+	flex: 0 0 auto;
+	vertical-align: middle;
+}
+
+/* 概览页的通道只读展示：值 + 实际目录 + 去设置页的链接 */
+.rtfw-channel-value {
+	font-weight: 600;
+}
+
+.rtfw-channel-edit {
+	font-size: 0.85rem;
+	margin-left: 0.25rem;
+	white-space: nowrap;
+}
+
+/* 通道选择器与「立即检测」同一行：内部按 inline-flex 排列，窄屏换行时也不会错位 */
+.rtfw-channel {
+	display: inline-flex;
+	flex-wrap: wrap;
+	gap: 0.4rem;
+	align-items: center;
+}
+
+.rtfw-badge {
+	display: inline-block;
+	padding: 0.15rem 0.55rem;
+	border-radius: 999px;
+	font-size: 0.82rem;
+	font-weight: 600;
+	border: 1px solid transparent;
+	white-space: nowrap;
+}
+
+.rtfw-badge.rtfw-tone-success {
+	color: #16a34a;
+	background: rgba(22, 163, 74, 0.12);
+	border-color: rgba(22, 163, 74, 0.35);
+}
+
+.rtfw-badge.rtfw-tone-warning {
+	color: #d97706;
+	background: rgba(217, 119, 6, 0.12);
+	border-color: rgba(217, 119, 6, 0.35);
+}
+
+.rtfw-badge.rtfw-tone-danger {
+	color: #dc2626;
+	background: rgba(220, 38, 38, 0.12);
+	border-color: rgba(220, 38, 38, 0.35);
+}
+
+.rtfw-badge.rtfw-tone-notice {
+	color: #2563eb;
+	background: rgba(37, 99, 235, 0.12);
+	border-color: rgba(37, 99, 235, 0.35);
+}
+
+.rtfw-badge.rtfw-tone-muted {
+	color: inherit;
+	background: rgba(127, 127, 127, 0.12);
+	border-color: rgba(127, 127, 127, 0.3);
+}
+
+.rtfw-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+	gap: 0.75rem;
+	margin: 0.5rem 0 1rem;
+}
+
+.rtfw-stat {
+	border: 1px solid rgba(127, 127, 127, 0.25);
+	border-radius: 0.5rem;
+	padding: 0.6rem 0.8rem;
+	background: rgba(127, 127, 127, 0.06);
+}
+
+.rtfw-stat .rtfw-label {
+	font-size: 0.78rem;
+	opacity: 0.75;
+}
+
+.rtfw-stat .rtfw-value {
+	font-size: 1.15rem;
+	font-weight: 650;
+	word-break: break-all;
+}
+
+.rtfw-stat .rtfw-sub {
+	font-size: 0.78rem;
+	opacity: 0.75;
+}
+
+.rtfw-callout {
+	border-left: 3px solid rgba(127, 127, 127, 0.45);
+	padding: 0.55rem 0.8rem;
+	margin: 0.75rem 0;
+	background: rgba(127, 127, 127, 0.08);
+	border-radius: 0 0.35rem 0.35rem 0;
+}
+
+.rtfw-callout .rtfw-callout-title {
+	font-weight: 650;
+	margin-bottom: 0.15rem;
+}
+
+.rtfw-mono {
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	word-break: break-all;
+}
+
+.rtfw-muted {
+	opacity: 0.75;
+}
+
+.rtfw-images {
+	margin: 0.4rem 0 0;
+}
+
+.rtfw-images summary {
+	cursor: pointer;
+	font-weight: 600;
+}
+
+/* 下载进度条 */
+.rtfw-bar {
+	height: 0.7rem;
+	border-radius: 999px;
+	background: rgba(127, 127, 127, 0.22);
+	overflow: hidden;
+	margin: 0.4rem 0;
+}
+
+.rtfw-bar > span {
+	display: block;
+	height: 100%;
+	background: #2563eb;
+	transition: width 0.3s ease;
+}
+
+/* 应用内统一表格：固定布局 + 显式列宽 + 表头与内容同侧对齐
+   （直接用 LuCI 的 .table 时表头居中、列宽按内容分配，会出现表头与内容错位） */
+.rtfw-table {
+	table-layout: fixed;
+	width: 100%;
+}
+
+.rtfw-table th,
+.rtfw-table td {
+	text-align: left;
+	vertical-align: middle;
+	padding: 0.45rem 0.6rem;
+}
+
+.rtfw-table th {
+	white-space: nowrap;
+}
+
+.rtfw-table td {
+	overflow-wrap: anywhere;
+}
+
+.rtfw-col-check {
+	width: 9rem;
+	text-align: center !important;
+}
+
+.rtfw-col-name {
+	width: 18%;
+}
+
+.rtfw-col-layout {
+	width: 10rem;
+}
+
+.rtfw-col-system {
+	width: 9rem;
+}
+
+.rtfw-col-action {
+	width: 13rem;
+	text-align: right !important;
+	white-space: nowrap;
+}
+
+.rtfw-col-time {
+	width: 11rem;
+	white-space: nowrap;
+}
+
+/* 行内动作按钮：轻量描边，避免一列橙色实心块抢走注意力 */
+.rtfw-rowbtn {
+	white-space: nowrap;
+	padding: 0.2rem 0.6rem;
+	font-size: 0.85rem;
+	line-height: 1.4;
+	color: #dc2626;
+	background: transparent;
+	border: 1px solid rgba(220, 38, 38, 0.45);
+	border-radius: 0.3rem;
+	cursor: pointer;
+}
+
+.rtfw-rowbtn:hover {
+	background: rgba(220, 38, 38, 0.12);
+}
+
+/* 行内操作组：编辑（中性蓝）与删除（红）并排，避免两个实心块抢注意力 */
+.rtfw-rowactions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.3rem;
+	justify-content: flex-end;
+}
+
+.rtfw-rowbtn-edit {
+	color: #2563eb;
+	border-color: rgba(37, 99, 235, 0.45);
+}
+
+.rtfw-rowbtn-edit:hover {
+	background: rgba(37, 99, 235, 0.12);
+}
+
+/* 无人值守档位说明：分段 + 列表，避免一整段长句挤在提示位 */
+.rtfw-levels {
+	margin-top: 0.35rem;
+	font-size: 0.86rem;
+	line-height: 1.65;
+}
+
+.rtfw-levels-list {
+	margin: 0.25rem 0 0.5rem;
+	padding-left: 1.1rem;
+}
+
+.rtfw-levels-list li {
+	margin: 0.1rem 0;
+}
+
+.rtfw-levels-head {
+	margin: 0.5rem 0 0;
+	font-weight: 600;
+}
+
+/* 更新通道：设置页与概览页共用；下拉框与标签同一行，窄屏换行 */
+.rtfw-channel-row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.4rem;
+	align-items: center;
+	margin: 0.3rem 0;
+}
+
+.rtfw-channel-row .cbi-input-select {
+	min-width: 12rem;
+}
+
+/* 布局说明：表尾紧跟快速添加行，新增/编辑源时都能直接看到两种目录结构 */
+.rtfw-layout-help {
+	font-size: 0.82rem;
+	line-height: 1.6;
+	opacity: 0.85;
+}
+
+.rtfw-layout-help-title {
+	font-weight: 650;
+	opacity: 1;
+	margin-bottom: 0.2rem;
+}
+
+.rtfw-layout-help .rtfw-layout-list {
+	margin: 0;
+	padding-left: 1.1rem;
+}
+
+.rtfw-layout-help .rtfw-layout-list li {
+	margin: 0.15rem 0;
+	word-break: break-word;
+}
+
+/* 键名（official / default）用普通元素 + 自定义类，不用 <code>：
+   Argon 有全局 `code{display:block;font-size:1.2rem;color:#eee;background:#101010}`，
+   会把行内标签渲染成大号黑块（真机已见）。 */
+.rtfw-layout-help .rtfw-layout-key {
+	display: inline-block;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 0.85em;
+	line-height: 1.4;
+	padding: 0 0.3rem;
+	border-radius: 0.2rem;
+	background: rgba(127, 127, 127, 0.18);
+	color: inherit;
+}
+
+.rtfw-table tfoot .rtfw-layout-cell {
+	text-align: left;
+	border-top: 1px solid rgba(127, 127, 127, 0.2);
+	padding: 0.45rem 0.6rem;
+}
+
+/* 语义色只作用于本应用自己的容器；不能直接写 .success / .warning，
+   否则会命中 Argon 主题的全局 `.success{background-color:var(--success)!important}`，
+   把整块 callout 刷成绿底绿字（真机截图已复现）。 */
+.rtfw-callout.rtfw-tone-success {
+	border-left-color: #16a34a;
+}
+
+.rtfw-callout.rtfw-tone-warning {
+	border-left-color: #d97706;
+}
+
+.rtfw-callout.rtfw-tone-danger {
+	border-left-color: #dc2626;
+}
+
+/* 定时任务状态块：默认只显示徽标 + 一句说明；细节收进 details */
+.rtfw-schedule-state {
+	margin-bottom: 0.5rem;
+}
+
+.rtfw-schedule-state .rtfw-badge {
+	margin-right: 0.35rem;
+}
+
+/* 排查用的折叠区：标题低调，展开后才显示路径与两行 cron */
+.rtfw-details {
+	margin-top: 0.4rem;
+}
+
+.rtfw-details > summary {
+	font-size: 0.78rem;
+	opacity: 0.75;
+	cursor: pointer;
+}
+
+.rtfw-details > summary:hover {
+	opacity: 1;
+}
+
+.rtfw-schedule-value {
+	display: block;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 0.8rem;
+	line-height: 1.5;
+	white-space: pre;
+	overflow-x: auto;
+	padding: 0.25rem 0.4rem;
+	border-radius: 0.25rem;
+	background: rgba(127, 127, 127, 0.1);
+}
+
+.rtfw-schedule-path {
+	font-size: 0.78rem;
+	opacity: 0.75;
+	margin-top: 0.35rem;
+}
+
+.rtfw-callout .rtfw-table {
+	margin-top: 0.4rem;
+}
+
+.rtfw-callout .rtfw-mono {
+	font-size: 0.82rem;
+}
+
+/* 窄屏：源表格的次要列（布局/系统）让位给名称与地址，避免横向溢出 */
+@media (max-width: 48rem) {
+	.rtfw-sources .rtfw-col-layout,
+	.rtfw-sources .rtfw-col-system {
+		display: none;
+	}
+
+	.rtfw-sources .rtfw-col-action {
+		width: 8.5rem;
+	}
+
+	.rtfw-sources th,
+	.rtfw-sources td {
+		padding: 0.35rem 0.4rem;
+	}
+}
+
+/* 应用内标题统一：Argon 把 h4 当作「面板标题」（自带内边距与主题色），
+   这里把面板内的 h3/h4 归一化，避免出现与被主题上色的孤立标题。
+   页面主标题（h2）不在此列：三页一律交给主题渲染，样式才与概览页一致。 */
+.rtfw-app h3,
+.rtfw-app h4 {
+	color: inherit;
+	background: transparent;
+	padding-left: 0;
+	padding-right: 0;
+}
+
+.rtfw-app h4 {
+	font-size: 1rem;
+	font-weight: 650;
+	padding-top: 0.5rem;
+	padding-bottom: 0.25rem;
+}
+
+/* 日志筛选条 */
+.rtfw-filters {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.75rem;
+	align-items: flex-end;
+	margin: 0.5rem 0 1rem;
+}
+
+.rtfw-filters .rtfw-filter {
+	display: flex;
+	flex-direction: column;
+	gap: 0.2rem;
+}
+
+.rtfw-filters .rtfw-filter > span {
+	font-size: 0.78rem;
+	opacity: 0.75;
+}
+
+/* 快速添加行：与表格列同序，只有必填项 */
+.rtfw-addrow {
+	background: rgba(127, 127, 127, 0.07);
+}
+
+.rtfw-addrow input,
+.rtfw-addrow select {
+	width: 100%;
+	box-sizing: border-box;
+}
+
+.rtfw-addrow .cbi-input-select,
+.rtfw-addrow .cbi-input-text {
+	padding: 0.2rem 0.35rem;
+	font-size: 0.85rem;
+}
+
+.rtfw-addcell {
+	display: flex;
+	gap: 0.25rem;
+	justify-content: flex-end;
+}
+
+.rtfw-rowbtn-ok {
+	color: #16a34a;
+	border-color: rgba(22, 163, 74, 0.5);
+}
+
+.rtfw-rowbtn-ok:hover {
+	background: rgba(22, 163, 74, 0.12);
+}
+
+.rtfw-rowbtn-plain {
+	color: inherit;
+	border-color: rgba(127, 127, 127, 0.5);
+}
+
+.rtfw-rowbtn-plain:hover {
+	background: rgba(127, 127, 127, 0.12);
+}
+
+/* 对话框里的表单：LuCI 的 .cbi-value 是页面用的两列布局（标签靠右），
+   放进模态框会错位 —— 这里改成堆叠：标题在上、控件占满宽度、说明在下 */
+.rtfw-modal-form .cbi-value {
+	display: block;
+	margin: 0 0 1rem 0;
+}
+
+.rtfw-modal-form .cbi-value-title {
+	display: block;
+	float: none;
+	width: auto;
+	text-align: left;
+	font-weight: 600;
+	padding: 0 0 0.3rem 0;
+}
+
+.rtfw-modal-form .cbi-value-field {
+	margin: 0;
+	width: 100%;
+}
+
+.rtfw-modal-form input,
+.rtfw-modal-form select {
+	width: 100%;
+	box-sizing: border-box;
+}
+
+.rtfw-modal-form .rtfw-muted {
+	margin-top: 0.25rem;
+	font-size: 0.82rem;
+}
+
+.rtfw-modal-form .rtfw-toolbar {
+	margin: 1.25rem 0;
+}
+
+/* Argon 深色主题有一条全局 `h4 { color: #8C6900 }`（黄褐），
+   模态框在 .rtfw-app 之外，必须单独归一化，否则对话框标题是黄的 */
+.modal > h4,
+.modal h4,
+#modal_overlay h4 {
+	color: inherit;
+}
+
+.modal > h4 {
+	font-weight: 650;
+}
+
+/* ── 日志表格：按级别给整行着色 ────────────────────────────────────────
+   注意：背景必须加在 td 上，不能只加在 tr 上。
+   Argon 主题有一条 tr 内 td 的 background-color:#fff !important，
+   单元格自带实色背景会把 tr 的半透明底完全挡住；因此这里用同等优先级
+   的 !important 把背景下沉到单元格，并让首列承担左侧竖条。 */
+
+.rtfw-log-tags {
+	display: inline-flex;
+	flex-wrap: wrap;
+	gap: 0.3rem;
+	align-items: center;
+}
+
+/* 两类标签形状不同，才能一眼分出「发生了什么」与「有多严重」。
+   形状差异比颜色更稳：色弱、深色主题、小屏都能区分。*/
+
+/* 事件：方形描边标签，克制、不抢戏 */
+.rtfw-log-event {
+	display: inline-block;
+	padding: 0.02rem 0.4rem;
+	border-radius: 0.2rem;
+	font-size: 0.74rem;
+	font-weight: 500;
+	line-height: 1.5;
+	border: 1px solid rgba(127, 127, 127, 0.45);
+	color: inherit;
+	opacity: 0.78;
+	white-space: nowrap;
+}
+
+/* 级别：实心圆角胶囊 + tone 配色，视觉权重更高 */
+.rtfw-log-level {
+	display: inline-block;
+	padding: 0.06rem 0.5rem;
+	border-radius: 999px;
+	font-size: 0.74rem;
+	font-weight: 600;
+	line-height: 1.5;
+	border: 1px solid transparent;
+	white-space: nowrap;
+}
+
+.rtfw-log-level.rtfw-tone-notice {
+	color: #2563eb;
+	background: rgba(37, 99, 235, 0.14);
+	border-color: rgba(37, 99, 235, 0.38);
+}
+
+.rtfw-log-level.rtfw-tone-warning {
+	color: #d97706;
+	background: rgba(217, 119, 6, 0.16);
+	border-color: rgba(217, 119, 6, 0.42);
+}
+
+.rtfw-log-level.rtfw-tone-danger {
+	color: #dc2626;
+	background: rgba(220, 38, 38, 0.16);
+	border-color: rgba(220, 38, 38, 0.42);
+}
+
+.rtfw-log-level.rtfw-tone-muted {
+	color: inherit;
+	background: rgba(127, 127, 127, 0.14);
+	border-color: rgba(127, 127, 127, 0.32);
+}
+
+/* 首列竖条：这是「哪一级」的第一眼信号 */
+.rtfw-log-row > td:first-child {
+	border-left: 3px solid transparent;
+	padding-left: 0.55rem;
+}
+
+/* info：蓝，最轻 */
+.rtfw-log-row.rtfw-log-info > td {
+	background-color: rgba(37, 99, 235, 0.055) !important;
+}
+
+.rtfw-log-row.rtfw-log-info > td:first-child {
+	border-left-color: rgba(37, 99, 235, 0.55);
+}
+
+/* warn：琥珀 */
+.rtfw-log-row.rtfw-log-warn > td {
+	background-color: rgba(217, 119, 6, 0.10) !important;
+}
+
+.rtfw-log-row.rtfw-log-warn > td:first-child {
+	border-left-color: rgba(217, 119, 6, 0.8);
+}
+
+/* error：红，最显眼 */
+.rtfw-log-row.rtfw-log-error > td {
+	background-color: rgba(220, 38, 38, 0.12) !important;
+}
+
+.rtfw-log-row.rtfw-log-error > td:first-child {
+	border-left-color: rgba(220, 38, 38, 0.9);
+}
+
+/* 悬停：在长列表里定位当前行 */
+.rtfw-log-row:hover > td {
+	background-color: rgba(127, 127, 127, 0.14) !important;
+}
+
+/* 时间列在弱化底色里保持可读 */
+.rtfw-log-row > td:first-child {
+	color: inherit;
+	opacity: 0.9;
+}
