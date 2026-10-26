@@ -1,0 +1,13 @@
+{
+	"admin/network/clientblock": {
+		"title": "Access Control",
+		"order": 95,
+		"action": {
+			"type": "view",
+			"path": "clientblock"
+		},
+		"depends": {
+			"acl": [ "luci-app-clientblock" ]
+		}
+	}
+}

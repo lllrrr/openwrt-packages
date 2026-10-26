@@ -1,0 +1,5 @@
+config trusted 'global'
+	option enabled '0'
+	option term_enabled '0'
+	option ssh_enabled '0'
+	option deny_others '0'

@@ -1,0 +1,16 @@
+Package: luci-app-trusted
+Version: 1.3.0-1
+Section: luci
+Architecture: all
+Maintainer: junwelee
+Description: Trusted IP whitelist for passwordless LuCI, terminal and SSH access
+ Whitelisted IPv4 addresses access the LuCI web interface, the ttyd web
+ terminal and SSH without entering a username and password.  The passwordless
+ terminal and the passwordless SSH login are independent switches, and
+ non-whitelisted devices keep their normal password login unless the optional
+ "deny non-whitelisted devices" switch is enabled.
+ .
+ Requires LuCI (luci-base) and ucode, which ship with every standard LuCI
+ firmware image. Dependencies are intentionally not declared: this package
+ contains no binaries and must also install on images whose opkg status
+ database is empty.

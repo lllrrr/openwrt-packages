@@ -1,0 +1,11 @@
+{
+	"luci-app-trusted": {
+		"description": "Grant access to Trusted IP whitelist configuration",
+		"read": {
+			"uci": [ "trusted" ]
+		},
+		"write": {
+			"uci": [ "trusted" ]
+		}
+	}
+}

@@ -1,0 +1,11 @@
+#!/bin/sh
+
+# opkg removes the package files after prerm, so the (now empty) directory can
+# only be dropped here.  Nothing outside this package's own paths is touched.
+rm -rf /var/run/trusted
+rmdir /usr/share/trusted 2>/dev/null
+rmdir /usr/share/ucode/luci/trusted 2>/dev/null
+
+rm -f /tmp/luci-indexcache*
+
+exit 0

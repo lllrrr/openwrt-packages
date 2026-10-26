@@ -1,0 +1,211 @@
+#!/bin/sh
+# trusted - manage the IP whitelist from a shell (serial console or SSH).
+#
+# This is the recovery path when "deny non-whitelisted devices" locked the
+# browser out: "trusted deny off" and "trusted add <new address>" both work
+# over the stock :22 dropbear instance, which the plugin never touches.
+#
+# Every address is validated before it reaches UCI, so a typo fails here with
+# a message and exit code 1 instead of landing in the config silently.
+#
+# Output follows the LuCI language setting, not the shell locale.  The message
+# catalogs are in /usr/share/trusted/i18n/, loaded through lib.sh.
+
+LIB=/usr/share/trusted/lib.sh
+INIT=/etc/init.d/trusted
+RUN=/var/run/trusted
+
+# die() may run before a catalog is readable, so it never calls t() itself:
+# callers pass an already translated string.
+die() {
+	printf 'trusted: %s\n' "$*" >&2
+	exit 1
+}
+
+# Nothing below works without the shared validator, and a broken installation
+# must say so in plain English rather than print an empty line.
+if [ ! -r "$LIB" ]; then
+	printf 'trusted: %s is missing. Reinstall luci-app-trusted.\n' "$LIB" >&2
+	exit 1
+fi
+
+. "$LIB"
+i18n_init || true
+
+command -v valid_cidr4 >/dev/null 2>&1 || die "$(t err_bad_lib "$LIB")"
+
+cur_list() {
+	uci -q get trusted.global.ipaddr 2>/dev/null
+}
+
+has_entry() {
+	cur_list | tr ' ' '\n' | grep -qxF -- "$1"
+}
+
+# The whitelist the firewall and the CGI wrapper actually use, not the one
+# stored in the config: invalid or stale entries are dropped on reload.
+effective() {
+	[ -r "$RUN/wl" ] && tr '\n' ' ' < "$RUN/wl" | sed 's/[[:space:]]*$//'
+}
+
+reload() {
+	"$INIT" restart >/dev/null 2>&1
+}
+
+cmd_status() {
+	local deny wl cfg
+
+	deny=$(uci -q get trusted.global.deny_others)
+	wl=$(effective)
+	cfg=$(cur_list)
+
+	printf '%s: %s\n' "$(t lbl_plugin)" "$(uci -q get trusted.global.enabled)"
+	printf '%s: %s\n' "$(t lbl_term)" "$(uci -q get trusted.global.term_enabled)"
+	printf '%s: %s\n' "$(t lbl_ssh)" "$(uci -q get trusted.global.ssh_enabled)"
+	printf '%s: %s\n' "$(t lbl_deny)" "$deny"
+	printf '%s: %s\n' "$(t lbl_cfg)" "${cfg:-$(t empty)}"
+	printf '%s: %s\n' "$(t lbl_active)" "${wl:-$(t empty)}"
+
+	if [ "$(uci -q get trusted.global.enabled)" = "1" ] &&
+	   [ "$deny" = "1" ] &&
+	   [ "$(echo $wl | wc -w)" -le 1 ]; then
+		printf '%s\n' "$(t warn_deny_short)"
+		printf '%s\n' "$(t warn_no_page)"
+	fi
+}
+
+cmd_add() {
+	local a added=0 rc=0 list
+
+	[ $# -gt 0 ] || die "$(t err_add_noarg)"
+
+	for a in "$@"; do
+		if ! valid_cidr4 "$a"; then
+			printf 'trusted: %s\n' "$(t err_reject "$a")" >&2
+			rc=1
+			continue
+		fi
+
+		if has_entry "$a"; then
+			printf 'trusted: %s\n' "$(t info_exists "$a")"
+			continue
+		fi
+
+		if uci add_list trusted.global.ipaddr="$a"; then
+			added=$((added + 1))
+		else
+			printf 'trusted: %s\n' "$(t err_write "$a")" >&2
+			rc=1
+		fi
+	done
+
+	[ "$added" -gt 0 ] || return $rc
+
+	uci commit trusted || die "$(t err_commit)"
+	reload
+
+	list=$(effective)
+
+	[ "$(uci -q get trusted.global.enabled)" = "1" ] || {
+		printf 'trusted: %s\n' "$(t ok_added "$added")"
+		printf 'trusted: %s\n' "$(t note_disabled)"
+		return $rc
+	}
+
+	# Say so instead of pretending: an entry that never reached the effective
+	# list means the init script refused the configuration.
+	[ -n "$list" ] || die "$(t err_no_active)"
+
+	printf 'trusted: %s\n' "$(t ok_added "$added")"
+	printf 'trusted: %s\n' "$(t ok_active "$list")"
+
+	return $rc
+}
+
+cmd_del() {
+	local a removed=0 rc=0
+
+	[ $# -gt 0 ] || die "$(t err_del_noarg)"
+
+	for a in "$@"; do
+		if ! has_entry "$a"; then
+			printf 'trusted: %s\n' "$(t info_notin "$a")" >&2
+			rc=1
+			continue
+		fi
+
+		if uci del_list trusted.global.ipaddr="$a"; then
+			removed=$((removed + 1))
+		else
+			printf 'trusted: %s\n' "$(t err_del_fail "$a")" >&2
+			rc=1
+		fi
+	done
+
+	[ "$removed" -gt 0 ] || return $rc
+
+	uci commit trusted || die "$(t err_commit)"
+	reload
+
+	printf 'trusted: %s\n' "$(t ok_deleted "$removed")"
+	printf 'trusted: %s\n' "$(t ok_active "$(effective)")"
+
+	if [ "$(uci -q get trusted.global.deny_others)" = "1" ] &&
+	   [ "$(echo $(effective) | wc -w)" -le 1 ]; then
+		printf '%s\n' "$(t warn_empty)" >&2
+		printf '%s\n' "$(t hint_undo)" >&2
+	fi
+
+	return $rc
+}
+
+cmd_deny() {
+	local v wl
+
+	case "$1" in
+	on|1|enable)  v=1 ;;
+	off|0|disable) v=0 ;;
+	*) die "$(t err_deny_arg)" ;;
+	esac
+
+	uci set trusted.global.deny_others="$v" || die "$(t err_set)"
+	uci commit trusted || die "$(t err_commit)"
+	reload
+
+	printf 'trusted: %s\n' "$(t ok_deny "$v")"
+
+	if [ "$v" = "1" ]; then
+		wl=$(effective)
+		if [ "$(echo $wl | wc -w)" -le 1 ]; then
+			printf '%s\n' "$(t warn_lose)" >&2
+			printf '%s\n' "$(t hint_add)" >&2
+		fi
+	fi
+}
+
+case "$1" in
+''|-h|--help|help)
+	t usage
+	printf '\n'
+	;;
+status)
+	cmd_status
+	;;
+add)
+	shift
+	cmd_add "$@"
+	;;
+del|remove)
+	shift
+	cmd_del "$@"
+	;;
+deny)
+	shift
+	cmd_deny "$@"
+	;;
+*)
+	t usage >&2
+	printf '\n' >&2
+	die "$(t err_unknown "$1")"
+	;;
+esac

@@ -1,0 +1,13 @@
+{
+	"admin/system/trusted": {
+		"title": "Trusted Access",
+		"order": 60,
+		"action": {
+			"type": "view",
+			"path": "trusted/main"
+		},
+		"depends": {
+			"acl": [ "luci-app-trusted" ]
+		}
+	}
+}

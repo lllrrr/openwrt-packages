@@ -1,0 +1,57 @@
+#!/bin/sh
+
+# Stop the service first: it removes the firewall table, the passwordless SSH
+# account and the CGI wrapper in one go.
+if [ -x /etc/init.d/trusted ]; then
+	/etc/init.d/trusted stop 2>/dev/null
+	/etc/init.d/trusted disable 2>/dev/null
+fi
+
+# Restore the stock CGI, but only if the live file is still ours - never
+# overwrite a newer luci-base script with an old stash.
+if [ -f /usr/share/trusted/cgi-luci.stock ] && grep -q 'luci-app-trusted CGI wrapper' /www/cgi-bin/luci 2>/dev/null; then
+	cp /usr/share/trusted/cgi-luci.stock /www/cgi-bin/luci
+	chmod 0755 /www/cgi-bin/luci
+fi
+
+# Safety net: the SSH account lives in /etc/passwd, outside the package file
+# list, so drop it here even if the init script was already gone.  Rewrite
+# through a temp file in /etc so the rename stays atomic.
+drop_user() {
+	local f="$1" mode
+
+	[ -f "$f" ] || return 0
+	grep -q '^trusted:' "$f" 2>/dev/null || return 0
+
+	mode=$(stat -c %a "$f" 2>/dev/null)
+	mode=${mode:-644}
+
+	if grep -v '^trusted:' "$f" > "$f.trusted-tmp"; then
+		chmod "$mode" "$f.trusted-tmp" && mv -f "$f.trusted-tmp" "$f"
+	fi
+	rm -f "$f.trusted-tmp"
+}
+
+drop_user /etc/passwd
+drop_user /etc/shadow
+
+if [ -f /etc/shells ] && grep -qx '/usr/share/trusted/ssh-shell' /etc/shells; then
+	if grep -vx '/usr/share/trusted/ssh-shell' /etc/shells > /etc/shells.trusted-tmp; then
+		chmod 0644 /etc/shells.trusted-tmp && mv -f /etc/shells.trusted-tmp /etc/shells
+	fi
+	rm -f /etc/shells.trusted-tmp
+fi
+
+# Standalone table, so removal is a single command (no fw4 involvement).
+nft delete table inet trusted 2>/dev/null
+
+/etc/init.d/rpcd reload 2>/dev/null
+
+rm -f /tmp/luci-indexcache* /tmp/luci-trusted-sessions.json
+rm -rf /var/run/trusted
+
+# The stash is redundant once the stock script is back in place.
+rm -f /usr/share/trusted/cgi-luci.stock
+rmdir /usr/share/trusted 2>/dev/null
+
+exit 0

@@ -1,0 +1,101 @@
+#!/bin/sh
+# Login-attack watcher: streams the syslog and blocks repeat offenders as they
+# appear, instead of polling once a minute. Replaces cron-based scanning.
+
+CONFIG=/etc/clientblock/auto.json
+LOG_TAG=clientblock-watch
+LOCK=/var/run/clientblock-watch.lock
+
+enabled() {
+	[ -f "$CONFIG" ] || return 0
+	# auto.json is flat JSON; a missing "enabled" or "enabled":true means on
+	grep -q '"enabled":false' "$CONFIG" && return 1
+	return 0
+}
+
+# enabled_kind <key>  -> 0 when the user switched this trigger off
+enabled_kind() {
+	[ -f "$CONFIG" ] || return 0
+	# the backend writes real JSON booleans; accept the string form too
+	grep -q "\"$1\": *false" "$CONFIG" && return 1
+	grep -q "\"$1\": *\"0\"" "$CONFIG" && return 1
+	return 0
+}
+
+threshold() {
+	local t=5
+	[ -f "$CONFIG" ] && t=$(sed -n 's/.*"threshold":\([0-9]*\).*/\1/p' "$CONFIG" 2>/dev/null)
+	[ -n "$t" ] || t=5
+	echo "$t"
+}
+
+count_ip() {
+	# $1 = ip, $2 = threshold, $3 = failure kind
+	local ip=$1 th=$2 kind=${3:-unknown} now cnt
+	now=$(date +%s)
+	local buf=/tmp/clientblock-hits
+	touch "$buf"
+
+	# drop entries older than the counting window (default 600s)
+	local window=600
+	[ -f "$CONFIG" ] && window=$(sed -n 's/.*"window":\([0-9]*\).*/\1/p' "$CONFIG" 2>/dev/null)
+	[ -n "$window" ] || window=600
+	local cutoff=$((now - window))
+	awk -v c="$cutoff" '$1 >= c' "$buf" > "$buf.tmp" 2>/dev/null && mv "$buf.tmp" "$buf"
+
+	echo "$now $ip" >> "$buf"
+	cnt=$(grep -c " $ip\$" "$buf" 2>/dev/null)
+	[ -n "$cnt" ] || cnt=0
+
+	if [ "$cnt" -ge "$th" ]; then
+		if ubus call luci.clientblock ipadd \
+			"{\"ip\":\"$ip\",\"note\":\"auto: $cnt $kind failures\",\"source\":\"auto\",\"fast\":\"1\"}" \
+			>/dev/null 2>&1; then
+			logger -t "$LOG_TAG" "blocked $ip after $cnt $kind failures"
+			# reset the counter so the same burst does not re-trigger
+			grep -v " $ip\$" "$buf" > "$buf.tmp" 2>/dev/null && mv "$buf.tmp" "$buf"
+		fi
+	fi
+}
+
+main() {
+	# Single instance: repeated service restarts must not stack watchers, or
+	# every failure is counted once per live process.
+	if ! mkdir "$LOCK" 2>/dev/null; then
+		if [ -f "$LOCK/pid" ] && kill -0 "$(cat "$LOCK/pid" 2>/dev/null)" 2>/dev/null; then
+			logger -t "$LOG_TAG" "already running (pid $(cat "$LOCK/pid")), exiting"
+			exit 0
+		fi
+		rm -rf "$LOCK"
+		mkdir "$LOCK" 2>/dev/null || exit 0
+	fi
+	echo $$ > "$LOCK/pid"
+	trap 'rm -rf "$LOCK"' EXIT INT TERM
+
+	enabled || { logger -t "$LOG_TAG" "disabled, exiting"; exit 0; }
+	local th
+	th=$(threshold)
+	logger -t "$LOG_TAG" "started (threshold=$th)"
+
+	# -f follows the ubus log stream. Each line is matched for auth failures;
+	# the match is deliberately narrow so normal traffic costs nothing.
+	logread -f 2>/dev/null |
+	while IFS= read -r line; do
+		# classify the failure so each source can be enabled separately
+		kind=""
+		case "$line" in
+			*"Bad password attempt"*|*"Max auth tries reached"*) kind=ssh_password ;;
+			*"Login attempt for nonexistent user"*)                  kind=ssh_user ;;
+			*"failed login"*)                                        kind=web_auth ;;
+			*) continue ;;
+		esac
+		enabled_kind "$kind" || continue
+
+		ip=$(printf '%s\n' "$line" | sed -n 's/.*from <\([0-9.]*\):[0-9]*>.*/\1/p')
+		[ -n "$ip" ] || ip=$(printf '%s\n' "$line" | sed -n 's/.*from \([0-9.]*\):.*/\1/p')
+		[ -n "$ip" ] || ip=$(printf '%s\n' "$line" | sed -n 's/.*from \([0-9.]*\)$/\1/p')
+		[ -n "$ip" ] && count_ip "$ip" "$th" "$kind"
+	done
+}
+
+main

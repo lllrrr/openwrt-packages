@@ -1,0 +1,16 @@
+#!/bin/sh
+# Shell of the whitelisted passwordless SSH account (uid 0, empty password).
+#
+# dropbear execs this directly, so a session that reached the -B dropbear
+# instance (only whitelisted addresses can, via the firewall redirect) gets a
+# root shell without a password.
+#
+# busybox login accepts blank passwords too, and the stock ttyd / serial
+# console login prompt is reachable from every address, so refuse anything
+# that was not started by that instance.
+if [ "$TRUSTED_SSH" = "1" ] || [ "$(cat /proc/$PPID/comm 2>/dev/null)" = "dropbear" ]; then
+	exec /bin/ash "$@"
+fi
+
+echo "trusted: 此账号仅用于白名单免密 SSH（ssh trusted@<路由器地址>）。" >&2
+exit 1

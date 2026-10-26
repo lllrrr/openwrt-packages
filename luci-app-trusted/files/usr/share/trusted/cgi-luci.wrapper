@@ -1,0 +1,172 @@
+#!/bin/sh
+# luci-app-trusted CGI wrapper - replaces /www/cgi-bin/luci.
+#
+# luci-app-trusted CGI wrapper - do not edit, installed by the package.
+#
+# Design note: this wrapper contains no copy of the upstream dispatcher.  The
+# stock CGI is stashed once (/usr/share/trusted/cgi-luci.stock) and executed
+# unchanged, so a luci-base upgrade can never leave a stale fork of it behind
+# (the old approach did exactly that, and failed silently).
+#
+# A whitelisted client is authenticated by injecting the rpcd session id into
+# HTTP_COOKIE - the very state a successful password login would leave behind.
+# Everything else, including LuCI's own ACL checks, runs untouched.
+
+STOCK=/usr/share/trusted/cgi-luci.stock
+RUN=/var/run/trusted
+STATE=$RUN/state
+WL=$RUN/wl
+SIDDIR=$RUN/sid
+UCHELPER=/usr/share/trusted/session.uc
+
+reply() {
+	printf 'Status: %s\r\n' "$1"
+	printf 'Content-Type: text/plain; charset=UTF-8\r\n'
+	printf 'Cache-Control: no-store\r\n'
+	printf 'Connection: close\r\n'
+	printf '\r\n'
+	printf '%s\n' "$2"
+	exit 0
+}
+
+pass() {
+	exec "$STOCK"
+}
+
+# Translate one message into the LuCI language.  The catalog is read only when
+# a message is really needed (a blocked request or a broken installation), so
+# the normal request path pays nothing for i18n.  A missing catalog falls back
+# to the English text passed as the second argument.
+msg() {
+	local s=""
+
+	s=$( ( . /usr/share/trusted/lib.sh 2>/dev/null; i18n_init; t "$1" ) 2>/dev/null )
+	[ -n "$s" ] || s="$2"
+	printf '%s' "$s"
+}
+
+[ -f "$STOCK" ] || reply '500 Internal Server Error' \
+	"$(msg http_500 'Error: the LuCI CGI file is missing. Install the package again.')"
+
+# Not active (switched off, or no runtime state): behave like a stock router.
+TRUSTED_ENABLED=0
+TRUSTED_DENY=0
+[ -f "$STATE" ] && . "$STATE"
+[ "$TRUSTED_ENABLED" = "1" ] || pass
+
+ip=${REMOTE_ADDR:-}
+case "$ip" in
+::ffff:*) ip=${ip#::ffff:} ;;
+esac
+
+# ---------------------------------------------------------------- matcher ---
+
+ip2int() {
+	local IFS=. part n=0
+
+	IPINT=0
+
+	for part in $1; do
+		case "$part" in
+		''|*[!0-9]*) return 1 ;;
+		esac
+		case "$part" in
+		0) ;;
+		0*) return 1 ;;
+		esac
+		[ "$part" -le 255 ] 2>/dev/null || return 1
+		IPINT=$(( IPINT * 256 + part ))
+		n=$(( n + 1 ))
+	done
+
+	[ "$n" -eq 4 ]
+}
+
+# $1 = entry from the whitelist, IPINT_CLIENT = client address
+match_cidr() {
+	local net bits mask
+
+	case "$1" in
+	*/*) net=${1%%/*}; bits=${1#*/} ;;
+	*) net=$1; bits=32 ;;
+	esac
+
+	case "$bits" in
+	''|*[!0-9]*) return 1 ;;
+	esac
+	[ "$bits" -le 32 ] 2>/dev/null || return 1
+
+	ip2int "$net" || return 1
+
+	if [ "$bits" -eq 32 ]; then
+		[ "$IPINT" -eq "$IPINT_CLIENT" ]
+		return
+	fi
+
+	mask=$(( 0xffffffff - ((1 << (32 - bits)) - 1) ))
+	[ $(( IPINT & mask )) -eq $(( IPINT_CLIENT & mask )) ]
+}
+
+IPINT_CLIENT=""
+ip2int "$ip" && IPINT_CLIENT=$IPINT
+
+in_whitelist() {
+	local e
+
+	[ -n "$IPINT_CLIENT" ] || return 1
+	[ -r "$WL" ] || return 1
+
+	while read -r e; do
+		[ -n "$e" ] || continue
+		match_cidr "$e" && return 0
+	done < "$WL"
+
+	return 1
+}
+
+# ------------------------------------------------------------- enforcement ---
+
+if ! in_whitelist; then
+	# "deny non-whitelisted devices" - the firewall already drops IPv4 before
+	# it gets here; this is the backstop, and the only enforcement for IPv6.
+	[ "$TRUSTED_DENY" = "1" ] && reply '403 Forbidden' \
+		"$(msg http_403 'Trusted blocked this request. This device is not in the whitelist.')"
+
+	pass
+fi
+
+# A client that already presents a session cookie keeps it: a real password
+# login (possibly as another user) always wins over the managed session.
+case "${HTTP_COOKIE:-}" in
+*sysauth_http=*|*sysauth_https=*) pass ;;
+esac
+
+# ---------------------------------------------------------------- session ---
+
+sid=""
+[ -f "$SIDDIR/$ip" ] && read -r sid < "$SIDDIR/$ip"
+
+if [ -n "$sid" ]; then
+	# Expired sessions must not be handed out: rpcd answers 252 (Not found).
+	/bin/ubus call session get "{\"ubus_rpc_session\":\"$sid\"}" >/dev/null 2>&1 || sid=""
+fi
+
+if [ -z "$sid" ] && [ -x /usr/bin/ucode ]; then
+	sid=$(/usr/bin/ucode "$UCHELPER" 2>/dev/null)
+	case "$sid" in
+	????????????????????????????????) ;;
+	*) sid="" ;;
+	esac
+	if [ -n "$sid" ]; then
+		mkdir -p "$SIDDIR" 2>/dev/null
+		umask 077
+		printf '%s' "$sid" > "$SIDDIR/$ip" 2>/dev/null
+	fi
+fi
+
+if [ -n "$sid" ]; then
+	HTTP_COOKIE="sysauth_http=$sid"
+	export HTTP_COOKIE
+fi
+
+pass

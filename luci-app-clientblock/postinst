@@ -1,0 +1,17 @@
+#!/bin/sh
+# Runs after the package files are unpacked (apk: post-install, opkg: postinst).
+[ -n "${IPKG_INSTROOT}" ] || {
+	mkdir -p /etc/clientblock /etc/nftables.d
+	[ -s /etc/clientblock/blocked_ips.json ] || echo '{}' > /etc/clientblock/blocked_ips.json
+	[ -s /etc/clientblock/blocked.json ]     || echo '{}' > /etc/clientblock/blocked.json
+	[ -s /etc/clientblock/names.json ]       || echo '{}' > /etc/clientblock/names.json
+	chmod 600 /etc/clientblock/*.json 2>/dev/null
+
+	/etc/init.d/rpcd restart    >/dev/null 2>&1
+	/etc/init.d/clientblock enable  >/dev/null 2>&1
+	/etc/init.d/clientblock restart >/dev/null 2>&1
+	fw4 reload >/dev/null 2>&1
+
+	echo "luci-app-clientblock: open LuCI -> Network -> Access Control"
+}
+exit 0

@@ -1,0 +1,45 @@
+#!/bin/sh
+
+# The CGI wrapper is installed by /etc/init.d/trusted (ensure_wrapper), which
+# knows how to tell a genuine upstream script from a leftover shim.  Doing it
+# here as well would duplicate that logic and can wrap the wrong file.
+
+rm -f /tmp/luci-indexcache*
+# Cache of the 1.0/1.1 in-process shim.
+rm -f /tmp/luci-trusted-sessions.json
+# Leftover of the <= 1.1 layout, which kept the hook module here.
+rm -rf /usr/share/ucode/luci/trusted
+rm -f /usr/share/trusted/cgi-luci.shim
+
+# Leftover of the <= 1.1 firewall layout (fw4 include).  Drop the file and the
+# two chains it used to create - fw4 never removes a chain it does not know
+# about, so they would stay behind forever.  Directly, without a firewall
+# reload, to avoid flushing the hardware flow table on upgrade.
+rm -f /etc/nftables.d/trusted.nft
+for c in user_pre_input user_pre_prerouting; do
+	nft flush chain inet fw4 "$c" 2>/dev/null
+	nft delete chain inet fw4 "$c" 2>/dev/null
+done
+
+# Migration from <= 1.0.0, which edited the stock ttyd command in place.
+# The current design leaves the stock ttyd untouched, so undo that.
+if [ -n "$(uci -q get trusted.global.term_cmd_orig)" ]; then
+	uci -q set "ttyd.@ttyd[0].command=$(uci -q get trusted.global.term_cmd_orig)"
+	uci -q delete trusted.global.term_cmd_orig
+	uci -q commit ttyd
+	uci -q commit trusted
+	/etc/init.d/ttyd reload 2>/dev/null
+fi
+
+# Make rpcd pick up the new ACL group file.
+/etc/init.d/rpcd reload 2>/dev/null || /etc/init.d/rpcd restart 2>/dev/null
+
+# Register for boot and (re)start.  Without "enable" the daemon was never
+# started after a reboot, so the firewall stayed loaded while nothing was
+# listening behind it.  Explicit stop+start instead of "restart", which
+# returns non-zero on a fresh install ("Not found") and skipped the start.
+/etc/init.d/trusted enable
+/etc/init.d/trusted stop 2>/dev/null
+/etc/init.d/trusted start
+
+exit 0

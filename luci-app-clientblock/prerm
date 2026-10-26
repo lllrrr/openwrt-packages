@@ -1,0 +1,8 @@
+#!/bin/sh
+[ -n "${IPKG_INSTROOT}" ] || {
+	/etc/init.d/clientblock stop    >/dev/null 2>&1
+	/etc/init.d/clientblock disable >/dev/null 2>&1
+	rm -f /etc/nftables.d/90-clientblock.nft /tmp/clientblock-hits
+	fw4 reload >/dev/null 2>&1
+}
+exit 0

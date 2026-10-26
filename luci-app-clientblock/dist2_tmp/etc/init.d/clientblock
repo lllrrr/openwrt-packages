@@ -1,0 +1,28 @@
+#!/bin/sh /etc/rc.common
+# Keeps blocked clients alive across reboots and runs the realtime login watcher.
+
+START=99
+STOP=10
+USE_PROCD=1
+
+start_service() {
+	# 1) restore blocked state into the running firewall
+	(
+		for i in 1 2 3 4 5 6 7 8 9 10; do
+			if ubus -S call luci.clientblock status >/dev/null 2>&1; then
+				ubus -S call luci.clientblock sync >/dev/null 2>&1
+				break
+			fi
+			sleep 1
+		done
+	) &
+
+	# 2) realtime watcher for login attacks
+	[ -x /usr/sbin/clientblock-watch ] || return 0
+	procd_open_instance watch
+	procd_set_param command /usr/sbin/clientblock-watch
+	procd_set_param respawn 3600 5 0
+	procd_set_param stdout 0
+	procd_set_param stderr 0
+	procd_close_instance
+}
