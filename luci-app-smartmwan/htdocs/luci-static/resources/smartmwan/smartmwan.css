@@ -1,46 +1,158 @@
 /*
  * smartmwan —— LuCI 视图样式（零 Lua）
  * 放置于 htdocs/luci-static/resources/smartmwan/smartmwan.css。
- * 布局用 Grid + Flexbox；所有选择器以 .smw- 作用域，绝不污染 LuCI 全局样式。
+ *
+ * 两条硬约束：
+ *   1. 所有选择器以 .smw- 作用域，绝不污染 LuCI 全局样式；
+ *   2. 颜色一律走 CSS 变量并带 fallback —— 主题变量不存在时（老主题/暗色主题）
+ *      落到 fallback，而不是变成不可读的透明或纯黑。
+ *
+ * 布局用 Grid + Flexbox：卡片网格自适应列宽，窄屏（手机）自动堆叠成单列，
+ * 不需要为移动端另写一套 DOM。
  */
+
+/* ==================== 主题变量 ==================== */
+
+.smw-panel,
+.smw-root {
+	/* 语义色：全部带 fallback，且明/暗两套都保证对比度。 */
+	--smw-ok: #1e8449;
+	--smw-ok-bg: rgba(46, 204, 113, 0.16);
+	--smw-warn: #b9770e;
+	--smw-warn-bg: rgba(243, 156, 18, 0.16);
+	--smw-bad: #c0392b;
+	--smw-bad-bg: rgba(231, 76, 60, 0.16);
+	--smw-info: #2471a3;
+	--smw-info-bg: rgba(52, 152, 219, 0.16);
+	--smw-muted-fg: #6b7280;
+	--smw-muted-bg: rgba(127, 140, 141, 0.16);
+
+	--smw-surface: var(--background-color, #fff);
+	--smw-surface-alt: var(--background-color-secondary, #f7f8fa);
+	--smw-line: var(--border-color, #e3e6ea);
+	--smw-fg: var(--text-color, #22292f);
+	--smw-accent: var(--primary-color, #337ab7);
+	--smw-radius: 10px;
+	--smw-shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.04);
+}
+
+/* 暗色：只改语义色与描边，不改布局。
+   用 prefers-color-scheme 而非主题 class —— 后者在不同 LuCI 主题下名字不统一，
+   猜错等于整块失效；媒体查询至少覆盖「系统偏好为暗」这一类。 */
+@media (prefers-color-scheme: dark) {
+	.smw-panel,
+	.smw-root {
+		--smw-ok: #5ddb9c;
+		--smw-warn: #f0b357;
+		--smw-bad: #f08b7d;
+		--smw-info: #6cc0f0;
+		--smw-muted-fg: #9aa4af;
+		--smw-line: rgba(255, 255, 255, 0.12);
+		--smw-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+	}
+}
+
+/* ==================== 骨架 ==================== */
 
 .smw-panel {
 	display: flex;
 	flex-direction: column;
-	gap: 1.25em;
+	gap: 1.1em;
+	padding: 0.25em 0;
 }
 
 .smw-panel h2 {
-	margin-bottom: 0.25em;
+	margin: 0;
+	font-size: 1.35em;
+	font-weight: 650;
+	letter-spacing: 0.01em;
 }
 
 .smw-panel h3 {
-	margin: 0.5em 0 0.25em;
+	margin: 0.2em 0 0;
+	font-size: 1.02em;
+	font-weight: 640;
+	color: var(--smw-fg);
 }
 
 .smw-panel h4 {
-	margin: 0.5em 0 0.25em;
+	margin: 0.2em 0 0;
+	font-size: 0.95em;
+	font-weight: 620;
 }
 
-/* ---- 四态 ---- */
+/* 区块卡片：把「标题 + 内容」收进一张卡，页面不再是一串裸表格。 */
+.smw-section {
+	display: flex;
+	flex-direction: column;
+	gap: 0.7em;
+	padding: 1em 1.1em;
+	border: 1px solid var(--smw-line);
+	border-radius: var(--smw-radius);
+	background: var(--smw-surface);
+	box-shadow: var(--smw-shadow);
+}
+
+.smw-section > h3:first-child,
+.smw-section > .smw-section-head:first-child {
+	margin-top: 0;
+}
+
+/* 区块头：标题 + 右侧操作（按钮/状态），两端对齐。 */
+.smw-section-head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.6em;
+	margin-bottom: 0.15em;
+}
+
+.smw-section-head h3,
+.smw-section-head h4 {
+	margin: 0;
+}
+
+.smw-section-head .smw-actions {
+	margin: 0;
+}
+
+/* ==================== 四态 ==================== */
 
 .smw-state {
-	padding: 1em 1.25em;
-	border-radius: 4px;
-	background: var(--bg, #f7f7f7);
+	padding: 1em 1.15em;
+	border: 1px solid var(--smw-line);
+	border-radius: var(--smw-radius);
+	background: var(--smw-surface-alt);
 }
 
 .smw-state-loading {
-	color: var(--muted, #666);
+	color: var(--smw-muted-fg);
 }
 
 .smw-state-empty {
-	color: var(--muted, #666);
-	font-style: italic;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 0.35em;
+	padding: 1.6em 1em;
+	color: var(--smw-muted-fg);
+	text-align: center;
+}
+
+/* 空态图标：纯 CSS 的圆环，避免引入外部字体或图片依赖。 */
+.smw-state-empty::before {
+	content: "";
+	width: 2.2em;
+	height: 2.2em;
+	border: 2px dashed var(--smw-line);
+	border-radius: 50%;
+	opacity: 0.9;
 }
 
 .smw-state-error {
-	border-left: 4px solid var(--danger, #c0392b);
+	border-left: 4px solid var(--smw-bad);
+	background: var(--smw-bad-bg);
 }
 
 .smw-error-code {
@@ -55,93 +167,162 @@
 	font-size: 0.9em;
 }
 
-/* ---- 卡片（Grid） ---- */
+/* ==================== 统计卡片 ==================== */
 
 .smw-cards {
 	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+	grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 	gap: 0.75em;
 }
 
 .smw-card {
+	position: relative;
 	display: flex;
 	flex-direction: column;
 	gap: 0.25em;
-	padding: 0.75em 1em;
-	border: 1px solid var(--border, #ddd);
-	border-radius: 4px;
-	background: var(--bg-alt, #fff);
+	padding: 0.85em 1em;
+	border: 1px solid var(--smw-line);
+	border-radius: var(--smw-radius);
+	background: var(--smw-surface);
+	box-shadow: var(--smw-shadow);
+	overflow: hidden;
+	transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
+.smw-card:hover {
+	transform: translateY(-1px);
+	box-shadow: 0 4px 10px rgba(16, 24, 40, 0.1);
+}
+
+/* 左侧色条：一眼区分语义（正常/警告/故障），不靠颜色堆满整块。 */
+.smw-card::before {
+	content: "";
+	position: absolute;
+	left: 0;
+	top: 0;
+	bottom: 0;
+	width: 3px;
+	background: var(--smw-accent);
+	opacity: 0.55;
+}
+
+.smw-card-ok::before { background: var(--smw-ok); opacity: 0.85; }
+.smw-card-warn::before { background: var(--smw-warn); opacity: 0.85; }
+.smw-card-bad::before { background: var(--smw-bad); opacity: 0.85; }
+
 .smw-card-title {
-	font-size: 0.85em;
-	color: var(--muted, #666);
-	text-transform: uppercase;
+	font-size: 0.78em;
+	font-weight: 600;
 	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: var(--smw-muted-fg);
 }
 
 .smw-card-value {
-	font-size: 1.25em;
-	font-weight: 600;
-	word-break: break-all;
+	font-size: 1.3em;
+	font-weight: 650;
+	line-height: 1.25;
+	/* 数值用等宽数字：刷新时不会左右跳动。 */
+	font-variant-numeric: tabular-nums;
+	word-break: break-word;
 }
 
 .smw-card-note {
 	font-size: 0.85em;
-	color: var(--warn, #b9770e);
+	color: var(--smw-warn);
 }
 
-/* ---- 徽标 ---- */
+.smw-card-foot {
+	margin-top: 0.15em;
+	font-size: 0.8em;
+	color: var(--smw-muted-fg);
+}
+
+/* ==================== 徽标 ==================== */
 
 .smw-badge {
-	display: inline-block;
-	padding: 0.1em 0.55em;
-	border-radius: 3px;
-	font-size: 0.85em;
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35em;
+	padding: 0.12em 0.6em;
+	border-radius: 999px;
+	font-size: 0.82em;
 	font-weight: 600;
+	line-height: 1.5;
 	white-space: nowrap;
+	background: var(--smw-muted-bg);
+	color: var(--smw-muted-fg);
 }
 
-.smw-badge-ok {
-	background: rgba(46, 204, 113, 0.18);
-	color: #1e8449;
+/* 状态点：颜色之外再给一个形状线索（色盲友好，也更适合小尺寸）。 */
+.smw-badge::before {
+	content: "";
+	width: 0.45em;
+	height: 0.45em;
+	border-radius: 50%;
+	background: currentColor;
+	opacity: 0.85;
 }
 
-.smw-badge-warn {
-	background: rgba(243, 156, 18, 0.18);
-	color: #b9770e;
-}
+.smw-badge-ok { background: var(--smw-ok-bg); color: var(--smw-ok); }
+.smw-badge-warn { background: var(--smw-warn-bg); color: var(--smw-warn); }
+.smw-badge-bad { background: var(--smw-bad-bg); color: var(--smw-bad); }
+.smw-badge-info { background: var(--smw-info-bg); color: var(--smw-info); }
+.smw-badge-muted { background: var(--smw-muted-bg); color: var(--smw-muted-fg); }
 
-.smw-badge-bad {
-	background: rgba(231, 76, 60, 0.18);
-	color: #c0392b;
-}
-
-.smw-badge-info {
-	background: rgba(52, 152, 219, 0.18);
-	color: #2471a3;
-}
-
-.smw-badge-muted {
-	background: rgba(127, 140, 141, 0.18);
-	color: #566573;
-}
-
-/* ---- 表格 ---- */
+/* ==================== 表格 ==================== */
 
 .smw-table {
 	overflow-x: auto;
+	border: 1px solid var(--smw-line);
+	border-radius: var(--smw-radius);
+	background: var(--smw-surface);
 }
 
 .smw-table table {
 	width: 100%;
+	border-collapse: collapse;
 }
 
 .smw-table .th {
+	padding: 0.55em 0.7em;
+	font-size: 0.8em;
+	font-weight: 650;
+	letter-spacing: 0.03em;
+	text-transform: uppercase;
+	color: var(--smw-muted-fg);
+	text-align: left;
 	white-space: nowrap;
+	background: var(--smw-surface-alt);
+	border-bottom: 1px solid var(--smw-line);
 }
 
-/* ---- 列表 ---- */
+.smw-table .td {
+	padding: 0.5em 0.7em;
+	border-bottom: 1px solid var(--smw-line);
+	vertical-align: middle;
+}
+
+.smw-table .tr:last-child .td {
+	border-bottom: none;
+}
+
+/* 斑马纹 + hover：宽表不容易串行。 */
+.smw-table .tr:nth-child(even) .td {
+	background: var(--smw-surface-alt);
+}
+
+.smw-table .tr:hover .td {
+	background: var(--smw-muted-bg);
+}
+
+/* 数值列等宽对齐 */
+.smw-table .td.smw-num {
+	text-align: right;
+	font-variant-numeric: tabular-nums;
+}
+
+/* ==================== 列表 ==================== */
 
 .smw-notes {
 	margin: 0.25em 0;
@@ -153,27 +334,24 @@
 }
 
 .smw-muted {
-	color: var(--muted, #666);
+	color: var(--smw-muted-fg);
 	font-size: 0.9em;
 }
 
-.smw-warn {
-	color: var(--warn, #b9770e);
-}
+.smw-warn { color: var(--smw-warn); }
+.smw-error { color: var(--smw-bad); }
 
-.smw-error {
-	color: var(--danger, #c0392b);
-}
-
-/* ---- 线路卡片（Grid） ---- */
+/* ==================== 线路卡片 ==================== */
 
 .smw-line-card {
 	display: flex;
 	flex-direction: column;
-	gap: 0.5em;
-	padding: 0.75em 1em;
-	border: 1px solid var(--border, #ddd);
-	border-radius: 4px;
+	gap: 0.6em;
+	padding: 0.9em 1em;
+	border: 1px solid var(--smw-line);
+	border-radius: var(--smw-radius);
+	background: var(--smw-surface);
+	box-shadow: var(--smw-shadow);
 }
 
 .smw-line-head {
@@ -183,19 +361,24 @@
 	gap: 0.5em;
 }
 
+.smw-line-head strong {
+	font-size: 1.05em;
+}
+
 .smw-line-actions,
 .smw-actions {
 	display: flex;
 	flex-wrap: wrap;
 	gap: 0.5em;
+	margin-top: 0.2em;
 }
 
-/* ---- 份额条 ---- */
+/* ==================== 份额条 ==================== */
 
 .smw-bars {
 	display: flex;
 	flex-direction: column;
-	gap: 0.4em;
+	gap: 0.45em;
 }
 
 .smw-bar-row {
@@ -205,30 +388,35 @@
 }
 
 .smw-bar-label {
-	flex: 0 0 6em;
+	flex: 0 0 6.5em;
 	text-align: right;
+	font-weight: 600;
 }
 
 .smw-bar-track {
 	flex: 1;
-	height: 0.9em;
-	border-radius: 3px;
-	background: var(--border, #ddd);
+	height: 0.75em;
+	min-width: 4em;
+	border-radius: 999px;
+	background: var(--smw-muted-bg);
 	overflow: hidden;
 }
 
 .smw-bar-fill {
 	display: block;
 	height: 100%;
-	background: var(--primary, #337ab7);
+	border-radius: 999px;
+	background: linear-gradient(90deg, var(--smw-accent), color-mix(in srgb, var(--smw-accent) 65%, #7fd0ff));
+	transition: width 0.4s ease;
 }
 
 .smw-bar-value {
 	flex: 0 0 4.5em;
 	font-variant-numeric: tabular-nums;
+	text-align: right;
 }
 
-/* ---- 桶图 ---- */
+/* ==================== 桶图 ==================== */
 
 .smw-bucketmap {
 	display: flex;
@@ -238,28 +426,152 @@
 
 .smw-bucket {
 	padding: 0.1em 0.4em;
-	border: 1px solid var(--border, #ddd);
-	border-radius: 3px;
-	font-family: monospace;
-	font-size: 0.85em;
+	border: 1px solid var(--smw-line);
+	border-radius: 4px;
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	font-size: 0.82em;
+	background: var(--smw-surface-alt);
 }
 
 .smw-bucket-zero {
-	color: var(--muted, #666);
-	background: var(--bg, #f7f7f7);
+	color: var(--smw-muted-fg);
+	opacity: 0.75;
 }
 
-/* ---- 主备顺序 ---- */
+/* ==================== 主备顺序 ==================== */
 
 .smw-order {
 	margin: 0.25em 0;
-	padding-left: 1.5em;
+	padding-left: 1.4em;
 }
 
-/* ---- 区块 ---- */
+.smw-order li {
+	margin-bottom: 0.15em;
+}
+
+/* ==================== 表单（配置编辑） ==================== */
+
+.smw-form {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+	gap: 0.75em 1em;
+}
+
+.smw-field {
+	display: flex;
+	flex-direction: column;
+	gap: 0.3em;
+}
+
+.smw-field > label {
+	font-size: 0.82em;
+	font-weight: 620;
+	color: var(--smw-muted-fg);
+}
+
+.smw-field select,
+.smw-field input[type="text"],
+.smw-field input[type="number"] {
+	width: 100%;
+	padding: 0.42em 0.55em;
+	border: 1px solid var(--smw-line);
+	border-radius: 6px;
+	background: var(--smw-surface);
+	color: var(--smw-fg);
+	font: inherit;
+}
+
+.smw-field select:focus,
+.smw-field input:focus {
+	outline: 2px solid color-mix(in srgb, var(--smw-accent) 60%, transparent);
+	outline-offset: 1px;
+}
+
+/* 字段下方的说明：单位、取值范围、为什么这项会影响什么。 */
+.smw-field .smw-muted {
+	font-size: 0.8em;
+}
+
+/* 变更提示条：改了还没保存时提醒用户，避免「以为改了其实没下发」。 */
+.smw-dirty {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.6em;
+	padding: 0.55em 0.8em;
+	border: 1px dashed var(--smw-warn);
+	border-radius: 8px;
+	background: var(--smw-warn-bg);
+	color: var(--smw-warn);
+	font-size: 0.9em;
+}
+
+/* ==================== 杂项 ==================== */
 
 .smw-block {
 	display: flex;
 	flex-direction: column;
 	gap: 0.4em;
+}
+
+.smw-kv {
+	display: grid;
+	grid-template-columns: minmax(8em, auto) 1fr;
+	gap: 0.35em 1em;
+	align-items: baseline;
+}
+
+.smw-kv dt {
+	color: var(--smw-muted-fg);
+	font-size: 0.88em;
+}
+
+.smw-kv dd {
+	margin: 0;
+	word-break: break-word;
+}
+
+/* 刷新指示：角落里的小字，不抢内容的位置。 */
+.smw-tick {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35em;
+	font-size: 0.82em;
+	color: var(--smw-muted-fg);
+}
+
+.smw-tick::before {
+	content: "";
+	width: 0.45em;
+	height: 0.45em;
+	border-radius: 50%;
+	background: var(--smw-ok);
+	opacity: 0.85;
+}
+
+/* 尊重「减少动效」的系统设置。 */
+@media (prefers-reduced-motion: reduce) {
+	.smw-card,
+	.smw-bar-fill {
+		transition: none;
+	}
+	.smw-card:hover {
+		transform: none;
+	}
+}
+
+/* 窄屏：卡片单列，区块内边距收紧。 */
+@media (max-width: 640px) {
+	.smw-cards {
+		grid-template-columns: 1fr;
+	}
+	.smw-section {
+		padding: 0.8em;
+	}
+	.smw-form {
+		grid-template-columns: 1fr;
+	}
+	.smw-kv {
+		grid-template-columns: 1fr;
+	}
 }

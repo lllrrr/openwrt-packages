@@ -11,12 +11,17 @@
 START=99
 USE_PROCD=1
 
-EXTRA_COMMANDS="reload"
 EXTRA_HELP="	reload	Re-read UCI config and reset debounce state (same as SIGHUP)"
-
-reload() {
+# 注：reload 是 rc.common 标准命令，对 USE_PROCD=1 的服务会路由到 reload_service()。
+# 两个真机实证的坑（ImmortalWrt SNAPSHOT / busybox 1.38）：
+#   1) 函数必须叫 reload_service() —— 名为 reload() 的自定义函数不会被执行；
+#   2) busybox 的 start-stop-daemon 不认 `-K -HUP` 组合（退出码 0 却根本不发信号），
+#      SIGHUP 必须直接对 pidfile 记录的 PID 发。
+reload_service() {
 	[ -x /usr/bin/smartmwand ] || return 1
-	start-stop-daemon -q -K -HUP -p /var/run/smartmwand.pid 2>/dev/null
+	local pid
+	pid="$(cat /var/run/smartmwand.pid 2>/dev/null)"
+	[ -n "$pid" ] && kill -HUP "$pid" 2>/dev/null
 	return 0
 }
 

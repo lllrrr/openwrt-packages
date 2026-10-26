@@ -5,7 +5,7 @@
  *
  * 位置：/usr/share/rpcd/ucode/smartmwan.uc（rpcd 启动时加载）。
  * 职责只有三件事：
- *   1. 声明 ubus 对象 `smartmwan` 的 23 个方法及其参数策略（rpcd 据此做
+ *   1. 声明 ubus 对象 `smartmwan` 的 29 个方法及其参数策略（rpcd 据此做
  *      ACL 与参数校验，本文件不做任何业务判断）；
  *   2. 连接守护进程的 Unix socket（global.rpc_socket），按
  *      「4 字节大端长度前缀 + JSON」帧转发请求；
@@ -175,10 +175,18 @@ function call_daemon(req, method) {
 
 const no_args = {};
 const line_arg = { wan: "" };
-const log_args = { level: "", limit: 16 };
+// 注意：rpcd-mod-ucode 把整数 typehint 的**值**当位宽（8→INT8、16→INT16、64→INT64、
+// 其余→INT32），不是默认值 —— 声明 limit:16 会让 INT32 实参被拒（真机实测踩坑）。
+// 数字参数一律写 0（→INT32），默认值由守护进程侧解析兜底。
+const log_args = { level: "", limit: 0 };
 const config_arg = { config: {} };
 const force_args = { wan: "", confirm: true };
 const maint_args = { wan: "", on: true };
+// 便捷设置：只传一个字段，由守护进程校验并触发一轮事务。
+const mode_arg = { mode: "" };
+const algorithm_arg = { algorithm: "" };
+const primary_arg = { wan: "" };
+const order_arg = { order: [] };
 
 return {
 	smartmwan: {
@@ -256,6 +264,28 @@ return {
 		},
 		reload: {
 			call: function(req) { return call_daemon(req, 'smartmwan.reload'); }
+		},
+		switchMode: {
+			args: mode_arg,
+			call: function(req) { return call_daemon(req, 'smartmwan.switchMode'); }
+		},
+		setPrimary: {
+			args: primary_arg,
+			call: function(req) { return call_daemon(req, 'smartmwan.setPrimary'); }
+		},
+		setBackupOrder: {
+			args: order_arg,
+			call: function(req) { return call_daemon(req, 'smartmwan.setBackupOrder'); }
+		},
+		setAlgorithm: {
+			args: algorithm_arg,
+			call: function(req) { return call_daemon(req, 'smartmwan.setAlgorithm'); }
+		},
+		failback: {
+			call: function(req) { return call_daemon(req, 'smartmwan.failback'); }
+		},
+		diagnostics: {
+			call: function(req) { return call_daemon(req, 'smartmwan.diagnostics'); }
 		}
 	}
 };

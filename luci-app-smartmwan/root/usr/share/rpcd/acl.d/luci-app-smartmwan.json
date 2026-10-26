@@ -1,6 +1,6 @@
 {
 	"luci-app-smartmwan": {
-		"description": "Grant access to smartmwan multi-WAN routing (method-level; no wildcard objects)",
+		"description": "允许访问智能多线路（smartmwan）的查询与操作接口（按方法逐个授权，无通配）",
 		"read": {
 			"ubus": {
 				"smartmwan": [
@@ -18,7 +18,8 @@
 					"getConfig",
 					"getCapabilities",
 					"validate",
-					"diff"
+					"diff",
+					"diagnostics"
 				]
 			}
 		},
@@ -31,13 +32,18 @@
 					"forceWan",
 					"releaseForced",
 					"setMaintenance",
-					"reload"
+					"reload",
+					"switchMode",
+					"setPrimary",
+					"setBackupOrder",
+					"setAlgorithm",
+					"failback"
 				]
 			}
 		}
 	},
 	"luci-app-smartmwan-probe": {
-		"description": "Grant on-demand probing (network side effect; audited by the daemon)",
+		"description": "允许按需立即探测（有网络副作用；守护进程审计）",
 		"read": {
 			"ubus": {
 				"smartmwan": [

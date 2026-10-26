@@ -304,3 +304,39 @@ config game 'demo'
 * 预置项数据文件（`rules::presets`）：缺 `source` → 整条拒绝；`targets` 与 `domains` 全空 → 拒绝；
   单个文件解析失败 → **整批失败**（不静默忽略该文件）；跨文件重复 `id` → 拒绝；
   文件 > 512KiB → 拒绝；文件内的 CIDR/端口/域名在加载时就校验，错误信息带文件名与 `id`。
+
+## 8. 部署要求与安装语义（真机实证，ImmortalWrt 25.12+/apk 时代）
+
+### 8.1 健康探测前提：ping socket
+
+设备内核默认 `net.ipv4.ping_group_range = 1 0`（禁用 ping socket）。未解锁时所有线路的
+ICMP 探测不可用，健康层会**诚实告警**（线路状态 unknown，不伪造健康）：
+
+```sh
+sysctl -w net.ipv4.ping_group_range='0 2147483647'
+echo 'net.ipv4.ping_group_range=0 2147483647' >> /etc/sysctl.conf   # 持久化
+```
+
+插件**不会自动修改**这个系统级设置。也可以给线路显式配 `probe_proto`（tcp/udp/dns）
+绕开 ICMP。
+
+### 8.2 nftables 占位片段的位置与移除
+
+占位片段安装在 `/usr/share/nftables.d/ruleset-post/smartmwan.nft`（fw4 自动片段目录，
+被 include 到 ruleset 顶层——**不是** `/etc/nftables.d/`，该目录会被此固件的 fw4 内置
+glob include 进 `table inet fw4` 表体内部，独立表片段放那里会导致 fw4 整体拒绝加载）。
+删除该文件并重启防火墙即可移除占位表；守护进程的运行期对象由 `--reclaim` 或停用事务回收。
+
+### 8.3 apk 的安装/升级/卸载语义
+
+* **升级/重装**：`/etc/config/smartmwan` 列入 conffiles，用户改动**保留**
+  （真机实测：改 `enabled` 后 `apk add --force` 重装，改动仍在）；
+* **卸载**（`apk del`）：按 apk 语义**连 conffiles 一起删除**（与 opkg 不同）——
+  卸载前如需保留配置请自行备份 `/etc/config/smartmwan`；
+* 卸载时 `prerm` 会停服务并跑 `--reclaim` 清掉插件在内核里的全部自有对象。
+
+### 8.4 LuCI 菜单位置
+
+「网络」菜单下：`网络 → 智能多线路`（URL 前缀 `/cgi-bin/luci/admin/network/smartmwan`），
+7 个标签页：运行总览 / 线路管理 / 负载均衡 / 主备切换 / 游戏路由 / 连接与流量 / 配置。
+浏览器若显示旧菜单标题，是会话缓存的菜单树——退出重新登录即可刷新。

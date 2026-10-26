@@ -225,6 +225,31 @@ impl Scheduler {
     ) -> Result<Outcome> {
         let slots = slot_map(cfg)?;
         let bucket_count = usize::from(cfg.global.buckets.max(1));
+        // 停用配置：决策必须与数据面一致 —— 停用提交已把本插件的内核对象清空，
+        // 决策不得再声称承载流量（真机实证：曾出现「内核已清场、UI 仍显示
+        // 承载流量」的脱节）。停用期间全部流量走系统原路由（main 表）。
+        if !cfg.global.enabled {
+            // changed 只在「从有桶变为全零」的第一轮为真（触发一次停用清场提交）；
+            // 内部桶状态必须同步归零，否则后续每轮都会误判 changed 再跑空事务。
+            let changed =
+                self.buckets.len() == bucket_count && self.buckets.iter().any(|b| *b != 0);
+            self.buckets = vec![0; bucket_count];
+            return Ok(Outcome {
+                mode: cfg.global.mode,
+                algorithm: cfg.global.algorithm,
+                buckets: vec![0; bucket_count],
+                changed,
+                active: None,
+                standby: Vec::new(),
+                waiting: None,
+                all_dead: false,
+                reason: "插件已停用：全部流量走系统原路由（main 表），插件不接管".to_string(),
+                notes: vec!["已停用：如需启用请先完成线路与健康探测配置".to_string()],
+                share: Vec::new(),
+                moved: 0,
+                at_ms: now_ms,
+            });
+        }
         let lines = line_states(cfg, &slots, snap, now_ms);
 
         let mut notes: Vec<String> = Vec::new();
@@ -601,6 +626,12 @@ mod tests {
             games: Vec::new(),
             score: Default::default(),
         }
+    }
+
+    fn cfg_disabled(mode: Mode, algorithm: Algorithm, wans: Vec<WanConfig>) -> Config {
+        let mut c = cfg(mode, algorithm, wans);
+        c.global.enabled = false;
+        c
     }
 
     fn health(name: &str, state: State, blocked: Option<String>) -> WanHealth {
@@ -1042,5 +1073,60 @@ mod tests {
             s.last_rebalance_ms, 0,
             "配置变更后要允许立刻按新参数重排一次"
         );
+    }
+
+    // ==================== 真机实证回归 ====================
+
+    #[test]
+    fn disabled_config_yields_zero_buckets_and_no_traffic_claim() {
+        // 真机实证：停用提交已清空内核对象后，调度层仍按健康状态给桶，
+        // UI 显示「承载流量」而内核里没有任何本插件规则 —— 决策与数据面脱节。
+        // 停用配置的决策必须是全零桶、carries_traffic=false。
+        let c = cfg_disabled(
+            Mode::Balance,
+            Algorithm::SrcIpDstIp,
+            vec![wan("wan1", 1, 10), wan("wan2", 1, 20)],
+        );
+        let mut s = Scheduler::new();
+        let o = s
+            .decide(&c, &healthy_all(), &BTreeMap::new(), 1_000)
+            .unwrap();
+        assert!(!o.carries_traffic(), "停用决策不得声称承载流量");
+        assert!(o.buckets.iter().all(|b| *b == 0));
+        assert!(o.reason.contains("停用"), "{:?}", o.reason);
+    }
+
+    #[test]
+    fn disabled_decide_reports_changed_only_on_transition() {
+        // 第一轮（此前有桶）changed=true 触发一次清场提交；内部状态同步归零后，
+        // 后续轮必须 changed=false，否则守护进程每 tick 都会跑一次空事务。
+        let c = cfg_disabled(
+            Mode::Balance,
+            Algorithm::SrcIpDstIp,
+            vec![wan("wan1", 1, 10), wan("wan2", 1, 20)],
+        );
+        let mut s = Scheduler::new();
+        // 先让机器处于「有桶」状态：启用决策一轮
+        let on = cfg(
+            Mode::Balance,
+            Algorithm::SrcIpDstIp,
+            vec![wan("wan1", 1, 10), wan("wan2", 1, 20)],
+        );
+        let o = s
+            .decide(&on, &healthy_all(), &BTreeMap::new(), 1_000)
+            .unwrap();
+        assert!(o.carries_traffic());
+        // 切停用：第一轮 changed=true（要清场）
+        let o1 = s
+            .decide(&c, &healthy_all(), &BTreeMap::new(), 2_000)
+            .unwrap();
+        assert!(o1.changed, "从有桶到全零必须触发一次停用提交");
+        assert!(!o1.carries_traffic());
+        // 第二轮起 changed=false（不得循环触发空事务）
+        let o2 = s
+            .decide(&c, &healthy_all(), &BTreeMap::new(), 3_000)
+            .unwrap();
+        assert!(!o2.changed, "停用后继续决策必须稳定为无变更");
+        assert!(!o2.carries_traffic());
     }
 }

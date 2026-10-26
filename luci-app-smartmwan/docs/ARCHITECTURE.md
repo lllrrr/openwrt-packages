@@ -124,11 +124,18 @@ RPC 层不得只回一个 bool —— 那等于把「内核现在是什么状态
   集合名来自**规则段名**的 slug，不来自预置项 id。规则文本里每条匹配项都必须带字段名
   （`ether saddr @…` / `ip saddr @…` / `ip daddr @…`）：裸 `@set` 与后续条件混排语义不明，
   而且历史上正是「以 `@` 开头的匹配项被过滤掉」导致 MAC 条件静默失效（`051829f`）。
-* 安装期静态占位：`/etc/nftables.d/smartmwan.nft`，内容由 `firewall::include_file_text()` 生成
-  （打包时必须用该函数产出，不许手写第二份）。它只声明表与一条空 prerouting 链。
+* 安装期静态占位：`/usr/share/nftables.d/ruleset-post/smartmwan.nft`，内容由
+  `firewall::include_file_text()` 生成（打包时必须用该函数产出，不许手写第二份）。
+  它只声明表与一条空 prerouting 链。**路径是真机实证的结论（M10）**：该固件的 fw4
+  把 `/etc/nftables.d/*.nft` 用内置 glob include 进 `table inet fw4` **表体内部**，
+  独立表片段放那里必然语法错误、fw4 整体拒绝加载；`/usr/share/nftables.d/ruleset-post/`
+  才是 ruleset 顶层位置（fw4 README 载明，miniupnpd 同款机制）。
 * 预置项数据目录：`/usr/share/smartmwan/presets/*.json`，路径常量在
   `src/rules/presets.rs::PRESET_DIR`（**骨架目录必须与它同名**，本轮已把 `games` 改成 `presets`）。
-* fw4 挂接：UCI `config include` + `option type 'nftables'` + `option position`。
+* fw4 挂接：**不使用 UCI include 段**（真机实证：匿名段会让维护脚本的幂等判断永远
+  落空，且 `position` 语义在该 fw4 上不可靠）——占位片段放进 fw4 自动片段目录即被
+  include。fw4 重启只 `flush table inet fw4`，守护进程的运行期对象不受影响；
+  占位表由片段重建。
 * 运行期：守护进程按能力探测结果写完整程序；探测本身走 `firewall::probe_caps(&Nft)`
   （对 `probe_scripts()` 的 8 条脚本逐条 `nft -c`，失败项只记 warning 并关闭对应语法，
   不让整轮探测失败）；桶重排只 `replace rule … handle N`。
@@ -148,7 +155,7 @@ RPC 层不得只回一个 bool —— 那等于把「内核现在是什么状态
 `code` 取 `Error::code()` 的 12 个稳定值之一（`config/validate/netlink/firewall/exec/rollback/
 permission/unsupported/timeout/no_route/io/json`），前端据此区分「可重试」与「需用户修正」。
 
-### 方法清单（23 个，M7 已落地；增改必须同步本表与 `src/rpc/mod.rs::METHODS`）
+### 方法清单（29 个；增改必须同步本表与 `src/rpc/mod.rs::METHODS`）
 
 | # | 方法 | 读/写 | 说明 |
 |---|---|---|---|
@@ -158,7 +165,7 @@ permission/unsupported/timeout/no_route/io/json`），前端据此区分「可�
 | 4 | `smartmwan.getLine` | 读 | 单线详情（含探测历史与状态迁移轨迹） |
 | 5 | `smartmwan.getBalance` | 读 | 算法、桶图、份额千分比、上次重排时间与搬动数 |
 | 6 | `smartmwan.getFailover` | 读 | 主备顺序、当前活动、等待回切的线路及**逐条原因** |
-| 7 | `smartmwan.getGames` | 读 | 规则列表 + 命中计数 + 冲突项 |
+| 7 | `smartmwan.getGames` | 读 | 规则列表 + 冲突项 + 命中计数（`hits`，来自内核 `counter`；**读不到时为 `null`，不是 0**） |
 | 8 | `smartmwan.getGameQuality` | 读 | 每条规则在各候选线路上的评分分解 |
 | 9 | `smartmwan.getConnections` | 读 | conntrack 按槽位/类别统计（有上限，超限如实标注截断） |
 | 10 | `smartmwan.getTraffic` | 读 | 接口计数器与平滑后的吞吐 |
@@ -175,10 +182,30 @@ permission/unsupported/timeout/no_route/io/json`），前端据此区分「可�
 | 21 | `smartmwan.setMaintenance` | 写 | 线路维护模式开关 |
 | 22 | `smartmwan.probeNow` | 读（有网络副作用） | 立即跑一轮探测，不改配置、不下发；返回 `RoundInfo` |
 | 23 | `smartmwan.reload` | 写 | 重新读取 UCI 并触发 `on_config_change` |
+| 24 | `smartmwan.switchMode` | 写 | 切换工作模式（`balance` / `failover`）；同值时**不写盘、不下发** |
+| 25 | `smartmwan.setPrimary` | 写 | 设置主线路；拒绝不存在的、已停用的、以及已排在 `backup_order` 里的线路 |
+| 26 | `smartmwan.setBackupOrder` | 写 | 设置备用顺序（越靠前越优先）；拒绝空表、重复项、未知线路与主线路 |
+| 27 | `smartmwan.setAlgorithm` | 写 | 设置均衡算法；`weighted_ecmp` 能力可能不足，响应带 `hint` 说明会降级 |
+| 28 | `smartmwan.failback` | 写 | 手动回切（**即时动作**）：主线路此刻够格才切，不够格如实返回 `switched=false`，**不留**将来生效的指令 |
+| 29 | `smartmwan.diagnostics` | 读 | 聚合只读诊断（版本/uptime/校验/能力降级/线路/conntrack/DNS/最近回执/近期告警）；**零副作用** |
+
+> 24–28 是「便捷形态」：数据模型与事务原本就支持这些设置，这里补的是
+> 「不必先 `getConfig` 再整份 `save`」的入口。它们共用 `mutate_global()` 骨架：
+> 改一个 `global` 字段 → 落盘（内含校验）→ 替换共享槽并同步追踪器 → 请主循环跑一轮事务。
+> `failback` 与 `forceWan` 的区别必须分清：`forceWan` 表达**持久意志**
+> （目标暂不可用也保留指令，恢复后立即生效），回切是**即时动作**。
 
 并发：`transaction::Coordinator` 内部一把 `AsyncMutex` 串行化全部 `plan`/`submit`/`reclaim`（M6 已实现，
 `is_busy()` 供 RPC 即时回答）；读方法不取写锁，但读 `Scheduler` 状态用短临界区快照，避免「读到半更新的状态」。
 审计：所有写方法记录调用者 uid、方法名、参数摘要（脱敏）、transaction id、结果与耗时。
+
+**桥接层（rpcd ucode 插件）**：`root/usr/share/rpcd/ucode/smartmwan.uc` 声明 ubus 对象的
+29 个方法并转发到守护进程 Unix socket。运行依赖 `ucode-mod-socket`（**独立 apk 包**，
+基础 ucode/rpcd 不带——真机实证：缺了它 rpcd 加载插件直接抛
+`No module named 'socket'`，ubus 对象无法注册；已列入 DEPENDS）。插件 args 声明里
+整数 typehint 的**值是位宽提示**（8→INT8、16→INT16、64→INT64、其余→INT32，见上游
+rpcd ucode.c），不是默认值——数字参数一律声明 `0`（真机实证：`limit: 16` 会让 INT32
+实参被 `Invalid argument` 拒收）。
 
 ## 7. 为什么自己写 netlink 和 UCI 解析
 

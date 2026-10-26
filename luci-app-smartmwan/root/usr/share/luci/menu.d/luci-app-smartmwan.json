@@ -1,61 +1,61 @@
 {
-	"admin/smartmwan": {
-		"title": "Smart MWAN",
+	"admin/network/smartmwan": {
+		"title": "智能多线路",
 		"order": 45,
 		"action": {
 			"type": "firstchild"
 		}
 	},
-	"admin/smartmwan/status": {
-		"title": "Status",
+	"admin/network/smartmwan/status": {
+		"title": "运行总览",
 		"order": 10,
 		"action": {
 			"type": "view",
 			"path": "smartmwan/status"
 		}
 	},
-	"admin/smartmwan/lines": {
-		"title": "Lines",
+	"admin/network/smartmwan/lines": {
+		"title": "线路管理",
 		"order": 20,
 		"action": {
 			"type": "view",
 			"path": "smartmwan/lines"
 		}
 	},
-	"admin/smartmwan/balance": {
-		"title": "Balancing",
+	"admin/network/smartmwan/balance": {
+		"title": "负载均衡",
 		"order": 30,
 		"action": {
 			"type": "view",
 			"path": "smartmwan/balance"
 		}
 	},
-	"admin/smartmwan/failover": {
-		"title": "Failover",
+	"admin/network/smartmwan/failover": {
+		"title": "主备切换",
 		"order": 40,
 		"action": {
 			"type": "view",
 			"path": "smartmwan/failover"
 		}
 	},
-	"admin/smartmwan/games": {
-		"title": "Game Routing",
+	"admin/network/smartmwan/games": {
+		"title": "游戏路由",
 		"order": 50,
 		"action": {
 			"type": "view",
 			"path": "smartmwan/games"
 		}
 	},
-	"admin/smartmwan/traffic": {
-		"title": "Connections",
+	"admin/network/smartmwan/traffic": {
+		"title": "连接与流量",
 		"order": 60,
 		"action": {
 			"type": "view",
 			"path": "smartmwan/traffic"
 		}
 	},
-	"admin/smartmwan/config": {
-		"title": "Settings",
+	"admin/network/smartmwan/config": {
+		"title": "配置",
 		"order": 70,
 		"action": {
 			"type": "view",

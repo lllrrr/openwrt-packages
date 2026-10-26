@@ -1,25 +1,71 @@
 # 交接文档
 
 面向**下一个接手的人**（或下一次重启会话的自己）。只写「不知道就会做错」的内容；
-能从代码读出来的不重复。读法顺序：本文件 → `docs/ARCHITECTURE.md` → `docs/PROGRESS.md`。
+能从代码读出来的不重复。读法顺序：本文件 → `docs/SPEC.md`（原始任务书）→
+`docs/ARCHITECTURE.md` → `docs/PROGRESS.md`（**§9 差距清单是当前工作起点**）。
 
 ## 1. 三十秒版
 
 * 这是 OpenWrt/ImmortalWrt **25.12+** 的多 WAN 智能选路插件，**后端 Rust、前端 LuCI JS + ucode，全项目零 Lua**；
-* 已完成：配置层、系统交互层、健康层、调度层、规则层、事务层、**RPC 层、守护进程入口、
-  前端（M8）、打包（M9）**（378 lib + 2 bin 单测全绿，clippy/fmt 双零）；
-* M9 产物已在真实 SDK（aarch64 musl）构建成功并解包核对：四个维护脚本、同源安装期文件、
-  conffiles、aarch64 静态二进制全部就位；`--reclaim` 在 WSL 对真实残留清场并幂等复核；
-* 未完成：**真机验收（M10）**。前端浏览器渲染、目标设备 nft 行为、5G 重拨/IPv6/断电矩阵都归 M10；
+* 已完成：全部代码（后端七层 + 守护进程 + 前端 + 打包）+ **M10 真机验收第一轮**
+  （382 lib + 2 bin 单测全绿，clippy/fmt 双零）；
+* 真机（ImmortalWrt SNAPSHOT / mediatek-filogic aarch64 / nft 1.1.7）：安装/升级/卸载、
+  数据面、健康探测状态机、幂等回收、管理面不失联全部实测通过；抓出**六处真机必爆缺陷**
+  全部修复（`docs/PROGRESS.md` §6.20–6.25）—— 每一条在单测/WSL 里都是绿的；
+* 遗留：双 WAN 均衡/主备切换与 5G 重拨（设备第二线路 eth0 未接上游）、断电重启幂等、
+  浏览器侧渲染人工确认；`tests/` 集成测试仍未写；
 * 事务层现在**有运行期调用者**：守护进程主循环（`src/main.rs`）读 UCI、按周期决策、
   调 `Coordinator::submit()`；RPC 的写方法经 `Command` 通道送回同一个循环串行执行
   （`Scheduler` 与事务因此都只有一个所有者，别在 RPC 层另起一套）；
 * RPC 的 `apply` **不接收** UI 传来的配置副本，一律以磁盘上已保存的为准；
   `submit()` 返回 `Receipt` 而非 `Result`，RPC 必须原样回传，不得压成 bool；
-* 端到端验证发生在 **WSL**（真 netlink + nft 1.1.3）：事务八阶段、幂等回收、崩溃后启动回收、
-  优雅关停回收、23 个 RPC 方法请求/响应全部实测通过；**目标设备未测**，M10 收口；
-* 下一步唯一正确落点：**M10 真机验收**（设备 SSH 口令问题需所有者澄清，
-  见 `docs/PROGRESS.md` §8 已知阻塞）。
+* 下一步：第二线路接入后验证均衡/主备/5G 重拨；`tests/` 集成测试；浏览器人工确认。
+
+### 前端必读（真机踩坑后新增）
+
+* **LuCI 的 `'require X'` 返回模块类的单例实例，不是类本身**（luci.js 加载器
+  `new _class()` 后缓存实例）—— 共享模块 smartmwan.js 在视图里必须直接
+  `smartmwan.parse(...)`，**绝不能 `new smartmwan()`**（真机报
+  "smartmwan is not a constructor"）。新增视图同理；
+* 菜单位置：`admin/network/smartmwan`（仓库所有者指定，放在「网络」菜单下）。
+
+#### 编辑类页面的三条纪律（2026-10-27 新增）
+
+* **不要占用 `handleSave` / `handleSaveApply` / `handleReset`**：它们是 LuCI
+  表单视图的保留钩子，写成自己的保存函数会凭空多出一个全局「保存」按钮，
+  语义与本页的「保存并应用」完全不同。本项目的编辑页把这三个显式设为 `null`，
+  保存函数改叫 `saveConfig()`。
+* **编辑一律走 `save → diff → apply`**：界面改的是 `getConfig` 返回的那份配置
+  的副本（草稿），保存交给后端校验并写盘，**界面从不把配置直接塞给内核**；
+  改单个字段的（主线路/备用顺序/算法）走便捷 RPC，它们内部也是同一条路径。
+  未保存的修改必须用 `smartmwan.dirty()` 摆出来 —— 只靠按钮禁用态暗示，
+  用户会以为改了其实没下发。
+* **命中数 `null` 与 0 是两个意思**：`getGames` 的 `hits` 读不到时是 `null`
+  （UI 显示「—」），只有真的读到 counter 才是数字。显示 0 会被读成
+  「规则没命中过」，而真相可能是通道不是真 nft、根本没读。
+
+#### 版式与样式
+
+* 版面零件集中在 `smartmwan.js`：`section()`（区块卡片）、`stat()`（统计卡片）、
+  `kv()`（键值表）、`field()/select()/number()/checkbox()`（表单）、
+  `dirty()`、`tick()`。新增页面直接复用，别再手写一遍卡片结构；
+* `smartmwan.css` 的两条硬约束：选择器**全部** `.smw-` 作用域（绝不污染 LuCI
+  全局样式），颜色**一律** `var(--x, fallback)`（老主题/暗色主题下变量可能不存在，
+  没有 fallback 会变成不可读的透明或纯黑）；暗色走 `prefers-color-scheme`
+  而不是主题 class —— 后者在不同 LuCI 主题下名字不统一；
+* 数值统一 `font-variant-numeric: tabular-nums`（轮询刷新时不左右跳动），
+  动效在 `prefers-reduced-motion` 下关闭。
+
+#### 改前端怎么自检（没有真机时）
+
+```sh
+# ① 语法：LuCI 的 'require X'; 是合法表达式语句，node 能直接查
+for f in htdocs/luci-static/resources/smartmwan.js htdocs/luci-static/resources/view/smartmwan/*.js; do
+  node --check "$f" || echo "语法错误：$f"
+done
+# ② 渲染冒烟：用 stub 掉 LuCI 运行时（E/L/rpc/ui/view）的脚本跑一遍 render()
+#    脚本刻意**不入库**：它带示例数据，混进仓库就有被当成真实状态的风险。
+```
 
 ## 2. 改了会出事的八条不变式
 
@@ -264,9 +310,11 @@ UCI 文件 `/etc/config/smartmwan`，段类型 `smartmwan`(global) / `wan` / `ga
    （define 名按 `include/package-pack.mk` 的 `BuildPackVariable` 实测，
    **自造名字会被静默忽略**）+ 同源安装期文件（`--dump-defaults` / `--dump-include`）。
    真实 SDK 构建已通过；`apk adbdump` 可核对脚本是否真的进了包。
-5. **M10 真机是当前落点**：按 `docs/ROADMAP.md` DoD 与 `docs/TESTING.md` 设备矩阵逐条收口
-   （nft 实测语法、5G 重拨、IPv6 不绕过、管理面不失联、断电重启幂等、浏览器渲染）。
-   设备 SSH 口令问题先找所有者澄清（`docs/PROGRESS.md` §8）。
+5. **M10 剩余项与任务书差距是当前落点**：完整差距清单（RPC 便捷形态 6 个、
+   前端配置编辑、游戏命中统计、diagnostics、`tests/` 六件套、真机剩余矩阵）
+   见 `docs/PROGRESS.md` §9，建议实施顺序也在那里；原始要求见 `docs/SPEC.md`。
+   真机第一轮结论与六处缺陷修复见 `docs/PROGRESS.md` §6.20–6.25 与
+   `docs/TESTING.md` §7。
 
 ## 8. 绝对不要做的事
 

@@ -29,7 +29,9 @@ use std::collections::BTreeMap;
 use crate::config::schema::{Config, GamePolicy, GameSelection, Mode, ProtoFilter};
 use crate::config::validate::{Issue, Severity};
 use crate::rules::presets::Preset;
-use crate::system::firewall::{Capabilities, GameSpec, DYNAMIC_SET_SIZE, MAX_SET_ELEMENTS};
+use crate::system::firewall::{
+    Capabilities, GameSpec, RuleInfo, DYNAMIC_SET_SIZE, MAX_SET_ELEMENTS,
+};
 use crate::{marks, Error, Result};
 
 pub mod dns_sets;
@@ -66,6 +68,65 @@ pub struct Compiled {
     /// 因「还没有择优结论」而暂未下发的规则名。
     pub pending: Vec<String>,
 }
+
+// ==================== 命中统计 ====================
+
+/// 游戏规则的命中计数：**读到什么就是什么**，不推算、不补零、不把「读不到」当 0。
+///
+/// 数据源是内核里 `smw:game:<slug>` 规则的 `counter`（`firewall::build()` 给每条游戏
+/// 规则都带了 `counter`）。一条 UCI 规则在数据面上可能对应**多条** nft 规则
+/// （按地址族拆、按目的条件拆），所以对外按 slug **求和**。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GameHits {
+    /// slug → (packets, bytes)。
+    pub per_rule: BTreeMap<String, (u64, u64)>,
+    /// 采样时刻（unix 毫秒）；`0` 表示从未采样成功。
+    pub at_ms: u64,
+    /// 没有数据时的原因。UI 必须原样显示 —— 0 与「读不到」是两回事。
+    pub note: String,
+}
+
+impl GameHits {
+    /// 一次链列表采样。
+    ///
+    /// 只认 `smw:game:` 前缀：桶规则、保护源、绕行目的都有自己的标签，
+    /// 混进来会让「命中数」变成「链上全部新建连接」，那是另一个量。
+    pub fn from_listing(rules: &[RuleInfo], now_ms: u64) -> GameHits {
+        let mut per_rule: BTreeMap<String, (u64, u64)> = BTreeMap::new();
+        for r in rules {
+            let Some(c) = r.comment.as_deref() else {
+                continue;
+            };
+            let Some(slug) = c.strip_prefix(GAME_TAG_PREFIX) else {
+                continue;
+            };
+            let e = per_rule.entry(slug.to_string()).or_insert((0, 0));
+            e.0 = e.0.saturating_add(r.packets);
+            e.1 = e.1.saturating_add(r.bytes);
+        }
+        let note = if !per_rule.is_empty() {
+            String::new()
+        } else if rules.is_empty() {
+            "链列表为空：没有读到任何规则（表/链不存在，或读取失败）".to_string()
+        } else {
+            "链上没有带 smw:game: 标签的规则：当前没有下发任何游戏规则".to_string()
+        };
+        GameHits {
+            per_rule,
+            at_ms: now_ms,
+            note,
+        }
+    }
+
+    /// 某条规则的命中数。**查不到返回 `None`** —— 调用方要显示「—」，
+    /// 不能显示 0（0 会被读成「规则没命中过」，而真相可能是根本没读到）。
+    pub fn of(&self, slug: &str) -> Option<(u64, u64)> {
+        self.per_rule.get(slug).copied()
+    }
+}
+
+/// 游戏规则标签前缀（与 `firewall::build()` 里生成的 `smw:game:<slug>` 一致）。
+pub const GAME_TAG_PREFIX: &str = "smw:game:";
 
 fn issue(sev: Severity, path: String, message: String, hint: Option<String>) -> Issue {
     Issue {
@@ -717,5 +778,47 @@ mod tests {
             "域名集合能力缺失必须显式报告：{:?}",
             prog.issues
         );
+    }
+
+    fn listed(comment: Option<&str>, packets: u64, bytes: u64) -> RuleInfo {
+        RuleInfo {
+            handle: 1,
+            comment: comment.map(str::to_string),
+            body: String::new(),
+            packets,
+            bytes,
+        }
+    }
+
+    #[test]
+    fn hits_sum_every_nft_rule_of_one_uci_rule_and_ignore_the_rest() {
+        // 一条 UCI 规则在数据面上可能是多条 nft 规则（按族/目的条件拆），要**求和**；
+        // 桶规则与其它标签的计数不属于「游戏规则命中」，混进来会让数字变成全链流量。
+        let listing = vec![
+            listed(Some("smw:game:svc"), 10, 100),
+            listed(Some("smw:game:svc"), 5, 50),
+            listed(Some("smw:bucket:3"), 9999, 9999),
+            listed(None, 7, 7),
+        ];
+        let h = GameHits::from_listing(&listing, 1000);
+        assert_eq!(h.of("svc"), Some((15, 150)));
+        assert_eq!(
+            h.of("nope"),
+            None,
+            "查不到必须是 None，不能用 0 冒充「没命中过」"
+        );
+        assert_eq!(h.at_ms, 1000);
+        assert!(h.note.is_empty());
+    }
+
+    #[test]
+    fn hits_say_why_there_is_no_data_instead_of_returning_zero() {
+        let empty = GameHits::from_listing(&[], 0);
+        assert!(empty.of("svc").is_none());
+        assert!(empty.note.contains("链列表为空"));
+
+        let no_game_rules = vec![listed(Some("smw:bucket:1"), 3, 3)];
+        let h = GameHits::from_listing(&no_game_rules, 5);
+        assert!(h.note.contains("没有下发任何游戏规则"));
     }
 }

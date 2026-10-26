@@ -1104,13 +1104,20 @@ pub fn teardown_program() -> String {
     format!("table inet {TABLE}\ndelete table inet {TABLE}\n")
 }
 
-/// 安装到 `/etc/nftables.d/smartmwan.nft` 的静态占位文件。
+/// 安装到 `/usr/share/nftables.d/ruleset-post/smartmwan.nft` 的静态占位文件
+/// （fw4 自动片段目录，被 include 到 ruleset 顶层）。
 ///
 /// 只声明表与空链，不含任何分类规则：设备重启后、守护进程起来之前，
 /// 数据面处于「对象存在但没有规则」的中性状态，不会有残留的旧标记逻辑生效。
+///
+/// 真机实证（ImmortalWrt fw4-2025.03.17）：不能用 `/etc/nftables.d/`——该固件的
+/// fw4 有一条内置 `include "/etc/nftables.d/*.nft"` 通配，落在 `table inet fw4`
+/// **表体内部**，独立表片段放那里必然语法错误、fw4 整体拒绝加载。
 pub fn include_file_text() -> String {
     let mut s = String::new();
-    s.push_str("# smartmwan 静态占位（由 luci-app-smartmwan 安装）。\n");
+    s.push_str(
+        "# smartmwan 静态占位（由 luci-app-smartmwan 安装到 ruleset-post 自动片段目录）。\n",
+    );
     s.push_str("# 这里只声明 table inet smw 与一条空的 prerouting 链；具体规则由 smartmwand 运行期写入。\n");
     s.push_str(
         "# output 链**不在这里声明**：它需要 `type route hook output`，该语法由守护进程在设备上\n",
@@ -1119,7 +1126,7 @@ pub fn include_file_text() -> String {
         "# 实测能力后再决定是否使用（见 probe_scripts / Capabilities::route_hook_output），\n",
     );
     s.push_str("# 占位文件必须只含确定可用的语法，否则 fw4 启动就会失败。\n");
-    s.push_str("# 删除本文件并重启 fw4 即可完全移除插件留下的内核对象（配合 uci delete firewall 的 include 段）。\n");
+    s.push_str("# 卸载本包即删除本文件；重启 fw4 后插件在内核里不再有任何对象。\n");
     s.push_str(&format!("table inet {TABLE} {{\n"));
     s.push_str(&format!(
         "\tchain {CHAIN_PREROUTING} {{\n\t\ttype filter hook prerouting priority {HOOK_PRIO}; policy accept;\n\t}}\n"

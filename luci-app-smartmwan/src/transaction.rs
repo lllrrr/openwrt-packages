@@ -57,6 +57,7 @@ use std::time::Instant;
 use tokio::sync::Mutex as AsyncMutex;
 
 use crate::config::{self, schema::Config, validate::Issue};
+use crate::logging;
 use crate::rules::{self, matchers, presets};
 use crate::scheduler;
 use crate::system::firewall::{self, Capabilities, GameSpec, Nft, Program, RuleInfo, Tag};
@@ -190,6 +191,29 @@ impl FirewallExec {
         }
     }
 
+    /// 读取某条链的规则与计数（`nft -a list chain`）。只读，不改内核。
+    ///
+    /// **只有真实 nft 通道能给出数字**：替身与「无 nft」一律 `None`。
+    /// 替身产出的计数是编造的，而界面会把一个像样的数字当成真实命中率 ——
+    /// 那比「读不到」糟得多（用户会据此判断规则有没有生效）。
+    pub async fn rule_counters(&self, chain: &str) -> Option<Vec<RuleInfo>> {
+        match self {
+            FirewallExec::Real(n) => match n.list_chain(chain).await {
+                Ok(v) => Some(v),
+                Err(e) => {
+                    logging::warn_ctx(
+                        "firewall",
+                        "counters",
+                        &format!("读取链 {chain} 的规则计数失败：{e}"),
+                        &[("chain", chain.to_string())],
+                    );
+                    None
+                }
+            },
+            FirewallExec::Sim(_) | FirewallExec::Absent => None,
+        }
+    }
+
     /// `nft -c -f`：只解析与语义检查，不产生任何副作用。
     pub async fn check(&self, text: &str) -> Result<()> {
         match self {
@@ -216,7 +240,13 @@ impl FirewallExec {
     pub async fn list(&self, chain: &str) -> Result<Vec<RuleInfo>> {
         match self {
             FirewallExec::Real(n) => n.list_chain(chain).await,
-            FirewallExec::Sim(s) => Ok(s.list(chain)),
+            FirewallExec::Sim(s) => {
+                let err = s.lock().list_error.clone();
+                match err {
+                    Some(m) => Err(Error::Firewall(m)),
+                    None => Ok(s.list(chain)),
+                }
+            }
             FirewallExec::Absent => Err(Error::Firewall("无 nft，无法复核".into())),
         }
     }
@@ -229,6 +259,8 @@ struct SimState {
     check_error: Option<String>,
     /// 非 `None` ⇒ `apply` 以此文案失败（模拟 `nft -f` 拒绝）。
     apply_error: Option<String>,
+    /// 非 `None` ⇒ `list` 以此文案失败（模拟「表不存在」时真实 nft 的非零退出）。
+    list_error: Option<String>,
     /// `true` ⇒ `apply` 返回成功但链里看不到规则（模拟「提交成功、规则没落地」）。
     hide_after_apply: bool,
     /// 已提交的程序文本（最后一次 `apply` 的内容），回滚基线测试用。
@@ -263,6 +295,12 @@ impl Sim {
     /// 让 `apply` 失败（`None` 恢复成功）。
     pub fn fail_apply(&self, msg: Option<String>) {
         self.lock().apply_error = msg;
+    }
+
+    /// 让 `list` 失败（`None` 恢复成功）。模拟真实 nft 对不存在的表执行
+    /// `list chain` 时的行为：非零退出，stderr 含 "No such file or directory"。
+    pub fn fail_list(&self, msg: Option<String>) {
+        self.lock().list_error = msg;
     }
 
     /// 模拟「`nft -f` 返回 0，但规则并不在链里」——真机上对应并发修改或内核内部拒绝。
@@ -1195,6 +1233,11 @@ impl Coordinator {
     }
 
     /// 按标签复核 nft 实际规则。停用时期望标签为空 ⇒ 任何 `smw:` 残留都是失败。
+    ///
+    /// 停用路径的期望状态是「`inet smw` 表不存在」。此时 nft 对 `list chain` 会以
+    /// 非零码报 no-such-table —— 这正是期望状态而不是错误（与 FirewallApply 阶段的
+    /// `is_no_such_table` 豁免同一依据）。真机实证（首次安装 + enabled=0 + 表从未
+    /// 存在）曾因缺这层豁免把成功的清场误判成失败并回滚。
     async fn verify_firewall(&self, expected: &[Tag]) -> Result<String> {
         let mut chains: Vec<&'static str> = Vec::new();
         for tg in expected {
@@ -1208,7 +1251,17 @@ impl Coordinator {
         let mut total = 0usize;
         for c in chains {
             let want: Vec<Tag> = expected.iter().filter(|t| t.chain == c).cloned().collect();
-            let actual = self.plane.fw.list(c).await?;
+            let actual = match self.plane.fw.list(c).await {
+                Ok(actual) => actual,
+                Err(e) => {
+                    // 只有「期望空状态（停用）」才允许 no-such-table：非停用时表必须
+                    // 存在，list 失败照旧上抛。
+                    if expected.is_empty() && is_no_such_table(&e.to_string()) {
+                        return Ok("复核通过：inet smw 表不存在（停用状态的期望状态）".to_string());
+                    }
+                    return Err(e);
+                }
+            };
             let rep = firewall::verify(&want, &actual);
             total += rep.rules.len();
             if !rep.ok() {
@@ -2208,5 +2261,62 @@ mod tests {
         assert!(got.global.enabled);
         assert_eq!(got.wans.len(), 1);
         assert!(warnings.is_empty(), "{warnings:?}");
+    }
+
+    // ==================== 真机实证回归 ====================
+
+    /// `/bin/cat`（测试白名单内）天然复现真实 nft 的「表不存在」行为：它把 nft
+    /// 的参数当文件名逐个打开，全部 "No such file or directory" 写 stderr 并退出 1
+    /// —— 与 nft `list chain` 一个不存在的表时的输出同构。（最终用 Sim 的
+    /// `fail_list` 精确模拟：cat 会把 `-a`/`-f` 当成自己的选项，无法走通全链路。）
+    #[tokio::test]
+    async fn disabled_verify_tolerates_missing_table() {
+        // 真机实证（首次安装 + enabled=0 + smw 表从未存在）：停用清场事务的复核
+        // 曾因 `nft list chain` 对不存在的表报非零码（no-such-table）而被误判失败
+        // 并回滚 —— 停用的期望状态恰恰是「表不存在」，复核必须放行并写明依据。
+        let f = Fixture::new(vec![], vec![]);
+        f.sim
+            .fail_list(Some("Error: No such file or directory".into()));
+        let co = f.coordinator();
+        // expected 为空 ⇔ 停用提交的防火墙期望状态
+        let note = co.verify_firewall(&[]).await.unwrap();
+        assert!(note.contains("表不存在"), "复核说明必须写明依据：{note}");
+    }
+
+    #[tokio::test]
+    async fn enabled_verify_still_fails_on_missing_table() {
+        // 反向钉住：启用路径（expected 非空）的表必须存在，list 失败照旧上抛，
+        // 不得被豁免误放。
+        let f = Fixture::new(vec![], vec![]);
+        f.sim
+            .fail_list(Some("Error: No such file or directory".into()));
+        let co = f.coordinator();
+        let want = vec![firewall::Tag {
+            comment: "smw:bucket:1".to_string(),
+            chain: firewall::CHAIN_PREROUTING,
+        }];
+        let err = co.verify_firewall(&want).await;
+        assert!(err.is_err(), "启用路径的 list 失败必须仍然报错");
+    }
+
+    #[tokio::test]
+    async fn rule_counters_only_exist_on_the_real_nft_channel() {
+        // 替身与「无 nft」都不得给出计数：它们给的数字是编造的，
+        // 而界面会把一个像样的数字当成真实命中率 —— 那比「读不到」糟糕得多。
+        let dir = tempfile::tempdir().unwrap();
+        assert!(FirewallExec::Sim(Sim::new())
+            .rule_counters(firewall::CHAIN_PREROUTING)
+            .await
+            .is_none());
+        assert!(FirewallExec::Absent
+            .rule_counters(firewall::CHAIN_PREROUTING)
+            .await
+            .is_none());
+        // 真实通道指向一个必然失败的程序：读不出来就是 None，不回空列表冒充「零命中」。
+        let nft = Arc::new(Nft::with_program("/bin/false", dir.path()));
+        assert!(FirewallExec::Real(nft)
+            .rule_counters(firewall::CHAIN_PREROUTING)
+            .await
+            .is_none());
     }
 }

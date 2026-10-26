@@ -195,6 +195,11 @@ pub enum Kind {
 ///
 /// 不少于 19 条（任务书 6.1）。`probeNow` 名义上是读，但会真的发出探测包，
 /// 因此按写方法审计。
+///
+/// 末尾六个是「便捷形态」：`switchMode` / `setPrimary` / `setBackupOrder` /
+/// `setAlgorithm` / `failback` 只是「改一个字段 + 保存 + 触发一轮事务」的薄封装
+/// （数据模型与事务原本就支持，这里补的是调用形态），`diagnostics` 是若干只读
+/// 方法的聚合视图。它们都不持有状态，也不绕过 [`Command`] 通道。
 pub const METHODS: &[(&str, Kind)] = &[
     ("smartmwan.hello", Kind::Read),
     ("smartmwan.getStatus", Kind::Read),
@@ -219,6 +224,12 @@ pub const METHODS: &[(&str, Kind)] = &[
     ("smartmwan.setMaintenance", Kind::Write),
     ("smartmwan.probeNow", Kind::Write),
     ("smartmwan.reload", Kind::Write),
+    ("smartmwan.switchMode", Kind::Write),
+    ("smartmwan.setPrimary", Kind::Write),
+    ("smartmwan.setBackupOrder", Kind::Write),
+    ("smartmwan.setAlgorithm", Kind::Write),
+    ("smartmwan.failback", Kind::Write),
+    ("smartmwan.diagnostics", Kind::Read),
 ];
 
 /// 方法总数（文档与测试引用）。
@@ -387,6 +398,9 @@ pub struct AppState {
     pub last_round: Arc<Mutex<Option<RoundInfo>>>,
     pub caps: Arc<RwLock<Capabilities>>,
     pub dns: Arc<Mutex<rules::dns_sets::Registry>>,
+    /// 最近一次游戏规则命中计数采样。**主循环低频写入，RPC 只读**；
+    /// 通道不是真 nft 时永远停在默认值（读不到就是读不到，不补 0）。
+    pub hits: Arc<RwLock<rules::GameHits>>,
     pub ctl: mpsc::UnboundedSender<Command>,
     pub paths: Paths,
     pub started: Instant,
@@ -611,6 +625,12 @@ pub async fn dispatch(st: &AppState, caller: Caller, method: &str, params: Value
         "smartmwan.setMaintenance" => h_set_maintenance(st, &params, caller).await,
         "smartmwan.probeNow" => h_probe_now(st).await,
         "smartmwan.reload" => h_reload(st).await,
+        "smartmwan.switchMode" => h_switch_mode(st, &params, caller).await,
+        "smartmwan.setPrimary" => h_set_primary(st, &params, caller).await,
+        "smartmwan.setBackupOrder" => h_set_backup_order(st, &params, caller).await,
+        "smartmwan.setAlgorithm" => h_set_algorithm(st, &params, caller).await,
+        "smartmwan.failback" => h_failback(st).await,
+        "smartmwan.diagnostics" => h_diagnostics(st).await,
         _ => Err(Error::Unsupported(format!("方法 {method} 尚未实现"))),
     };
 
@@ -978,8 +998,32 @@ async fn h_get_games(st: &AppState) -> Result<Value> {
         })
         .collect();
     let dns_stats = st.dns.lock().unwrap_or_else(|p| p.into_inner()).stats();
+    // 命中数：读到什么报什么。查不到就是 null —— 0 会被读成「规则没命中过」，
+    // 而真相可能是「通道不是真 nft，根本没读到」。
+    let hits = read_lock(&st.hits).clone();
+    let rules: Vec<Value> = rules
+        .into_iter()
+        .map(|mut r| {
+            let slug = rules::matchers::slug_of(r["name"].as_str().unwrap_or_default());
+            r.as_object_mut().unwrap().insert(
+                "hits".to_string(),
+                hits.of(&slug)
+                    .map(|(p, b)| json!({ "packets": p, "bytes": b }))
+                    .unwrap_or(Value::Null),
+            );
+            r
+        })
+        .collect();
     Ok(json!({
         "rules": rules,
+        "hits_at_ms": hits.at_ms,
+        "hits_note": if hits.at_ms == 0 {
+            "尚未采样到命中数（nft 通道不是真实执行器，或还没到采样周期）"
+        } else if hits.note.is_empty() {
+            "命中数来自内核 counter，按规则 slug 求和（同一规则可能对应多条 nft 规则）"
+        } else {
+            &hits.note
+        },
         "conflicts": conflicts,
         "presets_dir": rules::presets::PRESET_DIR,
         "domains_tracked": dns_stats.domains,
@@ -1435,6 +1479,344 @@ async fn h_reload(st: &AppState) -> Result<Value> {
     }))
 }
 
+// ==================== 便捷写方法（改一个字段 + 保存 + 一轮事务） ====================
+//
+// 这一组（switchMode / setPrimary / setBackupOrder / setAlgorithm）只是「调用形态」：
+// 数据模型与事务原本就支持这些设置，缺的是「不必先 getConfig 再整份 save」的入口。
+// 它们一律复用下面的骨架，绝不各自另写一套写盘与下发顺序。
+
+/// 取字符串数组参数（`setBackupOrder` 的 `order`）。
+///
+/// 逐项校验而非整体反序列化：哪一项坏了要说出下标，
+/// 「参数不合法」这种笼统报错对界面用户没有意义。
+fn param_str_list(params: &Value, key: &str) -> Result<Vec<String>> {
+    let arr = params
+        .get(key)
+        .and_then(Value::as_array)
+        .ok_or_else(|| Error::Validate(format!("缺少参数 {key}（应为字符串数组）")))?;
+    let mut out = Vec::with_capacity(arr.len());
+    for (i, v) in arr.iter().enumerate() {
+        let s = v
+            .as_str()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| Error::Validate(format!("参数 {key}[{i}] 应为非空字符串")))?;
+        out.push(s.to_string());
+    }
+    Ok(out)
+}
+
+/// 「改 global 字段 → 保存 → 触发一轮事务」的通用骨架。
+///
+/// 顺序不是随手排的（见 `docs/HANDOVER.md` §2.9）：配置先落盘（内含校验，
+/// 不过关就不写），再替换共享槽并同步健康追踪器，最后请**主循环**跑一轮事务 ——
+/// 状态的唯一所有者是主循环，RPC 只负责把新配置放好。
+///
+/// 闭包返回 `Ok(None)` 表示「新值与当前相同」：此时**不写盘也不触发事务**，
+/// 如实返回（不变式 2.5：没有 diff 就不得有数据面写入）。
+async fn mutate_global<F>(st: &AppState, caller: Caller, op: &str, f: F) -> Result<Value>
+where
+    F: FnOnce(&mut config::schema::GlobalConfig) -> Result<Option<String>>,
+{
+    let mut cfg: Config = (*st.cfg_snapshot()).clone();
+    let Some(change) = f(&mut cfg.global)? else {
+        return Ok(json!({
+            "saved": false,
+            "changed": false,
+            "note": "新值与当前配置相同：未写盘，也未触发事务",
+        }));
+    };
+    let mut store = ConfigStore::load(&st.paths.config)?;
+    let report = store.save(&cfg)?;
+    *write_lock(&st.cfg) = Arc::new(cfg);
+    st.registry.sync_config(&st.cfg_snapshot());
+    logging::info_ctx(
+        "rpc",
+        op,
+        &format!("{op}：{change}（uid {}）", caller.uid),
+        &[("caller", caller.uid.to_string())],
+    );
+    let receipt = cycle_via_loop(st, op).await?;
+    Ok(json!({
+        "saved": true,
+        "changed": true,
+        "change": change,
+        "report": report,
+        "receipt": receipt,
+        "note": "已写盘并触发一轮事务；receipt 是回执原样透传，不是布尔值",
+    }))
+}
+
+/// 切换工作模式（`balance` / `failover`）。
+async fn h_switch_mode(st: &AppState, params: &Value, caller: Caller) -> Result<Value> {
+    let raw = param_str(params, "mode")?;
+    let Some(mode) = config::schema::Mode::parse(raw) else {
+        return Err(Error::Validate(format!(
+            "未知模式 {raw}（应为 balance 或 failover）"
+        )));
+    };
+    mutate_global(st, caller, "switchMode", move |g| {
+        if g.mode == mode {
+            return Ok(None);
+        }
+        let old = g.mode.as_str();
+        let text = format!("mode: {old} → {}", mode.as_str());
+        g.mode = mode;
+        Ok(Some(text))
+    })
+    .await
+}
+
+/// 设置主线路（主备模式的「主」）。
+async fn h_set_primary(st: &AppState, params: &Value, caller: Caller) -> Result<Value> {
+    let wan = param_str(params, "wan")?;
+    {
+        let cfg = st.cfg_snapshot();
+        let w = cfg
+            .wan(wan)
+            .ok_or_else(|| Error::Validate(format!("线路 {wan} 不存在")))?;
+        if !w.enabled {
+            return Err(Error::Validate(format!(
+                "线路 {wan} 已停用，不能设为主线路"
+            )));
+        }
+        // 与 validate.rs 的同一条规则保持一致：主线路不得同时排在备用列表里。
+        // 这里刻意**不顺手**把它从 backup_order 摘掉 —— 那是替用户改第二处配置，
+        // 界面上看不见，用户也不会知道自己的备用顺序被动过。
+        if cfg.global.backup_order.iter().any(|n| n == wan) {
+            return Err(Error::Validate(format!(
+                "线路 {wan} 已出现在 backup_order 中：请先用 setBackupOrder 移除"
+            )));
+        }
+    }
+    mutate_global(st, caller, "setPrimary", move |g| {
+        if g.primary == wan {
+            return Ok(None);
+        }
+        let old = if g.primary.is_empty() {
+            "（未设置）".to_string()
+        } else {
+            g.primary.clone()
+        };
+        let text = format!("primary: {old} → {wan}");
+        g.primary = wan.to_string();
+        Ok(Some(text))
+    })
+    .await
+}
+
+/// 设置备用线路顺序（越靠前越优先接管）。
+async fn h_set_backup_order(st: &AppState, params: &Value, caller: Caller) -> Result<Value> {
+    let order = param_str_list(params, "order")?;
+    if order.is_empty() {
+        return Err(Error::Validate(
+            "order 不能为空：主备模式至少要有一条备用线路（没有备用线路请改用 switchMode 切到均衡模式）"
+                .into(),
+        ));
+    }
+    {
+        let cfg = st.cfg_snapshot();
+        for (i, n) in order.iter().enumerate() {
+            if cfg.wan(n).is_none() {
+                return Err(Error::Validate(format!("order[{i}] 的线路 {n} 不存在")));
+            }
+            if *n == cfg.global.primary {
+                return Err(Error::Validate(format!(
+                    "order[{i}] 的 {n} 是主线路：主线路不得同时作为备用"
+                )));
+            }
+            if order[..i].contains(n) {
+                return Err(Error::Validate(format!("order[{i}] 的 {n} 重复出现")));
+            }
+        }
+    }
+    mutate_global(st, caller, "setBackupOrder", move |g| {
+        if g.backup_order == order {
+            return Ok(None);
+        }
+        let old = if g.backup_order.is_empty() {
+            "（空）".to_string()
+        } else {
+            g.backup_order.join(" → ")
+        };
+        let text = format!("backup_order: {old} → {}", order.join(" → "));
+        g.backup_order = order.clone();
+        Ok(Some(text))
+    })
+    .await
+}
+
+/// 设置均衡算法。
+async fn h_set_algorithm(st: &AppState, params: &Value, caller: Caller) -> Result<Value> {
+    let raw = param_str(params, "algorithm")?;
+    let Some(alg) = config::schema::Algorithm::parse(raw) else {
+        return Err(Error::Validate(format!(
+            "未知算法 {raw}（可取值的中文说明见前端算法下拉框，机器值见 getConfig）"
+        )));
+    };
+    // 诚实提示：加权 ECMP 依赖内核能力，能力不足时事务会走降级路径。
+    // 真正生效的算法以 getBalance.algorithm 为准，这里不能宣称「已设为 ECMP」。
+    let hint = if alg == config::schema::Algorithm::WeightedEcmp {
+        "weighted_ecmp 需内核 MULTIPATH 与 ip-full 支持；能力不足时会在下发时降级，实际生效算法以 getBalance.algorithm 为准"
+    } else {
+        ""
+    };
+    let mut v = mutate_global(st, caller, "setAlgorithm", move |g| {
+        if g.algorithm == alg {
+            return Ok(None);
+        }
+        let old = g.algorithm.as_str();
+        let text = format!("algorithm: {old} → {}", alg.as_str());
+        g.algorithm = alg;
+        Ok(Some(text))
+    })
+    .await?;
+    if !hint.is_empty() {
+        v["hint"] = json!(hint);
+    }
+    Ok(v)
+}
+
+/// 手动回切：立刻把活动线路切回主线路（跳过回切延迟与去抖等待）。
+///
+/// 与 `forceWan` 的区别要说清楚，否则两个方法会互相打架：`forceWan` 表达的是
+/// **持久意志**（目标暂不可用也保留指令，恢复后立即生效），而回切是**即时动作** ——
+/// 主线路此刻不够格就如实回答「没切」，不留一条将来悄悄生效的指令。
+async fn h_failback(st: &AppState) -> Result<Value> {
+    let cfg = st.cfg_snapshot();
+    if cfg.global.mode != config::schema::Mode::Failover {
+        return Err(Error::Validate(
+            "手动回切只在主备（failover）模式下有意义；均衡模式下流量按算法分配，不存在「回切」"
+                .into(),
+        ));
+    }
+    let primary = cfg.global.primary.clone();
+    if primary.is_empty() {
+        return Err(Error::Validate(
+            "未配置主线路（global.primary 为空），无法回切".into(),
+        ));
+    }
+    if cfg.wan(&primary).is_none() {
+        return Err(Error::Validate(format!("主线路 {primary} 不存在")));
+    }
+
+    // 判定「此刻够不够格当活动线路」用的是调度器的同一套判据，不在 RPC 里另写一份：
+    // 两套判据迟早会给出不同答案，那时界面与内核会各说各话。
+    let snap = read_lock(&st.snap).clone();
+    let (usable, reason, active_now) = {
+        let sched = st.scheduler.lock().unwrap_or_else(|p| p.into_inner());
+        let lines = sched.line_states(&cfg, &snap, logging::now_ms())?;
+        let line = lines.iter().find(|l| l.name == primary);
+        (
+            line.map(|l| l.usable_as_active()).unwrap_or(false),
+            line.and_then(|l| l.unusable_reason()),
+            sched.active().map(str::to_string),
+        )
+    };
+    if !usable {
+        return Ok(json!({
+            "switched": false,
+            "active": active_now,
+            "primary": primary,
+            "reason": reason.unwrap_or_else(|| "主线路当前不可用作活动线路".to_string()),
+            "note": "回切是即时动作：主线路不够格就不切换，也不会留下一条将来悄悄生效的指令",
+        }));
+    }
+    // 够格：把主线路设为强制目标。强制只是「优先」，不影响后续故障切换
+    // （主线路再次不可用时仍会按自动顺序往下选），所以这里不会把网络锁死。
+    {
+        let mut sched = st.scheduler.lock().unwrap_or_else(|p| p.into_inner());
+        sched.force(&primary);
+    }
+    let receipt = cycle_via_loop(st, "failback").await?;
+    let active_after = {
+        let sched = st.scheduler.lock().unwrap_or_else(|p| p.into_inner());
+        sched.active().map(str::to_string)
+    };
+    Ok(json!({
+        "switched": active_after.as_deref() == Some(primary.as_str()),
+        "active": active_after,
+        "primary": primary,
+        "receipt": receipt,
+        "note": "已请求回切；若 switched=false 请读 receipt 的 issues 与 notes（例如最小切换间隔未满足）",
+    }))
+}
+
+/// 聚合只读诊断：把排障时人们会挨个点的几个只读方法合成一屏。
+///
+/// 刻意**不**触发探测、不下发、不重载配置 —— 读方法零副作用
+/// （`docs/HANDOVER.md` §2.9）。要立即探测请调 `probeNow`，那是有副作用的方法。
+async fn h_diagnostics(st: &AppState) -> Result<Value> {
+    let cfg = st.cfg_snapshot();
+    let snap = read_lock(&st.snap).clone();
+    let caps = read_lock(&st.caps).clone();
+    let conns = read_lock(&st.conns).clone();
+    let receipt = read_lock(&st.receipt).clone();
+    let outcome = read_lock(&st.outcome).clone();
+    let report = validate::validate(&cfg);
+    let dns = st.dns.lock().unwrap_or_else(|p| p.into_inner()).stats();
+
+    let issues = |v: Vec<&validate::Issue>| -> Vec<Value> {
+        v.iter()
+            .map(|i| json!({ "path": i.path, "message": i.message }))
+            .collect()
+    };
+    let lines: Vec<Value> = cfg
+        .wans
+        .iter()
+        .map(|w| {
+            let h = snap.get(&w.name);
+            json!({
+                "name": w.name,
+                "enabled": w.enabled,
+                "maintenance": w.maintenance,
+                "state": h.map(|x| x.state.as_str()).unwrap_or("unknown"),
+                "blocked_reason": h.and_then(|x| x.blocked_reason.clone()),
+                "metrics": h.and_then(|x| x.metrics.as_ref()).map(metrics_json),
+            })
+        })
+        .collect();
+
+    Ok(json!({
+        "protocol": RPC_PROTOCOL,
+        "schema_version": crate::CONFIG_SCHEMA_VERSION,
+        "uptime_ms": st.started.elapsed().as_millis() as u64,
+        "enabled": cfg.global.enabled,
+        "mode": cfg.global.mode.as_str(),
+        "config_valid": report.is_valid(),
+        "errors": issues(report.errors()),
+        "warnings": issues(report.warnings()),
+        "capabilities_degraded": degraded_syntax(&caps),
+        "firewall_channel": st.coordinator.plane().fw.describe(),
+        "lines": lines,
+        "conntrack": conns.limits.as_ref().map(|l| json!({
+            "count": l.count,
+            "max": l.max,
+            "used_permille": l.used_permille(),
+            "tight": l.tight(),
+        })),
+        "dns": {
+            "domains": dns.domains,
+            "elements": dns.elements,
+            "stale_domains": dns.stale_domains,
+            "failed_notfound": dns.failed_notfound,
+            "failed_timeout": dns.failed_timeout,
+            "failed_local": dns.failed_local,
+            "rejected_total": dns.rejected_total,
+        },
+        "last_receipt": receipt,
+        "decision": outcome.as_ref().map(|o| json!({
+            "reason": o.reason,
+            "notes": o.notes,
+            "changed": o.changed,
+            "at_ms": o.at_ms,
+        })),
+        "recent_warnings": logging::recent(Some(logging::Level::Warn), 20),
+        "log_dropped": logging::dropped(),
+        "note": "只读聚合视图：不触发探测、不下发、不重载；逐项细节仍以对应的 get* 方法为准",
+    }))
+}
+
 /// 让主循环跑一轮「决策 + 提交」并把回执原样带回。
 async fn cycle_via_loop(st: &AppState, op: &str) -> Result<Value> {
     let (tx, rx) = oneshot::channel();
@@ -1531,6 +1913,7 @@ pub mod testable {
                 Duration::from_secs(300),
                 1024,
             ))),
+            hits: Arc::new(RwLock::new(rules::GameHits::default())),
             ctl: ctl_tx,
             paths: Paths {
                 config: dir.join("smartmwan"),
@@ -1590,7 +1973,7 @@ mod tests {
         for (n, _) in METHODS {
             assert!(n.starts_with("smartmwan."), "方法 {n} 缺少命名空间");
         }
-        // 文档表里的 23 条必须一个不少（顺序无关）。
+        // 文档表里的 29 条必须一个不少（顺序无关）。
         for expected in [
             "smartmwan.hello",
             "smartmwan.getStatus",
@@ -1615,6 +1998,12 @@ mod tests {
             "smartmwan.setMaintenance",
             "smartmwan.probeNow",
             "smartmwan.reload",
+            "smartmwan.switchMode",
+            "smartmwan.setPrimary",
+            "smartmwan.setBackupOrder",
+            "smartmwan.setAlgorithm",
+            "smartmwan.failback",
+            "smartmwan.diagnostics",
         ] {
             assert!(method_kind(expected).is_some(), "缺少方法 {expected}");
         }
@@ -1628,10 +2017,20 @@ mod tests {
             "smartmwan.setMaintenance",
             "smartmwan.reload",
             "smartmwan.probeNow",
+            "smartmwan.switchMode",
+            "smartmwan.setPrimary",
+            "smartmwan.setBackupOrder",
+            "smartmwan.setAlgorithm",
+            "smartmwan.failback",
         ] {
             assert_eq!(method_kind(w), Some(Kind::Write), "{w} 必须是写方法");
         }
-        for r in ["smartmwan.hello", "smartmwan.getStatus", "smartmwan.diff"] {
+        for r in [
+            "smartmwan.hello",
+            "smartmwan.getStatus",
+            "smartmwan.diff",
+            "smartmwan.diagnostics",
+        ] {
             assert_eq!(method_kind(r), Some(Kind::Read), "{r} 必须是读方法");
         }
     }
@@ -1906,6 +2305,242 @@ mod tests {
         assert_eq!(data["lines"][0]["state"], json!("unknown"));
         assert_eq!(data["lines"][0]["state_label"], json!("未测量"));
         assert_eq!(data["measured"], json!(false));
+    }
+
+    /// 两条已启用线路的最小配置（便捷写方法都要求线路真实存在）。
+    fn two_wan_cfg() -> Config {
+        let mut cfg = Config::default();
+        for n in ["wan1", "wan2"] {
+            cfg.wans.push(crate::config::schema::WanConfig {
+                name: n.into(),
+                enabled: true,
+                ..Default::default()
+            });
+        }
+        cfg
+    }
+
+    /// 主循环替身：把收到的 Cycle 累计次数发出去，并回一条空回执。
+    fn spawn_cycle_echo(
+        mut rx: mpsc::UnboundedReceiver<Command>,
+    ) -> mpsc::UnboundedReceiver<usize> {
+        let (tx, out) = mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            let mut n = 0usize;
+            while let Some(cmd) = rx.recv().await {
+                if let Command::Cycle(back) = cmd {
+                    n += 1;
+                    let _ = tx.send(n);
+                    let _ = back.send(Receipt::default());
+                }
+            }
+        });
+        out
+    }
+
+    #[tokio::test]
+    async fn switch_mode_persists_and_only_writes_when_it_really_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let (st, rx) = testable::test_state(dir.path());
+        *write_lock(&st.cfg) = Arc::new(two_wan_cfg());
+        let mut cycles = spawn_cycle_echo(rx);
+
+        let env = call(&st, "smartmwan.switchMode", json!({ "mode": "failover" })).await;
+        assert!(env.ok, "switchMode 应成功：{:?}", env.error);
+        let d = env.data.unwrap();
+        assert_eq!(d["saved"], json!(true));
+        assert_eq!(d["change"], json!("mode: balance → failover"));
+        // 落盘才算数：只改内存槽会在重启后丢设置。
+        let on_disk = ConfigStore::load(&st.paths.config).unwrap().config;
+        assert_eq!(on_disk.global.mode.as_str(), "failover");
+        assert_eq!(cycles.recv().await, Some(1), "变更应触发一轮事务");
+
+        // 同值再调：不写盘也不下发（不变式 2.5：没有 diff 就没有数据面写入）。
+        let env = call(&st, "smartmwan.switchMode", json!({ "mode": "failover" })).await;
+        let d = env.data.unwrap();
+        assert_eq!(d["saved"], json!(false));
+        assert_eq!(d["changed"], json!(false));
+        assert!(cycles.try_recv().is_err(), "同值调用不得产生事务");
+    }
+
+    #[tokio::test]
+    async fn set_primary_refuses_lines_that_cannot_be_primary() {
+        let dir = tempfile::tempdir().unwrap();
+        let (st, _rx) = testable::test_state(dir.path());
+        let mut cfg = two_wan_cfg();
+        cfg.global.backup_order = vec!["wan2".into()];
+        *write_lock(&st.cfg) = Arc::new(cfg);
+
+        for (wan, why) in [("nope", "不存在的线路"), ("wan2", "已在备用列表里的线路")]
+        {
+            let env = call(&st, "smartmwan.setPrimary", json!({ "wan": wan })).await;
+            assert!(!env.ok, "{why} 必须被拒");
+            assert_eq!(env.error.as_ref().unwrap().code, "validate");
+        }
+
+        let mut cfg = (*st.cfg_snapshot()).clone();
+        cfg.wans[0].enabled = false;
+        *write_lock(&st.cfg) = Arc::new(cfg);
+        let env = call(&st, "smartmwan.setPrimary", json!({ "wan": "wan1" })).await;
+        assert!(!env.ok, "已停用的线路不能当主线路");
+        assert!(env.error.unwrap().message.contains("已停用"));
+    }
+
+    #[tokio::test]
+    async fn set_backup_order_refuses_bad_orders() {
+        let dir = tempfile::tempdir().unwrap();
+        let (st, rx) = testable::test_state(dir.path());
+        // 合法的那一笔会真的触发事务，所以主循环替身必须回话（否则等到 90 秒超时）。
+        let _cycles = spawn_cycle_echo(rx);
+        let mut cfg = two_wan_cfg();
+        cfg.global.primary = "wan1".into();
+        *write_lock(&st.cfg) = Arc::new(cfg);
+
+        for (order, why) in [
+            (json!([]), "空数组"),
+            (json!(["ghost"]), "不存在的线路"),
+            (json!(["wan1"]), "主线路本身"),
+            (json!(["wan2", "wan2"]), "重复项"),
+        ] {
+            let env = call(&st, "smartmwan.setBackupOrder", json!({ "order": order })).await;
+            assert!(!env.ok, "{why} 必须被拒：{order}");
+            assert_eq!(env.error.as_ref().unwrap().code, "validate");
+        }
+
+        // 合法顺序要真的落盘（主循环替身只需回一次回执）。
+        let env = call(
+            &st,
+            "smartmwan.setBackupOrder",
+            json!({ "order": ["wan2"] }),
+        )
+        .await;
+        assert!(env.ok, "合法顺序应被接受：{:?}", env.error);
+        assert_eq!(env.data.unwrap()["saved"], json!(true));
+        let on_disk = ConfigStore::load(&st.paths.config).unwrap().config;
+        assert_eq!(on_disk.global.backup_order, vec!["wan2".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn set_algorithm_warns_about_possible_degradation() {
+        let dir = tempfile::tempdir().unwrap();
+        let (st, rx) = testable::test_state(dir.path());
+        *write_lock(&st.cfg) = Arc::new(two_wan_cfg());
+        let _cycles = spawn_cycle_echo(rx);
+
+        let env = call(
+            &st,
+            "smartmwan.setAlgorithm",
+            json!({ "algorithm": "weighted_ecmp" }),
+        )
+        .await;
+        assert!(env.ok, "{:?}", env.error);
+        let d = env.data.unwrap();
+        assert!(
+            d["hint"].as_str().unwrap_or_default().contains("降级"),
+            "可能降级的算法必须给提示：{d}"
+        );
+
+        // 普通算法不该带这句提示（提示泛滥等于没有提示）。
+        let env = call(
+            &st,
+            "smartmwan.setAlgorithm",
+            json!({ "algorithm": "src_ip" }),
+        )
+        .await;
+        assert!(env.ok);
+        assert!(env.data.unwrap().get("hint").is_none());
+
+        let env = call(
+            &st,
+            "smartmwan.setAlgorithm",
+            json!({ "algorithm": "nope" }),
+        )
+        .await;
+        assert!(!env.ok, "未知算法必须报错");
+    }
+
+    #[tokio::test]
+    async fn failback_is_immediate_and_leaves_nothing_pending() {
+        let dir = tempfile::tempdir().unwrap();
+        let (st, mut rx) = testable::test_state(dir.path());
+        let mut cfg = two_wan_cfg();
+        cfg.global.mode = crate::config::schema::Mode::Failover;
+        cfg.global.primary = "wan1".into();
+        *write_lock(&st.cfg) = Arc::new(cfg);
+
+        // 没有任何探测数据 ⇒ 主线路此刻不够格：如实不切，
+        // 而且**不往主循环塞任何东西**（回切是即时动作，不留将来生效的指令）。
+        let env = call(&st, "smartmwan.failback", json!({})).await;
+        assert!(env.ok, "不可用时是「没切」而不是失败：{:?}", env.error);
+        let d = env.data.unwrap();
+        assert_eq!(d["switched"], json!(false));
+        assert!(
+            !d["reason"].as_str().unwrap_or_default().is_empty(),
+            "必须说明为什么没切：{d}"
+        );
+        assert!(rx.try_recv().is_err(), "没切就不该触发事务");
+
+        // 均衡模式没有「回切」这回事。
+        let mut cfg = (*st.cfg_snapshot()).clone();
+        cfg.global.mode = crate::config::schema::Mode::Balance;
+        *write_lock(&st.cfg) = Arc::new(cfg);
+        let env = call(&st, "smartmwan.failback", json!({})).await;
+        assert!(!env.ok);
+        assert!(env.error.unwrap().message.contains("主备"));
+    }
+
+    #[tokio::test]
+    async fn diagnostics_is_read_only_and_never_pokes_the_loop() {
+        let dir = tempfile::tempdir().unwrap();
+        let (st, mut rx) = testable::test_state(dir.path());
+        *write_lock(&st.cfg) = Arc::new(two_wan_cfg());
+        let env = call(&st, "smartmwan.diagnostics", json!({})).await;
+        assert!(env.ok, "{:?}", env.error);
+        let d = env.data.unwrap();
+        assert_eq!(d["protocol"], json!(RPC_PROTOCOL));
+        assert_eq!(d["mode"], json!("balance"));
+        assert_eq!(d["lines"].as_array().unwrap().len(), 2);
+        assert!(d["config_valid"].is_boolean());
+        assert!(d.get("errors").is_some() && d.get("warnings").is_some());
+        assert!(
+            rx.try_recv().is_err(),
+            "只读聚合视图不得触发探测、下发或重载"
+        );
+    }
+
+    #[tokio::test]
+    async fn get_games_reports_hits_as_null_until_they_are_really_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let (st, _rx) = testable::test_state(dir.path());
+        *write_lock(&st.cfg) = Arc::new(two_wan_cfg());
+
+        // 从未采样：必须是 null + 说明，绝不能是 0（0 会被读成「规则没命中过」）。
+        let env = call(&st, "smartmwan.getGames", json!({})).await;
+        assert!(env.ok, "{:?}", env.error);
+        let d = env.data.unwrap();
+        assert_eq!(d["hits_at_ms"], json!(0));
+        assert!(d["hits_note"].as_str().unwrap().contains("尚未采样"));
+
+        // 采样到之后：按 slug 报数字。
+        let mut per = std::collections::BTreeMap::new();
+        per.insert("svc".to_string(), (3u64, 300u64));
+        *write_lock(&st.hits) = rules::GameHits {
+            per_rule: per,
+            at_ms: 1234,
+            note: String::new(),
+        };
+        let mut cfg = two_wan_cfg();
+        cfg.games.push(crate::config::schema::GameRule {
+            name: "svc".into(),
+            enabled: true,
+            ..Default::default()
+        });
+        *write_lock(&st.cfg) = Arc::new(cfg);
+        let env = call(&st, "smartmwan.getGames", json!({})).await;
+        let d = env.data.unwrap();
+        assert_eq!(d["hits_at_ms"], json!(1234));
+        assert_eq!(d["rules"][0]["hits"]["packets"], json!(3));
+        assert_eq!(d["rules"][0]["hits"]["bytes"], json!(300));
     }
 
     #[tokio::test]

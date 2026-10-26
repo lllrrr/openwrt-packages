@@ -94,15 +94,15 @@ gcc 14.4.0），`make package/luci-app-smartmwan/compile V=s` → **BUILD OK**�
 
 | # | 判据 | 现在的回答 |
 |---|---|---|
-| 1 | 能在 OpenWrt 25.12+ 安装 | **产物已具备**：真实 SDK 构建的 apk 通过 §5 全部校验；「在真机上安装并正常运行」待 M10 |
+| 1 | 能在 OpenWrt 25.12+ 安装 | **是（真机实证）**：ImmortalWrt SNAPSHOT 真机安装/升级/卸载全部通过，post-install/pre-deinstall 钩子按预期执行 |
 | 2 | 能构建 | **两侧都能**：`cargo build --offline`（WSL）+ 真实 SDK `make package/.../compile`（aarch64 musl）都通过 |
-| 3 | 能测试 | 能：378 lib + 2 bin 单测 + Lua 红线脚本 + WSL 真 nft/netlink 端到端（事务/回收/关停/23 方法/reclaim 清场）；`tests/` 目录的集成测试仍未写 |
+| 3 | 能测试 | 能：382 lib + 2 bin 单测 + Lua 红线脚本 + WSL 真 nft/netlink 端到端 + 真机 ubus 23 方法往返；`tests/` 目录的集成测试仍未写 |
 | 4 | 零 Lua | 是，且有自动化证明（两个方向实测）；包依赖里也无任何 Lua 包 |
-| 5 | 后端为模块化 Rust 常驻服务 | **是**：`src/main.rs` 常驻守护进程（探测环/调度环/域名刷新环/信号/优雅关停）已在 WSL 真环境端到端验证；目标设备未验收 |
-| 6 | 前端 7 页可用 | **代码已落地并经 ucode CLI 桥接实测**（23 方法往返）；浏览器侧渲染未在真实 LuCI 环境验证，归 M10 |
-| 7 | 数据面真实生效 | **WSL 已验证、目标设备未验证**：`FirewallExec::Real` 在 WSL（真 nft 1.1.3 + 真 netlink）上跑通了「生成 → `nft -c` 试算 → 路由下发 → 双侧复核 → 提交 → 快照」全链路，nft 表、`ip rule`、表 101 路由都实测装上也实测删掉（关停/崩溃回收/`--reclaim`）。但 WSL 的 nft 版本与接口形态≠目标设备，本判据的最终改口必须等设备上的同一批结论 |
+| 5 | 后端为模块化 Rust 常驻服务 | **是（真机实证）**：守护进程常驻、procd 托管、SIGHUP 重载、SIGTERM 优雅关停、崩溃回收、幂等复核都在真机运转 |
+| 6 | 前端 7 页可用 | **服务端可用（真机实证）**：`admin/network/smartmwan` 7 页全部 200、菜单树正确下发；浏览器渲染待人工确认（需退出重登刷新菜单缓存） |
+| 7 | 数据面真实生效 | **是（真机单线路实证）**：enabled=1 后 ip rule 优先级 1000 + 槽位掩码精确落位、表 101 完整镜像、`inet smw` 保护/绕行集合正确、modem0 healthy、实际出网成功；**双 WAN 均衡/主备切换待第二线路接入** |
 | 8 | 安全清单落实 | **是**：注入/配置只读/残留/探测负载/并发事务锁/RPC ACL（SO_PEERCRED + uid 白名单）/审计（脱敏）/前端轮询自停/方法级 ACL（acl.d，无通配）均有实现与验证 |
-| 9 | 不把模拟数据当实时状态 | **是**：后端对「未测量」「全灭」「降级」都产出显式 note 且不承载流量；前端四态渲染如实透传 note（浏览器侧验收归 M10） |
+| 9 | 不把模拟数据当实时状态 | **是（真机实证）**：未测量时线路显示 unknown/未测量；停用后决策与数据面一致（carries_traffic=false）；探测不可用时 WARN 诚实告警 |
 | 10 | 列出未完成特性 | 是：`README.md`、`CHANGELOG.md`「已知缺失」、`docs/REQUIREMENTS.md` 状态列、`docs/PROGRESS.md` §4 |
 
 ## 7. 本环境的真实限制（2026-10-26 复核）
@@ -112,11 +112,12 @@ gcc 14.4.0），`make package/luci-app-smartmwan/compile V=s` → **BUILD OK**�
 | `rustc` / `cargo` | 可用 | **1.99.1**（WSL Debian，`~/.cargo`）；此前 Windows 侧 1.98.1 的 clippy/rustfmt 组件包 404，已迁到 WSL 后可用 |
 | `cargo clippy` | **可用** | 0 警告（`-D warnings`）；首轮 20 条风格警告已在 `32b97ad` 清零 |
 | `cargo fmt` | **可用** | `cargo fmt --all -- --check` 无差异 |
-| `nft` 二进制 / netfilter 内核模块 | **WSL 内可用** | WSL（Debian，内核 6.18）root 下有 `/usr/sbin/nft`（**1.1.3**）且 netfilter 可用：能力探测、`nft -c -f` 试算、`nft -f` 提交、`nft -a list chain` 复核全部实测通过。**注意该版本缺 `dynamic,timeout` 集合与 jhash 种子参数** —— 能力探测如实报了「不可用」，这是真实的版本差异而非缺陷；目标设备的 nft 通常更新，结论必须以设备为准 |
-| 真实路由/规则下发 | **WSL 内已执行** | M7/M9 的端到端验证在 WSL 完成：事务八阶段、幂等复核、崩溃（kill -9）后启动回收、SIGTERM 优雅关停回收、23 个 RPC 方法请求/响应、`--reclaim` 对真实残留（1 规则 + 8 路由 + `inet smw` 表）清场并二次幂等。本插件只碰自己的表（101–124）与 `inet smw`、自己的优先级带（1000–1023），对 WSL 网络零影响。**仍未在目标 OpenWrt 设备上执行** |
-| OpenWrt SDK / 交叉工具链 | **可用（WSL）** | 真实 25.12 SDK（mediatek/filogic aarch64 musl）完成 apk 构建，产物校验见 §5；`rust-package.mk` 不存在已实证，Makefile 按自建交叉编译路径实现 |
-| 设备 SSH 口令 | **被拒** | 同一口令 Web（LuCI）登录成功、dropbear/ubus 拒绝；已按所有者指示停止探测。M10 真机矩阵需要先解决这个问题 |
+| `nft` 二进制 / netfilter 内核模块 | **WSL 与真机均可用** | WSL nft 1.1.3 完成端到端编排验证；真机 nft 1.1.7 完成能力探测与数据面验证。两版都缺 `dynamic,timeout` 集合与 jhash 种子参数 —— 能力探测如实报「不可用」，域名规则走降级路径并给可见告警 |
+| 真实路由/规则下发 | **真机已执行** | 真机（ImmortalWrt SNAPSHOT，mediatek/filogic aarch64，内核 6.18.55）完成：安装/升级/卸载、enabled=0 零触碰、enabled=1 数据面（ip rule 1000 / 表 101 / inet smw）、状态机全链路、幂等复核、停用回收、管理面不失联。**双 WAN 切换场景待第二线路接入** |
+| OpenWrt SDK / 交叉工具链 | **可用（WSL）** | 真实 25.12 SDK（mediatek/filogic aarch64 musl）完成 apk 构建，产物校验见 §5 |
+| 设备 SSH | **已解决** | dropbear 密码认证正常（Windows 侧 paramiko；此前失败是设备当时的瞬时状态） |
+| ping socket（健康探测前提） | **需部署配置** | ImmortalWrt 内核默认 `net.ipv4.ping_group_range=1 0` 禁用 ping socket；部署需 `sysctl -w net.ipv4.ping_group_range='0 2147483647'` 并持久化到 `/etc/sysctl.conf`。未解锁时健康探测全部诚实告警（线路状态 unknown，不伪造） |
 | `raw.githubusercontent.com` | TLS 中断 | 上游源码引用改走镜像站与本地已核对文件 |
 
-结论：**「设备可用」仍未证实，但「端到端可运行 + 可打包」已在 WSL 证实**。文档与 UI 文案必须保持这一口径：
-WSL 的通过证明的是「编排 + 编码 + 协议 + 生命周期 + 打包正确」，不是「目标设备上的 nft 版本与网络形态正确」。
+结论：**「端到端可运行 + 可打包 + 真机数据面生效」已全部证实**。剩余真机项：双 WAN
+均衡/主备切换（需第二线路接入）、断电重启幂等、浏览器侧人工确认。

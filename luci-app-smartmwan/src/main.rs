@@ -74,6 +74,10 @@ const RECLAIM_LIMIT: Duration = Duration::from_secs(20);
 /// 都重放一遍完整事务（含若干次 nft 进程），把失败放大成事务风暴。
 const SUBMIT_RETRY_BACKOFF_MS: u64 = 5000;
 
+/// 游戏规则命中数的采样间隔。`nft -a list chain` 会把整条链拉回来，
+/// 比探测贵得多；而命中数只是给用户看趋势的，不需要探测那种秒级精度。
+const HITS_SAMPLE_INTERVAL_MS: u64 = 30_000;
+
 /// conntrack 与 sysctl 的生产路径（设备上固定，不可配置）。
 const CONNTRACK_PROC: &str = "/proc/net/nf_conntrack";
 const NETFILTER_SYSCTL: &str = "/proc/sys/net/netfilter";
@@ -152,7 +156,7 @@ smartmwand — 多 WAN 智能选路守护进程
   --once                 跑一轮「探测 + 决策 + 提交」后退出
   --dump-nft             打印将为当前配置生成的 nft 程序（只读，桶图为空）
   --dump-defaults        打印默认配置的 UCI 文本
-  --dump-include         打印 /etc/nftables.d/smartmwan.nft 占位片段（与代码同源，打包用）
+  --dump-include         打印 fw4 自动片段占位（ruleset-post/smartmwan.nft，与代码同源，打包用）
   --capabilities         打印设备 nft 能力探测结果
   --print-config         打印规范化后的 UCI 文本
   --restore-last-good    把 last-good 快照写回配置文件（只写盘，不下发）
@@ -199,7 +203,7 @@ async fn async_main(cli: Cli) -> Result<i32> {
         print!("{}", ConfigStore::defaults_uci_text());
         return Ok(0);
     }
-    // nftables.d 安装期占位片段必须与代码同源：打包时由本入口生成，
+    // fw4 自动片段（ruleset-post）安装期占位必须与代码同源：打包时由本入口生成，
     // 不允许仓库里出现手写的第二份（docs/HANDOVER.md §3）。
     if cli.dump_include {
         print!("{}", firewall::include_file_text());
@@ -664,6 +668,8 @@ struct Daemon {
     /// 决策代际（4bit，只在桶图变化时递增 —— 否则每次决策都会改写程序）。
     gen: u8,
     last_probe_ms: u64,
+    /// 上次采样游戏规则命中数的时刻（unix 毫秒）；0 = 还没采样过。
+    last_hits_ms: u64,
     /// 退避截止时刻（unix 毫秒）：0 = 不在退避期。只影响周期路径，
     /// RPC 显式触发的 apply 随时允许重试（那是用户的选择）。
     next_retry_ms: u64,
@@ -728,6 +734,7 @@ impl Daemon {
                 Duration::from_secs(cfg.global.dns_ttl_floor_s.max(30)),
                 1024,
             ))),
+            hits: Arc::new(std::sync::RwLock::new(rules::GameHits::default())),
             ctl: ctl_tx,
             paths: Paths {
                 config: cfg_path.clone(),
@@ -773,6 +780,7 @@ impl Daemon {
             last_ok: false,
             gen: 0,
             last_probe_ms: 0,
+            last_hits_ms: 0,
             next_retry_ms: 0,
             known_rules,
         })
@@ -887,6 +895,28 @@ impl Daemon {
             self.last_probe_ms = now;
         }
         self.cycle(&cfg, now, false).await;
+        if now.saturating_sub(self.last_hits_ms) >= HITS_SAMPLE_INTERVAL_MS {
+            self.sample_game_hits(now).await;
+            self.last_hits_ms = now;
+        }
+    }
+
+    /// 采样一次游戏规则命中数。
+    ///
+    /// 频率刻意低于探测：`nft -a list chain` 要把整条链拉回来，高频跑是白花钱，
+    /// 而命中数是给用户看趋势的，不需要秒级精度。通道不是真 nft 时**什么都不写** ——
+    /// 让 AppState 停在「从未采样」的默认值，比写一个编造的 0 诚实。
+    async fn sample_game_hits(&self, now_ms: u64) {
+        let rules = self
+            .st
+            .coordinator
+            .plane()
+            .fw
+            .rule_counters(firewall::CHAIN_PREROUTING)
+            .await;
+        let Some(rules) = rules else { return };
+        *self.st.hits.write().unwrap_or_else(|p| p.into_inner()) =
+            rules::GameHits::from_listing(&rules, now_ms);
     }
 
     /// 处理 RPC 发来的命令。全部串行在本循环里执行。

@@ -3,7 +3,7 @@
 > 本文件反映**当前工作树**。任何「已完成」都必须能用下面的命令复核；
 > 不能用命令复核的结论一律写成「待验证」。
 
-最后更新：0.4.0-dev 周期，M9 打包（Makefile + apk 维护脚本 + 同源安装期文件 + GPLv3）落地之后。
+最后更新：0.4.0-dev 周期，M10 真机验收第一轮 + 与任务书（`docs/SPEC.md`）的全量差距审计之后。
 
 ## 1. 一句话状态
 
@@ -24,7 +24,8 @@ apk 在真实 SDK（mediatek/filogic aarch64 musl）构建成功并解包核对�
 ## 2. 可复核指标
 
 ```sh
-cargo test --offline --lib                          # 期望：378 passed; 0 failed
+cargo test --offline --lib                          # 期望：392 passed; 0 failed
+cargo test --offline --tests                        # 期望：33 条集成测试全绿
 cargo clippy --offline --all-targets -- -D warnings # 期望：0 警告
 cargo fmt --all -- --check                          # 期望：无差异
 cargo build --offline                               # 期望：0 警告
@@ -140,7 +141,8 @@ LICENSE         GPLv3 全文（2026-10-26 起）
 | `76bda77` | docs | M7 落地后的文档同步（数字全部重测） |
 | `7424b3b` | test(netlink,route) | 测试示例地址改用文档段（192.168.100.0/24），避免与真实设备网段重合 |
 | `42fbb84` | feat(frontend) | M8：rpcd ucode 桥 + 方法级 ACL + menu.d + 7 个 JS 视图 + CSS；桥接经 WSL ucode CLI 对真实守护进程端到端验证（23 方法往返） |
-| （本提交） | feat(packaging) | M9：OpenWrt 包 Makefile（自建交叉编译）+ 四个 apk 维护脚本 + 同源安装期文件 + `--dump-include`/`--reclaim` CLI + GPLv3 许可证升级；真实 SDK 构建成功并解包逐项核对 |
+| `5fb62af` | feat(packaging) | M9：OpenWrt 包 Makefile（自建交叉编译）+ 四个 apk 维护脚本 + 同源安装期文件 + `--dump-include`/`--reclaim` CLI + GPLv3 许可证升级；真实 SDK 构建成功并解包逐项核对 |
+| （本提交） | fix(m10) | M10 真机验收：六处「测试全绿、真机必坏」缺陷修复（fw4 片段机制 / ucode-mod-socket 依赖 / rpcd 整数 typehint / 停用复核误判 / 停用决策脱节 / init.d reload）+ 菜单迁 admin/network；真机数据面/状态机/幂等/回收全项实测通过（+4 测试 → 382） |
 
 > **关于本表的哈希**：2026-10-26 按仓库所有者的明确指示，用 `git filter-branch` 把全部提交的
 > author/committer 统一为 `LianXia233`（见 `docs/HANDOVER.md` §6），并 `--force-with-lease` 强推。
@@ -255,6 +257,58 @@ LICENSE         GPLv3 全文（2026-10-26 起）
 （`ip route replace` 语义，真实内核也是如此），于是「保留别人的对象」这条断言永远测不到。
 改成独立前缀 `172.16.0.0/24` 后才真正跑通。写残留类测试时，**前缀必须和我们的不相撞**。
 
+### 6.20–6.25 M10 真机验收抓出的六处缺陷（2026-10-26，ImmortalWrt SNAPSHOT）
+
+全部有一个共同点：**每一条在 WSL 与单测里都是绿的，只有装到真实固件上才炸**。
+
+6.20 **fw4 片段被插进 `table inet fw4` 表体内部**。该固件的 fw4 有一条内置
+`include "/etc/nftables.d/*.nft"` 通配（fw4 print 第 33 行），落在 `table inet fw4 {`
+**内部** —— 独立表片段（`table inet smw {}`）放那里必然语法错误，fw4 报
+「The rendered ruleset contains errors」整体拒绝加载，且 `nft list tables` 里永远没有
+smw 表。此前 M9 用的「UCI include 段」方案还有第二个问题：`uci add` 创建的是匿名段，
+`uci -q get firewall.smartmwan` 幂等判断**永远落空**（升级重复加段、卸载残留），
+且 `position` 值在真实 fw4 上不可靠。**修复**：片段改装
+`/usr/share/nftables.d/ruleset-post/`（fw4 README 载明的 ruleset 顶层自动片段目录，
+miniupnpd 同款机制），postinst/postrm 彻底不碰 UCI firewall。真机复核：
+`fw4 check` 全绿、`table inet smw` 出现、卸载后无残留。
+
+6.21 **依赖闭包缺 `ucode-mod-socket`**。该模块是**独立 apk 包**，基础 ucode/rpcd 都
+不带；缺了它 rpcd 加载 ucode 桥直接抛 `No module named 'socket'`（rpcd 前台日志抓到），
+ubus 对象无法注册、LuCI 全部页面显示「无法连接守护进程」。**修复**：DEPENDS 补
+`+ucode-mod-socket`，apk 安装时自动从源补拉。
+
+6.22 **rpcd-mod-ucode 的整数 typehint 值是位宽不是默认值**。args 声明 `{limit: 16}`
+被解读为「INT16 位宽策略」（上游 ucode.c：8→INT8、16→INT16、64→INT64、其余→INT32），
+ubus 传 INT32 的 `{"limit":5}` 被 `Invalid argument` 拒收。字符串/bool 参数不受影响，
+因此 23 个方法里只有 getLogs 挂。**修复**：数字参数一律声明 `0`（→INT32），
+默认值由守护进程侧解析兜底。
+
+6.23 **停用清场复核误判**。首次安装 + enabled=0 + `inet smw` 表从未存在时，停用事务的
+FirewallVerify 阶段对 `list chain` 报 no-such-table 没有豁免（FirewallApply 阶段有
+`is_no_such_table` 豁免，复核阶段漏了同款）——把成功的清场误判为失败并回滚，每次启动
+都刷 ERROR。**修复**：复核对「期望空状态（expected 为空）+ no-such-table」放行并写明
+依据；非停用路径照旧上抛。回归：`disabled_verify_tolerates_missing_table` /
+`enabled_verify_still_fails_on_missing_table`（Sim 新增 `fail_list` 开关精确模拟）。
+
+6.24 **停用后决策与数据面脱节**。调度层 `decide` 不看 `cfg.global.enabled`：停用提交
+已把内核对象清空，决策却仍按健康状态给桶，UI 显示「承载流量」而内核里没有任何本插件
+规则。**修复**：停用配置显式返回全零桶 Outcome；第一轮 `changed=true`（触发一次停用
+清场提交），内部桶状态同步归零，后续轮稳定为无变更（否则每 tick 都会跑空事务）。
+回归：`disabled_config_yields_zero_buckets_and_no_traffic_claim` /
+`disabled_decide_reports_changed_only_on_transition`。
+
+6.25 **procd init.d 的 reload 两坑**。① 函数必须叫 `reload_service()`——名为
+`reload()` 的自定义函数在 USE_PROCD=1 的脚本里**不会被执行**（退出码 0，什么都没发生）；
+② busybox 的 `start-stop-daemon -K -HUP` 退出码 0 却**根本不发信号**。**修复**：
+改名 `reload_service()` + 直接 `kill -HUP $(cat /var/run/smartmwand.pid)`。
+真机双向实测：改 log_level → init.d reload → getConfig 立即反映。
+
+另两条**部署事实**记在这里（不是代码缺陷）：① 该固件内核默认
+`net.ipv4.ping_group_range=1 0`（禁用 ping socket），健康探测会诚实告警
+「不允许创建 ICMP socket」——部署需解锁并持久化（已写入文档，不自动改系统）；
+② 5G 模组的网关不回 ICMP，线路必须显式配置公网 `probe_target`，否则网关可达性
+探测会误判 failed（配置后状态机 unknown→failed→recovering→healthy 全链路正常）。
+
 ## 7. 下一步（严格顺序）
 
 1. ~~**M7 RPC + main**~~（已完成）：`src/rpc/mod.rs`（23 方法 + 统一信封 +
@@ -268,19 +322,131 @@ LICENSE         GPLv3 全文（2026-10-26 起）
    （由 `--dump-include` 生成，保证同源）+ 四个维护脚本（define 名按
    `package-pack.mk` 实测）+ 真实 SDK 构建与解包核对；
    `--reclaim` 在 WSL 对真实残留（1 规则 + 8 路由 + `inet smw` 表）清场并幂等复核。
-4. **M10 自动化 + 真机**：把 M2/M6/M7 的「待真机」条目逐条改成「完成」——
-   nft 通道用 `FirewallExec::Real` 重跑同一批结论，5G 重拨、IPv6 绕过、断电重启幂等
-   按 `docs/TESTING.md` 的设备矩阵验证；浏览器侧 LuCI 渲染验收也在这里；
-   另：设备 SSH 口令与 Web 口令不一致的问题需要仓库所有者澄清后才能上真机。
+4. ~~**M10 真机验收**~~（第一轮已完成，2026-10-26）：真机（ImmortalWrt SNAPSHOT /
+   mediatek-filogic aarch64 / nft 1.1.7 / apk 3.0.5）完成安装/升级/卸载、enabled=0 零触碰、
+   nft 能力探测、ubus 23 方法往返、LuCI 页面、enabled=1 数据面（ip rule/表 101/inet smw）、
+   状态机全链路、幂等复核、停用回收、管理面不失联；抓出六处真机必爆缺陷并全部修复
+   （§6.20–6.25）。**剩余真机项**：双 WAN 均衡/主备切换（需第二线路接入 eth0）、
+   5G 重拨、断电重启幂等、浏览器侧人工确认（需退出重登刷新菜单缓存）。
 
 ## 8. 已知阻塞与风险
 
 | 项 | 影响 | 现状 |
 |---|---|---|
-| 沙箱/开发机无目标设备的 nft 与接口形态 | 无法在开发环境复现目标设备的 nft 版本、5G 模组、双 WAN 拓扑 | **部分解除**：WSL（Debian + 内核 6.18 + nft 1.1.3 + 真 netlink）上完成了端到端验证 —— 事务八阶段、幂等复核、崩溃后启动回收、优雅关停回收、23 个 RPC 方法请求/响应；并借此抓出七处真机必爆缺陷（§6.13–6.19）。WSL 的 nft 1.1.3 缺 `dynamic,timeout` 与 jhash 种子参数（能力探测如实报不可用），设备上更新的 nft 会给出不同结论，**必须以设备实测为准**；M2/M6/M7 的「待真机」条目归 M10 |
+| 沙箱/开发机无目标设备的 nft 与接口形态 | 无法在开发环境复现目标设备的 nft 版本、5G 模组、双 WAN 拓扑 | **已解除（真机验证补齐）**：真机 nft 1.1.7 上完成了能力探测与数据面验证；WSL 与真机都缺 `dynamic,timeout` 与 jhash 种子参数（能力探测如实报不可用，域名规则走降级路径） |
 | ~~无 clippy / rustfmt~~ | ~~无法交付 Lint 与风格结论~~ | **已解除**：工具链 1.99.1 下 clippy 0 警告 + rustfmt 基线已建立（`32b97ad`） |
-| 无目标真机 | 5G 重拨、IPv6 绕过、断电重启幂等、管理面不失联 等只能在 M10 验证 | 相关逻辑已有代码级防护，且 WSL 上验证了「崩溃→重启回收→重装」与「关停回收」两条生命周期；设备特有的重拨/掉电场景结论必须留白 |
-| 设备 SSH 口令被拒 | 无法上真机执行 M10 矩阵 | Web（LuCI）登录同一口令成功（HTTP 302 对 403 判别），但 dropbear/ubus 全部拒绝；已按所有者指示停止探测。**需要所有者澄清口令或改发公钥** |
+| 设备仅一条线路在线（eth0 未接上游） | 双 WAN 均衡/主备切换、5G 重拨场景无法验证 | 单线路场景已全项验证（healthy、数据面、出网、回收）；第二线路接入后即可验证，代码路径（主备/均衡/热替换）有单测覆盖 |
+| 断电重启幂等 | 未实测 | 设计有双重防护（启动 reclaim 残留回收 + 幂等提交以快照判定）；待用户断电重启后复核 `ip rule` 不重复 |
+| ping socket 需解锁 | 未配置时健康探测全部不可用（诚实告警） | ImmortalWrt 内核默认 `ping_group_range=1 0`；部署要求已写入 `README.md` 与 `docs/TESTING.md`（不自动改系统） |
 | 游戏预置库需要权威来源 | 违反「不得编造服务器 IP/端口」的风险 | 加载器与校验已就位（`rules::presets`），但**不内置任何数据**；`source` 字段缺失即整条拒绝，单测 `no_preset_is_bundled_in_code` + `missing_source_is_error` 钉住 |
 | `getaddrinfo` 不返回 TTL | 域名集合的元素寿命只能取一个下界，偏长会留残值、偏短会加重解析 | 用 `global.dns_ttl_floor_s`（默认 300s，校验 30..86400）作为折中并在 schema 注释、`dns_sets.rs` 模块头、`docs/CONFIGURATION.md` 三处如实写明「这是不完备而非最优」；真 TTL 需换解析器（会引入依赖面），暂未做 |
 | DNS 解析结果 ≠ 真实连接目的 | CDN 任播 / GeoDNS / 轮询会让域名规则命中不足 | 属产品固有限制，UI 与文档必须并列展示；DoH/DoT 流量无法从 53 端口识别，不做 SNI/DPI 识别 |
+
+## 9. 与任务书要求的差距审计（2026-10-27，下一阶段工作清单）
+
+> 原始任务书全文见 `docs/SPEC.md`；本节是对照全文逐条审计后的**未实现/部分实现清单**，
+> 是接手者的工作起点。核心链路（配置→事务→数据面→探测→RPC→页面）已全部真实可用
+> 并经真机验证；下列缺口均不影响已交付部分的安全性。
+
+### 9.1 RPC 接口形态（SPEC §9）——6 个点名方法已补齐（2026-10-27）
+
+方法表 23 → **29**；`src/rpc/mod.rs::METHODS`、`docs/ARCHITECTURE.md` §6、
+`root/usr/share/rpcd/ucode/smartmwan.uc`、`acl.d` 四处已同步，6 条新单测（388 全绿）。
+
+| 任务书方法 | 本仓方法名 | 落地形态 |
+|---|---|---|
+| `switch_mode` | `switchMode` | 改 `global.mode` + 落盘 + 一轮事务；同值不写盘不下发 |
+| `set_primary` | `setPrimary` | 改 `global.primary`；拒绝不存在/已停用/已在 `backup_order` 里的线路 |
+| `set_backup_order` | `setBackupOrder` | 改 `global.backup_order`；拒绝空表/重复项/未知线路/主线路 |
+| `set_algorithm` | `setAlgorithm` | 改 `global.algorithm`；`weighted_ecmp` 带降级 `hint` |
+| `failback`（手动回切） | `failback` | **即时动作**：主线路够格才切，不够格如实 `switched=false` 且不留指令 |
+| `diagnostics`（聚合只读诊断） | `diagnostics` | 只读聚合视图，零副作用 |
+
+> 方法名用 camelCase 与既有 23 个方法保持一致；上表左列是任务书的 snake_case 记法，
+> 二者一一对应，不存在语义差异。
+
+其余 12 个要求的方法均已覆盖（统一信封 ✓）：status→getStatus、interfaces→getLines、
+get_config→getConfig、validate_config→validate、apply_config→apply、get_quality→getGameQuality、
+get_traffic→getTraffic、get_connections→getConnections、get_game_rules→getGames、
+update_game_rules→save、force_failover→forceWan、get_events→getLogs。
+
+### 9.2 LuCI 前端（SPEC §10.1）——配置编辑**大部分已补齐**（2026-10-27）
+
+此前 7 个页面全部是只读展示（全项目 0 个 input/select，`save` 从未被 UI 调用）。
+本轮补齐了编辑链路与版式，**剩余缺口**列在最后。
+
+| 页面 | 本轮落地 |
+|---|---|
+| 负载均衡 | 算法下拉、桶数、会话保持、最小重排间隔、**逐线路权重**；保存/保存并应用 |
+| 主备 | 主线路下拉（`setPrimary`）、备用顺序按序号排序（`setBackupOrder`）、回切方式/延迟/连续成功/最小间隔（草稿 `save`）、**立即回切**（`failback`）、强制切换与取消强制 |
+| 系统设置 | 服务启停、健康检测参数（周期/超时/失败阈值/预热）、日志等级、**配置导出/导入**（先 `validate` 再 `save`）、诊断信息（`diagnostics`）、立即探测、重新读取、回滚 |
+| 总览 | 实时吞吐表、抖动列、桶分布条形图、能力降级、最近一次事务回执、刷新指示 |
+| 线路 | 概览卡片（总数/可用/是否已探测）、逐线路键值卡、维护模式开关 |
+| 游戏 | 命中数列（读不到显示「—」）、域名集合、线路评分与规则落点 |
+
+编辑链路一律复用既有 `save → diff → apply`，**界面不把配置直接塞给内核**；
+改单个字段的（主线路/备用顺序/算法）走 M11 新增的便捷 RPC。
+
+剩余缺口：
+
+* **游戏页**：预设选择、规则增删改、客户端匹配编辑、评分权重——仍无编辑 UI；
+* **线路页**：WAN「自动发现 → 一键采用」——仍需手写 UCI 段；
+* **总览页**：「最近切换事件列表」后端没有独立的事件流 RPC
+  （现以「最近一次事务回执 + 决策说明」呈现）；
+* 轻量 SVG（拓扑/趋势）——未做（SPEC 为建议级）；
+* 键盘导航/焦点可见性/aria——部分原生（表单用原生 select/input），未专门做。
+
+### 9.3 后端功能缺口（SPEC §6/§9）
+
+* ~~**游戏规则命中统计**~~（**已实现，2026-10-27**）：`firewall::build()` 生成的每条游戏
+  规则本来就带 `counter`，缺的是「读回来」的路径。本次补齐三段：
+  ① `FirewallExec::rule_counters()` —— **只有真实 nft 通道给出数字**，替身与「无 nft」
+  一律 `None`（编造的计数会被界面当成命中率，比没有数字更糟）；
+  ② `rules::GameHits::from_listing()` —— 只认 `smw:game:` 标签，一条 UCI 规则对应的
+  多条 nft 规则**求和**（桶规则/保护/绕行的计数不混入，否则数字会变成全链流量）；
+  ③ 主循环每 30 秒采样一次写进 `AppState.hits`（比探测低频：`nft -a list chain`
+  要把整条链拉回来），`getGames` 按规则 slug 返回 `hits`。
+  **诚实口径**：从未采样或读不到时 `hits` 是 `null` 且 `hits_note` 写明原因，
+  绝不用 0 冒充「没命中过」。
+* ~~**diagnostics 聚合诊断**~~（已实现，见 9.1）。
+
+### 9.4 测试缺口（SPEC §14）
+
+* ~~`tests/` 目录全空~~ —— **六个集成测试文件已落地（2026-10-27，33 条）**：
+  `tests/config.rs`（6）、`tests/health.rs`（4）、`tests/scheduler.rs`（6）、
+  `tests/failover.rs`（6）、`tests/rules.rs`（5）、`tests/transaction.rs`（6）。
+  它们串的是**跨模块路径**，与单测不重复：手写 UCI → 解析 → 校验 → 保存 → diff；
+  健康状态机的完整时间线；七种算法与权重在桶图上的实际效果；主备切换与回切去抖的时序；
+  规则条件在最终 nft 文本里的存在性；事务八阶段、幂等复核、失败回滚与残留回收。
+  编写过程中确认了两条容易写错的既有行为：① 回切带**去抖二次确认**（条件满足后的
+  第一轮只登记意向），② 滑窗容量为 90（失败样本不会立刻被挤出降级判定）。
+  **仍缺**：真机矩阵（见下）、长时间运行/并发配置变更/高连接数性能测试。
+* 真机矩阵只走了单线路：**七种算法真机分别验证、双 WAN 权重/主备切换/多级备用/
+  自动与手动回切、游戏命中与择优、IPv4/IPv6 分别验证、模组重拨/网关变化、
+  firewall4 重载后规则保持、断电重启幂等**——全部未做（部分依赖第二线路接入 eth0）；
+* 长时间运行资源占用、并发配置变更（单事务锁有单测）、高连接数调度性能——未测。
+
+### 9.5 小项（SPEC §3/§13）
+
+* `rust-toolchain.toml` 不存在（SPEC 目录建议项；`rust-version` 已在 Cargo.toml）；
+* 「首次启用前检查当前网络环境并明确提示」——应用流程有 diff + 风险二次确认，
+  但无专门的启用前环境检查提示。
+
+### 9.6 已确认合规的等价实现（不缺，避免接手者误判）
+
+* `src/rpc/ubus.rs` 取消：**记录在案的架构决策**（ucode 桥直连守护进程 Unix socket，
+  不引入 ubus 客户端依赖），见 `docs/ARCHITECTURE.md` §7；
+* `src/rules/games.rs` → `src/rules/presets.rs`：预置加载器功能等价；
+* `root/usr/share/luci/view/` → `htdocs/`：25.12 客户端渲染视图的正确路径；
+* 全局模式切换/主线路/备用顺序/算法设置的**数据模型与事务**全支持——只差
+  便捷 RPC 形态（9.1）与编辑 UI（9.2）。
+
+### 9.7 建议实施顺序（按 SPEC §15「数据面正确 > 功能完整 > UI 精细化」）
+
+1. 补 6 个 RPC（薄封装，事务层已支持）+ 游戏规则 `counter` 与命中数暴露；
+2. 前端配置编辑（复用现有 save/validate/diff/apply 链路；先设置页与均衡页，
+   再主备页与游戏页）；
+3. 系统设置页补齐（服务启停/导入导出/诊断展示）；
+4. 总览页补速率/抖动/事件列表；
+5. `tests/` 集成测试六件套；
+6. 真机剩余矩阵（部分依赖第二线路接入）。

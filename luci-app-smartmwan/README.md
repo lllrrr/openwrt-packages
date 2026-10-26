@@ -24,14 +24,14 @@ src/                    Rust 后端（1 个库 + 1 个守护进程二进制）
   health/               探测（ICMP/TCP/UDP/DNS）、滑动窗口指标、线路状态机
   scheduler/            负载均衡桶分配、主备切换、滞回去抖、低延迟择优
   rules/                流量分类（游戏白名单 / 客户端匹配 / 域名动态集合）
-  transaction.rs        校验→下发→回读→回滚 的单事务层                    ← 代码完成 / 待真机
+  transaction.rs        校验→下发→回读→回滚 的单事务层
   rpc/                  Unix socket JSON RPC + ACL + 审计日志
   main.rs               守护进程入口与 tokio 监督循环
 Makefile                OpenWrt 包（apk 时代；自建交叉编译 + 同源安装期文件 + 维护脚本）
-root/                   打包进 apk 的运行时文件（UCI 快照、procd、nftables.d、rpcd ucode/acl、menu.d）
+root/                   打包进 apk 的运行时文件（UCI 快照、procd、fw4 自动片段、rpcd ucode/acl、menu.d）
 htdocs/                 LuCI 前端资源（view JS + css）
 scripts/                构建与检查脚本（含 Lua 禁用扫描）
-docs/                   要求对照 / 架构 / 配置 / 安全 / 测试 / 路线图 / 进度 / 交接
+docs/                   任务书(SPEC) / 要求对照 / 架构 / 配置 / 安全 / 测试 / 路线图 / 进度 / 交接
 tests/                  跨层集成测试（未开始）
 ```
 
@@ -51,14 +51,30 @@ RPC 层提供 23 个方法（Unix socket + JSON 统一信封 + `SO_PEERCRED` ACL
 对真实残留的清场与幂等复核全部实测通过，并借此修掉七处「单测全绿、真机必爆」的
 缺陷（`docs/PROGRESS.md` §6.13–6.19）。
 rpcd ucode 桥同样在 WSL 经 ucode CLI 对真实守护进程往返验证（含错误信封透传）；
-**浏览器渲染未在真实 LuCI 环境验证**。**目标设备尚未验收**（M10）：设备上的 nft
-版本、5G 重拨、IPv6、管理面不失联要以设备实测为准。
+
 
 打包（M9）已完成：真实 OpenWrt/ImmortalWrt 25.12 SDK（aarch64 musl）构建出
 `.apk` 并逐项校验（四个维护脚本、同源安装期文件、conffiles、aarch64 静态二进制），
 校验方法见 [docs/TESTING.md](docs/TESTING.md) §5。
-未完成：**真机验收（M10）**。
-逐条完成度见 [docs/PROGRESS.md](docs/PROGRESS.md)，交付判据见 [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md)。
+**真机验收（M10）第一轮已完成**：ImmortalWrt SNAPSHOT 真机（mediatek/filogic aarch64，
+nft 1.1.7）安装/升级/卸载、数据面下发、健康探测状态机、幂等回收、管理面不失联全部
+实测通过；抓出六处「测试全绿、真机必坏」缺陷并全部修复（`docs/PROGRESS.md` §6.20–6.25）。
+浏览器侧验收已完成一轮（2026-10-27）：修复四处浏览器专属缺陷（LuCI require
+单例实例误当构造函数、E() 嵌套数组、回调 this 丢失、handler 自刷新丢弃 DOM），
+界面全面汉化（菜单在「网络 → 智能多线路」），部署要求与 apk 安装/卸载语义见
+[docs/CONFIGURATION.md](docs/CONFIGURATION.md) §8。
+剩余：双 WAN 均衡/主备切换（需第二线路接入）、断电重启幂等。
+**与任务书的全量差距清单（RPC 便捷形态、前端配置编辑、游戏命中统计、集成测试等）
+见 [docs/PROGRESS.md](docs/PROGRESS.md) §9**，原始要求见 [docs/SPEC.md](docs/SPEC.md)。
+
+**部署要求**：设备内核需放通 ping socket，否则健康探测不可用（会诚实告警而不是伪造状态）：
+
+```sh
+sysctl -w net.ipv4.ping_group_range='0 2147483647'
+echo 'net.ipv4.ping_group_range=0 2147483647' >> /etc/sysctl.conf
+```
+
+原始任务书见 [docs/SPEC.md](docs/SPEC.md)；逐条完成度见 [docs/PROGRESS.md](docs/PROGRESS.md)，交付判据见 [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md)，接手须知见 [docs/HANDOVER.md](docs/HANDOVER.md)。
 
 ## 开发环境命令
 

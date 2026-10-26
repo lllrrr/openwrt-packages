@@ -161,6 +161,39 @@
   `libc::time_t`/`suseconds_t` 别名（musl 1.2.0 起它们变 64 位并标记弃用，点名会刷警告）。
   新增 **2 条 bin 单测**（reclaim 配置回落），lib 378 + bin 2；
   `src/**/*.rs` 合计 **28,391** 行。
+* **真机验收 M10（2026-10-26，ImmortalWrt SNAPSHOT / mediatek-filogic aarch64_cortex-a53，
+  内核 6.18.55、nftables 1.1.7、apk-tools 3.0.5 —— 与构建 SDK 完全同源）**。
+  真机抓出**六处「测试全绿、真机必坏」缺陷**，全部修复并配回归单测：
+  ① **fw4 片段机制**：该固件的 fw4 把 `/etc/nftables.d/*.nft` 用内置 glob include 进
+  `table inet fw4` **表体内部**，独立表片段放那里必然语法错误、fw4 整体拒绝加载；
+  且 UCI include 段是匿名段，`uci get firewall.smartmwan` 幂等判断永远落空（升级重复加段、
+  卸载残留）。改为安装到 `/usr/share/nftables.d/ruleset-post/` 自动片段目录（fw4 README
+  载明的顶层位置），postinst/postrm 不再碰 UCI firewall。
+  ② **依赖闭包缺 `ucode-mod-socket`**：该模块是独立包，基础 ucode/rpcd 都不带；缺了它
+  rpcd 加载 ucode 桥直接抛 `No module named 'socket'`，ubus 对象无法注册。已加入 DEPENDS。
+  ③ **rpcd-mod-ucode 的整数 typehint 语义**：args 声明里整数的**值是位宽提示**
+  （8→INT8、16→INT16、64→INT64、其余→INT32），不是默认值 —— `limit: 16` 让 INT32
+  实参被 `Invalid argument` 拒收。数字参数一律声明 `0`。
+  ④ **停用清场复核误判**：首次安装 + enabled=0 + `inet smw` 表从未存在时，停用事务的
+  复核对 `list chain` 报 no-such-table 没有豁免（FirewallApply 有、FirewallVerify 没有），
+  把成功的清场误判为失败并回滚。复核对「期望空状态 + no-such-table」放行并写明依据。
+  ⑤ **停用后决策与数据面脱节**：调度层 `decide` 不看 `enabled`，停用清场后 UI 仍显示
+  「承载流量」。停用配置的决策现在显式返回全零桶（第一轮 `changed=true` 触发清场提交，
+  内部状态同步归零，后续轮稳定为无变更，不会循环触发空事务）。
+  ⑥ **procd init.d 的 reload 两坑**：函数必须叫 `reload_service()`（名为 `reload()` 的
+  自定义函数不会被执行）；busybox 的 `start-stop-daemon -K -HUP` 退出码 0 却根本不发
+  信号 —— SIGHUP 改为直接对 pidfile 记录的 PID 发。
+  真机验收矩阵结果（全部实测）：安装/升级/卸载（conffiles 升级保留、卸载按 apk 语义全删）、
+  enabled=0 不碰数据面、nft 能力探测（6/8 项可用；`dynamic,timeout` 集合与 jhash 种子在
+  1.1.7 上仍不可用，域名规则诚实降级为告警）、ubus 23 方法全链路往返、LuCI 页面
+  （`admin/network/smartmwan`）全部 200、enabled=1 数据面（ip rule 优先级 1000 + 槽位掩码、
+  表 101 完整镜像、`inet smw` 保护/绕行集合精确落位）、单线路 healthy 与状态机全链路
+  （unknown→failed→recovering→healthy）、实际出网、幂等复核、停用回收清零、管理面不失联。
+  **部署要求（文档化，不自动改系统）**：设备需 `net.ipv4.ping_group_range=0 2147483647`
+  解锁 ping socket（ImmortalWrt 默认 `1 0` 禁用，否则健康探测全部不可用）。
+  菜单按仓库所有者要求移到「网络」页（`admin/network/smartmwan`）。
+  新增 **4 条回归单测**（停用复核豁免正反两条 + 停用决策两条），lib **382** + bin 2；
+  `src/**/*.rs` 合计 **28,549** 行。
 * **工程闸门**：`cargo clippy --offline --all-targets -- -D warnings` 归零
   （20 条 lib 告警逐条修，只保留 1 处带中文说明的 `#[allow]`，在测试夹具里）；
   `cargo fmt --all` 建立基线，此后 `clippy` / `fmt --check` 与单测同为提交前置条件。
@@ -174,6 +207,38 @@
   `docs/TESTING.md`（测试矩阵与 10 条交付标准的诚实回答）、
   `research/luci.md` 与 `research/buildsystem.md`（去 Lua 前端与 apk/rust 打包研究笔记，
   含「必须在真实 SDK 里复验」的来源声明）。
+* **RPC 便捷设置方法（方法表 23 → 29）**：`switchMode` / `setPrimary` / `setBackupOrder` /
+  `setAlgorithm` / `failback` / `diagnostics`。前五个只是「改一个 `global` 字段 → 落盘 →
+  触发一轮事务」的薄封装（数据模型与事务原本就支持这些设置，缺的是调用形态），
+  共用 `mutate_global()` 骨架：**新值与当前相同时不写盘、也不下发**（不变式 2.5：
+  没有 diff 就不得有数据面写入）；`failback` 是**即时动作** —— 主线路此刻不够格就如实
+  返回 `switched=false`，不留一条将来悄悄生效的指令，这是它与 `forceWan`
+  （持久意志，目标暂不可用也保留指令）的分工；`setAlgorithm` 选到可能降级的算法时
+  在响应里带 `hint`。  `diagnostics` 是只读聚合诊断（版本 / uptime / 校验结论 /
+  能力降级 / 线路健康 / conntrack / DNS / 最近回执 / 近期告警），**零副作用**：
+  不触发探测、不下发、不重载。
+* **游戏规则命中统计**：`firewall::build()` 生成的游戏规则本来就带 `counter`，
+  本次补的是「读回来」——`FirewallExec::rule_counters()`（**只有真实 nft 通道给数字**，
+  替身与「无 nft」一律 `None`）、`rules::GameHits`（只认 `smw:game:` 标签，
+  同一规则的多条 nft 规则求和）、主循环每 30 秒采样一次；`getGames` 按 slug 返回 `hits`。
+  口径：**读不到就是 `null` + 原因说明**，绝不用 0 冒充「规则没命中过」。
+* **LuCI 前端配置编辑（此前 7 页全只读、`save` 从未被 UI 调用）**：均衡页
+  （算法 / 桶数 / 会话保持 / 最小重排间隔 / 逐线路权重）、主备页（主线路、备用顺序
+  按序号排序、回切方式与阈值、**立即回切**）、系统设置页（服务启停、健康检测参数、
+  日志等级、**配置导出/导入**、诊断信息、立即探测）。编辑一律走 `save → diff → apply`，
+  界面不把配置直接塞给内核；未保存的修改显式摆出提示条。
+* **LuCI 前端版式重做**：`smartmwan.css` 重写（语义色变量带 fallback、暗色走
+  `prefers-color-scheme`、区块卡片、带状态点的徽标、表格斑马纹与 hover、
+  窄屏单列、`tabular-nums` 数值、`prefers-reduced-motion` 关动效）；
+  `smartmwan.js` 新增 `section/stat/kv/field/select/number/checkbox/dirty/tick` 零件；
+  总览页补实时吞吐与抖动列、桶分布条形图、最近事务回执；线路页补概览卡片。
+  编辑页**刻意不占用** LuCI 的 `handleSave` 保留钩子（另起 `saveConfig()`）。
+* **集成测试六件套 `tests/`**（此前该目录全空）：`config` / `health` / `scheduler` /
+  `failover` / `rules` / `transaction`，共 33 条。串的是**跨模块路径**
+  （手写 UCI → 解析 → 校验 → 保存 → diff；健康状态机时间线；七种算法与权重的桶图效果；
+  主备切换与回切去抖时序；规则条件在最终 nft 文本里的存在性；事务八阶段/幂等/回滚/回收），
+  与既有 392 条单测不重复。编写中确认两条容易写错的既有行为并写进注释：
+  回切带**去抖二次确认**（条件满足后第一轮只登记意向）、滑窗容量为 90。
 
 ### 变更
 
