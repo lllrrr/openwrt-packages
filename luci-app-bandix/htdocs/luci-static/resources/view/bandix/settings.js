@@ -663,13 +663,14 @@ return view.extend({
 									}
 								})
 								.catch(function (err) {
-		o = s.option(form.Button, 'feedback_info', _('Feedback'));
-		o.inputtitle = _('Feedback');
-		o.inputstyle = 'link';
-		o.onclick = function () {
-			window.open('https://github.com/timsaya', '_blank');
-			return false;
+									ui.addNotification(null, E('p', _('Failed to restart service: ') + err.message), 'error');
+								});
+						}
+					}, _('Confirm'))
+				])
+			]);
 		};
+
 
 		// 2. 流量监控设置部分 (traffic)
 		s = m.section(form.NamedSection, 'traffic', 'traffic', _('Traffic Monitor Settings'));
