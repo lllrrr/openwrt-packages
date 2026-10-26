@@ -1,0 +1,18 @@
+{
+    "luci-app-webrtc-guard": {
+        "description": "Grant access to WebRTC Guard",
+        "read": {
+            "uci": ["webrtc-control", "firewall", "dhcp"],
+            "ubus": {
+                "webrtc-control": ["status", "stats", "logs"],
+                "network.interface": ["dump"]
+            }
+        },
+        "write": {
+            "uci": ["webrtc-control"],
+            "ubus": {
+                "webrtc-control": ["clear_logs"]
+            }
+        }
+    }
+}

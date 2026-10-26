@@ -1,0 +1,123 @@
+#!/bin/sh
+
+. /usr/share/libubox/jshn.sh
+. /usr/share/webrtc-control/common.sh
+
+LOG_CURSOR="$STATE_DIR/log-cursor"
+
+counter_value() {
+    local value
+    value=$(nft -j list counter inet webrtc_control "$1" 2>/dev/null | jsonfilter -e '@.nftables[*].counter.packets')
+    printf '%s\n' "${value:-0}"
+}
+
+status() {
+    local enabled loaded=0 healthy=0 outdated=0 offload=0 table hash error openclash=0
+    enabled=$(setting enabled 0)
+    table=$(nft list table inet webrtc_control 2>/dev/null)
+    hash=$(config_hash)
+    if [ -n "$table" ]; then
+        loaded=1
+        if printf '%s\n' "$table" | grep -qF "webrtc-control:$VERSION:$hash" &&
+            printf '%s\n' "$table" | grep -q 'hook postrouting'; then
+            healthy=1
+        else
+            outdated=1
+        fi
+    fi
+    offload_enabled && offload=1
+    if nft list flowtables 2>/dev/null | grep -q flowtable; then offload=1; fi
+    [ "$(uci -q get openclash.config.enable)" != 1 ] || openclash=1
+    error=
+    [ ! -f "$ERROR_FILE" ] || error=$(head -c 2048 "$ERROR_FILE")
+    if [ "$enabled" = 1 ] && [ "$offload" = 1 ]; then
+        healthy=0
+        error="流量卸载仍开启，部分连接可能绕过防护${error:+；$error}"
+    fi
+    if [ "$enabled" = 1 ] && [ "$(uci -q get 'firewall.@defaults[0].auto_includes')" = 0 ]; then
+        healthy=0
+        error="fw4 自动 include 已关闭，重载后无法保证防护${error:+；$error}"
+    fi
+    [ -z "$error" ] || healthy=0
+    json_init
+    json_add_int enabled "$enabled"
+    json_add_int loaded "$loaded"
+    json_add_int healthy "$healthy"
+    json_add_int outdated "$outdated"
+    json_add_int offload "$offload"
+    json_add_int openclash "$openclash"
+    json_add_string mode "$(setting mode proxy)"
+    json_add_string version "$VERSION"
+    json_add_string error "$error"
+    json_add_string coverage '明文 UDP/TCP STUN 与常见端口；加密及分段通道不保证识别'
+    json_dump
+}
+
+stats() {
+    json_init
+    json_add_int udp "$(counter_value stun_udp)"
+    json_add_int tcp "$(counter_value stun_tcp)"
+    json_add_int ports "$(counter_value stun_ports)"
+    json_dump
+}
+
+logs() {
+    local saved_ifs line records
+    records=$(logread 2>/dev/null | grep -E 'webrtc-drop|webrtc-control' | tail -n 200)
+    if [ -s "$LOG_CURSOR" ]; then
+        records=$(printf '%s\n' "$records" | awk '
+            FILENAME == ARGV[1] { cursor = $0; next }
+            { lines[++count] = $0; if ($0 == cursor) cutoff = count }
+            END { for (i = cutoff + 1; i <= count; i++) print lines[i] }
+        ' "$LOG_CURSOR" -)
+    fi
+    json_init
+    json_add_array entries
+    saved_ifs="$IFS"
+    IFS='
+'
+    for line in $records; do
+        json_add_string '' "$line"
+    done
+    IFS="$saved_ifs"
+    json_close_array
+    json_dump
+}
+
+clear_logs() {
+    local records cursor
+    json_init
+    if ! records=$(logread 2>/dev/null); then
+        json_add_boolean success 0
+        json_add_string error '无法读取系统日志，未清空记录'
+    elif ! mkdir -p "$STATE_DIR"; then
+        json_add_boolean success 0
+        json_add_string error '无法创建日志清理状态目录'
+    else
+        cursor=$(mktemp "$STATE_DIR/log-cursor.XXXXXX")
+        if [ -n "$cursor" ] &&
+            printf '%s\n' "$records" | grep -E 'webrtc-drop|webrtc-control' | tail -n 1 > "$cursor" &&
+            mv -f "$cursor" "$LOG_CURSOR"; then
+            json_add_boolean success 1
+        else
+            [ -z "$cursor" ] || rm -f "$cursor"
+            json_add_boolean success 0
+            json_add_string error '无法保存日志清理位置，未清空记录'
+        fi
+    fi
+    json_dump
+}
+
+case "$1" in
+    list) printf '%s\n' '{ "status": {}, "stats": {}, "logs": {}, "clear_logs": {} }' ;;
+    call)
+        case "$2" in
+            status) status ;;
+            stats) stats ;;
+            logs) logs ;;
+            clear_logs) clear_logs ;;
+            *) printf '{}\n'; exit 1 ;;
+        esac
+        ;;
+    *) exit 1 ;;
+esac

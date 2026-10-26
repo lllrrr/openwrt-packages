@@ -1,0 +1,36 @@
+{
+    "admin/services/webrtc-control": {
+        "title": "WebRTC 防泄漏",
+        "order": 60,
+        "action": {
+            "type": "firstchild"
+        },
+        "depends": {
+            "acl": ["luci-app-webrtc-guard"]
+        }
+    },
+    "admin/services/webrtc-control/overview": {
+        "title": "总览",
+        "order": 10,
+        "action": {
+            "type": "view",
+            "path": "webrtc-control/status"
+        }
+    },
+    "admin/services/webrtc-control/settings": {
+        "title": "设置",
+        "order": 20,
+        "action": {
+            "type": "view",
+            "path": "webrtc-control/preferences"
+        }
+    },
+    "admin/services/webrtc-control/logs": {
+        "title": "日志",
+        "order": 40,
+        "action": {
+            "type": "view",
+            "path": "webrtc-control/records"
+        }
+    }
+}

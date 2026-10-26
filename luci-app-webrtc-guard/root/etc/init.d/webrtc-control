@@ -1,0 +1,22 @@
+#!/bin/sh /etc/rc.common
+
+START=99
+STOP=10
+USE_PROCD=1
+
+start_service() {
+    /usr/share/webrtc-control/apply.sh apply
+}
+
+stop_service() {
+    /usr/share/webrtc-control/apply.sh clear
+}
+
+reload_service() {
+    /usr/share/webrtc-control/apply.sh apply
+}
+
+service_triggers() {
+    procd_add_reload_trigger "webrtc-control" "firewall" "network" "openclash"
+    procd_add_raw_trigger "interface.*" 1000 /etc/init.d/webrtc-control reload
+}
