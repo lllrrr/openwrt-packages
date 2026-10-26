@@ -1,0 +1,13 @@
+{
+	"admin/network/smartnetpilot": {
+		"title": "Smart NetPilot",
+		"order": 60,
+		"action": {
+			"type": "view",
+			"path": "smartnetpilot/smartnetpilot"
+		},
+		"depends": {
+			"acl": [ "luci-app-smartnetpilot" ]
+		}
+	}
+}

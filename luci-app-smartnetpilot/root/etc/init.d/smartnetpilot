@@ -1,0 +1,1402 @@
+#!/bin/sh /etc/rc.common
+
+START=99
+
+UCISET='uci -q set'
+UCIDEL='uci -q delete'
+UCIADD='uci -q add'
+UCIADDLIST='uci -q add_list'
+LOCK=/var/lock/smartnetpilot-boot.lock
+LOCK_TIMEOUT=300
+APPLY_MARKER=/tmp/smartnetpilot.apply
+APPLY_MARKER_MAX_AGE=300
+SYS_CLASS_NET=${SYS_CLASS_NET:-/sys/class/net}
+BOARD_JSON=${BOARD_JSON:-/etc/board.json}
+JSHN_LIB=${JSHN_LIB:-/usr/share/libubox/jshn.sh}
+BOARD_PORTS=""
+BOARD_PORTS_KNOWN=0
+
+# 配置回滚状态（两阶段提交）。快照只放在 /tmp，重启后自动失效。
+CONFIG_DIR=${CONFIG_DIR:-/etc/config}
+STATE_DIR=${STATE_DIR:-/tmp/smartnetpilot-rollback}
+RESULT_FILE=${RESULT_FILE:-/tmp/smartnetpilot.result}
+ROLLBACK_TIMEOUT_DEFAULT=120
+ROLLBACK_TIMEOUT_MIN=30
+ROLLBACK_TIMEOUT_MAX=600
+ROLLBACK_CONFIGS="network firewall dhcp wireless system uhttpd nginx smartnetpilot"
+
+EXTRA_COMMANDS="prepare_apply apply_status confirm_apply cancel_apply rollback_if_pending wait_rollback"
+EXTRA_HELP="	prepare_apply <rollback> <timeout>	Snapshot the current configuration before applying
+	apply_status				Report the pending rollback state
+	confirm_apply <token>			Keep the applied configuration
+	cancel_apply <token>			Discard an apply that has not started yet
+	rollback_if_pending <token>		Restore the snapshot of an unconfirmed apply
+	wait_rollback <seconds> <token>		Wait for the deadline, then restore if unconfirmed"
+
+APPLY_FAILED=0
+APPLY_TOKEN=""
+
+log() {
+    echo "smartnetpilot:$1"
+}
+
+validate_ip() {
+    local value="$1"
+    local octet
+    local old_ifs
+
+    case "$value" in
+        ''|*[!0-9.]*|.*|*.|*..*) return 1 ;;
+    esac
+
+    old_ifs="$IFS"
+    IFS='.'
+    set -- $value
+    IFS="$old_ifs"
+
+    [ $# -eq 4 ] || return 1
+
+    for octet in "$@"; do
+        [ "$octet" -ge 0 ] 2>/dev/null && [ "$octet" -le 255 ] 2>/dev/null || return 1
+    done
+
+    return 0
+}
+
+validate_interface() {
+    [ -n "$1" ] && [ -d "$SYS_CLASS_NET/$1" ] && return 0 || return 1
+}
+
+# /etc/board.json 的 network 段是 OpenWrt 对硬件拓扑的权威描述。
+# DSA/交换机的物理端口（lan1..、wan、eth0.1..）会出现在 ports/device/ifname
+# 中，CPU 通道（例如 DSA 的 eth0）不会出现，因此可以用它把两者区分开。
+# 读不到或解析失败时返回 2，调用方必须保持旧行为，避免误杀。
+load_board_ports() {
+    local keys key values device
+
+    BOARD_PORTS=""
+    BOARD_PORTS_KNOWN=0
+    [ -r "$BOARD_JSON" ] || return 2
+    [ -r "$JSHN_LIB" ] || return 2
+
+    . "$JSHN_LIB"
+    json_init
+    json_load_file "$BOARD_JSON" 2>/dev/null || return 2
+    json_select network 2>/dev/null || return 2
+    json_get_keys keys 2>/dev/null || return 2
+
+    for key in $keys; do
+        json_select "$key" 2>/dev/null || continue
+
+        values=""
+        json_get_values values ports 2>/dev/null
+        BOARD_PORTS="$BOARD_PORTS $values"
+
+        for device in device ifname; do
+            values=""
+            json_get_var values "$device" 2>/dev/null
+            case "$values" in
+                ''|br-*|@*) ;;
+                *) BOARD_PORTS="$BOARD_PORTS $values" ;;
+            esac
+        done
+
+        json_select ..
+    done
+
+    BOARD_PORTS=$(printf '%s\n' $BOARD_PORTS | sed '/^$/d' | sort -u | tr '\n' ' ')
+    [ -n "$BOARD_PORTS" ] && BOARD_PORTS_KNOWN=1
+    return 0
+}
+
+# 0 = 板载物理端口，1 = board.json 明确不是，2 = 无法判断
+board_interface_is_port() {
+    local iface="$1" p
+
+    [ "$BOARD_PORTS_KNOWN" = "1" ] || load_board_ports >/dev/null 2>&1
+    [ "$BOARD_PORTS_KNOWN" = "1" ] || return 2
+
+    for p in $BOARD_PORTS; do
+        [ "$p" = "$iface" ] && return 0
+    done
+    return 1
+}
+
+# 交换机 CPU 通道（例如 DSA 的 eth0）不能作为 WAN 口使用。
+# 只检查纯 ethN / enXXX 名称；eth0.1 这类 VLAN、usb*、wwan* 不受影响。
+wan_candidate_usable() {
+    local iface="$1" rc
+
+    case "$iface" in
+        eth[0-9]|eth[0-9][0-9]|eth[0-9][0-9][0-9]) ;;
+        en[op][0-9]*)
+            case "$iface" in *[!0-9a-z]*) return 0 ;; esac
+            ;;
+        *) return 0 ;;
+    esac
+
+    board_interface_is_port "$iface"
+    rc=$?
+    [ "$rc" = "1" ] || return 0
+
+    log "Ignoring WAN interface '$iface': it is a switch CPU port, not a physical port"
+    return 1
+}
+
+# 用户在向导里点击“保存并应用”时，由 rpcd 创建该标记。
+# 只有看到这个标记，reload 才会真正改写网络配置。
+#
+# 标记内容为空表示“直接应用、不启用回滚”（旧版行为或命令行触发）；
+# 内容为 token=<uuid> 表示应用后必须在超时前确认，否则自动回滚。
+consume_apply_request() {
+    local age content
+
+    APPLY_TOKEN=""
+    [ -f "$APPLY_MARKER" ] || return 1
+
+    age=$(($(date +%s) - $(stat -c %Y "$APPLY_MARKER" 2>/dev/null || echo 0)))
+    content=$(cat "$APPLY_MARKER" 2>/dev/null)
+    rm -f "$APPLY_MARKER" 2>/dev/null
+
+    if [ "$age" -gt "$APPLY_MARKER_MAX_AGE" ]; then
+        log "Ignoring stale apply request (age: ${age}s)"
+        return 1
+    fi
+
+    case "$content" in
+        token=*) APPLY_TOKEN="${content#token=}" ;;
+        *)       APPLY_TOKEN="" ;;
+    esac
+
+    return 0
+}
+
+new_token() {
+    local token=""
+
+    if [ -r /proc/sys/kernel/random/uuid ]; then
+        token=$(cat /proc/sys/kernel/random/uuid 2>/dev/null | tr -d '\r\n' | tr -cd 'A-Za-z0-9-')
+    fi
+
+    [ -n "$token" ] || token="snp-$(date +%s)-$$"
+    echo "$token"
+}
+
+clamp_timeout() {
+    local value="$1"
+
+    case "$value" in
+        ''|*[!0-9]*) value=$ROLLBACK_TIMEOUT_DEFAULT ;;
+    esac
+
+    [ "$value" -lt "$ROLLBACK_TIMEOUT_MIN" ] && value=$ROLLBACK_TIMEOUT_MIN
+    [ "$value" -gt "$ROLLBACK_TIMEOUT_MAX" ] && value=$ROLLBACK_TIMEOUT_MAX
+
+    echo "$value"
+}
+
+state_lock() {
+    local age
+
+    mkdir "$STATE_DIR.lock" 2>/dev/null && return 0
+
+    age=$(($(date +%s) - $(stat -c %Y "$STATE_DIR.lock" 2>/dev/null || echo 0)))
+    if [ "$age" -gt 60 ]; then
+        rm -rf "$STATE_DIR.lock" 2>/dev/null
+        mkdir "$STATE_DIR.lock" 2>/dev/null && return 0
+    fi
+
+    return 1
+}
+
+state_unlock() {
+    rm -rf "$STATE_DIR.lock" 2>/dev/null
+}
+
+save_configs() {
+    local dir="$1"
+    local config
+
+    mkdir -p "$dir" 2>/dev/null || return 1
+    chmod 700 "$dir" 2>/dev/null
+
+    for config in $ROLLBACK_CONFIGS; do
+        [ -f "$CONFIG_DIR/$config" ] && cp "$CONFIG_DIR/$config" "$dir/" 2>/dev/null
+    done
+
+    # 快照可能包含 PPPoE 密码和无线密钥，只允许 root 读取。
+    chmod 600 "$dir"/* 2>/dev/null
+
+    return 0
+}
+
+# 在改动配置之前保存快照。已有未确认的快照时保留最原始的那一份，
+# 这样连续多次应用也总能回到用户最初确认过的状态。
+prepare_apply() {
+    local rollback="${1:-1}"
+    local timeout token
+
+    case "$rollback" in
+        0|false|no|off) rollback=0 ;;
+        *) rollback=1 ;;
+    esac
+    timeout=$(clamp_timeout "${2:-$ROLLBACK_TIMEOUT_DEFAULT}")
+
+    state_lock || {
+        log "Could not lock the rollback state"
+        return 1
+    }
+
+    # 异常中断可能留下未完成的回滚目录；过期的目录不应永久挡住新的应用。
+    if [ -d "$STATE_DIR.rollback" ]; then
+        local age=$(($(date +%s) - $(stat -c %Y "$STATE_DIR.rollback" 2>/dev/null || echo 0)))
+        [ "$age" -gt 300 ] && rm -rf "$STATE_DIR.rollback" 2>/dev/null
+    fi
+
+    # 上一次应用还在等待确认，或正在回滚时，不能把它的快照覆盖掉。
+    if [ -d "$STATE_DIR.rollback" ] ||
+       [ "$(cat "$STATE_DIR/status" 2>/dev/null)" = "pending" ]; then
+        state_unlock
+        log "Another apply is still in progress"
+        printf 'error=pending\n'
+        return 1
+    fi
+
+    if [ "$rollback" = "1" ]; then
+        token=$(new_token)
+
+        if [ ! -d "$STATE_DIR/backup" ] || [ ! -f "$STATE_DIR/token" ]; then
+            rm -rf "$STATE_DIR"
+            if ! save_configs "$STATE_DIR/backup"; then
+                rm -rf "$STATE_DIR"
+                state_unlock
+                log "Could not create the rollback snapshot"
+                return 1
+            fi
+            chmod 700 "$STATE_DIR" 2>/dev/null
+        fi
+
+        printf '%s\n' "$token" > "$STATE_DIR/token"
+        printf '%s\n' "$timeout" > "$STATE_DIR/timeout"
+        printf 'armed\n' > "$STATE_DIR/status"
+        rm -f "$STATE_DIR/deadline" "$RESULT_FILE" 2>/dev/null
+    else
+        rm -rf "$STATE_DIR" 2>/dev/null
+        rm -f "$RESULT_FILE" 2>/dev/null
+        token=""
+    fi
+
+    state_unlock
+
+    printf 'token=%s\n' "$token"
+    printf 'timeout=%s\n' "$timeout"
+    printf 'rollback=%s\n' "$rollback"
+    return 0
+}
+
+apply_status() {
+    local token=""
+    local status="idle"
+    local timeout=0
+    local remaining=0
+    local deadline=0
+    local now
+
+    if [ -d "$STATE_DIR" ] && [ -f "$STATE_DIR/token" ]; then
+        token=$(cat "$STATE_DIR/token" 2>/dev/null)
+        status=$(cat "$STATE_DIR/status" 2>/dev/null)
+        [ -n "$status" ] || status="armed"
+        timeout=$(cat "$STATE_DIR/timeout" 2>/dev/null)
+
+        if [ "$status" = "pending" ]; then
+            deadline=$(cat "$STATE_DIR/deadline" 2>/dev/null)
+            case "$deadline" in ''|*[!0-9]*) deadline=0 ;; esac
+            now=$(date +%s)
+            remaining=$((deadline - now))
+            [ "$remaining" -lt 0 ] && remaining=0
+        fi
+    elif [ -d "$STATE_DIR.rollback" ]; then
+        # 回滚正在进行：状态目录已被原子地移走，快照正在写回。
+        status="rollingback"
+        token=$(cat "$STATE_DIR.rollback/token" 2>/dev/null)
+    elif [ -f "$RESULT_FILE" ]; then
+        status=$(sed -n 's/^result=//p' "$RESULT_FILE" 2>/dev/null | head -n 1)
+        token=$(sed -n 's/^token=//p' "$RESULT_FILE" 2>/dev/null | head -n 1)
+        timeout=$(sed -n 's/^timeout=//p' "$RESULT_FILE" 2>/dev/null | head -n 1)
+        [ -n "$status" ] || status="idle"
+    fi
+
+    case "$timeout" in ''|*[!0-9]*) timeout=0 ;; esac
+    case "$remaining" in ''|*[!0-9]*) remaining=0 ;; esac
+
+    printf 'status=%s\n' "$status"
+    printf 'token=%s\n' "$token"
+    printf 'remaining=%s\n' "$remaining"
+    printf 'timeout=%s\n' "$timeout"
+}
+
+# 用户确认新配置：结束倒计时，保留已经生效的配置。
+confirm_apply() {
+    local token="$1"
+    local status
+
+    [ -n "$token" ] || return 1
+
+    state_lock || return 1
+
+    if [ ! -f "$STATE_DIR/token" ] || [ "$(cat "$STATE_DIR/token" 2>/dev/null)" != "$token" ]; then
+        state_unlock
+        log "No matching rollback state for this confirmation"
+        return 1
+    fi
+
+    status=$(cat "$STATE_DIR/status" 2>/dev/null)
+
+    if [ "$status" = "armed" ]; then
+        # 页面在 ucitrack 触发 reload 之前就确认了：记下来，等 reload 应用后
+        # 直接保留配置，不再启动倒计时。
+        printf 'confirmed\n' > "$STATE_DIR/status"
+        state_unlock
+        log "Confirmation recorded; the pending apply will be kept"
+        return 0
+    fi
+
+    printf 'result=confirmed\ntoken=%s\ntime=%s\n' "$token" "$(date +%s)" > "$RESULT_FILE"
+    rm -rf "$STATE_DIR"
+    state_unlock
+
+    log "Configuration confirmed; rollback cancelled"
+    return 0
+}
+
+# 提交阶段失败时，撤销尚未被 reload 读取的请求和快照。
+# 如果 reload 已经开始，则保留状态，让正常的倒计时/回滚流程继续。
+cancel_apply() {
+    local token="$1"
+    local current
+
+    [ -n "$token" ] || return 1
+    [ -f "$APPLY_MARKER" ] || return 1
+
+    current=$(cat "$APPLY_MARKER" 2>/dev/null)
+    [ "$current" = "token=$token" ] || return 1
+
+    rm -f "$APPLY_MARKER" 2>/dev/null
+
+    state_lock || return 1
+    if [ -f "$STATE_DIR/token" ] &&
+       [ "$(cat "$STATE_DIR/token" 2>/dev/null)" = "$token" ]; then
+        rm -rf "$STATE_DIR"
+    fi
+    state_unlock
+
+    log "Cancelled an apply that had not started"
+    return 0
+}
+
+# 检查锁文件
+check_lock() {
+    if [ -f "$LOCK" ]; then
+        local lock_age=$(($(date +%s) - $(stat -c %Y "$LOCK" 2>/dev/null || echo 0)))
+        if [ $lock_age -gt $LOCK_TIMEOUT ]; then
+            log "Removing stale lock file (age: ${lock_age}s)"
+            rm -f "$LOCK"
+            return 1
+        fi
+        log "Another instance is running, exiting"
+        return 0
+    fi
+    return 1
+}
+
+create_lock() {
+    touch "$LOCK" 2>/dev/null || {
+        log "Failed to create lock file"
+        return 1
+    }
+    return 0
+}
+
+remove_lock() {
+    rm -f "$LOCK" 2>/dev/null
+}
+
+set_ipv4() {
+    local key="$1"
+    local value="$2"
+
+    if validate_ip "$value"; then
+        $UCISET "$key=$value"
+    else
+        log "Ignoring invalid IPv4 value for $key: $value"
+    fi
+}
+
+setipv6() {
+    case $1 in
+        0)
+	       bINDEX=$(uci show network | grep -E "@device\[[0-9]+\].name='br-lan'" | sed -n 's/.*@device\[\([0-9]*\)\].name.*/\1/p')
+	       if [ -n "$bINDEX" ]; then 
+	           $UCISET network.@device[$bINDEX].ipv6='0'
+	       fi
+	       	nINDEX=$(uci show network | grep -E "@device\[[0-9]+\].name=\'$wan_interface\'" | sed -n 's/.*@device\[\([0-9]*\)\].name.*/\1/p')
+	       [ -n "$nINDEX" ] && $UCISET network.@device[$nINDEX].ipv6='0'
+            uci -q batch <<EOF
+                delete network.wan6
+                delete dhcp.lan.ra
+                delete dhcp.lan.dns
+                delete network.globals.ula_prefix
+                delete dhcp.lan.ra_default
+                delete dhcp.lan.ra_slaac
+                delete dhcp.lan.dhcpv6
+                delete dhcp.lan.ra_flags
+                delete dhcp.wan.ra
+                delete dhcp.wan.ndp
+                delete dhcp.wan.ra_flags
+                add_list dhcp.wan.ra_flags='none'
+                set network.lan.delegate='0'
+EOF
+            # 旁路由模式下没有 wan 段，不能凭空创建它。
+            if [ -n "$(uci -q get network.wan)" ]; then
+                $UCISET network.wan.ipv6='0'
+                $UCISET network.wan.delegate='0'
+            fi
+            ;;
+        1) #pppoe
+	       bINDEX=$(uci show network | grep -E "@device\[[0-9]+\].name='br-lan'" | sed -n 's/.*@device\[\([0-9]*\)\].name.*/\1/p')
+	       if [ -n "$bINDEX" ]; then 
+	           $UCISET network.@device[$bINDEX].ipv6='1'
+	       fi
+	       	nINDEX=$(uci show network | grep -E "@device\[[0-9]+\].name=\'$wan_interface\'" | sed -n 's/.*@device\[\([0-9]*\)\].name.*/\1/p')
+	       if [ -n "$wan_interface" ]; then
+	           if [ -n "$nINDEX" ]; then
+	               $UCISET network.@device[$nINDEX].ipv6='1'
+	           else
+	               $UCIADD network device
+	               $UCISET network.@device[-1].ipv6='1'
+	               $UCISET network.@device[-1].name="$wan_interface"
+	           fi
+	       fi
+            uci -q batch <<EOF
+                set dhcp.lan.ra='hybrid'
+                set dhcp.lan.dhcpv6='hybrid'
+                del network.lan.delegate
+                set network.wan.ipv6='1'
+                set network.wan.delegate='0'
+                delete dhcp.@dnsmasq[0].filter_aaaa
+                set dhcp.lan.ndp='relay'
+                delete dhcp.lan.ra_flags
+                delete dhcp.lan.ra_slaac
+                delete dhcp.wan.master
+                delete dhcp.wan.ra_flags
+                delete network.wan6.sourcefilter
+                delete network.wan6.delegate
+                set network.wan6.extendprefix='1'
+                set network.lan.ip6ifaceid='eui64'
+                delete network.wan6.reqaddress
+                set network.wan6.reqprefix='auto'
+                set dhcp.wan6.master='1'
+                set dhcp.wan6.ra='relay'
+                set dhcp.wan6.dhcpv6='relay'
+                set dhcp.wan6.ndp='relay'
+EOF
+            ;;
+        2) #siderouter
+	       bINDEX=$(uci show network | grep -E "@device\[[0-9]+\].name='br-lan'" | sed -n 's/.*@device\[\([0-9]*\)\].name.*/\1/p')
+	       if [ -n "$bINDEX" ]; then 
+	           $UCISET network.@device[$bINDEX].ipv6='1'
+	       fi
+	       	nINDEX=$(uci show network | grep -E "@device\[[0-9]+\].name=\'$wan_interface\'" | sed -n 's/.*@device\[\([0-9]*\)\].name.*/\1/p')
+	       if [ -n "$wan_interface" ]; then
+	           if [ -n "$nINDEX" ]; then
+	               $UCISET network.@device[$nINDEX].ipv6='1'
+	           else
+	               $UCIADD network device
+	               $UCISET network.@device[-1].ipv6='1'
+	               $UCISET network.@device[-1].name="$wan_interface"
+	           fi
+	       fi
+            uci -q batch <<EOF
+                del dhcp.lan.ra_default
+                del dhcp.lan.ra_slaac
+                set dhcp.lan.ra='relay'
+                set dhcp.lan.dhcpv6='relay'
+                set dhcp.lan.ndp='relay'
+                delete dhcp.@dnsmasq[0].filter_aaaa
+                set dhcp.lan6=dhcp
+                set dhcp.lan6.interface='lan6'
+                set dhcp.lan6.ignore='1'
+                set dhcp.lan.ra_management='1'
+                del network.lan.delegate
+                set network.lan.ip6assign='64'
+                set network.lan6.extendprefix='1'
+                set network.lan.ip6ifaceid='eui64'
+                del network.lan6.delegate
+                set network.lan6.reqaddress='try'
+                set network.lan6.reqprefix='auto'
+                set network.lan6.norelease='1'
+                set dhcp.lan6.master='1'
+                set dhcp.lan6.ra='relay'
+                set dhcp.lan6.dhcpv6='relay'
+                set dhcp.lan6.ndp='relay'
+		set firewall.@zone[0].masq6='1'
+EOF
+            ;;
+        3)  #dhcp
+	       bINDEX=$(uci show network | grep -E "@device\[[0-9]+\].name='br-lan'" | sed -n 's/.*@device\[\([0-9]*\)\].name.*/\1/p')
+	       if [ -n "$bINDEX" ]; then 
+	           $UCISET network.@device[$bINDEX].ipv6='1'
+	       fi
+	       	nINDEX=$(uci show network | grep -E "@device\[[0-9]+\].name=\'$wan_interface\'" | sed -n 's/.*@device\[\([0-9]*\)\].name.*/\1/p')
+	       if [ -n "$wan_interface" ]; then
+	           if [ -n "$nINDEX" ]; then
+	               $UCISET network.@device[$nINDEX].ipv6='1'
+	           else
+	               $UCIADD network device
+	               $UCISET network.@device[-1].ipv6='1'
+	               $UCISET network.@device[-1].name="$wan_interface"
+	           fi
+	       fi
+            uci -q batch <<EOF
+                set dhcp.lan.ra='hybrid'
+                set dhcp.lan.dhcpv6='hybrid'
+                set dhcp.lan.ndp='relay'
+                set dhcp.lan.ra_management='1'
+                del network.lan.delegate
+                set network.wan.ipv6='1'
+                del network.wan.delegate
+                del network.wan6.delegate
+                delete dhcp.wan.master
+                delete dhcp.wan.ra_flags
+                delete network.wan6.sourcefilter
+                delete network.wan6.delegate
+                set network.wan6.extendprefix='1'
+                set network.lan.ip6ifaceid='eui64'
+                set dhcp.wan6.master='1'
+                set dhcp.wan6.ra='relay'
+                set dhcp.wan6.dhcpv6='relay'
+                set dhcp.wan6.ndp='relay'
+EOF
+            ;;
+    esac
+}
+
+setsynflood() {
+    if [ "x$synflood" = "x1" ]; then
+        $UCISET firewall.@defaults[0].syn_flood='1'
+        $UCISET firewall.@defaults[0].synflood_protect='1'
+    else
+        $UCIDEL firewall.@defaults[0].syn_flood
+        $UCIDEL firewall.@defaults[0].synflood_protect
+    fi
+}
+
+setforwarding() {
+    idx=0
+    while uci -q get firewall.@forwarding[$idx] >/dev/null 2>&1; do
+            local src=$(uci -q get firewall.@forwarding[$idx].src)
+            local dest=$(uci -q get firewall.@forwarding[$idx].dest)
+            if [ "$src" = "lan" ] && [ "$dest" = "wan" ]; then
+                $UCIDEL firewall.@forwarding[$idx]
+                break
+            fi
+            idx=$((idx + 1))
+    done
+    $UCIADD firewall forwarding
+    $UCISET firewall.@forwarding[-1].src='lan'
+    $UCISET firewall.@forwarding[-1].dest='wan'
+}
+
+# 设置HTTPS
+sethttps() {
+    local cfg=$1
+    local https
+    
+    config_get https "$cfg" https '0'
+    
+    if [ -n "$(command -v nginx)" ]; then
+        if [ -z "$(uci -q get nginx._redirect2ssl)" ]; then
+            $UCISET nginx._redirect2ssl=server
+            $UCISET nginx._redirect2ssl.server_name='_redirect2ssl'
+            $UCISET nginx._redirect2ssl.return='302 https://$host$request_uri'
+            $UCISET nginx._redirect2ssl.access_log='off; # logd openwrt'
+        fi
+        
+        if [ "x${https}" = "x1" ]; then
+            $UCIDEL nginx.default_server.listen
+            $UCIADDLIST nginx.default_server.listen='80'
+            $UCIADDLIST nginx.default_server.listen='[::]:80'
+            $UCIDEL nginx._redirect2ssl.listen
+            $UCIADDLIST nginx._redirect2ssl.listen='80 default_server'
+            $UCIADDLIST nginx._redirect2ssl.listen='[::]:80 default_server'
+        else
+            $UCIDEL nginx._redirect2ssl.listen
+            $UCIADDLIST nginx._redirect2ssl.listen='80'
+            $UCIADDLIST nginx._redirect2ssl.listen='[::]:80'
+            $UCIDEL nginx.default_server.listen
+            $UCIADDLIST nginx.default_server.listen='80 default_server'
+            $UCIADDLIST nginx.default_server.listen='[::]:80 default_server'
+        fi
+        uci commit nginx
+        /etc/init.d/nginx reload
+    else
+        sed -i "/listen_https/d" "$CONFIG_DIR/uhttpd" 2>/dev/null
+        $UCISET uhttpd.main.redirect_https='0'
+        
+        if [ "x${https}" = "x1" ]; then
+            certscrt='/etc/ssl/ezopwrt.crt'
+            certskey='/etc/ssl/ezopwrt.key'
+            
+            # 确保证书目录存在
+            mkdir -p /etc/ssl/
+            chmod 755 /etc/ssl/
+            
+            rm -f $certskey $certscrt 2>/dev/null
+            $UCIADDLIST uhttpd.main.listen_https='0.0.0.0:443'
+            $UCIADDLIST uhttpd.main.listen_https='[::]:443'
+            $UCISET uhttpd.main.redirect_https='1'
+            hostname=$(uci -q get system.@system[0].hostname | awk '{print tolower($0)}' || echo 'openwrt')
+            $UCISET network.lan.hostname=${hostname}
+            $UCISET dhcp.@dnsmasq[0].domain="${hostname}.lan"
+            
+            # 生成证书
+            openssl req -new -newkey rsa:2048 -days 3650 -sha256 -nodes -x509 \
+                -keyout $certskey \
+                -out $certscrt \
+                -subj "/C=CN/CN=$hostname.lan" 2>/dev/null
+            
+            if [ $? -eq 0 ] && [ -f "$certskey" ] && [ -f "$certscrt" ]; then
+                chmod 600 $certskey
+                chmod 644 $certscrt
+                $UCISET uhttpd.main.cert="$certscrt"
+                $UCISET uhttpd.main.key="$certskey"
+            else
+                log "Failed to generate SSL certificate"
+                $UCIDEL uhttpd.main.cert
+                $UCIDEL uhttpd.main.key
+            fi
+        fi
+    fi
+}
+
+# 本次应用失败时的临时备份（回滚快照由 prepare_apply 单独维护）。
+backup_configs() {
+    local backup_dir="/tmp/smartnetpilot_backup_$(date +%s)"
+    mkdir -p "$backup_dir"
+    for config in network firewall dhcp wireless system uhttpd nginx; do
+        if [ -f "$CONFIG_DIR/$config" ]; then
+            cp "$CONFIG_DIR/$config" "$backup_dir/" 2>/dev/null
+        fi
+    done
+    echo "$backup_dir"
+}
+
+restore_configs() {
+    local backup_dir="$1"
+    local config
+
+    if [ -d "$backup_dir" ]; then
+        log "Restoring configurations from backup"
+        for config in "$backup_dir"/*; do
+            if [ -f "$config" ]; then
+                cp "$config" "$CONFIG_DIR/" 2>/dev/null
+                uci -q commit "$(basename "$config")" 2>/dev/null
+            fi
+        done
+        rm -rf "$backup_dir"
+    fi
+}
+
+# 把回滚快照写回去。返回 0 表示内容本来就一致，2 表示确实改动了配置。
+rollback_configs() {
+    local backup_dir="$1"
+    local config base changed=0
+
+    [ -d "$backup_dir" ] || return 1
+
+    for config in "$backup_dir"/*; do
+        [ -f "$config" ] || continue
+        base=$(basename "$config")
+        cmp -s "$config" "$CONFIG_DIR/$base" || changed=1
+    done
+
+    if [ "$changed" = "0" ]; then
+        rm -rf "$backup_dir"
+        return 0
+    fi
+
+    for config in "$backup_dir"/*; do
+        [ -f "$config" ] || continue
+        base=$(basename "$config")
+        cp "$config" "$CONFIG_DIR/$base" 2>/dev/null
+        uci -q commit "$base" 2>/dev/null
+    done
+
+    rm -rf "$backup_dir"
+    return 2
+}
+
+reload_services() {
+    {
+        /etc/init.d/network restart 2>/dev/null
+        if command -v wifi >/dev/null 2>&1; then
+            wifi reload
+        fi
+        /etc/init.d/system reload 2>/dev/null
+        /etc/init.d/rpcd reload 2>/dev/null
+        /etc/init.d/uhttpd reload 2>/dev/null
+        sleep 1
+        /etc/init.d/dnsmasq reload 2>/dev/null
+        /etc/init.d/firewall reload 2>/dev/null
+    } >/dev/null 2>&1 &
+}
+
+# 超时未确认（或用户主动放弃）时恢复快照。
+rollback_if_pending() {
+    local token="$1"
+    local work="$STATE_DIR.rollback"
+    local status rc
+
+    [ -n "$token" ] || return 1
+
+    state_lock || return 1
+
+    if [ ! -f "$STATE_DIR/token" ] || [ "$(cat "$STATE_DIR/token" 2>/dev/null)" != "$token" ]; then
+        state_unlock
+        return 1
+    fi
+
+    status=$(cat "$STATE_DIR/status" 2>/dev/null)
+    if [ "$status" != "pending" ]; then
+        state_unlock
+        log "Apply state is '${status:-unknown}'; nothing to roll back"
+        return 1
+    fi
+
+    rm -rf "$work"
+    if ! mv "$STATE_DIR" "$work" 2>/dev/null; then
+        state_unlock
+        return 1
+    fi
+    state_unlock
+
+    rollback_configs "$work/backup"
+    rc=$?
+
+    printf 'result=rolledback\ntoken=%s\ntime=%s\n' "$token" "$(date +%s)" > "$RESULT_FILE"
+    rm -rf "$work"
+
+    if [ "$rc" = "2" ]; then
+        log "Configuration rolled back after an unconfirmed apply"
+        reload_services
+    else
+        log "Rollback snapshot already matches the current configuration"
+    fi
+
+    return 0
+}
+
+wait_rollback() {
+    local seconds="$1"
+    local token="$2"
+
+    case "$seconds" in
+        ''|*[!0-9]*) seconds=0 ;;
+    esac
+
+    [ "$seconds" -gt 0 ] && sleep "$seconds"
+
+    rollback_if_pending "$token"
+}
+
+start_rollback_waiter() {
+    local seconds="$1"
+    local token="$2"
+
+    if command -v start-stop-daemon >/dev/null 2>&1; then
+        start-stop-daemon -S -b -x /etc/init.d/smartnetpilot -- wait_rollback "$seconds" "$token" >/dev/null 2>&1 && return 0
+    fi
+
+    ( sleep "$seconds"; /etc/init.d/smartnetpilot rollback_if_pending "$token" ) >/dev/null 2>&1 &
+    return 0
+}
+
+# 在改动任何 UCI 配置之前先校验。没有明确选择模式时一律拒绝执行，
+# 这样全新的默认配置、安装/升级流程都不可能改动网络。
+preflight_config() {
+    case "$wan_proto" in
+        pppoe)
+            if [ -z "$wan_pppoe_user" ] || [ -z "$wan_pppoe_pass" ]; then
+                log "PPPoE selected but username/password missing; refusing to apply"
+                return 1
+            fi
+            ;;
+        dhcp)
+            case "$dhcp_proto" in
+                static)
+                    if ! validate_ip "$wan_ipaddr" || ! validate_ip "$wan_netmask"; then
+                        log "Static WAN selected but address/netmask invalid; refusing to apply"
+                        return 1
+                    fi
+                    ;;
+                dhcp)
+                    ;;
+                *)
+                    log "Unknown WAN mode '$dhcp_proto'; refusing to apply"
+                    return 1
+                    ;;
+            esac
+            ;;
+        siderouter)
+            case "$lan_proto" in
+                static)
+                    if ! validate_ip "$lan_ipaddr" || ! validate_ip "$lan_netmask"; then
+                        log "Static LAN selected but address/netmask invalid; refusing to apply"
+                        return 1
+                    fi
+                    ;;
+                dhcp)
+                    ;;
+                *)
+                    log "Unknown LAN mode '$lan_proto'; refusing to apply"
+                    return 1
+                    ;;
+            esac
+            ;;
+        *)
+            log "No network mode selected; refusing to apply"
+            return 1
+            ;;
+    esac
+
+    return 0
+}
+
+# 按 lan_proto 应用 LAN 地址。
+set_lan_addressing() {
+    local dns
+
+    case "${lan_proto}" in
+        static)
+            $UCISET network.lan.proto='static'
+            if [ -n "$lan_ipaddr" ]; then
+                set_ipv4 network.lan.ipaddr "$lan_ipaddr"
+            fi
+            if [ -n "$lan_netmask" ]; then
+                set_ipv4 network.lan.netmask "$lan_netmask"
+            fi
+            if [ -n "$lan_gateway" ]; then
+                set_ipv4 network.lan.gateway "$lan_gateway"
+            fi
+            if [ -n "$lan_dns" ]; then
+                $UCIDEL network.lan.dns
+                for dns in ${lan_dns}; do
+                    $UCIADDLIST network.lan.dns="$dns"
+                done
+            fi
+            ;;
+
+        dhcp)
+            $UCISET network.lan.proto='dhcp'
+            $UCIDEL network.lan.ipaddr
+            $UCIDEL network.lan.netmask
+            $UCIDEL network.lan.dns
+            if [ -n "$lan_dns" ]; then
+                $UCISET network.lan.peerdns='0'
+                for dns in ${lan_dns}; do
+                    $UCIADDLIST network.lan.dns="$dns"
+                done
+            else
+                $UCIDEL network.lan.peerdns
+            fi
+            ;;
+        *)
+            log "Unknown LAN mode '$lan_proto'; refusing to apply"
+            return 1
+            ;;
+    esac
+
+    return 0
+}
+
+# 挑选 WAN 口时优先使用用户选择或现有的 network.wan 配置，
+# 绝不猜测 br-lan 的桥接口列表，也不使用 DSA 的 CPU 口 eth0。
+resolve_wan_interface() {
+    local existing candidate
+
+    if [ -n "$wan_interface" ]; then
+        if validate_interface "$wan_interface" && wan_candidate_usable "$wan_interface"; then
+            return 0
+        fi
+        log "Ignoring configured WAN interface '$wan_interface'"
+        wan_interface=""
+    fi
+
+    existing=$(uci -q get network.wan.device)
+    [ -z "$existing" ] && existing=$(uci -q get network.wan.ifname)
+    if validate_interface "$existing" && wan_candidate_usable "$existing"; then
+        wan_interface="$existing"
+        return 0
+    fi
+
+    if validate_interface "wan"; then
+        wan_interface="wan"
+        return 0
+    fi
+
+    # 传统 swconfig / x86 设备：只有在不存在 DSA lan* 端口时才尝试 eth1/usb0。
+    if ! ls "$SYS_CLASS_NET"/lan[0-9]* >/dev/null 2>&1; then
+        for candidate in eth1 usb0; do
+            if validate_interface "$candidate" && wan_candidate_usable "$candidate"; then
+                wan_interface="$candidate"
+                return 0
+            fi
+        done
+    fi
+
+    return 1
+}
+
+configure_network() {
+    local cfg=$1
+    local wan_proto wan_ipaddr wan_netmask wan_gateway wan_dns wan_pppoe_user wan_pppoe_pass
+    local ipv6 wifi_ssid wifi_key old_wifi_ssid old_wifi_key
+    local lan_ipaddr lan_netmask lan_gateway lan_dns lan_dhcp wan_interface lan_proto
+    local dns_tables synflood https
+    local ifname i
+    local wifi_changed=0
+
+    # 获取配置
+    config_get wan_proto "$cfg" wan_proto
+    config_get ipv6 "$cfg" ipv6 '0'
+    config_get dnsset "$cfg" dnsset '0'
+    config_get wan_interface "$cfg" wan_interface
+    config_get lan_dhcp "$cfg" lan_dhcp '0'
+    config_get synflood "$cfg" synflood '0'
+    config_get lan_ipaddr "$cfg" lan_ipaddr
+    config_get lan_netmask "$cfg" lan_netmask '255.255.255.0'
+    config_get lan_proto "$cfg" lan_proto 'static'
+    config_get lan_gateway "$cfg" lan_gateway
+    config_get lan_dns "$cfg" lan_dns
+    config_get dns_tables "$cfg" dns_tables
+    config_get https "$cfg" https '0'
+    config_get wan_ipaddr "$cfg" wan_ipaddr
+    config_get wan_netmask "$cfg" wan_netmask
+    config_get wan_gateway "$cfg" wan_gateway
+    config_get wan_dns "$cfg" wan_dns
+    config_get wan_pppoe_user "$cfg" wan_pppoe_user
+    config_get wan_pppoe_pass "$cfg" wan_pppoe_pass
+    config_get dhcp_proto "$cfg" dhcp_proto 'dhcp'
+    config_get wifi_ssid "$cfg" wifi_ssid
+    config_get wifi_key "$cfg" wifi_key
+    config_get old_wifi_ssid "$cfg" old_wifi_ssid
+    config_get old_wifi_key "$cfg" old_wifi_key
+
+    [ "$APPLY_FAILED" = "1" ] && return 1
+
+    # 前置校验：没有明确模式或必填项不完整时，绝不改动任何配置。
+    if ! preflight_config; then
+        APPLY_FAILED=1
+        return 1
+    fi
+
+    ifname=$(uci -q get network.lan.ifname)
+    [ "x$ifname" = "x" ] && ifname="device" || ifname="ifname"
+
+    if [ "$wan_proto" = "siderouter" ]; then
+        wan_interface=""
+    elif ! resolve_wan_interface; then
+        log "No usable WAN interface found; refusing to apply"
+        APPLY_FAILED=1
+        return 1
+    fi
+
+    # 备份当前配置
+    local backup_dir=$(backup_configs)
+
+    if [ "$wan_proto" != "siderouter" ]; then
+        $UCIDEL network.lan.gateway
+        $UCIDEL network.lan.dns
+    fi
+    $UCIDEL firewall.@zone[0].masq
+
+
+    [ -n "$(uci -q get network.wan)" ] && {
+       $UCIDEL network.wan
+       WAN_INDEX=$(uci show firewall | grep -E "@zone\[[0-9]+\].name='wan'" | sed -n 's/.*@zone\[\([0-9]*\)\].name.*/\1/p')
+       [ -n "$WAN_INDEX" ] && $UCIDEL firewall.@zone[$WAN_INDEX]
+    }
+    [ -n "$(uci -q get network.wan6)" ] && $UCIDEL network.wan6
+    [ -n "$(uci -q get network.lan6)" ] && $UCIDEL network.lan6
+
+    if [ -n "$wan_interface" ] && [ "$wan_proto" != "siderouter" ]; then
+        $UCISET network.wan=interface
+        $UCISET network.wan6=interface
+        $UCISET network.wan6.proto='dhcpv6'
+        $UCISET network.wan6.delegate='1'
+        $UCIDEL dhcp.wan.master
+        $UCIDEL dhcp.lan.master
+        $UCISET network.wan.metric='1'
+        $UCISET network.wan.$ifname="${wan_interface}"
+        if [ "$wan_proto" = "pppoe" ]; then
+            $UCISET network.wan6.$ifname="@wan"
+        else
+            $UCISET network.wan6.$ifname="${wan_interface}"
+        fi
+        # firewall  ipv6
+	$UCIDEL dhcp.wan.ra_flags
+
+        $UCIADD firewall zone
+        $UCISET firewall.@zone[-1].name='wan'
+        $UCISET firewall.@zone[-1].input='REJECT'
+        $UCISET firewall.@zone[-1].output='ACCEPT'
+        $UCISET firewall.@zone[-1].forward='REJECT'
+        $UCIADDLIST firewall.@zone[-1].network='wan6'
+        $UCIADDLIST firewall.@zone[-1].network='wan'
+        $UCISET firewall.@zone[-1].masq='1'
+	$UCISET firewall.@zone[-1].masq6='1'
+	$UCISET firewall.@zone[0].masq6='0'
+    fi
+    
+    $UCISET firewall.@defaults[0].drop_invalid='1'
+    
+    case "${wan_proto}" in
+        pppoe)
+            $UCISET network.wan.proto='pppoe'
+            [ -n "${wan_pppoe_user}" ] && $UCISET network.wan.username="${wan_pppoe_user}"
+            [ -n "${wan_pppoe_pass}" ] && $UCISET network.wan.password="${wan_pppoe_pass}"
+            setforwarding
+            [ "x$ipv6" = "x1" ] && setipv6 1 || setipv6 0
+            
+            $UCIDEL network.wan.dns
+            if [ -n "${wan_dns}" ]; then
+                $UCISET network.wan.peerdns='0'
+                for dns in ${wan_dns}; do
+                    $UCIADDLIST network.wan.dns="$dns"
+                done
+            else
+                $UCIDEL network.wan.peerdns
+            fi
+            ;;
+            
+        dhcp)
+            case "${dhcp_proto}" in
+                static)
+                    $UCISET network.wan.proto='static'
+                    if [ -n "$wan_ipaddr" ]; then
+                        set_ipv4 network.wan.ipaddr "$wan_ipaddr"
+                    fi
+                    if [ -n "$wan_netmask" ]; then
+                        set_ipv4 network.wan.netmask "$wan_netmask"
+                    fi
+                    if [ -n "$wan_gateway" ]; then
+                        set_ipv4 network.wan.gateway "$wan_gateway"
+                    fi
+                    $UCIDEL network.wan.dns
+                    if [ -n "${wan_dns}" ]; then
+                        $UCISET network.wan.defaultroute='1'
+                        for dns in ${wan_dns}; do
+                            $UCIADDLIST network.wan.dns="$dns"
+                        done
+                    fi
+                    ;;
+
+                dhcp)
+                    $UCISET network.wan.proto='dhcp'
+                    $UCISET network.wan.delegate='0'
+                    $UCIDEL network.wan.dns
+                    if [ -n "${wan_dns}" ]; then
+                        $UCISET network.wan.peerdns='0'
+                        for dns in ${wan_dns}; do
+                            $UCIADDLIST network.wan.dns="$dns"
+                        done
+                    else
+                        $UCIDEL network.wan.peerdns
+                    fi
+                    ;;
+
+                *)
+                    log "Unknown WAN mode '$dhcp_proto'; refusing to apply"
+                    APPLY_FAILED=1
+                    return 1
+                    ;;
+            esac
+            setforwarding
+            [ "x$ipv6" = "x1" ] && setipv6 3 || setipv6 0
+            ;;
+            
+        siderouter)
+            $UCIDEL firewall.@zone[0].network
+            $UCIADDLIST firewall.@zone[0].network='lan'
+            $UCIDEL dhcp.lan.ra_slaac
+
+            if ! set_lan_addressing; then
+                APPLY_FAILED=1
+                return 1
+            fi
+
+            $UCISET firewall.@zone[0].masq='1'
+            $UCIDEL firewall.@zone[0].network
+            $UCIADDLIST firewall.@zone[0].network='lan'
+            
+            [ $(uci show network 2>/dev/null | grep utun | wc -l) -gt 1 ] && $UCIADDLIST firewall.@zone[0].network='utun'
+            
+            if [ "x$ipv6" = "x1" ]; then
+                $UCISET network.lan6=interface
+                $UCISET network.lan6.proto='dhcpv6'
+                $UCISET network.lan6.delegate='1'
+                $UCISET network.lan6.$ifname="@lan"
+                setipv6 2
+                $UCIADDLIST firewall.@zone[0].network='lan6'
+            else
+                setipv6 0
+            fi
+            ;;
+
+        *)
+            log "Unknown network mode '$wan_proto'; refusing to apply"
+            APPLY_FAILED=1
+            return 1
+            ;;
+    esac
+
+    if [ -f /etc/config/dockerd ]; then
+	     DOCKERINDEX=$(uci show firewall | grep -E "@zone\[[0-9]+\].name='docker'" | sed -n 's/.*@zone\[\([0-9]*\)\].name.*/\1/p')
+             [ -n "$DOCKERINDEX" ] && $UCIDEL firewall.@zone[$DOCKERINDEX]
+        uci -q batch <<EOF
+            add firewall zone
+            set firewall.@zone[-1].name='docker'
+            set firewall.@zone[-1].input='ACCEPT'
+            set firewall.@zone[-1].output='ACCEPT'
+            set firewall.@zone[-1].forward='ACCEPT'
+            add_list firewall.@zone[-1].subnet='172.16.0.0/12'
+            set firewall.docker_to_wan=forwarding
+            set firewall.docker_to_wan.src='docker'
+            set firewall.docker_to_wan.dest='wan'
+            set firewall.docker_to_lan=forwarding
+            set firewall.docker_to_lan.src='docker'
+            set firewall.docker_to_lan.dest='lan'
+            set firewall.lan_to_docker=forwarding
+            set firewall.lan_to_docker.src='lan'
+            set firewall.lan_to_docker.dest='docker'
+EOF
+    fi
+
+    setsynflood
+    sethttps "$cfg"
+    sed -i "/dhcp_option '6/d" "$CONFIG_DIR/dhcp" 2>/dev/null
+    sed -i "/list dns/d" "$CONFIG_DIR/dhcp" 2>/dev/null
+    if [ "x$lan_dhcp" = "x1" ]; then
+        $UCIDEL dhcp.lan.force
+        $UCISET dhcp.lan.ignore='1'
+        $UCISET dhcp.lan.dynamicdhcp='0'
+        $UCISET dhcp.lan.ra_slaac="1"
+        $UCIDEL dhcp.@dnsmasq[0].authoritative
+    else
+        $UCIDEL dhcp.lan.ignore
+        $UCIDEL dhcp.lan.dynamicdhcp
+        $UCISET dhcp.lan.force='1'
+        $UCISET dhcp.@dnsmasq[0].authoritative='1'
+        
+        if [ "x$dnsset" = "x1" ]; then
+            if [ "${dns_tables}" = "1" ]; then
+                if [ -n "$lan_ipaddr" ]; then
+                    $UCIADDLIST dhcp.lan.dhcp_option="6,${lan_ipaddr}"
+                fi
+            elif [ -n "${dns_tables}" ]; then
+                $UCIADDLIST dhcp.lan.dhcp_option="6,${dns_tables}"
+            fi
+        fi
+    fi
+    
+    if [ -n "${wifi_ssid}" ] && [ -n "${wifi_key}" ]; then
+        idx=0
+        max_wifi_ifaces=10
+        while [ $idx -lt $max_wifi_ifaces ] && uci -q get wireless.@wifi-iface[$idx] >/dev/null; do
+            if [ "$(uci -q get wireless.@wifi-iface[$idx].mode)" = "ap" ]; then
+                $UCISET wireless.@wifi-iface[$idx].ssid="${wifi_ssid}"
+                $UCISET wireless.@wifi-iface[$idx].key="${wifi_key}"
+                $UCISET wireless.@wifi-iface[$idx].encryption='psk2'
+            fi
+            idx=$((idx + 1))
+        done
+        
+        for radio in radio0 radio1 radio2 radio3; do
+            if uci -q get wireless.${radio} >/dev/null 2>&1; then
+                if [ "$(uci -q get wireless.${radio}.band)" = "5g" ]; then
+                    $UCISET wireless.default_${radio}.ssid="${wifi_ssid}_5G"
+                else
+                    $UCISET wireless.default_${radio}.ssid="${wifi_ssid}_2.4G"
+                fi
+                $UCISET wireless.default_${radio}.device="${radio}"
+                $UCISET wireless.default_${radio}.encryption='psk2'
+                $UCISET wireless.default_${radio}.key="${wifi_key}"
+            fi
+        done
+        
+        [ "${wifi_ssid}" = "${old_wifi_ssid}" ] && [ "${wifi_key}" = "${old_wifi_key}" ] || wifi_changed=1
+
+        $UCISET smartnetpilot.default.old_wifi_ssid="${wifi_ssid}"
+        $UCISET smartnetpilot.default.old_wifi_key="${wifi_key}"
+        uci commit wireless
+    fi
+    
+    # 提交所有配置
+    uci -q batch <<'COMMIT_EOF' >/dev/null
+        commit uhttpd
+        commit system
+        commit smartnetpilot
+        commit dhcp
+        commit firewall
+        commit network
+COMMIT_EOF
+    
+    if [ $? -eq 0 ]; then
+        {
+
+            /etc/init.d/network restart 2>/dev/null
+            if [ "$wifi_changed" = "1" ] && command -v wifi >/dev/null 2>&1; then
+                wifi reload
+            fi
+            /etc/init.d/system reload 2>/dev/null
+            /etc/init.d/rpcd reload 2>/dev/null
+            /etc/init.d/uhttpd reload 2>/dev/null
+            sleep 1
+            /etc/init.d/dnsmasq reload 2>/dev/null
+            /etc/init.d/firewall reload 2>/dev/null
+        } >/dev/null 2>&1 &
+        rm -rf "$backup_dir" 2>/dev/null
+        log "Configuration applied successfully"
+    else
+        log "Failed to commit configuration, restoring backup"
+        restore_configs "$backup_dir"
+        APPLY_FAILED=1
+        return 1
+    fi
+}
+
+boot() {
+    # 开机不重放：配置在用户点击“保存并应用”时已经写入。
+    # /tmp 中的回滚快照不会跨重启保留，这里只清理残留状态。
+    rm -rf "$STATE_DIR" "$STATE_DIR.lock" "$STATE_DIR.rollback" 2>/dev/null
+    rm -f "$RESULT_FILE" "$APPLY_MARKER" 2>/dev/null
+    return 0
+}
+
+start() {
+    # 包管理器安装/升级时会调用 start；这里必须保持无操作，
+    # 否则安装一个包就会改写 network/dhcp 并导致断网。
+    return 0
+}
+
+apply_config() {
+    check_lock && return 0
+
+    # 检查依赖
+    for dep in uci awk grep sed; do
+        if ! command -v $dep >/dev/null 2>&1; then
+            log "ERROR: Required command '$dep' not found"
+            return 1
+        fi
+    done
+
+    APPLY_FAILED=0
+
+    if ! uci -q get smartnetpilot.default >/dev/null 2>&1; then
+        log "No smartnetpilot configuration found; nothing to apply"
+        return 1
+    fi
+
+    create_lock || return 1
+    config_load smartnetpilot
+    config_foreach configure_network smartnetpilot
+    remove_lock
+
+    [ "$APPLY_FAILED" = "1" ] && return 1
+    return 0
+}
+
+reload() {
+    local rc timeout deadline
+
+    # ucitrack 会在 smartnetpilot 配置提交后调用 reload。
+    # 只有向导显式请求过 apply 时才真正执行。
+    if ! consume_apply_request; then
+        log "No apply request pending; configuration was not changed"
+        return 0
+    fi
+
+    # 带 token 的应用必须有匹配的快照，否则一旦新地址不可达就无法恢复。
+    # 在改动任何配置之前拒绝，避免设备失联。
+    if [ -n "$APPLY_TOKEN" ] &&
+       { [ ! -f "$STATE_DIR/token" ] ||
+         [ "$(cat "$STATE_DIR/token" 2>/dev/null)" != "$APPLY_TOKEN" ]; }; then
+        log "Apply request does not match a rollback snapshot; refusing to change the network"
+        printf 'result=failed\ntoken=%s\ntime=%s\n' "$APPLY_TOKEN" "$(date +%s)" > "$RESULT_FILE"
+        rm -rf "$STATE_DIR"
+        return 1
+    fi
+
+    apply_config
+    rc=$?
+
+    if [ "$rc" != "0" ]; then
+        # 应用失败：撤销倒计时，配置没有被改动。
+        if [ -n "$APPLY_TOKEN" ] && [ -f "$STATE_DIR/token" ] &&
+           [ "$(cat "$STATE_DIR/token" 2>/dev/null)" = "$APPLY_TOKEN" ]; then
+            printf 'result=failed\ntoken=%s\ntime=%s\n' "$APPLY_TOKEN" "$(date +%s)" > "$RESULT_FILE"
+            rm -rf "$STATE_DIR"
+        fi
+        return "$rc"
+    fi
+
+    if [ -n "$APPLY_TOKEN" ] && [ -f "$STATE_DIR/token" ] &&
+       [ "$(cat "$STATE_DIR/token" 2>/dev/null)" = "$APPLY_TOKEN" ]; then
+        # 用户在 reload 之前就确认了：直接保留，不进入倒计时。
+        if [ "$(cat "$STATE_DIR/status" 2>/dev/null)" = "confirmed" ]; then
+            printf 'result=confirmed\ntoken=%s\ntime=%s\n' "$APPLY_TOKEN" "$(date +%s)" > "$RESULT_FILE"
+            rm -rf "$STATE_DIR"
+            log "Configuration applied and already confirmed"
+            return 0
+        fi
+
+        timeout=$(cat "$STATE_DIR/timeout" 2>/dev/null)
+        case "$timeout" in ''|*[!0-9]*) timeout=$ROLLBACK_TIMEOUT_DEFAULT ;; esac
+        deadline=$(($(date +%s) + timeout))
+
+        printf '%s\n' "$deadline" > "$STATE_DIR/deadline"
+        printf 'pending\n' > "$STATE_DIR/status"
+        start_rollback_waiter "$timeout" "$APPLY_TOKEN"
+
+        log "Configuration applied; rolling back in ${timeout}s unless confirmed"
+    else
+        if [ -n "$APPLY_TOKEN" ] && [ -d "$STATE_DIR/backup" ]; then
+            # 并发应用在等待期间改写了状态：立即恢复快照，
+            # 而不是把无法确认的配置留在设备上。
+            rollback_configs "$STATE_DIR/backup"
+            rc=$?
+            printf 'result=rolledback\ntoken=%s\ntime=%s\n' "$APPLY_TOKEN" "$(date +%s)" > "$RESULT_FILE"
+            rm -rf "$STATE_DIR"
+            [ "$rc" = "2" ] && reload_services
+        else
+            # 强制应用或旧的空标记：直接保留配置，不启动倒计时。
+            rm -rf "$STATE_DIR" 2>/dev/null
+            printf 'result=confirmed\ntime=%s\n' "$(date +%s)" > "$RESULT_FILE"
+        fi
+    fi
+
+    return 0
+}
+
+stop() {
+    remove_lock
+}
+
+restart() {
+    remove_lock
+    apply_config
+}
+
+apply() {
+    apply_config
+}

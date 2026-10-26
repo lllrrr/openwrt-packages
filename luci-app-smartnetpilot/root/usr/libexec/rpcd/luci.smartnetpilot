@@ -1,0 +1,285 @@
+#!/bin/sh
+# Smart NetPilot RPC helper.
+. /usr/share/libubox/jshn.sh
+
+INIT=/etc/init.d/smartnetpilot
+APPLY_MARKER=/tmp/smartnetpilot.apply
+DEFAULT_TIMEOUT=120
+MIN_TIMEOUT=30
+MAX_TIMEOUT=600
+
+get_lan_ip() {
+    local lan_ip
+
+    lan_ip=$(ip -4 addr show br-lan 2>/dev/null | awk '/inet / { sub(/\/.*/, "", $2); print $2; exit }')
+    if [ -z "$lan_ip" ]; then
+        lan_ip=$(ubus call network.interface.lan status 2>/dev/null |
+            jsonfilter -e '@["ipv4-address"][0].address' 2>/dev/null)
+    fi
+
+    echo "$lan_ip"
+}
+
+# 从 /etc/board.json 收集板载物理端口。CPU 通道（如 DSA 的 eth0）不会出现在
+# 这里，UI 用它来阻止把交换机 CPU 口选成 WAN 口。读不到时 known=false。
+collect_board_ports() {
+    local keys key values device
+
+    BOARD_PORTS=""
+    BOARD_PORTS_KNOWN=0
+    [ -r /etc/board.json ] || return 1
+
+    json_init
+    json_load_file /etc/board.json 2>/dev/null || return 1
+    json_select network 2>/dev/null || return 1
+    json_get_keys keys 2>/dev/null || return 1
+
+    for key in $keys; do
+        json_select "$key" 2>/dev/null || continue
+
+        values=""
+        json_get_values values ports 2>/dev/null
+        BOARD_PORTS="$BOARD_PORTS $values"
+
+        for device in device ifname; do
+            values=""
+            json_get_var values "$device" 2>/dev/null
+            case "$values" in
+                ''|br-*|@*) ;;
+                *) BOARD_PORTS="$BOARD_PORTS $values" ;;
+            esac
+        done
+
+        json_select ..
+    done
+
+    BOARD_PORTS=$(printf '%s\n' $BOARD_PORTS | sed '/^$/d' | sort -u | tr '\n' ' ')
+    [ -n "$BOARD_PORTS" ] && BOARD_PORTS_KNOWN=1
+    return 0
+}
+
+physical_ports() {
+    local input p
+
+    read -r input
+    collect_board_ports
+
+    json_init
+    json_add_array ports
+    for p in $BOARD_PORTS; do
+        json_add_string "" "$p"
+    done
+    json_close_array
+    json_add_boolean known "$BOARD_PORTS_KNOWN"
+    json_dump
+}
+
+run_init() {
+    [ -x "$INIT" ] || return 1
+    "$INIT" "$@"
+}
+
+valid_token() {
+    case "$1" in
+        ''|*[!A-Za-z0-9-]*) return 1 ;;
+    esac
+
+    [ ${#1} -ge 8 ] && [ ${#1} -le 64 ] || return 1
+
+    return 0
+}
+
+json_token_arg() {
+    local input="$1"
+    local token
+
+    if [ -n "$input" ]; then
+        json_init
+        json_load "$input" 2>/dev/null
+        json_get_var token token 2>/dev/null
+    fi
+
+    printf '%s' "$token"
+}
+
+# 两阶段提交的第一阶段：先给当前配置拍快照，再在标记文件里写入 token。
+# rollback=0 表示“强制应用”，不备份、不启动倒计时。
+arm_apply() {
+    local input rollback timeout out rc token applied_timeout
+
+    read -r input
+
+    rollback=1
+    timeout=$DEFAULT_TIMEOUT
+
+    if [ -n "$input" ]; then
+        json_init
+        json_load "$input" 2>/dev/null
+        json_get_var rollback rollback 2>/dev/null
+        json_get_var timeout timeout 2>/dev/null
+    fi
+
+    case "$rollback" in
+        0|false|no|off) rollback=0 ;;
+        *) rollback=1 ;;
+    esac
+    case "$timeout" in
+        ''|*[!0-9]*) timeout=$DEFAULT_TIMEOUT ;;
+    esac
+
+    [ "$timeout" -lt "$MIN_TIMEOUT" ] && timeout=$MIN_TIMEOUT
+    [ "$timeout" -gt "$MAX_TIMEOUT" ] && timeout=$MAX_TIMEOUT
+
+    out=$(run_init prepare_apply "$rollback" "$timeout")
+    rc=$?
+
+    token=$(printf '%s\n' "$out" | sed -n 's/^token=//p' | head -n 1)
+    applied_timeout=$(printf '%s\n' "$out" | sed -n 's/^timeout=//p' | head -n 1)
+    case "$applied_timeout" in
+        ''|*[!0-9]*) applied_timeout=$timeout ;;
+    esac
+
+    if [ "$rc" != "0" ] || { [ "$rollback" = "1" ] && ! valid_token "$token"; }; then
+        json_init
+        json_add_boolean success 0
+        json_add_string token ""
+        json_add_int timeout "$applied_timeout"
+        json_add_boolean rollback "$rollback"
+        json_dump
+        return 0
+    fi
+
+    if [ "$rollback" = "1" ]; then
+        printf 'token=%s\n' "$token" > "$APPLY_MARKER"
+    else
+        printf 'force\n' > "$APPLY_MARKER"
+    fi
+    chmod 600 "$APPLY_MARKER" 2>/dev/null
+
+    json_init
+    json_add_boolean success 1
+    json_add_string token "$token"
+    json_add_int timeout "$applied_timeout"
+    json_add_boolean rollback "$rollback"
+    json_dump
+}
+
+apply_status() {
+    local input out status token remaining timeout
+
+    read -r input
+
+    out=$(run_init apply_status)
+    status=$(printf '%s\n' "$out" | sed -n 's/^status=//p' | head -n 1)
+    token=$(printf '%s\n' "$out" | sed -n 's/^token=//p' | head -n 1)
+    remaining=$(printf '%s\n' "$out" | sed -n 's/^remaining=//p' | head -n 1)
+    timeout=$(printf '%s\n' "$out" | sed -n 's/^timeout=//p' | head -n 1)
+
+    [ -n "$status" ] || status=idle
+    case "$remaining" in ''|*[!0-9]*) remaining=0 ;; esac
+    case "$timeout" in ''|*[!0-9]*) timeout=0 ;; esac
+
+    json_init
+    json_add_string status "$status"
+    json_add_string token "$token"
+    json_add_int remaining "$remaining"
+    json_add_int timeout "$timeout"
+    json_dump
+}
+
+confirm_apply() {
+    local input token success=0
+
+    read -r input
+    token=$(json_token_arg "$input")
+
+    if valid_token "$token" && run_init confirm_apply "$token" >/dev/null 2>&1; then
+        success=1
+    fi
+
+    json_init
+    json_add_boolean success "$success"
+    json_dump
+}
+
+rollback_apply() {
+    local input token success=0
+
+    read -r input
+    token=$(json_token_arg "$input")
+
+    if valid_token "$token" && run_init rollback_if_pending "$token" >/dev/null 2>&1; then
+        success=1
+    fi
+
+    json_init
+    json_add_boolean success "$success"
+    json_dump
+}
+
+cancel_apply() {
+    local input token success=0
+
+    read -r input
+    token=$(json_token_arg "$input")
+
+    if valid_token "$token" && run_init cancel_apply "$token" >/dev/null 2>&1; then
+        success=1
+    fi
+
+    json_init
+    json_add_boolean success "$success"
+    json_dump
+}
+
+case "$1" in
+list)
+    json_init
+    json_add_object "get_ip"
+    json_close_object
+    json_add_object "physical_ports"
+    json_close_object
+    json_add_object "arm_apply"
+    json_close_object
+    json_add_object "apply_status"
+    json_close_object
+    json_add_object "confirm_apply"
+    json_close_object
+    json_add_object "cancel_apply"
+    json_close_object
+    json_add_object "rollback_apply"
+    json_close_object
+    json_dump
+    ;;
+call)
+    case "$2" in
+    get_ip)
+        read -r input
+        json_init
+        json_add_string "ip" "$(get_lan_ip)"
+        json_add_boolean "success" 1
+        json_dump
+        ;;
+    physical_ports)
+        physical_ports
+        ;;
+    arm_apply)
+        arm_apply
+        ;;
+    apply_status)
+        apply_status
+        ;;
+    confirm_apply)
+        confirm_apply
+        ;;
+    cancel_apply)
+        cancel_apply
+        ;;
+    rollback_apply)
+        rollback_apply
+        ;;
+    *) echo '{"error":"Method not found"}' ;;
+    esac
+    ;;
+*) echo '{"error":"Invalid action"}' ;;
+esac

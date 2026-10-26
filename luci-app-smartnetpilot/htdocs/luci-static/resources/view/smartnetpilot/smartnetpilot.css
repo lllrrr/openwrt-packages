@@ -1,0 +1,1223 @@
+/*
+ * Smart NetPilot - scoped LuCI view styles.
+ *
+ * All colours live in custom properties on .snp-app. The view sets
+ * data-snp-theme on <html>, and the selectors below also cover the common
+ * Bootstrap and Argon dark-mode markers so the first paint is correct even
+ * before the view's JavaScript runs.
+ */
+
+.snp-app {
+	--snp-font: "Inter", "SF Pro Display", "SF Pro Text", -apple-system,
+		BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB",
+		"Microsoft YaHei", sans-serif;
+	--snp-surface: #ffffff;
+	--snp-surface-2: #f6f7fb;
+	--snp-surface-3: #eceff7;
+	--snp-text: #151b2b;
+	--snp-muted: #667085;
+	--snp-faint: #98a2b3;
+	--snp-border: rgba(21, 27, 43, 0.10);
+	--snp-border-strong: rgba(21, 27, 43, 0.17);
+	--snp-shadow: 0 28px 70px -34px rgba(21, 27, 43, 0.34);
+	--snp-shadow-soft: 0 16px 42px -28px rgba(21, 27, 43, 0.38);
+	--snp-input-bg: #ffffff;
+	--snp-input-border: rgba(21, 27, 43, 0.17);
+	--snp-ring: rgba(124, 92, 255, 0.22);
+	--snp-aurora-1: rgba(124, 92, 255, 0.20);
+	--snp-aurora-2: rgba(14, 165, 233, 0.16);
+	--snp-ok: #0f9f6e;
+	--snp-warn: #c26a00;
+	--snp-danger: #d92d4b;
+	--snp-violet: #7c5cff;
+	--snp-cyan: #0ea5e9;
+	--snp-emerald: #10b981;
+	--snp-radius-lg: 26px;
+	--snp-radius-md: 18px;
+	--snp-radius-sm: 12px;
+
+	box-sizing: border-box;
+	display: block;
+	max-width: 1180px;
+	margin: 0 auto;
+	padding: 0 0 1.5rem;
+	color: var(--snp-text);
+	font-family: var(--snp-font);
+	font-size: 15px;
+	line-height: 1.55;
+	-webkit-font-smoothing: antialiased;
+	text-rendering: optimizeLegibility;
+}
+
+.snp-app *,
+.snp-app *::before,
+.snp-app *::after {
+	box-sizing: border-box;
+}
+
+/*
+ * Argon draws a 2rem band below its header (header::after) that overlaps the
+ * first row of the content area. Without extra space the hero card covers the
+ * band and looks like it crosses the theme's top line. The view adds this
+ * class in JavaScript after checking the theme's header.
+ */
+.snp-app.snp-on-argon {
+	padding-top: 2.25rem;
+}
+
+/* -------------------------------------------------------------------------
+ * Dark theme tokens
+ * ---------------------------------------------------------------------- */
+
+:root[data-snp-theme="dark"] .snp-app,
+body.dark .snp-app,
+body.dark-mode .snp-app,
+body.theme-dark .snp-app,
+html.dark .snp-app,
+[data-theme="dark"] .snp-app,
+[data-mode="dark"] .snp-app {
+	--snp-surface: #171e2e;
+	--snp-surface-2: #1d2638;
+	--snp-surface-3: #242f45;
+	--snp-text: #e9eef8;
+	--snp-muted: #9aa8bd;
+	--snp-faint: #74839a;
+	--snp-border: rgba(255, 255, 255, 0.10);
+	--snp-border-strong: rgba(255, 255, 255, 0.18);
+	--snp-shadow: 0 30px 80px -32px rgba(0, 0, 0, 0.72);
+	--snp-shadow-soft: 0 18px 46px -26px rgba(0, 0, 0, 0.74);
+	--snp-input-bg: #111827;
+	--snp-input-border: rgba(255, 255, 255, 0.16);
+	--snp-ring: rgba(139, 123, 255, 0.30);
+	--snp-aurora-1: rgba(124, 92, 255, 0.22);
+	--snp-aurora-2: rgba(14, 165, 233, 0.14);
+	--snp-ok: #34d399;
+	--snp-warn: #fbbf24;
+	--snp-danger: #fb7185;
+	color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-snp-theme="light"]) .snp-app {
+		--snp-surface: #171e2e;
+		--snp-surface-2: #1d2638;
+		--snp-surface-3: #242f45;
+		--snp-text: #e9eef8;
+		--snp-muted: #9aa8bd;
+		--snp-faint: #74839a;
+		--snp-border: rgba(255, 255, 255, 0.10);
+		--snp-border-strong: rgba(255, 255, 255, 0.18);
+		--snp-shadow: 0 30px 80px -32px rgba(0, 0, 0, 0.72);
+		--snp-shadow-soft: 0 18px 46px -26px rgba(0, 0, 0, 0.74);
+		--snp-input-bg: #111827;
+		--snp-input-border: rgba(255, 255, 255, 0.16);
+		--snp-ring: rgba(139, 123, 255, 0.30);
+		--snp-aurora-1: rgba(124, 92, 255, 0.22);
+		--snp-aurora-2: rgba(14, 165, 233, 0.14);
+		--snp-ok: #34d399;
+		--snp-warn: #fbbf24;
+		--snp-danger: #fb7185;
+		color-scheme: dark;
+	}
+}
+
+/* -------------------------------------------------------------------------
+ * Shared primitives
+ * ---------------------------------------------------------------------- */
+
+.snp-app .snp-accent-violet {
+	--snp-accent: #7c5cff;
+	--snp-accent-strong: #6746ff;
+	--snp-accent-soft: rgba(124, 92, 255, 0.14);
+	--snp-accent-ring: rgba(124, 92, 255, 0.28);
+}
+
+.snp-app .snp-accent-cyan {
+	--snp-accent: #0ea5e9;
+	--snp-accent-strong: #0284c7;
+	--snp-accent-soft: rgba(14, 165, 233, 0.14);
+	--snp-accent-ring: rgba(14, 165, 233, 0.28);
+}
+
+.snp-app .snp-accent-emerald {
+	--snp-accent: #10b981;
+	--snp-accent-strong: #059669;
+	--snp-accent-soft: rgba(16, 185, 129, 0.14);
+	--snp-accent-ring: rgba(16, 185, 129, 0.28);
+}
+
+.snp-app .snp-hidden {
+	display: none !important;
+}
+
+.snp-hero {
+	position: relative;
+	isolation: isolate;
+	overflow: hidden;
+	display: grid;
+	grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.85fr);
+	gap: clamp(1.25rem, 3vw, 2.5rem);
+	padding: clamp(1.4rem, 3.2vw, 2.5rem);
+	border: 1px solid var(--snp-border);
+	border-radius: var(--snp-radius-lg);
+	background:
+		radial-gradient(520px 260px at 96% -10%, var(--snp-aurora-1), transparent 72%),
+		radial-gradient(460px 250px at -8% 112%, var(--snp-aurora-2), transparent 70%),
+		var(--snp-surface);
+	box-shadow: var(--snp-shadow);
+}
+
+.snp-hero::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	z-index: -1;
+	pointer-events: none;
+	background-image:
+		linear-gradient(var(--snp-border) 1px, transparent 1px),
+		linear-gradient(90deg, var(--snp-border) 1px, transparent 1px);
+	background-size: 38px 38px;
+	opacity: 0.18;
+	mask-image: linear-gradient(105deg, transparent 18%, #000 62%, transparent 100%);
+}
+
+.snp-hero-copy {
+	min-width: 0;
+	align-self: center;
+}
+
+.snp-brand {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	margin-bottom: 1.15rem;
+}
+
+.snp-logo {
+	display: inline-grid;
+	place-items: center;
+	width: 44px;
+	height: 44px;
+	flex: 0 0 44px;
+	border-radius: 14px;
+	color: #ffffff;
+	background: linear-gradient(135deg, #7c5cff, #0ea5e9);
+	box-shadow: 0 12px 24px -10px rgba(124, 92, 255, 0.68);
+}
+
+.snp-logo svg {
+	width: 25px;
+	height: 25px;
+}
+
+.snp-brand-name {
+	font-size: 0.79rem;
+	font-weight: 800;
+	letter-spacing: 0.16em;
+	text-transform: uppercase;
+	color: var(--snp-text);
+}
+
+.snp-brand-tag {
+	display: inline-flex;
+	align-items: center;
+	padding: 0.18rem 0.55rem;
+	border: 1px solid var(--snp-border);
+	border-radius: 999px;
+	color: var(--snp-muted);
+	font-size: 0.66rem;
+	font-weight: 700;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+}
+
+.snp-kicker {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.45rem;
+	margin-bottom: 0.65rem;
+	color: var(--snp-muted);
+	font-size: 0.72rem;
+	font-weight: 800;
+	letter-spacing: 0.14em;
+	text-transform: uppercase;
+}
+
+.snp-kicker::before {
+	content: "";
+	width: 18px;
+	height: 2px;
+	border-radius: 2px;
+	background: linear-gradient(90deg, var(--snp-violet), var(--snp-cyan));
+}
+
+.snp-hero h1 {
+	margin: 0;
+	color: var(--snp-text);
+	font-size: clamp(1.35rem, 2.6vw, 1.85rem);
+	font-weight: 760;
+	letter-spacing: -0.025em;
+	line-height: 1.15;
+}
+
+/* The chooser heading is a full sentence, so it gets a smaller size and a
+   little more leading than a short page title. */
+.snp-chooser .snp-hero h1 {
+	font-size: clamp(1.05rem, 1.9vw, 1.4rem);
+	line-height: 1.3;
+}
+
+.snp-hero-subtitle {
+	max-width: 54ch;
+	margin: 0.85rem 0 0;
+	color: var(--snp-muted);
+	font-size: clamp(0.92rem, 1.5vw, 1.02rem);
+	line-height: 1.65;
+}
+
+.snp-hero-meta {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.55rem;
+	margin-top: 1.3rem;
+}
+
+.snp-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.38rem;
+	padding: 0.38rem 0.72rem;
+	border: 1px solid var(--snp-border);
+	border-radius: 999px;
+	background: var(--snp-surface-2);
+	color: var(--snp-muted);
+	font-size: 0.76rem;
+	font-weight: 650;
+	white-space: nowrap;
+}
+
+.snp-chip-dot {
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: var(--snp-ok);
+	box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.13);
+}
+
+.snp-chip-dot.is-off {
+	background: var(--snp-faint);
+	box-shadow: 0 0 0 4px rgba(148, 163, 184, 0.12);
+}
+
+.snp-status {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	align-content: start;
+	gap: 0.7rem;
+}
+
+.snp-stat {
+	min-width: 0;
+	padding: 0.9rem 1rem;
+	border: 1px solid var(--snp-border);
+	border-radius: var(--snp-radius-md);
+	background: var(--snp-surface-2);
+}
+
+.snp-stat-label {
+	display: block;
+	margin-bottom: 0.32rem;
+	color: var(--snp-faint);
+	font-size: 0.66rem;
+	font-weight: 800;
+	letter-spacing: 0.13em;
+	text-transform: uppercase;
+}
+
+.snp-stat-value {
+	display: block;
+	overflow: hidden;
+	color: var(--snp-text);
+	font-size: 0.95rem;
+	font-weight: 700;
+	font-variant-numeric: tabular-nums;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.snp-stat-value.is-muted {
+	color: var(--snp-muted);
+	font-weight: 600;
+}
+
+/* -------------------------------------------------------------------------
+ * Mode chooser
+ * ---------------------------------------------------------------------- */
+
+.snp-section {
+	margin-top: clamp(1.4rem, 3vw, 2.2rem);
+}
+
+.snp-mode-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+	gap: clamp(0.85rem, 1.8vw, 1.25rem);
+}
+
+.snp-mode-card {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	gap: 1rem;
+	/*
+	 * Argon gives every button a fixed 2.5rem height; without this the card
+	 * keeps that used height (clamped up by min-height) and its content spills
+	 * over the bottom edge.
+	 */
+	height: auto;
+	min-height: 245px;
+	padding: clamp(1.1rem, 2.2vw, 1.55rem);
+	border: 1px solid var(--snp-border);
+	border-radius: 24px;
+	background:
+		linear-gradient(180deg, var(--snp-accent-soft), transparent 46%),
+		var(--snp-surface);
+	color: var(--snp-text);
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+	box-shadow: var(--snp-shadow-soft);
+	transition:
+		transform 180ms ease,
+		border-color 180ms ease,
+		box-shadow 180ms ease;
+	-webkit-tap-highlight-color: transparent;
+}
+
+.snp-mode-card::before {
+	content: "";
+	position: absolute;
+	top: 0;
+	left: 1.2rem;
+	right: 1.2rem;
+	height: 3px;
+	border-radius: 0 0 4px 4px;
+	background: linear-gradient(90deg, var(--snp-accent), transparent);
+	opacity: 0.85;
+}
+
+.snp-mode-card:hover,
+.snp-mode-card:focus-visible {
+	transform: translateY(-4px);
+	border-color: var(--snp-accent);
+	box-shadow:
+		0 22px 50px -26px var(--snp-accent-ring),
+		var(--snp-shadow-soft);
+}
+
+.snp-mode-card:focus-visible {
+	outline: 3px solid var(--snp-ring);
+	outline-offset: 3px;
+}
+
+.snp-mode-card.is-current {
+	border-color: var(--snp-accent);
+	box-shadow:
+		0 0 0 1px var(--snp-accent),
+		0 24px 54px -28px var(--snp-accent-ring);
+}
+
+.snp-mode-card.is-busy {
+	pointer-events: none;
+	opacity: 0.72;
+}
+
+.snp-mode-card-top {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 0.7rem;
+}
+
+.snp-mode-icon {
+	display: inline-grid;
+	place-items: center;
+	width: 52px;
+	height: 52px;
+	flex: 0 0 52px;
+	border: 1px solid var(--snp-accent-ring);
+	border-radius: 16px;
+	background: var(--snp-accent-soft);
+	color: var(--snp-accent-strong);
+}
+
+.snp-mode-icon svg {
+	width: 27px;
+	height: 27px;
+}
+
+.snp-current-pill {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.3rem;
+	padding: 0.25rem 0.55rem;
+	border-radius: 999px;
+	background: var(--snp-accent-soft);
+	color: var(--snp-accent-strong);
+	font-size: 0.66rem;
+	font-weight: 800;
+	letter-spacing: 0.05em;
+	text-transform: uppercase;
+	white-space: nowrap;
+}
+
+.snp-mode-body {
+	flex: 1;
+}
+
+.snp-mode-title {
+	margin: 0;
+	color: var(--snp-text);
+	font-size: 1.13rem;
+	font-weight: 760;
+	letter-spacing: -0.018em;
+}
+
+.snp-mode-desc {
+	margin: 0.45rem 0 0;
+	color: var(--snp-muted);
+	font-size: 0.87rem;
+	line-height: 1.55;
+}
+
+.snp-mode-foot {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+	padding-top: 0.9rem;
+	border-top: 1px solid var(--snp-border);
+	color: var(--snp-accent-strong);
+	font-size: 0.79rem;
+	font-weight: 750;
+}
+
+.snp-mode-foot > span:first-child {
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.snp-mode-arrow {
+	display: inline-grid;
+	place-items: center;
+	width: 30px;
+	height: 30px;
+	flex: 0 0 30px;
+	border-radius: 50%;
+	background: var(--snp-accent-soft);
+	transition: transform 180ms ease;
+}
+
+.snp-mode-card:hover .snp-mode-arrow {
+	transform: translateX(3px);
+}
+
+.snp-mode-arrow svg {
+	width: 15px;
+	height: 15px;
+}
+
+/* -------------------------------------------------------------------------
+ * Configuration view
+ * ---------------------------------------------------------------------- */
+
+.snp-config .snp-hero {
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: center;
+	padding: clamp(1.2rem, 2.6vw, 1.85rem);
+}
+
+.snp-config .snp-hero h1 {
+	font-size: clamp(1.15rem, 1.9vw, 1.45rem);
+}
+
+.snp-config .snp-hero-subtitle {
+	font-size: clamp(0.86rem, 1.35vw, 0.94rem);
+}
+
+.snp-hero-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 0.65rem;
+}
+
+/* Section navigation lives in the hero; the form's own tab menu is hidden. */
+.snp-hero-tabs {
+	grid-column: 1 / -1;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.45rem;
+	padding-top: 0.15rem;
+}
+
+.snp-tab-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-height: 34px;
+	padding: 0.4rem 0.9rem;
+	border: 1px solid var(--snp-border);
+	border-radius: 999px;
+	background: var(--snp-surface-2);
+	color: var(--snp-muted);
+	font-family: inherit;
+	font-size: 0.78rem;
+	font-weight: 750;
+	line-height: 1.2;
+	cursor: pointer;
+	transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.snp-tab-btn:hover {
+	border-color: var(--snp-border-strong);
+	color: var(--snp-text);
+}
+
+.snp-tab-btn.is-active {
+	border-color: transparent;
+	background: linear-gradient(135deg, var(--snp-violet), var(--snp-cyan));
+	color: #ffffff;
+	box-shadow: 0 10px 20px -14px rgba(80, 84, 255, 0.72);
+}
+
+.snp-config .cbi-tabmenu {
+	display: none;
+}
+
+.snp-app:not(.snp-show-advanced) .snp-hero-tabs [data-tab="othersetup"] {
+	display: none;
+}
+
+.snp-mode-summary {
+	display: flex;
+	align-items: center;
+	gap: 0.9rem;
+	min-width: 0;
+	padding: 0.75rem 0.9rem;
+	border: 1px solid var(--snp-border);
+	border-radius: var(--snp-radius-md);
+	background: var(--snp-surface-2);
+}
+
+.snp-mode-summary .snp-mode-icon {
+	width: 44px;
+	height: 44px;
+	flex-basis: 44px;
+	border-radius: 13px;
+}
+
+.snp-mode-summary .snp-mode-icon svg {
+	width: 23px;
+	height: 23px;
+}
+
+.snp-mode-summary-text {
+	min-width: 0;
+}
+
+.snp-mode-summary-text strong {
+	display: block;
+	color: var(--snp-text);
+	font-size: 0.9rem;
+	font-weight: 750;
+}
+
+.snp-mode-summary-text span {
+	display: block;
+	overflow: hidden;
+	color: var(--snp-muted);
+	font-size: 0.76rem;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.snp-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.45rem;
+	min-height: 38px;
+	padding: 0.55rem 0.9rem;
+	border: 1px solid transparent;
+	border-radius: var(--snp-radius-sm);
+	font-family: inherit;
+	font-size: 0.82rem;
+	font-weight: 750;
+	line-height: 1.2;
+	text-decoration: none;
+	cursor: pointer;
+	transition:
+		transform 150ms ease,
+		box-shadow 150ms ease,
+		background 150ms ease;
+}
+
+.snp-btn:hover {
+	transform: translateY(-1px);
+}
+
+.snp-btn-primary {
+	border-color: transparent;
+	background: linear-gradient(135deg, var(--snp-violet), var(--snp-cyan));
+	color: #ffffff;
+	box-shadow: 0 12px 22px -14px rgba(80, 84, 255, 0.72);
+}
+
+.snp-btn-ghost {
+	border-color: var(--snp-border);
+	background: var(--snp-surface-2);
+	color: var(--snp-text);
+}
+
+.snp-btn-ghost:hover {
+	border-color: var(--snp-border-strong);
+}
+
+.snp-btn-danger {
+	border-color: transparent;
+	background: var(--snp-danger);
+	color: #ffffff;
+}
+
+.snp-btn svg {
+	width: 16px;
+	height: 16px;
+}
+
+.snp-form-shell {
+	margin-top: 1.25rem;
+}
+
+/* Keep the mode page focused on its own fields. Everything that is not part
+   of the selected connection type stays behind the Advanced settings toggle. */
+.snp-app:not(.snp-show-advanced) .snp-form-shell [data-field$=".ipv6"],
+.snp-app:not(.snp-show-advanced) .snp-form-shell [data-field$=".lan_dhcp"],
+.snp-app:not(.snp-show-advanced) .snp-form-shell [data-field$=".dnsset"],
+.snp-app:not(.snp-show-advanced) .snp-form-shell [data-field$=".dns_tables"],
+.snp-app:not(.snp-show-advanced) .snp-form-shell [data-field$=".https"],
+.snp-app:not(.snp-show-advanced) .snp-form-shell [data-field$=".synflood"],
+.snp-app:not(.snp-show-advanced) .snp-form-shell [data-tab="othersetup"] {
+	display: none;
+}
+
+.snp-advanced-toggle[aria-expanded="true"] {
+	border-color: var(--snp-border-strong);
+	background: var(--snp-surface-3);
+}
+
+/* LuCI form skin --------------------------------------------------------- */
+
+.snp-form-shell .cbi-map,
+.snp-form-shell .cbi-section {
+	background: transparent;
+	border: 0;
+	box-shadow: none;
+}
+
+.snp-form-shell .cbi-map > h2,
+.snp-form-shell .cbi-map > .cbi-map-descr {
+	display: none;
+}
+
+.snp-form-shell .cbi-section-node {
+	margin: 0;
+	padding: clamp(0.85rem, 2.2vw, 1.45rem);
+	border: 1px solid var(--snp-border);
+	border-radius: 22px;
+	background: var(--snp-surface);
+	box-shadow: var(--snp-shadow-soft);
+}
+
+.snp-form-shell .cbi-value {
+	display: grid;
+	grid-template-columns: minmax(10.5rem, 33%) minmax(0, 1fr);
+	gap: 0.45rem 1.35rem;
+	align-items: center;
+	margin: 0;
+	padding: 0.85rem 0;
+	border-bottom: 1px solid var(--snp-border);
+}
+
+.snp-form-shell .cbi-value:last-child {
+	border-bottom: 0;
+}
+
+.snp-form-shell .cbi-value.snp-value-wide {
+	display: block;
+}
+
+/* LuCI hides fields whose dependency is not met with the theme's .hidden
+   class, which a plain `.cbi-value { display: grid }` would override. Keep
+   the mode-specific filtering authoritative. */
+.snp-form-shell .cbi-value.hidden {
+	display: none;
+}
+
+.snp-form-shell .cbi-value.snp-value-wide > .cbi-value-title {
+	display: none;
+}
+
+.snp-form-shell .cbi-value-title {
+	color: var(--snp-text);
+	font-size: 0.84rem;
+	font-weight: 700;
+	line-height: 1.4;
+}
+
+.snp-form-shell .cbi-value-field {
+	min-width: 0;
+}
+
+.snp-form-shell .cbi-value-description,
+.snp-form-shell .cbi-value-field .cbi-value-description {
+	margin-top: 0.35rem;
+	color: var(--snp-muted);
+	font-size: 0.76rem;
+	line-height: 1.5;
+}
+
+.snp-app input[type="text"],
+.snp-app input[type="password"],
+.snp-app input[type="number"],
+.snp-app select,
+.snp-app textarea {
+	max-width: 100%;
+	min-height: 38px;
+	padding: 0.48rem 0.65rem;
+	border: 1px solid var(--snp-input-border);
+	border-radius: 10px;
+	background: var(--snp-input-bg);
+	color: var(--snp-text);
+	font-family: inherit;
+	font-size: 0.83rem;
+	transition:
+		border-color 150ms ease,
+		box-shadow 150ms ease;
+}
+
+.snp-app input[type="text"]:focus,
+.snp-app input[type="password"]:focus,
+.snp-app input[type="number"]:focus,
+.snp-app select:focus,
+.snp-app textarea:focus {
+	border-color: var(--snp-violet);
+	outline: 0;
+	box-shadow: 0 0 0 3px var(--snp-ring);
+}
+
+.snp-app input[type="checkbox"],
+.snp-app input[type="radio"] {
+	width: 17px;
+	height: 17px;
+	accent-color: var(--snp-violet);
+}
+
+.snp-app .cbi-input-flag {
+	margin-right: 0.35rem;
+}
+
+.snp-app .cbi-button {
+	min-height: 34px;
+	padding: 0.42rem 0.8rem;
+	border: 1px solid var(--snp-border-strong);
+	border-radius: 10px;
+	background: var(--snp-surface-2);
+	color: var(--snp-text);
+	font-family: inherit;
+	font-size: 0.79rem;
+	font-weight: 700;
+	box-shadow: none;
+}
+
+.snp-app .cbi-button:hover {
+	border-color: var(--snp-border-strong);
+	background: var(--snp-surface-3);
+}
+
+.snp-app .cbi-button-apply,
+.snp-app .cbi-button-save,
+.snp-app .cbi-button-action {
+	border-color: transparent;
+	background: linear-gradient(135deg, var(--snp-violet), var(--snp-cyan));
+	color: #ffffff;
+	box-shadow: 0 12px 24px -16px rgba(80, 84, 255, 0.78);
+}
+
+.snp-app .cbi-button-apply:hover,
+.snp-app .cbi-button-save:hover,
+.snp-app .cbi-button-action:hover {
+	filter: brightness(1.05);
+}
+
+.snp-app .cbi-button-reset {
+	background: transparent;
+	color: var(--snp-muted);
+}
+
+.snp-app .cbi-page-actions {
+	position: sticky;
+	bottom: 0;
+	z-index: 6;
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 0.6rem;
+	margin-top: 1rem;
+	padding: 0.75rem;
+	border: 1px solid var(--snp-border);
+	border-radius: 16px;
+	background: var(--snp-surface);
+	box-shadow: var(--snp-shadow-soft);
+}
+
+.snp-app .cbi-page-actions .cbi-button {
+	min-height: 40px;
+	padding: 0.52rem 1rem;
+	border-radius: 12px;
+}
+
+.snp-app .cbi-page-actions .cbi-button-apply,
+.snp-app .cbi-page-actions .cbi-button-save {
+	min-width: 130px;
+}
+
+.snp-app .cbi-section-descr {
+	color: var(--snp-muted);
+	font-size: 0.8rem;
+}
+
+.snp-app .cbi-tabcontainer {
+	border: 0;
+	background: transparent;
+}
+
+.snp-app .cbi-tabcontainer > .cbi-section-node {
+	margin-top: 0;
+}
+
+/* -------------------------------------------------------------------------
+ * Save / redirect dialog
+ * ---------------------------------------------------------------------- */
+
+.snp-modal-backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: 10000;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 1rem;
+	background: rgba(8, 12, 22, 0.58);
+	-webkit-backdrop-filter: blur(7px);
+	backdrop-filter: blur(7px);
+	animation: snp-fade-in 160ms ease both;
+}
+
+.snp-modal {
+	width: 100%;
+	max-width: 470px;
+	max-height: calc(100vh - 2rem);
+	overflow: auto;
+	padding: clamp(1.35rem, 4vw, 2.1rem);
+	border: 1px solid var(--snp-border);
+	border-radius: 26px;
+	background: var(--snp-surface);
+	color: var(--snp-text);
+	box-shadow: 0 36px 90px -26px rgba(0, 0, 0, 0.55);
+	text-align: center;
+	animation: snp-rise-in 200ms ease both;
+}
+
+.snp-modal-icon {
+	display: inline-grid;
+	place-items: center;
+	width: 74px;
+	height: 74px;
+	margin: 0 auto 1rem;
+	border-radius: 50%;
+	background: var(--snp-accent-soft, rgba(124, 92, 255, 0.14));
+	color: var(--snp-accent-strong, var(--snp-violet));
+}
+
+.snp-modal-icon.is-success {
+	background: rgba(16, 185, 129, 0.14);
+	color: var(--snp-ok);
+}
+
+.snp-modal-icon.is-warning {
+	background: rgba(245, 158, 11, 0.16);
+	color: var(--snp-warn);
+}
+
+.snp-modal-icon.is-error {
+	background: rgba(244, 63, 94, 0.14);
+	color: var(--snp-danger);
+}
+
+.snp-modal-icon svg {
+	width: 36px;
+	height: 36px;
+}
+
+.snp-modal h2 {
+	margin: 0;
+	color: var(--snp-text);
+	font-size: 1.32rem;
+	font-weight: 780;
+	letter-spacing: -0.025em;
+	line-height: 1.25;
+}
+
+.snp-modal p {
+	margin: 0.7rem 0 0;
+	color: var(--snp-muted);
+	font-size: 0.88rem;
+	line-height: 1.65;
+}
+
+.snp-modal-note {
+	margin-top: 1rem;
+	padding: 0.85rem 1rem;
+	border: 1px solid var(--snp-border);
+	border-radius: 14px;
+	background: var(--snp-surface-2);
+	color: var(--snp-text);
+	font-size: 0.8rem;
+	line-height: 1.65;
+	text-align: left;
+}
+
+.snp-modal-note strong {
+	color: var(--snp-text);
+}
+
+.snp-modal-note ul {
+	margin: 0.4rem 0 0;
+	padding-left: 1.1rem;
+}
+
+.snp-modal-note li + li {
+	margin-top: 0.25rem;
+}
+
+.snp-modal-address {
+	display: inline-block;
+	margin-top: 0.85rem;
+	padding: 0.35rem 0.7rem;
+	border: 1px solid var(--snp-border);
+	border-radius: 10px;
+	background: var(--snp-surface-2);
+	color: var(--snp-text);
+	font-size: 1.05rem;
+	font-weight: 800;
+	font-variant-numeric: tabular-nums;
+}
+
+.snp-modal-countdown {
+	display: flex;
+	align-items: baseline;
+	justify-content: center;
+	gap: 0.45rem;
+	margin-top: 1rem;
+	padding: 0.75rem 1rem;
+	border: 1px solid var(--snp-border);
+	border-radius: 14px;
+	background: var(--snp-surface-2);
+	color: var(--snp-text);
+}
+
+.snp-modal-countdown-label,
+.snp-modal-countdown-unit {
+	font-size: 0.86rem;
+	font-weight: 650;
+	color: var(--snp-muted);
+}
+
+.snp-modal-countdown-value {
+	font-size: 2rem;
+	font-weight: 800;
+	line-height: 1;
+	font-variant-numeric: tabular-nums;
+	color: var(--snp-violet);
+}
+
+.snp-modal-hint {
+	color: var(--snp-muted);
+	font-size: 0.82rem;
+	line-height: 1.6;
+}
+
+.snp-modal-actions {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+	gap: 0.55rem;
+	margin-top: 1.3rem;
+}
+
+.snp-spinner {
+	display: inline-block;
+	width: 30px;
+	height: 30px;
+	border: 3px solid var(--snp-border-strong);
+	border-top-color: var(--snp-violet);
+	border-radius: 50%;
+	animation: snp-spin 750ms linear infinite;
+}
+
+.snp-spinner.is-small {
+	width: 15px;
+	height: 15px;
+	border-width: 2px;
+}
+
+.snp-toast {
+	position: fixed;
+	top: 1rem;
+	right: 1rem;
+	z-index: 10001;
+	display: flex;
+	align-items: flex-start;
+	gap: 0.6rem;
+	max-width: min(390px, calc(100vw - 2rem));
+	padding: 0.85rem 1rem;
+	border: 1px solid var(--snp-border);
+	border-left: 4px solid var(--snp-violet);
+	border-radius: 14px;
+	background: var(--snp-surface);
+	color: var(--snp-text);
+	box-shadow: var(--snp-shadow);
+	font-family: var(--snp-font);
+	font-size: 0.84rem;
+	font-weight: 650;
+	line-height: 1.45;
+	animation: snp-toast-in 220ms ease both;
+}
+
+.snp-toast.is-success {
+	border-left-color: var(--snp-ok);
+}
+
+.snp-toast.is-error {
+	border-left-color: var(--snp-danger);
+}
+
+.snp-toast svg {
+	width: 18px;
+	height: 18px;
+	flex: 0 0 18px;
+	margin-top: 0.05rem;
+}
+
+/* -------------------------------------------------------------------------
+ * Responsive and motion
+ * ---------------------------------------------------------------------- */
+
+@media (max-width: 900px) {
+	.snp-hero,
+	.snp-config .snp-hero {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.snp-status {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+
+	.snp-hero-actions {
+		justify-content: flex-start;
+	}
+
+	.snp-mode-grid {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.snp-mode-card {
+		min-height: 0;
+	}
+
+	.snp-form-shell .cbi-value {
+		grid-template-columns: minmax(0, 1fr);
+		gap: 0.3rem;
+	}
+
+	.snp-app .cbi-page-actions {
+		justify-content: stretch;
+	}
+
+	.snp-app .cbi-page-actions .cbi-button {
+		flex: 1;
+	}
+}
+
+@media (max-width: 600px) {
+	.snp-app {
+		font-size: 14px;
+	}
+
+	.snp-status {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.snp-brand {
+		flex-wrap: wrap;
+	}
+
+	.snp-hero-actions {
+		width: 100%;
+	}
+
+	.snp-hero-actions .snp-btn {
+		flex: 1;
+	}
+
+	.snp-mode-summary {
+		width: 100%;
+	}
+
+	.snp-modal-actions .snp-btn {
+		flex: 1 1 100%;
+	}
+}
+
+@keyframes snp-fade-in {
+	from { opacity: 0; }
+	to { opacity: 1; }
+}
+
+@keyframes snp-rise-in {
+	from { opacity: 0; transform: translateY(14px) scale(0.985); }
+	to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes snp-toast-in {
+	from { opacity: 0; transform: translateX(18px); }
+	to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes snp-spin {
+	to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.snp-app *,
+	.snp-modal-backdrop,
+	.snp-modal,
+	.snp-toast {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+	}
+}
