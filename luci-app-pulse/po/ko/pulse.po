@@ -1,0 +1,332 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: ko\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgctxt "pulse"
+msgid "(%s-second average)"
+msgstr "(%s초 평균)"
+
+msgctxt "pulse"
+msgid "(system resolver)"
+msgstr "(시스템 리졸버)"
+
+msgctxt "pulse"
+msgid "%s container"
+msgstr "컨테이너 %s개"
+
+msgctxt "pulse"
+msgid "%s containers"
+msgstr "컨테이너 %s개"
+
+msgctxt "pulse"
+msgid "%s device"
+msgstr "장치 %s개"
+
+msgctxt "pulse"
+msgid "%s devices"
+msgstr "장치 %s개"
+
+msgctxt "pulse"
+msgid "%s, firewall zone %s"
+msgstr "%s, 방화벽 영역 %s"
+
+msgctxt "pulse"
+msgid "%s: %s used, %s of %s"
+msgstr "%s: %s 사용, %s / %s"
+
+msgctxt "pulse"
+msgid "%s: capacity unavailable"
+msgstr "%s: 용량을 확인할 수 없음"
+
+msgctxt "pulse"
+msgid "%sd %sh %sm"
+msgstr "%s일 %s시간 %s분"
+
+msgctxt "pulse"
+msgid "%sh %sm"
+msgstr "%s시간 %s분"
+
+msgctxt "pulse"
+msgid "Auto · %s"
+msgstr "자동 · %s"
+
+msgctxt "pulse"
+msgid "Avg %s"
+msgstr "평균 %s"
+
+msgctxt "pulse"
+msgid "Avg —"
+msgstr "평균 —"
+
+msgctxt "pulse"
+msgid "CPU usage"
+msgstr "CPU 사용률"
+
+msgctxt "pulse"
+msgid "Capacity unavailable"
+msgstr "용량 확인 불가"
+
+msgctxt "pulse"
+msgid "Collecting CPU statistics"
+msgstr "CPU 통계 수집 중"
+
+msgctxt "pulse"
+msgid "Collecting samples"
+msgstr "데이터 수집 중"
+
+msgctxt "pulse"
+msgid "Connected"
+msgstr "연결됨"
+
+msgctxt "pulse"
+msgid "Connections"
+msgstr "연결 수"
+
+msgctxt "pulse"
+msgid "Copy IP address %s"
+msgstr "IP 주소 %s 복사"
+
+msgctxt "pulse"
+msgid "Copy failed. Select and copy the address manually."
+msgstr "복사하지 못했습니다. 주소를 선택하여 직접 복사하세요."
+
+msgctxt "pulse"
+msgid "Created"
+msgstr "생성됨"
+
+msgid "Dashboard"
+msgstr "대시보드"
+
+msgctxt "pulse"
+msgid "Device enabled"
+msgstr "장치 활성화됨"
+
+msgctxt "pulse"
+msgid "Device temperature"
+msgstr "장치 온도"
+
+msgctxt "pulse"
+msgid "Device totals"
+msgstr "장치 누적"
+
+msgctxt "pulse"
+msgid "Device unavailable"
+msgstr "장치 사용 불가"
+
+msgctxt "pulse"
+msgid "Disconnected"
+msgstr "연결 안 됨"
+
+msgctxt "pulse"
+msgid "Disk usage"
+msgstr "디스크 사용량"
+
+msgctxt "pulse"
+msgid "Docker service unavailable"
+msgstr "Docker 서비스 사용 불가"
+
+msgctxt "pulse"
+msgid "Docker status"
+msgstr "Docker 상태"
+
+msgctxt "pulse"
+msgid "Down"
+msgstr "다운로드"
+
+msgctxt "pulse"
+msgid "Error"
+msgstr "오류"
+
+msgctxt "pulse"
+msgid "Free %s"
+msgstr "여유 %s"
+
+msgctxt "pulse"
+msgid "Free —"
+msgstr "여유 —"
+
+msgctxt "pulse"
+msgid "IP address copied"
+msgstr "IP 주소 복사됨"
+
+msgctxt "pulse"
+msgid "Last 1 minute"
+msgstr "최근 1분"
+
+msgctxt "pulse"
+msgid "Limit %s · Used %s"
+msgstr "최대 %s · 사용 %s"
+
+msgctxt "pulse"
+msgid "Loading"
+msgstr "불러오는 중"
+
+msgctxt "pulse"
+msgid "Loading disk capacity"
+msgstr "디스크 용량 확인 중"
+
+msgctxt "pulse"
+msgid "Loading ports"
+msgstr "포트 불러오는 중"
+
+msgctxt "pulse"
+msgid "Memory breakdown unavailable"
+msgstr "메모리 상세 정보 확인 불가"
+
+msgctxt "pulse"
+msgid "Memory usage"
+msgstr "메모리 사용률"
+
+msgctxt "pulse"
+msgid "Monitored network device"
+msgstr "모니터링할 네트워크 장치"
+
+msgctxt "pulse"
+msgid "Mount information unavailable"
+msgstr "마운트 정보 확인 불가"
+
+msgctxt "pulse"
+msgid "Network ports"
+msgstr "네트워크 포트"
+
+msgctxt "pulse"
+msgid "Network traffic"
+msgstr "네트워크 트래픽"
+
+msgctxt "pulse"
+msgid "No containers"
+msgstr "컨테이너 없음"
+
+msgctxt "pulse"
+msgid "No device available"
+msgstr "사용 가능한 장치 없음"
+
+msgctxt "pulse"
+msgid "No link"
+msgstr "연결 없음"
+
+msgctxt "pulse"
+msgid "No native port information found"
+msgstr "포트 정보를 찾을 수 없음"
+
+msgctxt "pulse"
+msgid "Not assigned"
+msgstr "할당되지 않음"
+
+msgctxt "pulse"
+msgid "Not running"
+msgstr "실행 안 됨"
+
+msgctxt "pulse"
+msgid "Now"
+msgstr "현재"
+
+msgctxt "pulse"
+msgid "Paused"
+msgstr "일시 정지"
+
+msgctxt "pulse"
+msgid "Peak %s"
+msgstr "최대 %s"
+
+msgctxt "pulse"
+msgid "Peak —"
+msgstr "최대 —"
+
+msgctxt "pulse"
+msgid "Removing"
+msgstr "삭제 중"
+
+msgctxt "pulse"
+msgid "Restarting"
+msgstr "재시작 중"
+
+msgctxt "pulse"
+msgid "Root filesystem /"
+msgstr "루트 파일시스템 /"
+
+msgctxt "pulse"
+msgid "Running"
+msgstr "실행 중"
+
+msgctxt "pulse"
+msgid "Sampling"
+msgstr "수집 중"
+
+msgctxt "pulse"
+msgid "Sampling started"
+msgstr "수집 시작"
+
+msgctxt "pulse"
+msgid "Selected device unavailable"
+msgstr "선택한 장치 사용 불가"
+
+msgctxt "pulse"
+msgid "Starting"
+msgstr "시작 중"
+
+msgctxt "pulse"
+msgid "Stopped"
+msgstr "중지됨"
+
+msgctxt "pulse"
+msgid "System uptime"
+msgstr "시스템 가동 시간"
+
+msgctxt "pulse"
+msgid "Temperature"
+msgstr "온도"
+
+msgctxt "pulse"
+msgid "Total %s"
+msgstr "전체 %s"
+
+msgctxt "pulse"
+msgid "Total —"
+msgstr "전체 —"
+
+msgctxt "pulse"
+msgid "Traffic rate scale"
+msgstr "트래픽 속도 눈금"
+
+msgctxt "pulse"
+msgid "Traffic sampling service unavailable"
+msgstr "트래픽 수집 서비스 사용 불가"
+
+msgctxt "pulse"
+msgid "Unavailable"
+msgstr "확인 불가"
+
+msgctxt "pulse"
+msgid "Unhealthy"
+msgstr "상태 이상"
+
+msgctxt "pulse"
+msgid "Unknown"
+msgstr "알 수 없음"
+
+msgctxt "pulse"
+msgid "Unknown state"
+msgstr "상태 불명"
+
+msgctxt "pulse"
+msgid "Up"
+msgstr "업로드"
+
+msgctxt "pulse"
+msgid "Used %s"
+msgstr "사용 %s"
+
+msgctxt "pulse"
+msgid "Used %s; buffers %s; cache %s; free %s"
+msgstr "사용 %s; 버퍼 %s; 캐시 %s; 여유 %s"
+
+msgctxt "pulse"
+msgid "User (including nice): %s; system (including interrupts): %s; steal: %s"
+msgstr "사용자(nice 포함): %s; 시스템(인터럽트 포함): %s; 스틸: %s"
+
+msgctxt "pulse"
+msgid "Waiting for traffic samples…"
+msgstr "트래픽 데이터 대기 중…"

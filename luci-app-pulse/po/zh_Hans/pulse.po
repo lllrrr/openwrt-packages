@@ -1,0 +1,332 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: zh_Hans\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgctxt "pulse"
+msgid "(%s-second average)"
+msgstr "（%s 秒区间平均）"
+
+msgctxt "pulse"
+msgid "(system resolver)"
+msgstr "（系统解析器）"
+
+msgctxt "pulse"
+msgid "%s container"
+msgstr "%s 个容器"
+
+msgctxt "pulse"
+msgid "%s containers"
+msgstr "%s 个容器"
+
+msgctxt "pulse"
+msgid "%s device"
+msgstr "%s 个设备"
+
+msgctxt "pulse"
+msgid "%s devices"
+msgstr "%s 个设备"
+
+msgctxt "pulse"
+msgid "%s, firewall zone %s"
+msgstr "%s，防火墙区域 %s"
+
+msgctxt "pulse"
+msgid "%s: %s used, %s of %s"
+msgstr "%s：已使用 %s，已用 %s，总容量 %s"
+
+msgctxt "pulse"
+msgid "%s: capacity unavailable"
+msgstr "%s 容量不可用"
+
+msgctxt "pulse"
+msgid "%sd %sh %sm"
+msgstr "%s 天 %s 小时 %s 分"
+
+msgctxt "pulse"
+msgid "%sh %sm"
+msgstr "%s 小时 %s 分"
+
+msgctxt "pulse"
+msgid "Auto · %s"
+msgstr "自动 · %s"
+
+msgctxt "pulse"
+msgid "Avg %s"
+msgstr "均值 %s"
+
+msgctxt "pulse"
+msgid "Avg —"
+msgstr "窗口均值 —"
+
+msgctxt "pulse"
+msgid "CPU usage"
+msgstr "CPU 使用率"
+
+msgctxt "pulse"
+msgid "Capacity unavailable"
+msgstr "容量不可用"
+
+msgctxt "pulse"
+msgid "Collecting CPU statistics"
+msgstr "CPU 分项正在采样"
+
+msgctxt "pulse"
+msgid "Collecting samples"
+msgstr "正在采样"
+
+msgctxt "pulse"
+msgid "Connected"
+msgstr "已连接"
+
+msgctxt "pulse"
+msgid "Connections"
+msgstr "连接数"
+
+msgctxt "pulse"
+msgid "Copy IP address %s"
+msgstr "复制 IP 地址 %s"
+
+msgctxt "pulse"
+msgid "Copy failed. Select and copy the address manually."
+msgstr "复制失败，请手动选择地址复制"
+
+msgctxt "pulse"
+msgid "Created"
+msgstr "未启动"
+
+msgid "Dashboard"
+msgstr "仪表盘"
+
+msgctxt "pulse"
+msgid "Device enabled"
+msgstr "设备已启用"
+
+msgctxt "pulse"
+msgid "Device temperature"
+msgstr "设备温度"
+
+msgctxt "pulse"
+msgid "Device totals"
+msgstr "设备累计"
+
+msgctxt "pulse"
+msgid "Device unavailable"
+msgstr "设备不可用"
+
+msgctxt "pulse"
+msgid "Disconnected"
+msgstr "未连接"
+
+msgctxt "pulse"
+msgid "Disk usage"
+msgstr "磁盘用量"
+
+msgctxt "pulse"
+msgid "Docker service unavailable"
+msgstr "Docker 服务不可用"
+
+msgctxt "pulse"
+msgid "Docker status"
+msgstr "Docker 状态"
+
+msgctxt "pulse"
+msgid "Down"
+msgstr "下载"
+
+msgctxt "pulse"
+msgid "Error"
+msgstr "异常"
+
+msgctxt "pulse"
+msgid "Free %s"
+msgstr "空闲 %s"
+
+msgctxt "pulse"
+msgid "Free —"
+msgstr "空闲 —"
+
+msgctxt "pulse"
+msgid "IP address copied"
+msgstr "IP 地址已复制"
+
+msgctxt "pulse"
+msgid "Last 1 minute"
+msgstr "最近 1 分钟"
+
+msgctxt "pulse"
+msgid "Limit %s · Used %s"
+msgstr "上限 %s · 占用 %s"
+
+msgctxt "pulse"
+msgid "Loading"
+msgstr "正在读取"
+
+msgctxt "pulse"
+msgid "Loading disk capacity"
+msgstr "磁盘容量正在读取"
+
+msgctxt "pulse"
+msgid "Loading ports"
+msgstr "正在读取网口"
+
+msgctxt "pulse"
+msgid "Memory breakdown unavailable"
+msgstr "内存分类暂不可用"
+
+msgctxt "pulse"
+msgid "Memory usage"
+msgstr "内存使用率"
+
+msgctxt "pulse"
+msgid "Monitored network device"
+msgstr "监控网络设备"
+
+msgctxt "pulse"
+msgid "Mount information unavailable"
+msgstr "挂载信息不可用"
+
+msgctxt "pulse"
+msgid "Network ports"
+msgstr "网络接口状态"
+
+msgctxt "pulse"
+msgid "Network traffic"
+msgstr "网络流量"
+
+msgctxt "pulse"
+msgid "No containers"
+msgstr "暂无容器"
+
+msgctxt "pulse"
+msgid "No device available"
+msgstr "无可用设备"
+
+msgctxt "pulse"
+msgid "No link"
+msgstr "无链路"
+
+msgctxt "pulse"
+msgid "No native port information found"
+msgstr "未发现原生端口信息"
+
+msgctxt "pulse"
+msgid "Not assigned"
+msgstr "未分配"
+
+msgctxt "pulse"
+msgid "Not running"
+msgstr "未运行"
+
+msgctxt "pulse"
+msgid "Now"
+msgstr "现在"
+
+msgctxt "pulse"
+msgid "Paused"
+msgstr "已暂停"
+
+msgctxt "pulse"
+msgid "Peak %s"
+msgstr "峰值 %s"
+
+msgctxt "pulse"
+msgid "Peak —"
+msgstr "峰值 —"
+
+msgctxt "pulse"
+msgid "Removing"
+msgstr "删除中"
+
+msgctxt "pulse"
+msgid "Restarting"
+msgstr "重启中"
+
+msgctxt "pulse"
+msgid "Root filesystem /"
+msgstr "根文件系统 /"
+
+msgctxt "pulse"
+msgid "Running"
+msgstr "运行中"
+
+msgctxt "pulse"
+msgid "Sampling"
+msgstr "采样中"
+
+msgctxt "pulse"
+msgid "Sampling started"
+msgstr "开始采样"
+
+msgctxt "pulse"
+msgid "Selected device unavailable"
+msgstr "所选设备当前不可用"
+
+msgctxt "pulse"
+msgid "Starting"
+msgstr "启动检查中"
+
+msgctxt "pulse"
+msgid "Stopped"
+msgstr "已停止"
+
+msgctxt "pulse"
+msgid "System uptime"
+msgstr "系统运行时间"
+
+msgctxt "pulse"
+msgid "Temperature"
+msgstr "温度"
+
+msgctxt "pulse"
+msgid "Total %s"
+msgstr "总计 %s"
+
+msgctxt "pulse"
+msgid "Total —"
+msgstr "总计 —"
+
+msgctxt "pulse"
+msgid "Traffic rate scale"
+msgstr "流量速度刻度"
+
+msgctxt "pulse"
+msgid "Traffic sampling service unavailable"
+msgstr "流量采样服务不可用"
+
+msgctxt "pulse"
+msgid "Unavailable"
+msgstr "未获取"
+
+msgctxt "pulse"
+msgid "Unhealthy"
+msgstr "健康异常"
+
+msgctxt "pulse"
+msgid "Unknown"
+msgstr "未知"
+
+msgctxt "pulse"
+msgid "Unknown state"
+msgstr "状态未知"
+
+msgctxt "pulse"
+msgid "Up"
+msgstr "上传"
+
+msgctxt "pulse"
+msgid "Used %s"
+msgstr "已用 %s"
+
+msgctxt "pulse"
+msgid "Used %s; buffers %s; cache %s; free %s"
+msgstr "已用 %s，缓冲区 %s，缓存 %s，空闲 %s"
+
+msgctxt "pulse"
+msgid "User (including nice): %s; system (including interrupts): %s; steal: %s"
+msgstr "用户态（含 nice）：%s；系统态（含中断）：%s；虚拟机等待宿主 CPU：%s"
+
+msgctxt "pulse"
+msgid "Waiting for traffic samples…"
+msgstr "正在等待流量采样…"

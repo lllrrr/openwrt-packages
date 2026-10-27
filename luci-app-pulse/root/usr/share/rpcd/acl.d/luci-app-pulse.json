@@ -1,0 +1,59 @@
+{
+  "luci-app-pulse": {
+    "description": "Read-only dashboard metrics",
+    "read": {
+      "ubus": {
+        "system": [
+          "info",
+          "board"
+        ],
+        "luci-rpc": [
+          "getNetworkDevices"
+        ],
+        "network.interface": [
+          "dump"
+        ],
+        "file": [
+          "read",
+          "exec"
+        ],
+        "luci": [
+          "getMountPoints",
+          "getBuiltinEthernetPorts"
+        ],
+        "pulse": [
+          "history"
+        ]
+      },
+      "file": {
+        "/proc/stat": [
+          "read"
+        ],
+        "/etc/resolv.conf": [
+          "read"
+        ],
+        "/bin/cat /proc/self/mountinfo": [
+          "exec"
+        ],
+        "/proc/sys/net/netfilter/nf_conntrack_count": [
+          "read"
+        ],
+        "/proc/sys/net/netfilter/nf_conntrack_max": [
+          "read"
+        ],
+        "/usr/libexec/pulse-temperature": [
+          "exec"
+        ],
+        "/etc/board.json": [
+          "read"
+        ],
+        "/usr/libexec/pulse-docker": [
+          "exec"
+        ]
+      },
+      "uci": [
+        "firewall"
+      ]
+    }
+  }
+}

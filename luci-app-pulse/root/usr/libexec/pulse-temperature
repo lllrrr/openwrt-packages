@@ -1,0 +1,23 @@
+#!/bin/sh
+# Read existing kernel sensors only; never load drivers or change settings.
+emit() {
+ [ -r "$1" ] || return
+ value=$(cat "$1" 2>/dev/null) || return
+ label=$(printf '%s' "$2" | tr '\t\r\n' '   ')
+ printf '%s\t%s\t%s\n' "$1" "$value" "$label"
+}
+for zone in /sys/class/thermal/thermal_zone*; do
+ [ -d "$zone" ] || continue
+ name=$(cat "$zone/type" 2>/dev/null)
+ emit "$zone/temp" "${name:-${zone##*/}}"
+done
+for chip in /sys/class/hwmon/hwmon*; do
+ [ -d "$chip" ] || continue
+ name=$(cat "$chip/name" 2>/dev/null)
+ for input in "$chip"/temp*_input; do
+  [ -r "$input" ] || continue
+  label=$(cat "${input%_input}_label" 2>/dev/null)
+  emit "$input" "${name:-${chip##*/}}${label:+ · $label}"
+ done
+done
+exit 0

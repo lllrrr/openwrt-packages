@@ -1,0 +1,16 @@
+#!/bin/sh
+# Fixed, read-only query of the local daemon. Never accept command arguments.
+[ "$#" -eq 0 ] || exit 1
+if ! command -v docker >/dev/null 2>&1; then
+ if [ -S /var/run/docker.sock ] || [ -x /etc/init.d/dockerd ]; then
+  printf 'unavailable\n'
+ else
+  printf 'absent\n'
+ fi
+ exit 0
+fi
+if result=$(timeout 3 docker --host unix:///var/run/docker.sock container ls --all --format '{"name":{{json .Names}},"state":{{json .State}},"status":{{json .Status}}}' 2>/dev/null); then
+ printf 'ok\n%s\n' "$result"
+else
+ printf 'unavailable\n'
+fi

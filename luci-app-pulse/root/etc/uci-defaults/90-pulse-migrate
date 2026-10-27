@@ -1,0 +1,28 @@
+#!/bin/sh
+# Remove only files owned by the previous dashboard, after Pulse is installed.
+legacy_files() {
+ cat <<'FILES'
+usr/lib/lua/luci/i18n/home-dashboard.zh-cn.lmo
+usr/lib/lua/luci/i18n/home-dashboard.ko.lmo
+www/luci-static/resources/home-dashboard/storage.js
+www/luci-static/resources/home-dashboard/temperature.js
+www/luci-static/resources/home-dashboard/dashboard.css
+www/luci-static/resources/view/home-dashboard/index.js
+usr/libexec/home-dashboard-temperature
+usr/libexec/home-dashboard-docker
+usr/libexec/home-dashboard-traffic
+etc/init.d/home-dashboard-traffic
+usr/share/luci/menu.d/luci-app-home-dashboard.json
+usr/share/rpcd/acl.d/luci-app-home-dashboard.json
+FILES
+}
+if [ "${1:-}" = --list ]; then legacy_files; exit 0; fi
+[ "$#" -eq 0 ] || exit 1
+set -e
+if [ -x /etc/init.d/home-dashboard-traffic ]; then
+ /etc/init.d/home-dashboard-traffic stop
+ /etc/init.d/home-dashboard-traffic disable
+fi
+legacy_files | while IFS= read -r file; do rm -f "/$file"; done
+rmdir /www/luci-static/resources/home-dashboard /www/luci-static/resources/view/home-dashboard 2>/dev/null || true
+exit 0

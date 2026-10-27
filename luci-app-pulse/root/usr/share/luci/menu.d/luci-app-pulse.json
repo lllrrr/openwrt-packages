@@ -1,0 +1,26 @@
+{
+  "admin/dashboard": {
+    "title": "Dashboard",
+    "order": 0,
+    "action": {
+      "type": "view",
+      "path": "pulse/index"
+    },
+    "depends": {
+      "acl": [
+        "luci-app-pulse"
+      ]
+    }
+  },
+  "admin/status/pulse": {
+    "action": {
+      "type": "alias",
+      "path": "admin/dashboard"
+    },
+    "depends": {
+      "acl": [
+        "luci-app-pulse"
+      ]
+    }
+  }
+}

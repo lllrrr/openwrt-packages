@@ -1,0 +1,134 @@
+#!/usr/bin/ucode
+'use strict';
+import { readfile, glob } from 'fs';
+import { connect } from 'ubus';
+import { init, timer, run } from 'uloop';
+
+const PERIOD = 1000;
+const VITAL_PERIOD = 2000;
+const WINDOW = 300000;
+let histories = {}, previous = {}, last_clock = null;
+function monotime() { return +split(readfile('/proc/uptime') || '0', ' ')[0] * 1000; }
+let vitals = [], cpu_previous = null, sensor = null, sensor_scan = null;
+function numberfile(path) {
+ let value = readfile(path);
+ return value != null && match(trim(value), /^-?[0-9]+$/) ? +trim(value) : null;
+}
+function temperature(mono) {
+ if (sensor_scan == null || mono - sensor_scan >= 30000) {
+  let candidates = [];
+  for (let path in (glob('/sys/class/thermal/thermal_zone*/temp') || [])) {
+   push(candidates, { id:path, label:trim(readfile(replace(path, /temp$/, 'type')) || '') });
+  }
+  for (let path in (glob('/sys/class/hwmon/hwmon*/temp*_input') || [])) {
+   let name = trim(readfile(replace(path, /temp[0-9]+_input$/, 'name')) || '');
+   let label = trim(readfile(replace(path, /_input$/, '_label')) || '');
+   push(candidates, { id:path, label:name+' '+label });
+  }
+  sensor = null;
+  for (let candidate in candidates) {
+   let value = numberfile(candidate.id);
+   if (value == null || value < -40000 || value > 150000) continue;
+   candidate.rank = match(candidate.label, /cpu|package|coretemp|k10temp|k8temp|tctl|tdie/i) ? 0 : match(candidate.label, /soc|tsens/i) ? 1 : 2;
+   if (!sensor || candidate.rank < sensor.rank || (candidate.rank == sensor.rank && candidate.id < sensor.id)) sensor = candidate;
+  }
+  sensor_scan = mono;
+ }
+ let value = sensor ? numberfile(sensor.id) : null;
+ return value != null && value >= -40000 && value <= 150000 ? value / 1000.0 : null;
+}
+function collectVitals(mono, stamp) {
+ let sample = { t:stamp, mono, cpu:null, mem:null, connections:numberfile('/proc/sys/net/netfilter/nf_conntrack_count'),
+  connectionMax:numberfile('/proc/sys/net/netfilter/nf_conntrack_max'), temperature:temperature(mono), temperatureSource:sensor ? sensor.id : null };
+ let line = match(readfile('/proc/stat') || '', /^cpu\s+([^\n]+)/);
+ if (line) {
+  let fields = split(trim(line[1]), /\s+/), total = 0;
+  for (let i=0; i<8; i++) total += +(fields[i] || 0);
+  let idle = +(fields[3] || 0) + +(fields[4] || 0);
+  let user = +(fields[0] || 0) + +(fields[1] || 0);
+  let system = +(fields[2] || 0) + +(fields[5] || 0) + +(fields[6] || 0);
+  let steal = +(fields[7] || 0);
+  if (cpu_previous && mono-cpu_previous.mono<=10000 && total>cpu_previous.total && idle>=cpu_previous.idle && user>=cpu_previous.user && system>=cpu_previous.system && steal>=cpu_previous.steal) {
+   let delta = total-cpu_previous.total;
+   sample.cpu = max(0, min(100, 100.0*(1-1.0*(idle-cpu_previous.idle)/delta)));
+   sample.cpuParts = { user:100.0*(user-cpu_previous.user)/delta, system:100.0*(system-cpu_previous.system)/delta, steal:100.0*(steal-cpu_previous.steal)/delta };
+  }
+  cpu_previous = {total, idle, user, system, steal, mono};
+ } else cpu_previous = null;
+ let memory = {};
+ for (let row in split(readfile('/proc/meminfo') || '', '\n')) {
+  let item = match(row, /^(\w+):\s+(\d+)/);
+  if (item) memory[item[1]] = +item[2]*1024;
+ }
+ sample.memoryTotal = memory.MemTotal;
+ if (memory.MemTotal > 0) {
+  let free = min(memory.MemTotal, max(0, memory.MemFree || 0));
+  let buffers = min(memory.MemTotal-free, max(0, memory.Buffers || 0));
+  let cache = min(memory.MemTotal-free-buffers, max(0, (memory.Cached || 0)+(memory.SReclaimable || 0)-(memory.Shmem || 0)));
+  sample.memoryParts = { used:memory.MemTotal-free-buffers-cache, buffers, cache, free };
+ }
+ let available = memory.MemAvailable ?? ((memory.MemFree || 0)+(memory.Buffers || 0)+(memory.Cached || 0));
+ if (memory.MemTotal > 0) sample.mem = max(0, min(100, 100.0*(1-1.0*available/memory.MemTotal)));
+ if (length(vitals) && vitals[-1].temperatureSource != sample.temperatureSource)
+  for (let old in vitals) old.temperature = null;
+ push(vitals, sample);
+ vitals = filter(vitals, s => mono-s.mono<=WINDOW);
+ while (length(vitals)>151) shift(vitals);
+}
+function collect() {
+ let mono = monotime(), stamp = time() * 1000;
+ let raw = readfile('/proc/net/dev');
+
+ // A wall-clock correction must not mix timestamps from two time bases.
+ let clock_delta = (stamp - mono) - (last_clock ?? (stamp - mono));
+ if (clock_delta > 10000 || clock_delta < -10000) {
+  histories = {}; previous = {}; vitals = []; cpu_previous = null;
+ }
+ last_clock = stamp - mono;
+ if (!length(vitals) || mono-vitals[-1].mono>=VITAL_PERIOD) collectVitals(mono, stamp);
+ vitals = filter(vitals, s => mono-s.mono<=WINDOW);
+ if (raw == null) return;
+ let current = {};
+ for (let line in split(raw, '\n')) {
+  let parts = split(line, ':');
+  if (length(parts) != 2) continue;
+  let name = trim(parts[0]), fields = split(trim(parts[1]), /\s+/);
+  if (name == 'lo' || length(fields) < 16) continue;
+  let rx = +fields[0], tx = +fields[8], old = previous[name];
+  let dt = old ? (mono - old.mono) / 1000 : 0;
+  let sample = { t: stamp, mono, up: null, down: null, interval: dt };
+  if (old && dt > 0 && dt <= 10) {
+   if (tx >= old.tx) sample.up = (tx - old.tx) / dt;
+   if (rx >= old.rx) sample.down = (rx - old.rx) / dt;
+  }
+  current[name] = { rx, tx, mono };
+  let history = histories[name] || [];
+  push(history, sample);
+  histories[name] = filter(history, s => mono - s.mono <= WINDOW);
+  while (length(histories[name]) > 301) shift(histories[name]);
+ }
+ previous = current;
+ for (let name in keys(histories)) {
+  histories[name] = filter(histories[name], s => mono - s.mono <= WINDOW);
+  if (!length(histories[name])) delete histories[name];
+ }
+}
+init();
+let bus = connect();
+if (!bus) die('Cannot connect to ubus\n');
+let object = bus.publish('pulse', {
+ history: {
+  args: { device: '', ubus_rpc_session: '' },
+  call: function(request) {
+   let name = request.args.device;
+   request.reply({ device: name, now: time() * 1000, interval: PERIOD,
+    vitals: map(vitals, s => ({ t:s.t, cpu:s.cpu, cpuParts:s.cpuParts, mem:s.mem, connections:s.connections, connectionMax:s.connectionMax, temperature:s.temperature, temperatureSource:s.temperatureSource, memoryTotal:s.memoryTotal, memoryParts:s.memoryParts })),
+    samples: map(histories[name] || [], s => ({ t:s.t, up:s.up, down:s.down, interval:s.interval })) });
+  }
+ }
+});
+if (!object) die('Cannot publish traffic history\n');
+collect();
+let tick;
+tick = timer(PERIOD, function() { collect(); tick.set(PERIOD); });
+run();

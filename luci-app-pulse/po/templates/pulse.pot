@@ -1,0 +1,330 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+
+msgctxt "pulse"
+msgid "(%s-second average)"
+msgstr ""
+
+msgctxt "pulse"
+msgid "(system resolver)"
+msgstr ""
+
+msgctxt "pulse"
+msgid "%s container"
+msgstr ""
+
+msgctxt "pulse"
+msgid "%s containers"
+msgstr ""
+
+msgctxt "pulse"
+msgid "%s device"
+msgstr ""
+
+msgctxt "pulse"
+msgid "%s devices"
+msgstr ""
+
+msgctxt "pulse"
+msgid "%s, firewall zone %s"
+msgstr ""
+
+msgctxt "pulse"
+msgid "%s: %s used, %s of %s"
+msgstr ""
+
+msgctxt "pulse"
+msgid "%s: capacity unavailable"
+msgstr ""
+
+msgctxt "pulse"
+msgid "%sd %sh %sm"
+msgstr ""
+
+msgctxt "pulse"
+msgid "%sh %sm"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Auto · %s"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Avg %s"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Avg —"
+msgstr ""
+
+msgctxt "pulse"
+msgid "CPU usage"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Capacity unavailable"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Collecting CPU statistics"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Collecting samples"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Connected"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Connections"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Copy IP address %s"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Copy failed. Select and copy the address manually."
+msgstr ""
+
+msgctxt "pulse"
+msgid "Created"
+msgstr ""
+
+msgid "Dashboard"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Device enabled"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Device temperature"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Device totals"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Device unavailable"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Disconnected"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Disk usage"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Docker service unavailable"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Docker status"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Down"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Error"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Free %s"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Free —"
+msgstr ""
+
+msgctxt "pulse"
+msgid "IP address copied"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Last 1 minute"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Limit %s · Used %s"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Loading"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Loading disk capacity"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Loading ports"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Memory breakdown unavailable"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Memory usage"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Monitored network device"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Mount information unavailable"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Network ports"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Network traffic"
+msgstr ""
+
+msgctxt "pulse"
+msgid "No containers"
+msgstr ""
+
+msgctxt "pulse"
+msgid "No device available"
+msgstr ""
+
+msgctxt "pulse"
+msgid "No link"
+msgstr ""
+
+msgctxt "pulse"
+msgid "No native port information found"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Not assigned"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Not running"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Now"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Paused"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Peak %s"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Peak —"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Removing"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Restarting"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Root filesystem /"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Running"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Sampling"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Sampling started"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Selected device unavailable"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Starting"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Stopped"
+msgstr ""
+
+msgctxt "pulse"
+msgid "System uptime"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Temperature"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Total %s"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Total —"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Traffic rate scale"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Traffic sampling service unavailable"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Unavailable"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Unhealthy"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Unknown"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Unknown state"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Up"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Used %s"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Used %s; buffers %s; cache %s; free %s"
+msgstr ""
+
+msgctxt "pulse"
+msgid "User (including nice): %s; system (including interrupts): %s; steal: %s"
+msgstr ""
+
+msgctxt "pulse"
+msgid "Waiting for traffic samples…"
+msgstr ""

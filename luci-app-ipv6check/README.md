@@ -4,7 +4,7 @@ OpenWrt IPv6 连通性检测 LuCI 插件
 
 ## 功能特性
 
-- **多源检测** — 同时 ping6 多个 IPv6 目标地址（默认内置 Google / Cloudflare / 阿里云 DNS）
+- **多源检测** — 同时 ping6 多个 IPv6 目标地址（默认内置 Google / Cloudflare / 阿里云 DNS）11
 - **定时监测** — 可配置检测间隔（默认 5 分钟），由 procd 服务管理
 - **自动恢复** — 所有目标连续失败达到阈值后自动 `ifdown/ifup` 重启指定接口（默认 wan6）
 - **Web 管理界面** — 通过 LuCI 查看实时状态、检测日志和接口重启历史
@@ -67,16 +67,16 @@ ssh root@router "/etc/init.d/rpcd restart && /etc/init.d/ipv6check enable && /et
 
 配置文件位于 `/etc/config/ipv6check`
 
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `enabled` | `1` | 是否启用监测 |
-| `interval` | `300` | 检测间隔（秒） |
-| `retry_count` | `3` | 每个目标的重试次数 |
-| `retry_interval` | `10` | 重试间隔（秒） |
-| `failure_threshold` | `3` | 连续全部失败次数阈值 |
-| `auto_restart` | `1` | 是否自动重启接口 |
-| `restart_interface` | `wan6` | 重启的网络接口 |
-| `log_level` | `1` | 日志级别: 0=静默 1=普通 2=详细 |
+| 参数                  | 默认值    | 说明                   |
+| ------------------- | ------ | -------------------- |
+| `enabled`           | `1`    | 是否启用监测               |
+| `interval`          | `300`  | 检测间隔（秒）              |
+| `retry_count`       | `3`    | 每个目标的重试次数            |
+| `retry_interval`    | `10`   | 重试间隔（秒）              |
+| `failure_threshold` | `3`    | 连续全部失败次数阈值           |
+| `auto_restart`      | `1`    | 是否自动重启接口             |
+| `restart_interface` | `wan6` | 重启的网络接口              |
+| `log_level`         | `1`    | 日志级别: 0=静默 1=普通 2=详细 |
 
 ## 文件结构
 
