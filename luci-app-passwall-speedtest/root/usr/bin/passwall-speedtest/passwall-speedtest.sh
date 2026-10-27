@@ -22,6 +22,12 @@ SCRIPT_DIR='/usr/bin/passwall-speedtest'
 # 迭代模式：单节点候选收敛到 ≤ 此数量即保存结果提前结束（继续复测收益小）
 ITERATE_KEEP_MAX=3
 
+# 下载实测快速死亡：起测后 DL_FAST_FAIL_TIME 秒内平均下载不足 DL_FAST_FAIL_BYTES
+# 即中止并判失败（curl --speed-limit/--speed-time），别让慢/死 IP 白等满单 IP 时限。
+DL_FAST_FAIL_BYTES=1048576
+DL_FAST_FAIL_TIME=5
+DL_FAST_FAIL_BPS=$((DL_FAST_FAIL_BYTES / DL_FAST_FAIL_TIME))
+
 # 复测模式（retest）：候选只取当前 result.csv + 各节点当前 address，不重新下载在线列表
 RETEST_FROM_RESULT=0
 
@@ -902,6 +908,7 @@ nt_download_one_ip() {
     while [ "$_verify" = "1" ] && [ $_try -lt 10 ]; do
         _res=$(curl -x socks5h://127.0.0.1:${_port} -sL -o /dev/null \
             --connect-timeout 3 --max-time ${_tmo} \
+            --speed-limit ${DL_FAST_FAIL_BPS} --speed-time ${DL_FAST_FAIL_TIME} \
             -w "%{http_code} %{size_download} %{speed_download}" "${_durl}" 2>/dev/null)
         _rc=$?
         if [ $_rc -eq 7 ]; then
@@ -922,6 +929,14 @@ nt_download_one_ip() {
     _bytes="${_res%% *}"; _bps="${_res##* }"
     case "$_code" in 2[0-9][0-9]) ;; *) NT_DL_SPEED=0; return 0 ;; esac
     case "$_rc" in 0|28) ;; *) NT_DL_SPEED=0; return 0 ;; esac
+    # 快速死亡：--speed-limit/--speed-time 在前 5s 平均不足 1MB 时主动中止（也是 rc=28，
+    # 与 --max-time 截断同码）。此时这段低速不能当有效速度，直接判失败。
+    if [ "$_rc" = "28" ] && \
+        [ "$(awk -v s="${_bps:-0}" -v lim="$DL_FAST_FAIL_BPS" 'BEGIN{print ((s+0) < (lim+0)) ? 1 : 0}')" = "1" ]; then
+        echolog "下载测速快速死亡：${_ip} ${DL_FAST_FAIL_TIME}s 内仅下载 ${_bytes:-0} 字节（不足 ${DL_FAST_FAIL_BYTES}），判失败"
+        NT_DL_SPEED=0
+        return 0
+    fi
     # 16KB 下限：避免把 0 字节/极小的错误响应算成虚高速度
     NT_DL_SPEED=$(awk -v b="${_bytes:-0}" -v s="${_bps:-0}" 'BEGIN{
         if ((b+0) < 16384 || (s+0) <= 0) print "0"
@@ -961,7 +976,7 @@ nt_download_phase() {
     esac
     echo "$_hdr" > "$_out"
 
-    echolog "下载测速 [${_Wn}] 开始：对延迟最优的 ${_cnt} 个 IP 实测下载（${_durl}，单 IP 上限 ${_tmo}s）"
+    echolog "下载测速 [${_Wn}] 开始：对延迟最优的 ${_cnt} 个 IP 实测下载（${_durl}，单 IP 上限 ${_tmo}s，${DL_FAST_FAIL_TIME}s 内不足 $((DL_FAST_FAIL_BYTES / 1048576))MB 即判失败）"
     # 用户中途停止「第一轮」时仍要完成下载实测：写 .nt_committing 让 rpcd 的停止逻辑
     # 给足收尾时间（最长 1200s），不要按 120s 强杀在下载/写回中间。
     if [ -f "${RUN_DIR}/.user_stop" ]; then
@@ -1286,8 +1301,8 @@ node_speed_test() {
     DL_TEST_COUNT="${download_test_count:-5}"
     case "$DL_TEST_COUNT" in ''|*[!0-9]*) DL_TEST_COUNT=5 ;; esac
     [ "$DL_TEST_COUNT" -ge 1 ] 2>/dev/null || DL_TEST_COUNT=5
-    # 每个候选要真实下载一个 10MB 文件，候选越多越费流量/时间；硬上限 5 个
-    [ "$DL_TEST_COUNT" -le 5 ] 2>/dev/null || DL_TEST_COUNT=5
+    # 每个候选要真实下载一个 10MB 文件，候选越多越费流量/时间；硬上限 10 个
+    [ "$DL_TEST_COUNT" -le 10 ] 2>/dev/null || DL_TEST_COUNT=10
     DL_TEST_URL="${download_test_url:-https://speed.cloudflare.com/__down?bytes=10000000}"
     [ -n "$DL_TEST_URL" ] || DL_TEST_URL='https://speed.cloudflare.com/__down?bytes=10000000'
     DL_TEST_TIME="${download_test_time:-10}"

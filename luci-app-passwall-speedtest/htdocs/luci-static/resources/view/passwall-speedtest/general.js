@@ -372,7 +372,7 @@ return view.extend({
 		s.tab('basic', _('Basic Settings'));
 
 		o = s.taboption('basic', form.Button, '_speedtest', _('Speed test'),
-			_('Two-stage test through the selected passwall node(s): first probes every candidate Cloudflare IP via a local SOCKS and measures HTTP HEAD latency (<code>time_pretransfer</code>); then downloads a real file through up to 5 lowest-latency IPs of each worker to measure actual throughput. The best IP by download speed is written back to each passwall worker node (if every download test fails, the latency ranking is kept).'));
+			_('Two-stage test through the selected passwall node(s): first probes every candidate Cloudflare IP via a local SOCKS and measures HTTP HEAD latency (<code>time_pretransfer</code>); then downloads a real file through up to 10 lowest-latency IPs of each worker to measure actual throughput. The best IP by download speed is written back to each passwall worker node (if every download test fails, the latency ranking is kept).'));
 		this.updateButton(o, status.running);
 		actionButton = o;
 		o.onclick = L.bind(function(ev, sectionId) {
@@ -391,7 +391,7 @@ return view.extend({
 					});
 				}
 				// 运行中 → 停止：协作式收尾。用户停止第一轮后，脚本仍会把已通过 IP 的下载
-				// 实测做完（多 worker 串行，最多 5 个/worker × 单 IP 时限），再写回并重启
+				// 实测做完（多 worker 串行，最多 download_test_count 个/worker（上限 10）× 单 IP 时限），再写回并重启
 				// passwall，因此可能比原来的 ~timeout×probes 长很多。这里按 2s 轮询到真正
 				// 退出（最多约 20 分钟，与 rpcd 的 1200s 收尾宽限一致）；s.running 仍为真时
 				// 保持 Stop，不谎报已停止。
@@ -543,19 +543,19 @@ return view.extend({
 		o.rmempty = false;
 
 		o = s.taboption('basic', form.Flag, 'download_test_enabled', _('Real download speed test'),
-			_('After latency screening, download a real file through up to 5 lowest-latency IPs of each worker to measure actual throughput (MB/s). The final best IP is chosen by download speed; IPs whose download test fails are dropped. If every download test fails (e.g. the URL is unreachable through that node), the latency ranking is kept. Each download runs through the node\'s local SOCKS exactly like the latency probe, and the generated SOCKS config is verified to point at the candidate IP before it is accepted.'));
+			_('After latency screening, download a real file through up to 10 lowest-latency IPs of each worker to measure actual throughput (MB/s). The final best IP is chosen by download speed; IPs whose download test fails are dropped. If every download test fails (e.g. the URL is unreachable through that node), the latency ranking is kept. Each download runs through the node\'s local SOCKS exactly like the latency probe, and the generated SOCKS config is verified to point at the candidate IP before it is accepted. Fast-death: a candidate that downloads less than 1 MB in the first 5 seconds is aborted and marked failed.'));
 		o.default = '1';
 		o.rmempty = false;
 
 		o = s.taboption('basic', form.Value, 'download_test_count', _('Download-test candidates per worker'),
-			_('Only the N lowest-latency IPs of each worker are download-tested (default 5, max 5). Each candidate downloads the file below (10 MB by default), so keep it small to limit proxy traffic and runtime.'));
+			_('Only the N lowest-latency IPs of each worker are download-tested (default 5, max 10). Each candidate downloads the file below (10 MB by default), so keep it small to limit proxy traffic and runtime.'));
 		o.datatype = 'uinteger';
 		o.default = '5';
 		o.depends('download_test_enabled', '1');
 		o.rmempty = false;
 		o.validate = function(sectionId, value) {
-			if (value && parseInt(value, 10) > 5)
-				return _('At most 5 IPs can be download-tested per worker');
+			if (value && parseInt(value, 10) > 10)
+				return _('At most 10 IPs can be download-tested per worker');
 			return true;
 		};
 
@@ -568,7 +568,7 @@ return view.extend({
 		o.rmempty = false;
 
 		o = s.taboption('basic', form.Value, 'download_test_time', _('Download test time limit (s)'),
-			_('Per-IP curl <code>--max-time</code> for the download test. A partial transfer cut off by this limit still yields a valid average speed.'));
+			_('Per-IP curl <code>--max-time</code> for the download test. A partial transfer cut off by this limit still yields a valid average speed. Fast-death: if less than 1 MB is downloaded in the first 5 seconds, the candidate is aborted immediately and marked failed.'));
 		o.datatype = 'uinteger';
 		o.default = '10';
 		o.depends('download_test_enabled', '1');

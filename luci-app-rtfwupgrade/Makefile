@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-rtfwupgrade
-PKG_VERSION:=0.2.0_alpha2
+PKG_VERSION:=0.2.1_alpha1
 PKG_RELEASE:=1
 
 PKG_LICENSE:=GPL-2.0-or-later
@@ -24,14 +24,23 @@ endef
 # 若用户曾手工 disable，enable 也不会被自动恢复 —— 缺了这一步，「刷写后重启才能确认结果」
 # 的闭环就只剩重启那半截，flash-pending 会一直挂着。
 # 装进 rootfs 镜像时（IPKG_INSTROOT 非空）不能动宿主 init，判断方式与 postrm 一致。
+#
+# 必须重启 rpcd：rpcd 只在**启动时**扫描 /usr/share/rpcd/ucode（ucode.c 的
+# rpc_ucode_api_init 一次性 readdir，没有 inotify 监听），装包写进去的
+# usr/share/rpcd/ucode/rtfwupgrade 不会被常驻进程发现。少这一步的表现是整页报
+# 「RPC call to rtfwupgrade/status failed with error -32000: Object not found」，
+# 要等到下次重启或手工重启 rpcd 才自愈。reload（发信号）不够 —— 实测 rpcd 收到
+# SIGHUP/SIGUSR1 直接退出，注册表并不会重扫，所以这里用 restart。
 define Package/luci-app-rtfwupgrade/postinst
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] || {
-	# 两个 || true 是刻意的：包本身已经装好，init 起不来（rc.d 权限、uci 尚未迁移完、
+	# 三个 || true 是刻意的：包本身已经装好，init 起不来（rc.d 权限、uci 尚未迁移完、
 	# 或设备此刻正忙）不该让 opkg/apk 回滚整个安装，用户之后可以手动
 	# /etc/init.d/rtfwupgrade enable && start 补上。
 	/etc/init.d/rtfwupgrade enable >/dev/null 2>&1 || true
 	/etc/init.d/rtfwupgrade start >/dev/null 2>&1 || true
+	# 让 rpcd 重新扫描 ucode 插件目录，否则 ubus 对象 rtfwupgrade 不存在。
+	/etc/init.d/rpcd restart >/dev/null 2>&1 || true
 }
 exit 0
 endef

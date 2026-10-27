@@ -18,7 +18,7 @@
 ## 主要特性
 
 *   **走节点测速**：经你的 passwall 节点链路探测候选 Cloudflare IP——选出的是「从你代理出口看」最优的 CF IP。
-*   **延迟初筛 + 真实下载实测**：先对全部候选测延迟（便宜、覆盖广），再对每个 worker 延迟最优的前 N 个 IP（默认 5 个，最多 5 个）经同一节点链路下载固定大小文件，用 curl 的 `speed_download` 换算 MB/s。最终按实测下载速度选最优；下载失败的 IP 剔除；若全部下载失败（如测试 URL 经该节点不可达）则回退到延迟排序，不丢延迟阶段成果。每个 IP 使用独立的 SOCKS 配置，下载前会校验 `/tmp/etc/passwall/<flag>.json` 里的出站地址确实是该候选 IP，避免测到与候选 IP 无关的速度。多个 worker 的下载测试**全局串行**执行——否则并发下载会互抢路由器 WAN 带宽，各 IP 的速度没有可比性。迭代模式下下载实测是收敛结束后的额外阶段，不计入 `iterate_minutes`。
+*   **延迟初筛 + 真实下载实测**：先对全部候选测延迟（便宜、覆盖广），再对每个 worker 延迟最优的前 N 个 IP（默认 5 个，最多 10 个）经同一节点链路下载固定大小文件，用 curl 的 `speed_download` 换算 MB/s。最终按实测下载速度选最优；下载失败的 IP 剔除；若全部下载失败（如测试 URL 经该节点不可达）则回退到延迟排序，不丢延迟阶段成果。每个 IP 使用独立的 SOCKS 配置，下载前会校验 `/tmp/etc/passwall/<flag>.json` 里的出站地址确实是该候选 IP，避免测到与候选 IP 无关的速度。多个 worker 的下载测试**全局串行**执行——否则并发下载会互抢路由器 WAN 带宽，各 IP 的速度没有可比性。**快速死亡**：起测 5 秒内下载不足 1 MB 的候选会被立即中止并判失败（curl `--speed-limit`/`--speed-time`），死 IP / 爬行 IP 不再白等满单 IP 时限。迭代模式下下载实测是收敛结束后的额外阶段，不计入 `iterate_minutes`。
 *   **复测现有最优 IP**：主设置页新增「复测现有最优 IP」按钮（CLI：`passwall-speedtest.sh retest`）——**不重新下载在线 IP 列表**，只取当前 `result.csv` 中该节点的行 + 节点当前 `address`。候选来源与调度方式相互独立：默认做一轮延迟测速 + 下载实测；若同时开启「限时迭代测速」，同一批候选会进入各节点的收敛循环直到 `iterate_minutes` 结束，每轮剔除未通过的 IP。结束后照常写回。适合定时跑完后快速确认现有最优是否仍然可用、或在不拉取上万条候选的情况下重新排序。
 *   **多线程 worker**：在「第三方设置」里选的 passwall 节点作为并行 worker——每个 worker 经自己的链路测全部候选 IP、各写各的最优 IP；并发上限由 `node_test_threads` 控制。
 *   **多探测 fail-fast**：每个 IP 探测 `node_test_probes` 次；任意一次失败该 IP 立即丢弃。只有全部探测都成功的 IP 才保留，确保结果稳定。
@@ -26,7 +26,7 @@
 *   **应用到代理插件**：最优 IP 自动写回 ssr / passwall / passwall2 / bypass / vssr 节点，以及 HOST / MosDNS / astra-dns / 阿里云 DDNS。
 *   **可视化图表**：延迟历史趋势图；悬停/点击数据点显示该节点的最优 IP、延迟与实测下载速度（未做下载实测时只显示延迟）。
 *   **优化的界面与日志**：重新设计的状态展示；逐 IP 日志如 `进度: 走节点测速 [节点] 5/30 (16%) - 1.2.3.4 延迟 87ms 丢包 0.00 [保留]`。
-*   **中途停止不丢结果**：中途停止会触发 trap 清理 SOCKS、恢复节点 address，若无新结果则保留上一次结果。**用户手动停止第一轮时，已通过延迟的 IP 仍会完成下载实测**（每 worker 最多 5 个，多 worker 串行）后再写回；只有「首个 worker 已完成、其余自动提前停止」的情况才跳过其余 worker 的下载。
+*   **中途停止不丢结果**：中途停止会触发 trap 清理 SOCKS、恢复节点 address，若无新结果则保留上一次结果。**用户手动停止第一轮时，已通过延迟的 IP 仍会完成下载实测**（每 worker 最多 `download_test_count` 个（上限 10），多 worker 串行）后再写回；只有「首个 worker 已完成、其余自动提前停止」的情况才跳过其余 worker 的下载。
 *   **丰富的应用集成**：优选 IP 可自动应用到 SSR+ / Passwall / PassWall2 / Bypass / Vssr / HOST / MosDNS / astra-dns / 阿里云 DDNS。
 
 ## 界面页面
@@ -48,7 +48,7 @@
 *   **每 IP 探测次数**：每个 IP 的 curl 探测次数（全部成功才保留）。
 *   **最大并发 worker**：多节点模式的并发上限（0 = 全部）。
 *   **真实下载测速**（`download_test_enabled`，默认开）：延迟初筛后对少量候选实测下载吞吐。
-*   **每 worker 下载测速候选数**（`download_test_count`，默认 5，最多 5）：只测每个 worker 延迟最优的前 N 个 IP。注意这会真实消耗代理流量：默认 URL 为 10 MB，每 worker 最多约 50 MB，多 worker 串行累加。
+*   **每 worker 下载测速候选数**（`download_test_count`，默认 5，最多 10）：只测每个 worker 延迟最优的前 N 个 IP。注意这会真实消耗代理流量：默认 URL 为 10 MB，每 worker 最多约 100 MB，多 worker 串行累加。
 *   **下载测速 URL**（`download_test_url`）：经节点本地 SOCKS 下载的固定大小文件，默认 Cloudflare `speed.cloudflare.com/__down?bytes=10000000`（10 MB）。响应必须是 HTTP 2xx 且至少收到 16 KB。
 *   **下载测速单 IP 时限**（`download_test_time`，默认 10s）：每个 IP 的 curl `--max-time`；被时限截断的部分下载仍按已下载字节计算平均速度。
 *   **限时迭代测速 / 迭代测速时长**：开启后进入计时模式，每个待测节点独立循环收敛（每遍只测上一遍通过的 IP），到点取剩余最优写回；迭代收敛结束后同样对最终通过集中延迟最优的前 N 个 IP 做下载实测。

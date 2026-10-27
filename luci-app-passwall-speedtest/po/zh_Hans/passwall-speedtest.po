@@ -50,8 +50,8 @@ msgstr "计划任务设置"
 msgid "Logs"
 msgstr "日志"
 
-msgid "Two-stage test through the selected passwall node(s): first probes every candidate Cloudflare IP via a local SOCKS and measures HTTP HEAD latency (<code>time_pretransfer</code>); then downloads a real file through up to 5 lowest-latency IPs of each worker to measure actual throughput. The best IP by download speed is written back to each passwall worker node (if every download test fails, the latency ranking is kept)."
-msgstr "通过所选 passwall 节点做两阶段测速：先经本地 SOCKS 对全部候选 Cloudflare IP 做 HTTP HEAD 延迟探测（<code>time_pretransfer</code>），再对每个 worker 延迟最优的最多 5 个 IP 真实下载文件、测实际吞吐。按下载速度选出的最优 IP 写回每个 passwall worker 节点；若全部下载测试失败则保留延迟排序。"
+msgid "Two-stage test through the selected passwall node(s): first probes every candidate Cloudflare IP via a local SOCKS and measures HTTP HEAD latency (<code>time_pretransfer</code>); then downloads a real file through up to 10 lowest-latency IPs of each worker to measure actual throughput. The best IP by download speed is written back to each passwall worker node (if every download test fails, the latency ranking is kept)."
+msgstr "通过所选 passwall 节点做两阶段测速：先经本地 SOCKS 对全部候选 Cloudflare IP 做 HTTP HEAD 延迟探测（<code>time_pretransfer</code>），再对每个 worker 延迟最优的最多 10 个 IP 真实下载文件、测实际吞吐。按下载速度选出的最优 IP 写回每个 passwall worker 节点；若全部下载测试失败则保留延迟排序。"
 
 msgid "Enabled"
 msgstr "启用"
@@ -332,17 +332,17 @@ msgstr "已有测速在运行"
 msgid "Real download speed test"
 msgstr "真实下载测速"
 
-msgid "After latency screening, download a real file through up to 5 lowest-latency IPs of each worker to measure actual throughput (MB/s). The final best IP is chosen by download speed; IPs whose download test fails are dropped. If every download test fails (e.g. the URL is unreachable through that node), the latency ranking is kept. Each download runs through the node's local SOCKS exactly like the latency probe, and the generated SOCKS config is verified to point at the candidate IP before it is accepted."
-msgstr "延迟初筛后，经每个 worker 延迟最优的最多 5 个 IP 真实下载文件，测实际吞吐（MB/s）。最终按下载速度选最优；下载测试失败的 IP 剔除。若全部下载测试失败（例如测试 URL 经该节点不可达），保留延迟排序。每次下载与延迟探测一样走节点本地 SOCKS，并在接受速度前校验生成的 SOCKS 配置确实指向该候选 IP。"
+msgid "After latency screening, download a real file through up to 10 lowest-latency IPs of each worker to measure actual throughput (MB/s). The final best IP is chosen by download speed; IPs whose download test fails are dropped. If every download test fails (e.g. the URL is unreachable through that node), the latency ranking is kept. Each download runs through the node's local SOCKS exactly like the latency probe, and the generated SOCKS config is verified to point at the candidate IP before it is accepted. Fast-death: a candidate that downloads less than 1 MB in the first 5 seconds is aborted and marked failed."
+msgstr "延迟初筛后，经每个 worker 延迟最优的最多 10 个 IP 真实下载文件，测实际吞吐（MB/s）。最终按下载速度选最优；下载测试失败的 IP 剔除。若全部下载测试失败（例如测试 URL 经该节点不可达），保留延迟排序。每次下载与延迟探测一样走节点本地 SOCKS，并在接受速度前校验生成的 SOCKS 配置确实指向该候选 IP。快速死亡：起测 5 秒内下载不足 1 MB 的候选会被立即中止并判失败。"
 
 msgid "Download-test candidates per worker"
 msgstr "每 worker 下载测速候选数"
 
-msgid "Only the N lowest-latency IPs of each worker are download-tested (default 5, max 5). Each candidate downloads the file below (10 MB by default), so keep it small to limit proxy traffic and runtime."
-msgstr "只对每个 worker 延迟最优的前 N 个 IP 做下载实测（默认 5，最多 5）。每个候选都会下载下面的文件（默认 10 MB），数量越小越省代理流量、耗时越短。"
+msgid "Only the N lowest-latency IPs of each worker are download-tested (default 5, max 10). Each candidate downloads the file below (10 MB by default), so keep it small to limit proxy traffic and runtime."
+msgstr "只对每个 worker 延迟最优的前 N 个 IP 做下载实测（默认 5，最多 10）。每个候选都会下载下面的文件（默认 10 MB），数量越小越省代理流量、耗时越短。"
 
-msgid "At most 5 IPs can be download-tested per worker"
-msgstr "每个 worker 最多只能对 5 个 IP 做下载测速"
+msgid "At most 10 IPs can be download-tested per worker"
+msgstr "每个 worker 最多只能对 10 个 IP 做下载测速"
 
 msgid "Download test URL"
 msgstr "下载测速 URL"
@@ -359,8 +359,8 @@ msgstr "Cloudflare 20 MB"
 msgid "Download test time limit (s)"
 msgstr "下载测速单 IP 时限（秒）"
 
-msgid "Per-IP curl <code>--max-time</code> for the download test. A partial transfer cut off by this limit still yields a valid average speed."
-msgstr "下载测速时每个 IP 的 curl <code>--max-time</code>。被该时限截断的部分下载仍会按已下载字节算出有效平均速度。"
+msgid "Per-IP curl <code>--max-time</code> for the download test. A partial transfer cut off by this limit still yields a valid average speed. Fast-death: if less than 1 MB is downloaded in the first 5 seconds, the candidate is aborted immediately and marked failed."
+msgstr "下载测速时每个 IP 的 curl <code>--max-time</code>。被该时限截断的部分下载仍会按已下载字节算出有效平均速度。快速死亡：起测 5 秒内下载不足 1 MB 的候选会被立即中止并判失败。"
 
 msgid "Download speed"
 msgstr "下载速度"

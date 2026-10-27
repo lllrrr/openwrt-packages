@@ -8,7 +8,7 @@
 // 本文件的版本号，必须与 version.uc 的 VERSION 一致（tests/version-check.mjs 会校验）。
 // 用途：LuCI 的模块 URL 不带本包版本戳，浏览器会按启发式规则缓存旧 JS；
 // 拿它和 ubus 现报的版本比对，就能发现自己正在跑旧代码并提示刷新。
-var VIEW_VERSION = '0.2.0_alpha2';
+var VIEW_VERSION = '0.2.1_alpha1';
 
 var callStatus = rpc.declare({ object: 'rtfwupgrade', method: 'status' });
 var callChannels = rpc.declare({ object: 'rtfwupgrade', method: 'channels', params: ['source'] });
