@@ -58,22 +58,19 @@ var APPLY_TIMEOUT = 120;
 var MODES = {
 	pppoe: {
 		title: _('PPPoE Dial-up'),
-		short: _('Broadband account'),
 		description: _('Dial up with the broadband account and password supplied by your ISP. Choose this when the line requires PPPoE authentication.'),
 		accent: 'snp-accent-violet',
 		icon: 'key'
 	},
 	dhcp: {
 		title: _('DHCP Client'),
-		short: _('Existing router'),
-		description: _('Obtain an address automatically from an upstream modem or router. This is the usual choice for a new router behind an existing gateway.'),
+		description: _('Obtain an address automatically from an upstream modem or router. Choose this when the new router joins an existing network as an extension node.'),
 		accent: 'snp-accent-cyan',
 		icon: 'link'
 	},
 	siderouter: {
 		title: _('Side Router'),
-		short: _('Keep the main router'),
-		description: _('Keep the existing main router and use this device for additional services. LAN clients use this device as their gateway.'),
+		description: _('Keep the existing main router and use this device for additional services. Choose this when LAN clients need to use this device as their gateway.'),
 		accent: 'snp-accent-emerald',
 		icon: 'topology'
 	}
@@ -407,7 +404,7 @@ return view.extend({
 					])
 				]),
 				E('div', { 'class': 'snp-kicker' }, _('Guided setup')),
-				E('h1', {}, _('Use Smart NetPilot to finish network setup quickly and safely with guidance.')),
+				E('h1', {}, _('Choose the type of network setup you need and follow the wizard to finish the configuration quickly.')),
 				E('div', { 'class': 'snp-hero-meta' }, [
 					E('span', { 'class': 'snp-chip' }, [ E('span', { 'class': 'snp-chip-dot' }), _('Automatic light and dark theme') ]),
 					E('span', { 'class': 'snp-chip' }, [ icon('shield'), _('Validated before apply') ]),
@@ -468,7 +465,7 @@ return view.extend({
 				E('p', { 'class': 'snp-mode-desc' }, info.description)
 			]),
 			E('div', { 'class': 'snp-mode-foot' }, [
-				E('span', {}, _('Configure %s').format(info.short)),
+				E('span', {}, _('Configure %s').format(info.title)),
 				icon('arrow', 'snp-mode-arrow')
 			])
 		]);
@@ -503,7 +500,8 @@ return view.extend({
 		var self = this;
 		var showAdvanced = (requestedTab === 'othersetup');
 		var root = E('div', {
-			'class': 'snp-app snp-config' + themeClass() + (showAdvanced ? ' snp-show-advanced' : '')
+			'class': 'snp-app snp-config snp-mode-' + mode + themeClass() +
+				(showAdvanced ? ' snp-show-advanced' : '')
 		});
 
 		this._root = root;
@@ -527,7 +525,7 @@ return view.extend({
 					icon(info.icon, 'snp-mode-icon'),
 					E('div', { 'class': 'snp-mode-summary-text' }, [
 						E('strong', {}, _('Selected mode')),
-						E('span', {}, info.short)
+						E('span', {}, info.title)
 					])
 				]),
 				E('button', {
@@ -548,7 +546,7 @@ return view.extend({
 					'click': function(ev) {
 						self._handleChangeMode(ev, ev.currentTarget.href);
 					}
-				}, [ icon('refresh'), _('Change mode') ])
+				}, [ icon('refresh'), _('Back to home') ])
 			])
 		]));
 
@@ -704,8 +702,39 @@ return view.extend({
 		};
 	},
 
+	// PPPoE and DHCP pages show the LAN settings the router currently uses, so
+	// the user edits real values instead of whatever the wizard stored last
+	// time. Side-router mode keeps its own stored values.
+	_lanLive: function(option) {
+		switch (option) {
+			case 'lan_ipaddr':
+				return stripCidr(uci.get('network', 'lan', 'ipaddr')) || '';
+			case 'lan_netmask':
+				return uci.get('network', 'lan', 'netmask') || '';
+			case 'lan_gateway':
+				return uci.get('network', 'lan', 'gateway') || '';
+			case 'lan_dns':
+				return L.toArray(uci.get('network', 'lan', 'dns'));
+		}
+
+		return '';
+	},
+
+	_useLiveLan: function(o, option) {
+		var self = this;
+
+		o.cfgvalue = function() {
+			return self._lanLive(option);
+		};
+		o.forcewrite = true;
+		// An empty field means "keep the current setting"; the server only
+		// writes the entries that actually differ from the live configuration.
+		o.rmempty = true;
+	},
+
 	_addWanFields: function(s) {
 		var self = this;
+		var side = (this._mode === 'siderouter');
 		var o;
 
 		o = s.taboption('wansetup', widgets.DeviceSelect, 'wan_interface', _('WAN device'),
@@ -785,6 +814,10 @@ return view.extend({
 		o.datatype = 'ip4addr';
 		o.rmempty = false;
 		o.depends({ 'wan_proto': 'siderouter', 'lan_proto': 'static' });
+		o.depends('wan_proto', 'pppoe');
+		o.depends('wan_proto', 'dhcp');
+		if (!side)
+			this._useLiveLan(o, 'lan_ipaddr');
 
 		o = s.taboption('wansetup', form.Value, 'lan_netmask', _('LAN IPv4 netmask'));
 		o.default = uci.get('smartnetpilot', 'default', 'lan_netmask') || '255.255.255.0';
@@ -794,12 +827,21 @@ return view.extend({
 		o.value('255.0.0.0');
 		o.rmempty = false;
 		o.depends({ 'wan_proto': 'siderouter', 'lan_proto': 'static' });
+		o.depends('wan_proto', 'pppoe');
+		o.depends('wan_proto', 'dhcp');
+		if (!side)
+			this._useLiveLan(o, 'lan_netmask');
 
 		o = s.taboption('wansetup', form.Value, 'lan_gateway', _('LAN IPv4 gateway'),
-			_('Side router only: enter the address of the main router. It must be in the same subnet as this router.'));
+			side
+				? _('Side router only: enter the address of the main router. It must be in the same subnet as this router.')
+				: _('Optional. It must be in the same subnet as the LAN address above. Only set it when the LAN needs an explicit gateway.'));
 		o.datatype = 'ip4addr';
 		o.rmempty = false;
 		o.depends({ 'wan_proto': 'siderouter', 'lan_proto': 'static' });
+		o.depends('wan_proto', 'dhcp');
+		if (!side)
+			this._useLiveLan(o, 'lan_gateway');
 
 		o = s.taboption('wansetup', form.DynamicList, 'lan_dns', _('LAN DNS servers'),
 			_('DNS servers handed to LAN clients. Leave empty to use the defaults.'));
@@ -807,6 +849,10 @@ return view.extend({
 		o.datatype = 'ip4addr';
 		o.rmempty = false;
 		o.depends('wan_proto', 'siderouter');
+		o.depends('wan_proto', 'pppoe');
+		o.depends('wan_proto', 'dhcp');
+		if (!side)
+			this._useLiveLan(o, 'lan_dns');
 
 		o = s.taboption('wansetup', form.Flag, 'ipv6', _('Enable IPv6'),
 			_('Configure IPv6 on the WAN and LAN interfaces. Disable it if your ISP does not provide IPv6.'));
@@ -873,7 +919,10 @@ return view.extend({
 		var initialIp = initial.lanIp || window.location.hostname || '';
 		var lanMode = (mode === 'siderouter');
 		var lanDhcp = lanMode && lanProto === 'dhcp';
-		var lanApplies = lanMode && lanProto === 'static';
+		// PPPoE and DHCP pages can change the LAN addressing from the advanced
+		// settings, so such a change gets the same confirmation, redirect and
+		// rollback window as the side-router page.
+		var lanApplies = !lanDhcp && !!lanIp;
 		var desiredIp = lanApplies ? lanIp : null;
 		var ipChanged = !lanDhcp && desiredIp && initialIp && desiredIp !== initialIp;
 		var httpsChanged = https !== !!initial.https;

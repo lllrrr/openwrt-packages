@@ -88,15 +88,14 @@ const actions = {
 		if (str(s['mac']) == '')
 			return { code: 1, output: 'serverctl: mac address missing\n' };
 
-		/* WOL via etherwake (Layer-2 magic packet, no perl). etherwake defaults to
-		 * eth0, which on most routers is the WAN port, so the packet must be sent
-		 * out the LAN bridge instead. wol_interface selects it: option absent ->
-		 * 'br-lan'; option set to an empty string -> fall back to bare etherwake. */
+		/* WOL via etherwake (Layer-2 magic packet, no perl). wol_interface selects
+		 * the interface the magic packet is sent out of: option absent -> 'eth0';
+		 * option set to an empty string -> fall back to bare etherwake (no -i). */
 		const ctx = get_cursor();
 		ctx.load('serverctl');
 
 		let raw = ctx.get('serverctl', 'defaults', 'wol_interface');
-		let iface = (raw == null) ? 'br-lan' : str(raw);
+		let iface = (raw == null) ? 'eth0' : str(raw);
 		let argv = (iface != '') ? [ 'etherwake', '-i', iface ] : [ 'etherwake' ];
 
 		push(argv, str(s['mac']));
@@ -105,7 +104,9 @@ const actions = {
 	},
 
 	suspend: function(s) {
-		return run(ssh_argv(s, 'systemctl suspend'));
+		/* --ignore-inhibitors: remote apps (package managers, nfsd, etc.) may
+		 * hold logind block inhibitor locks; an explicit user action wins. */
+		return run(ssh_argv(s, 'systemctl suspend --ignore-inhibitors'));
 	},
 
 	poweroff: function(s) {

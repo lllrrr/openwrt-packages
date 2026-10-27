@@ -821,6 +821,33 @@ start_rollback_waiter() {
     return 0
 }
 
+# 宽带账号 / 现有路由器模式的高级设置里也可以改 LAN。这些项留空时
+# 表示沿用当前配置，因此只校验真正填了值的项。
+validate_lan_overrides() {
+    local dns
+
+    if [ -n "$lan_ipaddr" ] && ! validate_ip "$lan_ipaddr"; then
+        log "LAN address '$lan_ipaddr' is invalid; refusing to apply"
+        return 1
+    fi
+    if [ -n "$lan_netmask" ] && ! validate_ip "$lan_netmask"; then
+        log "LAN netmask '$lan_netmask' is invalid; refusing to apply"
+        return 1
+    fi
+    if [ -n "$lan_gateway" ] && ! validate_ip "$lan_gateway"; then
+        log "LAN gateway '$lan_gateway' is invalid; refusing to apply"
+        return 1
+    fi
+    for dns in ${lan_dns}; do
+        if ! validate_ip "$dns"; then
+            log "LAN DNS server '$dns' is invalid; refusing to apply"
+            return 1
+        fi
+    done
+
+    return 0
+}
+
 # 在改动任何 UCI 配置之前先校验。没有明确选择模式时一律拒绝执行，
 # 这样全新的默认配置、安装/升级流程都不可能改动网络。
 preflight_config() {
@@ -830,6 +857,7 @@ preflight_config() {
                 log "PPPoE selected but username/password missing; refusing to apply"
                 return 1
             fi
+            validate_lan_overrides || return 1
             ;;
         dhcp)
             case "$dhcp_proto" in
@@ -846,6 +874,7 @@ preflight_config() {
                     return 1
                     ;;
             esac
+            validate_lan_overrides || return 1
             ;;
         siderouter)
             case "$lan_proto" in
@@ -915,6 +944,57 @@ set_lan_addressing() {
             return 1
             ;;
     esac
+
+    return 0
+}
+
+# 宽带账号 / 现有路由器模式下的 LAN 覆盖：页面显示的就是当前配置，
+# 因此只写入真正改动过的项，没动过的设置保持原样。
+apply_lan_overrides() {
+    local cur_ip cur_mask cur_dns dns
+
+    cur_ip=$(uci -q get network.lan.ipaddr)
+    cur_ip=${cur_ip%%/*}
+    cur_mask=$(uci -q get network.lan.netmask)
+    cur_dns=$(uci -q get network.lan.dns)
+
+    if [ -n "$lan_ipaddr" ] && [ "$lan_ipaddr" != "$cur_ip" ]; then
+        $UCISET network.lan.proto='static'
+        set_ipv4 network.lan.ipaddr "$lan_ipaddr"
+    fi
+
+    if [ -n "$lan_netmask" ] && [ "$lan_netmask" != "$cur_mask" ]; then
+        set_ipv4 network.lan.netmask "$lan_netmask"
+    fi
+
+    if [ "$wan_proto" = "dhcp" ]; then
+        # 现有路由器模式的 LAN 网关由页面上的字段决定：填了就和现有值比较，
+        # 清空则删除原有设置。
+        if [ -n "$lan_gateway" ]; then
+            if [ "$lan_gateway" != "$(uci -q get network.lan.gateway)" ]; then
+                set_ipv4 network.lan.gateway "$lan_gateway"
+            fi
+        elif [ -n "$(uci -q get network.lan.gateway)" ]; then
+            $UCIDEL network.lan.gateway
+        fi
+    elif [ -n "$(uci -q get network.lan.gateway)" ]; then
+        # 宽带账号模式没有 LAN 网关这项；旧配置留下的网关只会干扰路由。
+        $UCIDEL network.lan.gateway
+    fi
+
+    if [ -n "$lan_dns" ]; then
+        if [ "$lan_dns" != "$cur_dns" ]; then
+            $UCIDEL network.lan.dns
+            for dns in ${lan_dns}; do
+                $UCIADDLIST network.lan.dns="$dns"
+            done
+            if [ "$(uci -q get network.lan.proto)" != "static" ]; then
+                $UCISET network.lan.peerdns='0'
+            fi
+        fi
+    elif [ -n "$cur_dns" ]; then
+        $UCIDEL network.lan.dns
+    fi
 
     return 0
 }
@@ -1014,10 +1094,6 @@ configure_network() {
     # 备份当前配置
     local backup_dir=$(backup_configs)
 
-    if [ "$wan_proto" != "siderouter" ]; then
-        $UCIDEL network.lan.gateway
-        $UCIDEL network.lan.dns
-    fi
     $UCIDEL firewall.@zone[0].masq
 
 
@@ -1159,6 +1235,14 @@ configure_network() {
             return 1
             ;;
     esac
+
+    # 宽带账号 / 现有路由器模式也允许从高级设置调整 LAN。
+    if [ "$wan_proto" = "pppoe" ] || [ "$wan_proto" = "dhcp" ]; then
+        if ! apply_lan_overrides; then
+            APPLY_FAILED=1
+            return 1
+        fi
+    fi
 
     if [ -f /etc/config/dockerd ]; then
 	     DOCKERINDEX=$(uci show firewall | grep -E "@zone\[[0-9]+\].name='docker'" | sed -n 's/.*@zone\[\([0-9]*\)\].name.*/\1/p')

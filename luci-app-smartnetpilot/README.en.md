@@ -82,9 +82,13 @@ The built packages end up in `bin/packages/<arch>/base/`.
    wireless configuration untouched.
 4. **Advanced settings** reveals IPv6, the LAN DHCP server, the DNS server
    advertised to clients and HTTPS redirection; the **Other Settings** section also
-   holds SYN-flood protection.
+   holds SYN-flood protection. On the **PPPoE Dial-up** and **DHCP Client** pages
+   it also shows the LAN IPv4 address, LAN IPv4 netmask and LAN DNS servers
+   (DHCP Client adds the LAN IPv4 gateway), pre-filled from the router's current
+   configuration and editable in place; **Hide advanced settings** hides them
+   again.
 5. Click **Save & Apply** at the bottom of the page. Use **Save** first if you
-   only want to stage the changes. **Change mode** in the header discards any
+   only want to stage the changes. **Back to home** in the header discards any
    unsaved edits on the page and returns to the mode chooser; nothing is saved.
 6. If a change affects how you reach the device — the management address, the
    LAN DHCP role, the HTTPS setting, or the wireless name/password — a
@@ -157,7 +161,9 @@ Checks performed before anything is written:
 What gets written:
 
 - **network**: rebuilds `wan` / `wan6` for the chosen mode (PPPoE, DHCP or
-  static); side-router mode rewrites LAN only.
+  static); side-router mode rewrites LAN only. The PPPoE and DHCP modes update
+  the `network.lan` address, netmask, gateway or DNS only when you changed a LAN
+  field under **Advanced settings**; everything else is left untouched.
 - **firewall**: recreates the WAN zone and the lan→wan forwarding, applies the
   SYN-flood switch, and adds Docker zones and forwardings when `dockerd` is
   present.

@@ -169,7 +169,7 @@
     display: none;
     position: fixed;
     z-index: 1200;
-    min-width: 170px;
+    min-width: min(170px, var(--fm-overlay-width, 170px));
     padding: 4px;
     border: 1px solid var(--fm-border);
     border-radius: 8px;
@@ -1528,6 +1528,7 @@
 
 .fm-context-menu,
 .fm-tool-dropdown,
+.fm-item-hover-card,
 .fm-dialog{
     --fm-accent: #2878d4;
     --fm-accent-soft: #e8f2fd;
@@ -1543,6 +1544,7 @@
 
 [data-harbor-theme="dark"] .fm-context-menu,
 [data-harbor-theme="dark"] .fm-tool-dropdown,
+[data-harbor-theme="dark"] .fm-item-hover-card,
 [data-harbor-theme="dark"] .fm-dialog{
     --fm-accent: #62a9f3;
     --fm-accent-soft: #183b60;
@@ -1558,7 +1560,7 @@
     display: none;
     position: fixed;
     z-index: 1200;
-    min-width: 170px;
+    min-width: min(170px, var(--fm-overlay-width, 170px));
     padding: 0px;
     border: 1px solid var(--fm-border);
     border-radius: 8px;
@@ -2866,7 +2868,7 @@
     z-index: 1200;
     box-sizing: border-box;
     width: min(320px, calc(100vw - 16px));
-    max-height: min(420px, 60vh);
+    max-height: min(420px, 60vh, var(--fm-overlay-height, 100vh));
     overflow: auto;
     border: 1px solid var(--fm-border);
     border-radius: 8px;
@@ -3234,24 +3236,21 @@
     margin-right: auto;
 }
 
-[data-harbor-theme="light"] :is(.file-manager, .fm-dialog, .fm-desktop-window, .fm-context-menu, .fm-tool-dropdown, .fm-fav-panel, .fm-window-taskbar, .fm-taskbar-pill){
+[data-harbor-theme="light"] :is(.file-manager, .fm-dialog, .fm-desktop-window, .fm-context-menu, .fm-tool-dropdown, .fm-fav-panel, .fm-item-hover-card, .fm-window-taskbar, .fm-taskbar-pill){
     color-scheme: light;
 }
 
-[data-harbor-theme="dark"] :is(.file-manager, .fm-dialog, .fm-desktop-window, .fm-context-menu, .fm-tool-dropdown, .fm-fav-panel, .fm-window-taskbar, .fm-taskbar-pill){
+[data-harbor-theme="dark"] :is(.file-manager, .fm-dialog, .fm-desktop-window, .fm-context-menu, .fm-tool-dropdown, .fm-fav-panel, .fm-item-hover-card, .fm-window-taskbar, .fm-taskbar-pill){
     color-scheme: dark;
 }
 
 html[data-harbor-file-manager] .fm-fluid-host,
 html[data-harbor-file-manager] #maincontent.fm-fluid-host,
 html[data-harbor-file-manager] #view.fm-fluid-host{
-    width: 100%;
+    width: auto;
     max-width: none;
+    min-width: 0;
     box-sizing: border-box;
-    margin-left: 0;
-    margin-right: 0;
-    padding-left: 0;
-    padding-right: 0;
 }
 
 #fm_workspace > .file-manager{
@@ -3323,4 +3322,18 @@ html[data-harbor-file-manager] #view.fm-fluid-host{
 
 .fm-path-picker .fm-dialog-action{
     flex: none;
+}
+
+.fm-tool-dropdown,
+.fm-context-menu,
+.fm-fav-panel,
+.fm-item-hover-card{
+    box-sizing: border-box;
+    max-width: var(--fm-overlay-width, calc(100vw - 16px));
+}
+
+.fm-tool-dropdown,
+.fm-context-menu{
+    max-height: var(--fm-overlay-height, calc(100vh - 16px));
+    overflow-y: auto;
 }

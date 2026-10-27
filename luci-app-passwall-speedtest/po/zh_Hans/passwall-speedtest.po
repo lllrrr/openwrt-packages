@@ -323,8 +323,8 @@ msgstr "并发运行的 passwall worker 上限（仅在「第三方设置」里�
 msgid "Retest current best IPs"
 msgstr "复测现有最优 IP"
 
-msgid "Runs ONE latency round + the download test only on the IPs already in the current best list (result.csv) and each node's current address. The online IP list is NOT re-downloaded. The best IP is written back as usual."
-msgstr "只对当前 Best IP 表（result.csv）里已有的 IP 和各节点当前 address 做一轮延迟测速 + 下载实测，不重新下载在线 IP 列表；最优 IP 照常写回。"
+msgid "Runs the test only on the IPs already in the current best list (result.csv) and each node's current address. The online IP list is NOT re-downloaded. One latency round + the download test by default; when the time-boxed iterative test is enabled, the same candidates go through each node's convergence loop until the duration elapses. The best IP is written back as usual."
+msgstr "只对当前 Best IP 表（result.csv）里已有的 IP 和各节点当前 address 测速，不重新下载在线 IP 列表。默认做一轮延迟测速 + 下载实测；开启「限时迭代测速」时，同一批候选进入各节点的收敛循环直到时长结束。最优 IP 照常写回。"
 
 msgid "A test is already running"
 msgstr "已有测速在运行"

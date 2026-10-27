@@ -744,6 +744,19 @@ html.dark .snp-app,
 	display: none;
 }
 
+/* PPPoE and DHCP pages also carry the LAN addressing, but only behind the
+   advanced toggle. The fields stay active while collapsed, so the current
+   values are still submitted unchanged. */
+.snp-app.snp-mode-pppoe:not(.snp-show-advanced) .snp-form-shell [data-field$=".lan_ipaddr"],
+.snp-app.snp-mode-pppoe:not(.snp-show-advanced) .snp-form-shell [data-field$=".lan_netmask"],
+.snp-app.snp-mode-pppoe:not(.snp-show-advanced) .snp-form-shell [data-field$=".lan_dns"],
+.snp-app.snp-mode-dhcp:not(.snp-show-advanced) .snp-form-shell [data-field$=".lan_ipaddr"],
+.snp-app.snp-mode-dhcp:not(.snp-show-advanced) .snp-form-shell [data-field$=".lan_netmask"],
+.snp-app.snp-mode-dhcp:not(.snp-show-advanced) .snp-form-shell [data-field$=".lan_gateway"],
+.snp-app.snp-mode-dhcp:not(.snp-show-advanced) .snp-form-shell [data-field$=".lan_dns"] {
+	display: none;
+}
+
 .snp-advanced-toggle[aria-expanded="true"] {
 	border-color: var(--snp-border-strong);
 	background: var(--snp-surface-3);

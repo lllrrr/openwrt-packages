@@ -1857,7 +1857,7 @@
             }
             var card = document.createElement('div');
             card.className = 'fm-item-hover-card';
-            host.appendChild(card);
+            HF.prepare_overlay(card);
             HF.state.item_hover_card = card;
         }
         return HF.state.item_hover_card;
@@ -1868,11 +1868,12 @@
         if (!card || card.style.display !== 'block' || !event) {
             return;
         }
+        var bounds = HF.prepare_overlay(card);
         var left = Number(event.clientX || 0) + 14;
         var top = Number(event.clientY || 0) + 14;
         var rect = card.getBoundingClientRect();
-        left = Math.max(8, Math.min(left, window.innerWidth - rect.width - 8));
-        top = Math.max(8, Math.min(top, window.innerHeight - rect.height - 8));
+        left = Math.max(bounds.left + 8, Math.min(left, bounds.left + bounds.width - rect.width - 8));
+        top = Math.max(bounds.top + 8, Math.min(top, bounds.top + bounds.height - rect.height - 8));
         card.style.left = left + 'px';
         card.style.top = top + 'px';
     }
@@ -2321,13 +2322,22 @@
     }
     HF.apply_theme();
 
+    var fluid_width = 'auto';
+    if (window.CSS && window.CSS.supports) {
+        ['stretch', '-webkit-fill-available', '-moz-available'].some(function(value) {
+            if (!window.CSS.supports('width', value)) return false;
+            fluid_width = value;
+            return true;
+        });
+    }
+
     HF.fit_frame = function fit_frame() {
         var frame = document.querySelector('.file-manager');
         if (!frame) return false;
         document.documentElement.setAttribute('data-harbor-file-manager', '');
         var wide = HF.state.preferences.full_width !== 0;
         var hosts = HF.state.fluid_hosts || (HF.state.fluid_hosts = []);
-        var properties = ['width', 'max-width', 'margin-left', 'margin-right', 'padding-left', 'padding-right'];
+        var properties = ['width', 'max-width'];
         if (!wide) {
             hosts.forEach(function(entry) {
                 HF.restore_inline_styles(entry.styles);
@@ -2343,7 +2353,8 @@
                     }) });
                 }
                 host.classList.add('fm-fluid-host');
-                properties.forEach(function(property) { host.style.removeProperty(property); });
+                host.style.setProperty('width', fluid_width);
+                host.style.setProperty('max-width', 'none');
                 host = host.parentElement;
             }
         }
@@ -2361,14 +2372,26 @@
     window.addEventListener('resize', HF.fit_frame, { passive: true });
     window.addEventListener('orientationchange', HF.fit_frame, { passive: true });
 
+    HF.prepare_overlay = function prepare_overlay(menu) {
+        if (menu.parentNode !== document.body) document.body.appendChild(menu);
+        var viewport = window.visualViewport;
+        var bounds = viewport ? { left: viewport.offsetLeft, top: viewport.offsetTop, width: viewport.width, height: viewport.height } :
+            { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
+        menu.style.setProperty('--fm-overlay-width', Math.max(1, bounds.width - 16) + 'px');
+        menu.style.setProperty('--fm-overlay-height', Math.max(1, bounds.height - 16) + 'px');
+        return bounds;
+    }
+
     HF.position_anchor_menu = function position_anchor_menu(menu, button) {
+        var bounds = HF.prepare_overlay(menu);
         var rect = button.getBoundingClientRect();
         var width = menu.offsetWidth || 170;
-        var left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8));
+        var left = Math.max(bounds.left + 8, Math.min(rect.right - width, bounds.left + bounds.width - width - 8));
         var top = rect.bottom + 6;
-        if (top + menu.offsetHeight > window.innerHeight - 8) {
-            top = Math.max(8, rect.top - menu.offsetHeight - 6);
+        if (top + menu.offsetHeight > bounds.top + bounds.height - 8) {
+            top = rect.top - menu.offsetHeight - 6;
         }
+        top = Math.max(bounds.top + 8, Math.min(top, bounds.top + bounds.height - menu.offsetHeight - 8));
         menu.style.left = left + 'px';
         menu.style.top = top + 'px';
     }
@@ -2393,6 +2416,8 @@
     }
 
     HF.bind_toolbar_actions = function bind_toolbar_actions() {
+        var overlays = document.querySelectorAll('.fm-tool-dropdown, .fm-fav-panel, .fm-context-menu');
+        for (var j = 0; j < overlays.length; j++) HF.prepare_overlay(overlays[j]);
         var menus = document.querySelectorAll('.fm-toolbar [data-menu]');
         for (var i = 0; i < menus.length; i++) {
             (function(button) {
@@ -2411,13 +2436,18 @@
             });
         }
         var follow = function() {
-            if (!HF.state.page_still || !HF.state.page_still.on) {
-                return;
-            }
             HF.reposition_anchor_menus();
+            var contexts = document.querySelectorAll('.fm-context-menu');
+            for (var i = 0; i < contexts.length; i++) {
+                if (contexts[i].style.display !== 'block') continue;
+                var rect = contexts[i].getBoundingClientRect();
+                HF.position_context_menu(contexts[i], rect.left, rect.top);
+            }
         };
         window.addEventListener('resize', follow, { passive: true });
         document.addEventListener('scroll', follow, { passive: true, capture: true });
+        document.addEventListener('transitionend', follow, true);
+        document.addEventListener('animationend', follow, true);
         if (window.visualViewport) {
             window.visualViewport.addEventListener('scroll', follow, { passive: true });
             window.visualViewport.addEventListener('resize', follow, { passive: true });
@@ -4899,11 +4929,7 @@
 
     HF.position_context_menu = function position_context_menu(menu, x, y) {
         menu.style.display = 'block';
-        var viewport = window.visualViewport;
-        var bounds = viewport ? { left: viewport.offsetLeft, top: viewport.offsetTop, width: viewport.width, height: viewport.height } :
-            { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
-        menu.style.maxHeight = Math.max(40, bounds.height - 16) + 'px';
-        menu.style.overflowY = 'auto';
+        var bounds = HF.prepare_overlay(menu);
         var rect = menu.getBoundingClientRect();
         var left = Math.max(bounds.left + 8, Math.min(x, bounds.left + bounds.width - rect.width - 8));
         var top = Math.max(bounds.top + 8, Math.min(y, bounds.top + bounds.height - rect.height - 8));
@@ -4927,15 +4953,12 @@
         var x = rect.right + 2;
         var y = rect.top;
         menu.style.display = 'block';
+        var bounds = HF.prepare_overlay(menu);
         var menu_rect = menu.getBoundingClientRect();
-        if (x + menu_rect.width > window.innerWidth - 8) {
+        if (x + menu_rect.width > bounds.left + bounds.width - 8) {
             x = rect.left - menu_rect.width - 2;
         }
-        if (y + menu_rect.height > window.innerHeight - 8) {
-            y = window.innerHeight - menu_rect.height - 8;
-        }
-        menu.style.left = Math.max(8, x) + 'px';
-        menu.style.top = Math.max(8, y) + 'px';
+        HF.position_context_menu(menu, x, y);
     }
 
     HF.stop_install_poll = function stop_install_poll() {

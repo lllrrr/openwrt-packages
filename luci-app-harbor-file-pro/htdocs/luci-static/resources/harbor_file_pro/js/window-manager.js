@@ -398,10 +398,10 @@
             var measured = this.get_rect(record);
             var preferred = this.preferred_size(record, measured);
             var max_width = Math.max(180, area.width - margin * 2);
-            var max_height = Math.max(1, area.height - margin * 2);
-            var width = Math.min(preferred.width, max_width);
-            var height = Math.min(preferred.height, max_height);
             var taskbar_top = this.taskbar_top(area);
+            var max_height = Math.max(1, taskbar_top - area.top - margin * 2);
+            var width = clamp(preferred.width, this.min_width(record, max_width), max_width);
+            var height = clamp(preferred.height, this.min_height(record, max_height), max_height);
             return {
                 left: Math.max(margin, Math.round((area.width - width) / 2)),
                 top: Math.max(area.top + margin, Math.round(area.top + (taskbar_top - area.top - height) / 2)),
@@ -853,6 +853,7 @@
         };
 
         DesktopWindowManager.prototype.install_record = function(element, options) {
+            if (element.parentNode !== document.body) document.body.appendChild(element);
             var manager = this;
             var record = {
                 id: 'fm_window_' + this.next_id++,
@@ -901,7 +902,6 @@
             }
             element.appendChild(body);
             element.style.display = 'none';
-            document.body.appendChild(element);
             options.titleNode = title;
             options.displayMode = 'flex';
             options.legacy = false;
@@ -949,6 +949,7 @@
             record.minimized = false;
             record.element.style.display = record.display_mode || 'flex';
             if (!record.initialized || first_open) {
+                this.render_taskbar();
                 record.initialized = true;
                 this.apply_rect(record, this.initial_rect(record));
             } else if (record.maximized) {

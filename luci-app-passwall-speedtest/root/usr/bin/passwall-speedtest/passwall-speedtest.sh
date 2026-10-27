@@ -479,15 +479,19 @@ function speed_test(){
     # 拉本地 SOCKS，curl -I 取 time_pretransfer 测延迟，多 worker 并行、多 probe fail-fast。
     # 结果写回各 passwall worker 节点。
     local _rc=0
-    if [ "${RETEST_FROM_RESULT:-0}" = "1" ]; then
-        # 复测现有最优 IP：固定一轮延迟 + 下载实测，不受 iterate_enabled 影响
-        echolog "════ 复测现有最优 IP（一轮延迟 + 下载实测，不重新下载在线列表）════"
-        node_speed_test
-        _rc=$?
-    elif [ "${iterate_enabled:-0}" = "1" ]; then
+    # 候选来源（RETEST_FROM_RESULT）与调度方式（单轮 / 限时迭代）相互独立：
+    # 复测同样可以按 iterate_enabled 进入各节点收敛循环，候选取自 retest_ips_<node>.txt。
+    if [ "${iterate_enabled:-0}" = "1" ]; then
         case "${iterate_minutes:-}" in ''|*[!0-9]*) echolog "迭代测速时长无效，中止"; return 1 ;; esac
         [ "${iterate_minutes}" -ge 1 ] 2>/dev/null || { echolog "迭代测速时长须 ≥1 分钟，中止"; return 1; }
+        [ "${RETEST_FROM_RESULT:-0}" = "1" ] && \
+            echolog "════ 复测现有最优 IP（候选来自 result.csv / 节点当前 address，限时迭代，不重新下载在线列表）════"
         iterate_speed_test
+        _rc=$?
+    elif [ "${RETEST_FROM_RESULT:-0}" = "1" ]; then
+        # 复测现有最优 IP：单轮延迟 + 下载实测
+        echolog "════ 复测现有最优 IP（一轮延迟 + 下载实测，不重新下载在线列表）════"
+        node_speed_test
         _rc=$?
     else
         node_speed_test

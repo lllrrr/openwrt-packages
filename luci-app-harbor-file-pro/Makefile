@@ -1,14 +1,14 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-harbor-file-pro
-PKG_VERSION:=1.0.8
+PKG_VERSION:=1.0.9
 PKG_RELEASE:=1
 PKG_PO_VERSION:=$(PKG_VERSION)
 
 LUCI_MINIFY_JS:=0
 LUCI_MINIFY_CSS:=0
 
-PKG_LICENSE:=Apache-2.0
+PKG_LICENSE:=MIT
 PKG_MAINTAINER:=whzhni1
 
 LUCI_TITLE:=LuCI support for HarborFile Pro (ucode backend)

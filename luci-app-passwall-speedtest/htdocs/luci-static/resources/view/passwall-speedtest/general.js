@@ -418,7 +418,7 @@ return view.extend({
 		}, this);
 
 		o = s.taboption('basic', form.Button, '_retest', _('Retest current best IPs'),
-			_('Runs ONE latency round + the download test only on the IPs already in the current best list (result.csv) and each node\'s current address. The online IP list is NOT re-downloaded. The best IP is written back as usual.'));
+			_('Runs the test only on the IPs already in the current best list (result.csv) and each node\'s current address. The online IP list is NOT re-downloaded. One latency round + the download test by default; when the time-boxed iterative test is enabled, the same candidates go through each node\'s convergence loop until the duration elapses. The best IP is written back as usual.'));
 		o.onclick = function(ev) {
 			const button = ev.currentTarget;
 			button.disabled = true;
