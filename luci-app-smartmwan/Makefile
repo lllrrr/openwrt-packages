@@ -23,7 +23,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-smartmwan
-PKG_VERSION:=0.4.0
+PKG_VERSION:=0.5.0
 PKG_RELEASE:=1
 PKG_LICENSE:=GPL-3.0-or-later
 PKG_LICENSE_FILES:=LICENSE
@@ -164,8 +164,16 @@ define Package/luci-app-smartmwan/install
 	$(INSTALL_DATA) ./htdocs/luci-static/resources/view/smartmwan/*.js $(1)/www/luci-static/resources/view/smartmwan/
 	$(INSTALL_DIR) $(1)/www/luci-static/resources
 	$(INSTALL_DATA) ./htdocs/luci-static/resources/smartmwan.js $(1)/www/luci-static/resources/
+	# 组件系统（基础设施 / 弹层 / 反馈 / 表单 / 浮层）——逐个列名而不是通配，
+	# 漏装一个模块的表现是「某个页面白屏且控制台只有 404」，排查成本远高于这两行。
+	$(INSTALL_DATA) ./htdocs/luci-static/resources/smwcore.js $(1)/www/luci-static/resources/
+	$(INSTALL_DATA) ./htdocs/luci-static/resources/smwoverlay.js $(1)/www/luci-static/resources/
+	$(INSTALL_DATA) ./htdocs/luci-static/resources/smwfeedback.js $(1)/www/luci-static/resources/
+	$(INSTALL_DATA) ./htdocs/luci-static/resources/smwform.js $(1)/www/luci-static/resources/
+	$(INSTALL_DATA) ./htdocs/luci-static/resources/smwpopover.js $(1)/www/luci-static/resources/
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/smartmwan
 	$(INSTALL_DATA) ./htdocs/luci-static/resources/smartmwan/smartmwan.css $(1)/www/luci-static/resources/smartmwan/
+	$(INSTALL_DATA) ./htdocs/luci-static/resources/smartmwan/overlay.css $(1)/www/luci-static/resources/smartmwan/
 
 	# 预置项数据目录（用户可编辑；**仓库不内置任何数据文件**）
 	$(INSTALL_DIR) $(1)/usr/share/smartmwan/presets

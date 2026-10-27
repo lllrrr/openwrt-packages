@@ -5,7 +5,7 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: luci-app-smartnetpilot 1.1.1\n"
+"Project-Id-Version: luci-app-smartnetpilot 1.1.5\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2026-10-26 00:00+0000\n"
 "PO-Revision-Date: 2026-10-26 00:00+0000\n"
@@ -61,7 +61,7 @@ msgid "Not configured"
 msgstr ""
 
 #: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:395
-msgid "No wireless radio"
+msgid "No wireless card detected"
 msgstr ""
 
 #: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:396
@@ -73,7 +73,7 @@ msgid "Disabled"
 msgstr ""
 
 #: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:405
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:513
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:517
 msgid "Smart NetPilot"
 msgstr ""
 
@@ -82,7 +82,7 @@ msgid "Network setup"
 msgstr ""
 
 #: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:409
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:514
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:518
 msgid "Guided setup"
 msgstr ""
 
@@ -99,442 +99,437 @@ msgid "Validated before apply"
 msgstr ""
 
 #: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:414
+msgid "Rollback within 120 s"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:415
 msgid "IPv4 and IPv6"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:418
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:419
 msgid "Current mode"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:419
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:420
 msgid "Management address"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:419
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:420
 msgid "Unknown"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:420
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:421
 msgid "Wireless"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:421
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:422
 msgid "HTTPS management"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:459
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:434
+msgid "Not sure which to choose? Pick “PPPoE Dial-up” if you need to sign in with the broadband account and password from your ISP; pick “DHCP Client” if this device joins an existing network as an auxiliary or extension node."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:464
 msgid "Current"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:466
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:471
 #, javascript-format
 msgid "Configure %s"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:489
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:494
 #, javascript-format
 msgid "Could not save the selected mode. %s"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:517
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:608
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:521
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:610
 msgid "Configuration"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:525
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:529
 msgid "Selected mode"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:539
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:673
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:543
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:675
 msgid "Hide advanced settings"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:539
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:673
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:543
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:675
 msgid "Advanced settings"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:547
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:551
 msgid "Change mode"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:556
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:560
 msgid "WAN Settings"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:558
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:562
 msgid "Wireless Settings"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:558
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:562
 msgid "Set the wireless name and password. For advanced options, open Network → Wireless."
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:559
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:563
 msgid "Other Settings"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:692
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:694
 msgid "Network Mode"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:709
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:711
 msgid "WAN device"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:710
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:712
 msgid "Physical network port used for the internet connection."
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:725
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:727
 msgid "This is the switch CPU port, not a physical network port."
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:730
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:732
 msgid "PPPoE username"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:734
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:736
 msgid "PPPoE password"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:739
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:741
 msgid "WAN address mode"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:740
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:742
 msgid "Choose how the WAN interface obtains its address."
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:742
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:775
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:744
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:777
 msgid "Static IPv4 address"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:743
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:745
 msgid "DHCP client"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:747
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:749
 msgid "WAN IPv4 address"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:752
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:754
 msgid "WAN IPv4 netmask"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:761
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:763
 msgid "WAN IPv4 gateway"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:766
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:768
 msgid "Custom DNS servers"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:767
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:769
 msgid "Leave empty to obtain DNS servers automatically."
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:772
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:774
 msgid "LAN address mode"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:773
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:775
 msgid "DHCP client mode takes the LAN address from the upstream router. Check the upstream lease table to find the new address."
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:776
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:778
 msgid "DHCP client (assigned upstream)"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:780
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:782
 msgid "LAN IPv4 address"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:781
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:783
 msgid "The management address of this router. Choose an address outside the upstream DHCP pool."
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:787
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:789
 msgid "LAN IPv4 netmask"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:796
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:798
 msgid "LAN IPv4 gateway"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:797
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:799
 msgid "Side router only: enter the address of the main router. It must be in the same subnet as this router."
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:802
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:804
 msgid "LAN DNS servers"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:803
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:805
 msgid "DNS servers handed to LAN clients. Leave empty to use the defaults."
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:809
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:811
 msgid "Enable IPv6"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:810
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:812
 msgid "Configure IPv6 on the WAN and LAN interfaces. Disable it if your ISP does not provide IPv6."
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:814
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:816
 msgid "Disable the LAN DHCP server"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:815
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:817
 msgid "Only one DHCP server should run on a network. Disable this router’s server when the main router already provides one."
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:819
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:821
 msgid "Advertise a DNS server to LAN clients"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:820
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:822
 msgid "Force LAN clients to use the DNS server selected below."
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:825
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:827
 msgid "DNS server to advertise"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:826
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:828
 msgid "Use this router’s LAN address"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:827
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:829
 msgid "Ali DNS: 223.5.5.5"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:828
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:830
 msgid "Baidu DNS: 180.76.76.76"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:829
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:831
 msgid "114 DNS: 114.114.114.114"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:830
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:832
 msgid "Google DNS: 8.8.8.8"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:831
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:833
 msgid "Cloudflare DNS: 1.1.1.1"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:835
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:837
 msgid "Redirect management to HTTPS"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:836
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:838
 msgid "Generate a local certificate and redirect HTTP requests to HTTPS."
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:842
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:844
 msgid "Wireless name (SSID)"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:845
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:847
 msgid "Enter a wireless name"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:848
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:850
 msgid "Wireless password"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:852
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:854
 msgid "At least 8 characters"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:857
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:859
 msgid "Enable SYN-flood protection"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:858
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:860
 msgid "Recommended. Protects the router and LAN clients from SYN-flood attacks."
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:885
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:887
 #, javascript-format
 msgid "The management address will change from %s to %s. The current page will disconnect and then open the new address."
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:888
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:890
 msgid "The LAN interface will become a DHCP client. Its new address is assigned by the upstream router, so it cannot be predicted. Find the lease in the upstream router after applying."
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:893
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:895
 msgid "Management access will switch to HTTPS after the configuration is applied."
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:894
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:896
 msgid "HTTPS redirection will be disabled. Management access will return to HTTP after the configuration is applied."
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:898
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:900
 msgid "The wireless name or password changed. Wireless clients will need to reconnect."
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1019
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1494
-msgid "Cancel"
-msgstr ""
-
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1028
-msgid "Discard and go back"
-msgstr ""
-
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1031
-msgid "Discard unsaved changes?"
-msgstr ""
-
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1035
-msgid "You have unsaved settings on this page. Going back to the mode selection discards them."
-msgstr ""
-
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1113
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:990
 msgid "Apply cancelled."
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1117
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:994
 #, javascript-format
 msgid "Configuration could not be saved. %s"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1130
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1007
 msgid "There are no changes to apply."
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1136
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1013
 msgid "Could not prepare the configuration apply. Please try again."
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1154
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1031
 #, javascript-format
 msgid "Apply request failed with status %s."
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1190
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1067
 msgid "Configuration applied without confirmation."
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1206
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1392
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1083
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1269
 msgid "The configuration could not be applied."
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1211
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1344
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1384
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1088
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1221
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1261
 msgid "Configuration confirmed. The new settings are kept."
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1294
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1171
 #, javascript-format
 msgid "If you do not confirm within %d seconds, the previous configuration is restored automatically."
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1302
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1179
 msgid "Keep configuration"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1310
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1187
 msgid "Roll back now"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1340
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1217
 msgid "Saving confirmation…"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1351
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1228
 msgid "The device did not confirm the configuration. Please try again."
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1361
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1375
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1238
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1252
 msgid "Restoring the previous configuration…"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1406
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1283
 msgid "The new settings were applied. Keep them, or the previous configuration will be restored automatically."
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1408
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1285
 msgid "Rollback in"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1410
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1287
 msgid "s"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1416
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1293
 #, javascript-format
 msgid "New management address: %s"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1419
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1296
 msgid "Confirm the new configuration"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1460
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1337
 msgid "Reconnect to the previous address"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1469
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1346
 msgid "Close"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1472
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1349
 msgid "Restoring the previous configuration"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1475
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1352
 msgid "The previous network settings are being restored. The connection will be interrupted; reconnect to the router once it is done."
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1476
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1353
 #, javascript-format
 msgid "Previous management address: %s"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1503
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1371
+msgid "Cancel"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1380
 msgid "Apply without confirmation"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1512
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1389
 msgid "Apply and disconnect"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1512
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1389
 msgid "Continue and apply"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1515
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1392
 msgid "What will happen"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1522
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1399
 msgid "Review before applying"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1526
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1403
 msgid "These changes affect how you reach this device. Review them before continuing."
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1530
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1407
 msgid "New management address"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1534
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1411
 msgid "“Apply without confirmation” skips the automatic rollback. If the new address is wrong, the device may become unreachable."
 msgstr ""
 
-#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1666
+#: htdocs/luci-static/resources/view/smartnetpilot/smartnetpilot.js:1539
 msgid "Configuration saved. Use “Save & Apply” to make it active."
 msgstr ""

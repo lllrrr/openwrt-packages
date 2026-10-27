@@ -8,7 +8,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-smartnetpilot
-PKG_VERSION:=1.1.1
+PKG_VERSION:=1.1.5
 PKG_RELEASE:=1
 
 PKG_LICENSE:=GPL-3.0-only

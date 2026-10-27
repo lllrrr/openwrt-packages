@@ -13,6 +13,8 @@
 
 var ROOT = 'smw-balance-root';
 
+var Form = smartmwan.ui.Form;
+
 /* 与 src/config/schema.rs::Algorithm 的 UCI 取值一一对应；
  * 顺序按「静态哈希 → 动态 → 加权」排列，便于用户按意图挑选。 */
 var ALGORITHMS = [
@@ -76,47 +78,82 @@ return view.extend({
 		if (this.base) {
 			var g = this.base.global;
 			var fields = [
-				smw.field('算法',
-					smw.select(ALGORITHMS, g.algorithm, function(v) {
-						self.stage(function(d) { d.global.algorithm = v; });
+				Form.field({
+					label: '算法',
+					control: Form.searchSelect({
+						options: ALGORITHMS,
+						value: g.algorithm,
+						onchange: function(v) {
+							self.stage(function(d) { d.global.algorithm = v; });
+						}
+					}).el,
+					help: '动态算法（最少连接/最少流量）会按统计窗口重排桶；' +
+						'加权 ECMP 依赖内核能力，不支持时会降级。'
+				}),
+				Form.field({
+					label: '桶数',
+					required: true,
+					control: Form.number({
+						value: g.buckets, min: 2, max: 256, step: 2,
+						onchange: function(v) {
+							self.stage(function(d) { d.global.buckets = parseInt(v, 10); });
+						}
 					}),
-					'动态算法（最少连接/最少流量）会按统计窗口重排桶；加权 ECMP 依赖内核能力，不支持时会降级。'),
-				smw.field('桶数',
-					smw.number(g.buckets, { min: 2, max: 256, step: 2 }, function(v) {
-						self.stage(function(d) { d.global.buckets = parseInt(v, 10); });
+					help: '桶越多分配越细，但规则数也随之增长；改动会重排全部新建连接。',
+					validate: Form.validators.intBetween(2, 256)
+				}),
+				Form.field({
+					label: '会话保持（已建立连接不换出口）',
+					control: Form.switch({
+						checked: !!g.conn_sticky,
+						onchange: function(v) {
+							self.stage(function(d) { d.global.conn_sticky = v; });
+						}
+					}).el,
+					help: '关闭后，桶重排会让已建立连接换出口（可能瞬断）。'
+				}),
+				Form.field({
+					label: '最小重排间隔（毫秒）',
+					required: true,
+					control: Form.number({
+						value: g.rebalance_interval_ms, min: 0, max: 600000, step: 100,
+						onchange: function(v) {
+							self.stage(function(d) { d.global.rebalance_interval_ms = parseInt(v, 10); });
+						}
 					}),
-					'桶越多分配越细，但规则数也随之增长；改动会重排全部新建连接。'),
-				smw.field('会话保持（已建立连接不换出口）',
-					smw.checkbox(!!g.conn_sticky, function(v) {
-						self.stage(function(d) { d.global.conn_sticky = v; });
-					}),
-					'关闭后，桶重排会让已建立连接换出口（可能瞬断）。'),
-				smw.field('最小重排间隔（毫秒）',
-					smw.number(g.rebalance_interval_ms, { min: 0, step: 100 }, function(v) {
-						self.stage(function(d) { d.global.rebalance_interval_ms = parseInt(v, 10); });
-					}),
-					'动态算法的重排节流：太小会让内核被反复重写。')
+					help: '动态算法的重排节流：太小会让内核被反复重写。',
+					validate: Form.validators.intBetween(0, 600000)
+				})
 			];
 
 			/* 权重：按线路逐条给输入框。权重只在加权算法下参与桶分配，
 			 * 这句话必须写出来，否则用户在纯哈希算法下调半天以为没生效。 */
 			var weightFields = (this.base.wans || []).map(function(w) {
-				return smw.field(w.name + ' 权重',
-					smw.number(w.weight, { min: 0, max: 1000, step: 1 }, function(v) {
-						self.stage(function(d) {
-							for (var i = 0; i < d.wans.length; i++)
-								if (d.wans[i].name === w.name)
-									d.wans[i].weight = parseInt(v, 10);
-						});
+				return Form.field({
+					label: w.name + ' 权重',
+					required: true,
+					control: Form.number({
+						value: w.weight, min: 0, max: 1000, step: 1,
+						onchange: function(v) {
+							self.stage(function(d) {
+								for (var i = 0; i < d.wans.length; i++)
+									if (d.wans[i].name === w.name)
+										d.wans[i].weight = parseInt(v, 10);
+							});
+						}
 					}),
-					'0 表示不参与分流');
+					help: '0 表示不参与分流',
+					validate: Form.validators.intBetween(0, 1000)
+				});
 			});
 
+			this.fields = fields.concat(weightFields);
+
 			root.appendChild(smw.section('均衡参数', [
-				E('div', { 'class': 'smw-form' }, fields)
+				E('div', { 'class': 'smw-form' }, fields.map(function(f) { return f.el; }))
 			]));
 			root.appendChild(smw.section('线路权重', [
-				E('div', { 'class': 'smw-form' }, weightFields),
+				E('div', { 'class': 'smw-form' }, weightFields.map(function(f) { return f.el; })),
 				E('p', { 'class': 'smw-muted' }, [
 					'权重只在「加权哈希 / 加权 ECMP / 动态算法」下参与桶分配；',
 					'纯哈希算法按哈希值均分，权重不生效。'
@@ -201,18 +238,18 @@ return view.extend({
 
 		function smwDirty() {
 			return smartmwan.dirty('有未保存的修改（保存后仍需「应用」才会下发到内核）', [
-				E('button', {
-					'class': 'btn cbi-button',
-					'click': ui.createHandlerFn(self, 'saveConfig', false)
-				}, [ '保存' ]),
-				E('button', {
-					'class': 'btn cbi-button cbi-button-apply important',
-					'click': ui.createHandlerFn(self, 'saveConfig', true)
-				}, [ '保存并应用' ]),
-				E('button', {
-					'class': 'btn cbi-button cbi-button-reset',
-					'click': function() { self.draft = null; self.renderActions(); }
-				}, [ '放弃修改' ])
+				smartmwan.button('保存', {
+					variant: 'text',
+					click: ui.createHandlerFn(self, 'saveConfig', false)
+				}),
+				smartmwan.button('保存并应用', {
+					variant: 'filled',
+					click: ui.createHandlerFn(self, 'saveConfig', true)
+				}),
+				smartmwan.button('放弃修改', {
+					variant: 'outlined',
+					click: function() { self.draft = null; self.renderActions(); }
+				})
 			]);
 		}
 	},
@@ -222,21 +259,26 @@ return view.extend({
 	 * 全局「保存」按钮，语义与本页的「保存并应用」完全不同。 */
 	saveConfig: function(applyAfter) {
 		var self = this;
+		var check = Form.validate(this.fields);
+		if (!check.ok) {
+			smartmwan.notify(E('p', [ '有字段填写不合法，请先修正标红的输入框。' ]), 'warning');
+			return;
+		}
 		var cfg = this.draft || this.base;
 		call('save')({ config: cfg }).then(function(env) {
 			if (!env || !env.ok) {
-				ui.addNotification(null, E('p', [
+				smartmwan.notify(E('p', [
 					'保存失败：' + ((env && env.error && env.error.message) || '未知错误')
 				]), 'error');
 				return null;
 			}
 			var changes = (env.data && env.data.changes) || [];
-			ui.addNotification(null, E('p', [
+			smartmwan.notify(E('p', [
 				'已写盘（' + changes.length + ' 项变更）',
 				E('ul', {}, changes.map(function(c) {
 					return E('li', {}, [ c.path + '：' + c.old + ' → ' + c.new ]);
 				}))
-			]), 'info');
+			]), 'success');
 			self.draft = null;
 			self.base = cfg;
 			self.renderActions();
@@ -248,23 +290,23 @@ return view.extend({
 				return;
 			if (env.ok) {
 				var r = env.data || {};
-				ui.addNotification(null, E('p', [
+				smartmwan.notify(E('p', [
 					'事务 ' + r.id + '：' +
 					(r.ok ? (r.changed ? '已提交' : '无变更（幂等复核通过）') : '未提交')
 				]), 'info');
 			} else {
-				ui.addNotification(null, E('p', [
+				smartmwan.notify(E('p', [
 					'应用失败：' + ((env.error && env.error.message) || '未知错误')
 				]), 'error');
 			}
 			smartmwan.refresh(self, ROOT);
 		}).catch(function(e) {
-			ui.addNotification(null, E('p', [ 'RPC 失败：' + e ]), 'error');
+			smartmwan.notify(E('p', [ 'RPC 失败：' + e ]), 'error');
 		});
 	},
 
 	errorBox: function(msg) {
-		return 'balance', E('div', { 'id': ROOT, 'class': 'smw-state smw-state-error alert-message warning' }, [
+		return 'balance', E('div', { 'id': ROOT, 'class': 'smw-state smw-state-error' }, [
 			E('strong', {}, [ 'RPC 失败：' ]),
 			E('span', {}, [ msg || '无法读取均衡状态' ])
 		]);

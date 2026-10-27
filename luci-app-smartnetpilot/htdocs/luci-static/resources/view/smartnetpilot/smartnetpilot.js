@@ -392,7 +392,7 @@ return view.extend({
 	renderChooser: function(currentMode) {
 		var info = modeInfo(currentMode);
 		var root = E('div', { 'class': 'snp-app snp-chooser' + themeClass() });
-		var wifiLabel = this._hasWifi ? (this._wifiSsid || _('Not configured')) : _('No wireless radio');
+		var wifiLabel = this._hasWifi ? (this._wifiSsid || _('Not configured')) : _('No wireless card detected');
 		var httpsLabel = this._initialHttps ? _('Enabled') : _('Disabled');
 
 		this._root = root;
@@ -411,6 +411,7 @@ return view.extend({
 				E('div', { 'class': 'snp-hero-meta' }, [
 					E('span', { 'class': 'snp-chip' }, [ E('span', { 'class': 'snp-chip-dot' }), _('Automatic light and dark theme') ]),
 					E('span', { 'class': 'snp-chip' }, [ icon('shield'), _('Validated before apply') ]),
+					E('span', { 'class': 'snp-chip' }, [ icon('refresh'), _('Rollback within 120 s') ]),
 					E('span', { 'class': 'snp-chip' }, [ icon('wifi'), _('IPv4 and IPv6') ])
 				])
 			]),
@@ -427,6 +428,10 @@ return view.extend({
 				this._modeCard('pppoe', currentMode),
 				this._modeCard('dhcp', currentMode),
 				this._modeCard('siderouter', currentMode)
+			]),
+			E('div', { 'class': 'snp-help-strip' }, [
+				icon('info'),
+				E('span', {}, _('Not sure which to choose? Pick “PPPoE Dial-up” if you need to sign in with the broadband account and password from your ISP; pick “DHCP Client” if this device joins an existing network as an auxiliary or extension node.'))
 			])
 		]));
 
@@ -503,7 +508,6 @@ return view.extend({
 
 		this._root = root;
 		this._mode = mode;
-		this._formBaseline = null;
 
 		root.appendChild(E('section', { 'class': 'snp-hero' }, [
 			E('div', { 'class': 'snp-hero-copy' }, [
@@ -576,8 +580,6 @@ return view.extend({
 			self._activateTab(root, requestedTab || 'wansetup');
 			self._buildHeroTabs(root);
 			window.setTimeout(syncTheme, 120);
-
-			self._formBaseline = self._collectFormValues();
 
 			return root;
 		});
@@ -912,141 +914,18 @@ return view.extend({
 		};
 	},
 
-	// LuCI only writes the widget inputs into UCI when the form is saved, so
-	// the current values have to be read back from the widgets themselves and
-	// compared against the snapshot taken right after rendering.
-	_collectFormValues: function() {
-		var values = {};
-		var map = this._map;
-		var section = null;
-
-		if (!map || !Array.isArray(map.children))
-			return values;
-
-		for (var i = 0; i < map.children.length; i++) {
-			var child = map.children[i];
-
-			if (child && typeof child.section == 'string' && Array.isArray(child.children)) {
-				section = child;
-				break;
-			}
-		}
-
-		if (!section)
-			return values;
-
-		var sid = section.section;
-
-		var normalize = function(value) {
-			var items = L.toArray(value);
-			var parts = [];
-
-			for (var j = 0; j < items.length; j++) {
-				if (items[j] == null)
-					continue;
-
-				var text = String(items[j]);
-
-				if (text.length)
-					parts.push(text);
-			}
-
-			return parts.join('\n');
-		};
-
-		for (var j = 0; j < section.children.length; j++) {
-			var option = section.children[j];
-
-			if (!option || typeof option.option != 'string' || typeof option.formvalue != 'function')
-				continue;
-
-			try {
-				if (typeof option.isActive == 'function' && !option.isActive(sid))
-					continue;
-
-				values[option.option] = normalize(option.formvalue(sid));
-			}
-			catch (e) {
-				/* A widget that is not rendered cannot have been edited. */
-			}
-		}
-
-		return values;
-	},
-
-	_hasUnsavedChanges: function() {
-		if (!this._formBaseline)
-			return false;
-
-		var current = this._collectFormValues();
-		var key;
-
-		for (key in this._formBaseline)
-			if (current[key] !== this._formBaseline[key])
-				return true;
-
-		for (key in current)
-			if (current[key] !== this._formBaseline[key])
-				return true;
-
-		return false;
-	},
-
 	_handleChangeMode: function(ev, target) {
 		// Leave clicks that ask the browser to open a new tab or window alone.
 		if (ev.button !== 0 || ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.altKey)
 			return;
 
 		ev.preventDefault();
-
-		if (!this._hasUnsavedChanges()) {
-			window.location.href = target;
-			return;
-		}
-
-		this._confirmDiscardChanges(target);
+		this._discardAndLeave(target);
 	},
 
-	_confirmDiscardChanges: function(target) {
-		var self = this;
-
-		var cancelButton = E('button', {
-			'type': 'button',
-			'class': 'snp-btn snp-btn-ghost',
-			'click': function() {
-				self._closeModal();
-			}
-		}, _('Cancel'));
-
-		var discardButton = E('button', {
-			'type': 'button',
-			'class': 'snp-btn snp-btn-primary',
-			'click': function() {
-				self._closeModal();
-				self._discardAndLeave(target);
-			}
-		}, _('Discard and go back'));
-
-		this._showModal({
-			title: _('Discard unsaved changes?'),
-			icon: 'alert',
-			iconClass: 'is-warning',
-			body: [
-				E('p', {}, _('You have unsaved settings on this page. Going back to the mode selection discards them.'))
-			],
-			actions: [ cancelButton, discardButton ],
-			dismissible: true
-		});
-
-		window.setTimeout(function() {
-			if (cancelButton.parentNode)
-				cancelButton.focus();
-		}, 30);
-	},
-
-	// Re-render the form from the saved configuration so the unsaved inputs
-	// are gone, then open the mode chooser. The full page load that follows
-	// resets the in-memory UCI buffer as well.
+	// LuCI keeps the edited widget values in the form until they are saved, so
+	// re-rendering the form from the saved configuration is what clears them.
+	// The full page load that follows resets the in-memory UCI buffer as well.
 	_discardAndLeave: function(target) {
 		var navigate = function() {
 			window.location.href = target;
@@ -1062,8 +941,6 @@ return view.extend({
 				reset = null;
 			}
 		}
-
-		this._formBaseline = null;
 
 		if (reset && typeof reset.then == 'function')
 			reset.then(navigate, navigate);
@@ -1656,10 +1533,6 @@ return view.extend({
 				self._decorateForm(self._root);
 				self._activateTab(self._root, activeTab || 'wansetup');
 				self._syncHeroTabs(self._root);
-
-				// Saving re-renders the form, so the saved values become the
-				// new baseline for the unsaved-changes check.
-				self._formBaseline = self._collectFormValues();
 			}
 
 			if (!self._applying)

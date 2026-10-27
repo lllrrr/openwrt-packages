@@ -1,0 +1,818 @@
+/*
+ * smartmwan 弹层组件样式（overlay.css）
+ *
+ * 覆盖：遮罩 / Dialog / Drawer / Bottom Sheet / Confirm / Toast / Popover /
+ *      Tooltip / Loading / Skeleton / Progress。
+ *
+ * 设计令牌全部来自 smartmwan.css 的 --smw-*（定义在 body 上，弹层挂在 body 下
+ * 因此可以继承）。本文件不定义任何颜色字面量，只引用令牌 —— 这样暗色、
+ * 主题换色、对比度调整都只改一处。
+ *
+ * 三条布局约束：
+ *   1. 弹层挂 body、position:fixed：不受父容器 overflow 影响；
+ *   2. 头部与底部操作栏固定，只有内容区滚动 —— 长表单滚到底时按钮仍然在；
+ *   3. 手机端统一贴底（safe-area + 键盘避让），桌面端居中/侧滑。
+ */
+
+/* ==================== 遮罩 ==================== */
+
+.smw-scrim {
+	position: fixed;
+	inset: 0;
+	background: var(--smw-scrim);
+	opacity: 0;
+	transition: opacity var(--smw-dur-med) var(--smw-ease);
+	/* 遮罩自己不吃点击（点它由 JS 判断），但要能挡住下层交互。 */
+	overscroll-behavior: contain;
+}
+
+.smw-scrim.smw-open {
+	opacity: 1;
+}
+
+.smw-scrim.smw-closing {
+	opacity: 0;
+}
+
+/* 不可点击关闭时给一点视觉差异：遮罩更淡，暗示「必须做出选择」。 */
+.smw-scrim-static {
+	background: var(--smw-scrim);
+}
+
+/* ==================== 面板骨架 ==================== */
+
+.smw-overlay {
+	position: fixed;
+	display: flex;
+	flex-direction: column;
+	max-height: calc(100vh - 48px);
+	background: var(--smw-surface-container);
+	color: var(--smw-on-surface);
+	box-shadow: var(--smw-shadow-3);
+	overflow: hidden;
+	/* 关闭动画期间不接受交互：避免动画中的按钮被再点一次。 */
+	outline: none;
+}
+
+.smw-overlay.smw-closing {
+	pointer-events: none;
+}
+
+/* 头部：标题 + 描述 + 关闭按钮。固定，不随内容滚动。 */
+.smw-overlay-head {
+	position: relative;
+	flex: 0 0 auto;
+	display: flex;
+	align-items: flex-start;
+	gap: 12px;
+	padding: 20px 16px 8px 24px;
+}
+
+.smw-overlay-heading {
+	flex: 1 1 auto;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.smw-overlay-title {
+	margin: 0;
+	font-size: 22px;
+	font-weight: 400;
+	line-height: 28px;
+	color: var(--smw-on-surface);
+}
+
+.smw-overlay-desc {
+	margin: 0;
+	font-size: 13px;
+	line-height: 20px;
+	color: var(--smw-on-surface-variant);
+}
+
+.smw-overlay-close {
+	flex: 0 0 auto;
+	margin: -4px -4px 0 0;
+}
+
+/* 内容区：唯一可滚动的一段。左边距给滚动条留空间由浏览器处理，
+ * 关键是不让内容顶到头部/底部的边界上。 */
+.smw-overlay-body {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+	-webkit-overflow-scrolling: touch;
+	overscroll-behavior: contain;
+	padding: 8px 24px 8px;
+	font-size: 14px;
+	line-height: 20px;
+}
+
+.smw-overlay-body > * + * {
+	margin-top: 12px;
+}
+
+.smw-overlay-body p {
+	margin: 0;
+}
+
+/* 底部操作栏：固定。手机上按钮竖排全宽，主操作落在靠下的位置（拇指热区）。 */
+.smw-overlay-foot {
+	flex: 0 0 auto;
+	padding: 8px 24px 20px;
+}
+
+.smw-overlay-actions {
+	display: flex;
+	justify-content: flex-end;
+	align-items: center;
+	gap: 8px;
+}
+
+.smw-overlay-actions .smw-btn {
+	min-height: 44px;
+}
+
+.smw-overlay-foot-extra {
+	margin-bottom: 8px;
+	font-size: 12px;
+	color: var(--smw-on-surface-variant);
+}
+
+/* 状态区：提交中 / 成功 / 失败的就地反馈（不关闭也能看见结论）。 */
+.smw-overlay-status {
+	flex: 0 0 auto;
+	margin: 0 24px 8px;
+	padding: 10px 12px;
+	border-radius: 8px;
+	font-size: 13px;
+	line-height: 18px;
+}
+
+.smw-overlay-status[hidden] {
+	display: none;
+}
+
+.smw-overlay-status.smw-is-loading {
+	background: var(--smw-surface-container-high);
+	color: var(--smw-on-surface-variant);
+}
+
+.smw-overlay-status.smw-is-success {
+	background: var(--smw-ok-bg);
+	color: var(--smw-ok);
+}
+
+.smw-overlay-status.smw-is-error {
+	background: var(--smw-error-container);
+	color: var(--smw-on-error-container);
+}
+
+/* ==================== Dialog（居中） ==================== */
+
+/* 居中用 inset:0 + margin:auto + 固定宽度 + 高度自适应：
+ * 不用 transform 做居中，transform 专门留给缩放动画，两者不打架。 */
+.smw-overlay--dialog {
+	inset: 0;
+	margin: auto;
+	width: 560px;
+	height: fit-content;
+	max-width: calc(100vw - 32px);
+	max-height: calc(100vh - 48px);
+	border-radius: var(--smw-radius-dialog);
+	opacity: 0;
+	transform: scale(0.96);
+	transition: opacity var(--smw-dur-med) var(--smw-ease),
+		transform var(--smw-dur-med) var(--smw-ease-emph);
+}
+
+.smw-overlay--dialog.smw-open {
+	opacity: 1;
+	transform: none;
+}
+
+.smw-overlay--dialog.smw-closing {
+	opacity: 0;
+	transform: scale(0.96);
+}
+
+/* 四档宽度：小确认 400 / 标准表单 560 / 宽屏 840 / 超宽 1080。
+ * 所有档位都受视口限制，绝不产生横向溢出。 */
+.smw-overlay--dialog.smw-size-sm { width: 400px; }
+.smw-overlay--dialog.smw-size-md { width: 560px; }
+.smw-overlay--dialog.smw-size-lg { width: 840px; }
+.smw-overlay--dialog.smw-size-xl { width: 1080px; }
+
+/* ==================== Drawer（右侧） ==================== */
+
+.smw-overlay--drawer {
+	top: 0;
+	right: 0;
+	bottom: 0;
+	width: 480px;
+	max-width: 100vw;
+	max-height: 100vh;
+	border-radius: 0;
+	transform: translateX(100%);
+	transition: transform var(--smw-dur-slow) var(--smw-ease-emph);
+}
+
+.smw-overlay--drawer.smw-open {
+	transform: none;
+}
+
+.smw-overlay--drawer.smw-closing {
+	transform: translateX(100%);
+}
+
+/* ==================== Bottom Sheet ==================== */
+
+.smw-overlay--sheet {
+	left: 0;
+	right: 0;
+	bottom: 0;
+	margin: 0 auto;
+	width: 100%;
+	max-width: 640px;
+	max-height: 88vh;
+	border-radius: var(--smw-radius-sheet) var(--smw-radius-sheet) 0 0;
+	transform: translateY(100%);
+	transition: transform var(--smw-dur-slow) var(--smw-ease-emph);
+	/* 手势导航条区域留白：按钮不能被系统手势条压住。 */
+	padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+.smw-overlay--sheet.smw-open {
+	transform: none;
+}
+
+.smw-overlay--sheet.smw-closing {
+	transform: translateY(100%);
+}
+
+/* 拖动关闭：面板跟手时不要过渡，松手回弹才有。 */
+.smw-overlay.smw-dragging {
+	transition: none !important;
+}
+
+/* 拖动把手：32x4dp。它是「可下滑关闭」的唯一视觉承诺，
+ * 只有 sheet 渲染它（dialog/drawer 没有这个手势）。 */
+.smw-overlay-grip {
+	width: 32px;
+	height: 4px;
+	margin: 0 auto 12px;
+	border-radius: 2px;
+	background: var(--smw-outline-variant);
+	flex: 0 0 auto;
+}
+
+.smw-overlay--sheet .smw-overlay-head {
+	padding-top: 12px;
+	flex-direction: column;
+	align-items: stretch;
+	touch-action: none;      /* 从头部拖动时不要触发页面滚动 */
+}
+
+.smw-overlay--sheet .smw-overlay-close {
+	position: absolute;
+	top: 8px;
+	right: 8px;
+}
+
+/* ==================== Confirm（危险确认） ==================== */
+
+.smw-overlay--confirm .smw-overlay-body {
+	padding-bottom: 12px;
+}
+
+.smw-confirm-title {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.smw-confirm-title .smw-icon {
+	color: var(--smw-error);
+}
+
+.smw-confirm-msg {
+	font-size: 14px;
+	line-height: 20px;
+}
+
+.smw-confirm-details {
+	margin: 8px 0 0;
+	padding-left: 20px;
+	font-size: 13px;
+	line-height: 20px;
+	color: var(--smw-on-surface-variant);
+}
+
+.smw-confirm-details li + li {
+	margin-top: 4px;
+}
+
+/* 连接中断风险：单独一条 tonal 提示，比塞进正文更显眼。 */
+.smw-confirm-risk {
+	display: flex;
+	gap: 8px;
+	align-items: flex-start;
+	margin-top: 12px;
+	padding: 10px 12px;
+	border-radius: 8px;
+	background: var(--smw-warn-bg);
+	color: var(--smw-on-surface);
+	font-size: 13px;
+	line-height: 18px;
+}
+
+.smw-confirm-risk .smw-icon {
+	color: var(--smw-warn);
+	margin-top: 1px;
+}
+
+/* 二次确认输入（critical）：要求原样输入指定文字才能继续。 */
+.smw-confirm-type {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin-top: 12px;
+}
+
+.smw-confirm-type-label {
+	font-size: 12px;
+	line-height: 16px;
+	color: var(--smw-on-surface-variant);
+}
+
+.smw-confirm-type-label code {
+	padding: 1px 6px;
+	border-radius: 4px;
+	background: var(--smw-surface-container-high);
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	color: var(--smw-on-surface);
+}
+
+/* ==================== Toast ==================== */
+
+/* 通知容器：桌面右下、手机底部。层级固定高于弹层，
+ * 因为弹层里的操作也要给反馈，不能被自己的遮罩盖住。 */
+.smw-toasts {
+	position: fixed;
+	z-index: var(--smw-z-toast);
+	right: 24px;
+	bottom: 24px;
+	display: flex;
+	flex-direction: column-reverse;
+	gap: 8px;
+	width: min(400px, calc(100vw - 48px));
+	pointer-events: none;    /* 容器不挡页面，单条通知自己恢复交互 */
+}
+
+.smw-toast {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+	padding: 12px 8px 12px 14px;
+	border-radius: 8px;
+	background: var(--smw-surface-container-high);
+	color: var(--smw-on-surface);
+	box-shadow: var(--smw-shadow-2);
+	border-left: 4px solid var(--smw-outline);
+	font-size: 14px;
+	line-height: 20px;
+	pointer-events: auto;
+	animation: smw-toast-in var(--smw-dur-med) var(--smw-ease-emph);
+}
+
+.smw-toast-success { border-left-color: var(--smw-ok); }
+.smw-toast-warning { border-left-color: var(--smw-warn); }
+.smw-toast-error { border-left-color: var(--smw-bad); }
+.smw-toast-info { border-left-color: var(--smw-info); }
+.smw-toast-progress { border-left-color: var(--smw-primary); }
+
+/* 图标与左侧色条同时表达语义：不靠颜色单独传递状态。 */
+.smw-toast-icon {
+	display: flex;
+	align-items: center;
+	margin-top: 1px;
+	color: var(--smw-outline);
+}
+
+.smw-toast-success .smw-toast-icon { color: var(--smw-ok); }
+.smw-toast-warning .smw-toast-icon { color: var(--smw-warn); }
+.smw-toast-error .smw-toast-icon { color: var(--smw-bad); }
+.smw-toast-info .smw-toast-icon { color: var(--smw-info); }
+.smw-toast-progress .smw-toast-icon { color: var(--smw-primary); }
+
+.smw-toast-text {
+	flex: 1 1 auto;
+	min-width: 0;
+	word-break: break-word;
+	padding-top: 1px;
+}
+
+.smw-toast-details {
+	flex: 0 0 100%;
+	margin: 4px 0 0;
+	padding-left: 18px;
+	font-size: 12px;
+	line-height: 16px;
+	color: var(--smw-on-surface-variant);
+}
+
+.smw-toast-action {
+	flex: 0 0 auto;
+	padding: 2px 8px;
+	border: none;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--smw-primary);
+	font: inherit;
+	font-size: 13px;
+	font-weight: 500;
+	cursor: pointer;
+}
+
+.smw-toast-action:hover {
+	background: var(--smw-muted-bg);
+}
+
+.smw-toast-close {
+	flex: 0 0 auto;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	border: none;
+	border-radius: 50%;
+	background: transparent;
+	color: var(--smw-on-surface-variant);
+	cursor: pointer;
+}
+
+.smw-toast-close:hover {
+	background: var(--smw-muted-bg);
+}
+
+/* 重复通知：不新建，只闪一下顶到最前。 */
+.smw-toast-flash {
+	animation: smw-toast-flash 600ms var(--smw-ease);
+}
+
+.smw-toast-out {
+	animation: smw-toast-out 200ms var(--smw-ease) forwards;
+}
+
+/* 进行中：图标位置换成转圈，提示「还在做事」。 */
+.smw-toast-progress .smw-toast-icon .smw-icon {
+	display: none;
+}
+
+.smw-toast-progress .smw-toast-icon::after {
+	content: "";
+	width: 18px;
+	height: 18px;
+	border: 2px solid var(--smw-primary);
+	border-top-color: transparent;
+	border-radius: 50%;
+	animation: smw-spin 0.8s linear infinite;
+}
+
+@keyframes smw-spin {
+	to { transform: rotate(360deg); }
+}
+
+@keyframes smw-toast-in {
+	from { opacity: 0; transform: translateY(8px) scale(0.98); }
+}
+
+@keyframes smw-toast-out {
+	to { opacity: 0; transform: translateY(4px) scale(0.98); }
+}
+
+@keyframes smw-toast-flash {
+	0%, 100% { box-shadow: var(--smw-shadow-2); }
+	40% { box-shadow: 0 0 0 3px var(--smw-primary-container), var(--smw-shadow-2); }
+}
+
+/* ==================== Popover ==================== */
+
+/* 挂 body 的绝对定位浮层：逃逸父级 overflow，位置由 smwcore.place 计算。 */
+.smw-popover {
+	position: fixed;
+	left: 0;
+	top: 0;
+	min-width: 140px;
+	max-width: calc(100vw - 16px);
+	background: var(--smw-surface-container-high);
+	color: var(--smw-on-surface);
+	border-radius: 12px;
+	box-shadow: var(--smw-shadow-3);
+	padding: 4px;
+	opacity: 0;
+	transform: scale(0.97);
+	transform-origin: top center;
+	transition: opacity 160ms var(--smw-ease), transform 160ms var(--smw-ease);
+}
+
+.smw-popover.smw-open {
+	opacity: 1;
+	transform: none;
+}
+
+/* 内容自带内边距的浮层（如搜索式下拉）不再叠一层。 */
+.smw-popover-plain {
+	padding: 0;
+}
+
+/* 浮层内的菜单项 */
+.smw-popover .smw-menu-item {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	width: 100%;
+	padding: 10px 12px;
+	border: none;
+	border-radius: 8px;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	font-size: 14px;
+	line-height: 20px;
+	text-align: left;
+	cursor: pointer;
+}
+
+.smw-popover .smw-menu-item:hover,
+.smw-popover .smw-menu-item:focus-visible {
+	background: var(--smw-muted-bg);
+	outline: none;
+}
+
+/* ==================== Tooltip ==================== */
+
+.smw-tooltip {
+	position: fixed;
+	left: 0;
+	top: 0;
+	z-index: var(--smw-z-tooltip);
+	max-width: 260px;
+	padding: 6px 10px;
+	border-radius: 6px;
+	background: var(--smw-on-surface);
+	color: var(--smw-surface);
+	font-size: 12px;
+	line-height: 16px;
+	letter-spacing: 0.2px;
+	box-shadow: var(--smw-shadow-2);
+	opacity: 0;
+	transition: opacity 120ms var(--smw-ease);
+	pointer-events: none;    /* 气泡不接鼠标，避免和 hover 打架 */
+}
+
+.smw-tooltip.smw-open {
+	opacity: 1;
+}
+
+/* ==================== Loading / Progress ==================== */
+
+/* 区域加载：盖住目标容器。用高不透明度纯色而不是毛玻璃 ——
+ * 模糊会把底下的内容变成噪声，反而是层级设计不清晰的表现。 */
+.smw-loading-region {
+	position: absolute;
+	inset: 0;
+	z-index: 5;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 12px;
+	padding: 16px;
+	border-radius: inherit;
+	background: color-mix(in srgb, var(--smw-surface) 92%, transparent);
+	color: var(--smw-on-surface-variant);
+	font-size: 13px;
+	text-align: center;
+}
+
+.smw-loading-region.smw-is-error {
+	background: var(--smw-error-container);
+	color: var(--smw-on-error-container);
+}
+
+.smw-loading-text {
+	font-size: 13px;
+	line-height: 18px;
+}
+
+.smw-spinner {
+	width: 24px;
+	height: 24px;
+	border: 3px solid var(--smw-outline-variant);
+	border-top-color: var(--smw-primary);
+	border-radius: 50%;
+	animation: smw-spin 0.8s linear infinite;
+	flex: 0 0 auto;
+}
+
+/* 骨架屏：只做「内容即将出现」的形状暗示，不放具体文字。 */
+.smw-skeleton {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	padding: 4px 0;
+}
+
+.smw-skeleton-line {
+	height: 12px;
+	border-radius: 6px;
+	background: linear-gradient(90deg,
+		var(--smw-surface-container-high) 0%,
+		var(--smw-surface-container) 50%,
+		var(--smw-surface-container-high) 100%);
+	background-size: 200% 100%;
+	animation: smw-skeleton 1.4s var(--smw-ease) infinite;
+}
+
+.smw-skeleton-short {
+	width: 60%;
+}
+
+@keyframes smw-skeleton {
+	from { background-position: 200% 0; }
+	to { background-position: -200% 0; }
+}
+
+/* 进度条：确定态显示真实比例；不确定态是一段来回跑的条，
+ * 不编造百分比（没有真实进度就不该出现数字）。 */
+.smw-progress-wrap {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.smw-progress-label {
+	font-size: 12px;
+	line-height: 16px;
+	color: var(--smw-on-surface-variant);
+}
+
+.smw-progress {
+	position: relative;
+	height: 4px;
+	border-radius: 2px;
+	background: var(--smw-surface-container-high);
+	overflow: hidden;
+}
+
+.smw-progress-bar {
+	height: 100%;
+	width: 0;
+	border-radius: 2px;
+	background: var(--smw-primary);
+	transition: width var(--smw-dur-med) var(--smw-ease);
+}
+
+.smw-progress-indeterminate .smw-progress-bar {
+	width: 40% !important;
+	animation: smw-progress-run 1.2s var(--smw-ease) infinite;
+}
+
+@keyframes smw-progress-run {
+	from { transform: translateX(-100%); }
+	to { transform: translateX(250%); }
+}
+
+/* ==================== 平板（768–1023） ==================== */
+
+/* 宽屏弹窗在平板上收窄到视口内，避免 1080px 的对话框被裁掉两侧。 */
+@media (max-width: 1023.98px) {
+	.smw-overlay--dialog.smw-size-lg,
+	.smw-overlay--dialog.smw-size-xl {
+		width: calc(100vw - 48px);
+	}
+
+	.smw-overlay--drawer {
+		width: min(560px, 88vw);
+	}
+}
+
+/* ==================== 手机（< 768） ==================== */
+
+/* 标准弹窗转底部面板：拇指够得到操作按钮，也符合移动端心智。
+ * 用 .smw-keep-dialog 可以保留居中（小型确认框用）。 */
+@media (max-width: 767.98px) {
+	.smw-overlay--dialog:not(.smw-keep-dialog) {
+		inset: auto 0 0 0;
+		margin: 0;
+		width: 100%;
+		max-width: none;
+		height: auto;
+		max-height: 92dvh;
+		border-radius: var(--smw-radius-sheet) var(--smw-radius-sheet) 0 0;
+		transform: translateY(100%);
+		padding-bottom: env(safe-area-inset-bottom, 0);
+	}
+
+	.smw-overlay--dialog:not(.smw-keep-dialog).smw-open {
+		transform: none;
+	}
+
+	.smw-overlay--dialog:not(.smw-keep-dialog).smw-closing {
+		opacity: 1;
+		transform: translateY(100%);
+	}
+
+	/* 窄屏确认框仍然居中，但宽度跟随视口。 */
+	.smw-overlay--dialog.smw-keep-dialog {
+		width: calc(100vw - 32px);
+		max-height: calc(100dvh - 48px);
+	}
+
+	.smw-overlay--drawer {
+		width: 100%;
+		max-width: none;
+	}
+
+	.smw-overlay--sheet {
+		max-width: none;
+		max-height: 94dvh;
+	}
+
+	/* 内边距收紧一档，内容区多留出两行的高度。 */
+	.smw-overlay-head {
+		padding: 16px 8px 8px 16px;
+	}
+
+	.smw-overlay-body {
+		padding: 8px 16px;
+	}
+
+	.smw-overlay-foot {
+		padding: 8px 16px max(16px, env(safe-area-inset-bottom, 0px));
+	}
+
+	.smw-overlay-status {
+		margin: 0 16px 8px;
+	}
+
+	/* 动作按钮竖排全宽：横排时两个按钮各占一半，手指容易点错。 */
+	.smw-overlay-actions {
+		flex-direction: column;
+		align-items: stretch;
+	}
+
+	.smw-overlay-actions .smw-btn {
+		min-height: var(--smw-control-h-touch);
+		width: 100%;
+	}
+
+	.smw-overlay-title {
+		font-size: 20px;
+		line-height: 26px;
+	}
+
+	/* 通知贴底全宽，避开手势条。 */
+	.smw-toasts {
+		left: 12px;
+		right: 12px;
+		bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+		width: auto;
+	}
+
+	.smw-toast {
+		font-size: 14px;
+	}
+
+	/* 触摸设备没有 hover：图标按钮放大到 44dp 命中区。 */
+	.smw-icon-btn {
+		width: 44px;
+		height: 44px;
+	}
+
+	/* 选择面板在窄屏上占满可用宽度，避免 260px 固定宽把浮层推出屏幕。 */
+	.smw-select-panel {
+		width: min(360px, calc(100vw - 24px));
+	}
+}
+
+/* ==================== 减少动效 ==================== */
+
+@media (prefers-reduced-motion: reduce) {
+	.smw-scrim,
+	.smw-overlay,
+	.smw-popover,
+	.smw-tooltip,
+	.smw-toast,
+	.smw-progress-bar,
+	.smw-skeleton-line,
+	.smw-spinner,
+	.smw-toast-progress .smw-toast-icon::after {
+		transition: none;
+		animation: none;
+	}
+}

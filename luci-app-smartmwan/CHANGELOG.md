@@ -3,7 +3,14 @@
 遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格，
 版本号遵循语义化版本。**未发布**段落反映当前工作树，而非某个已归档标签。
 
-## [未发布] — 0.4.0-dev
+## [未发布]
+
+（下一轮改动写在这里。）
+
+## [0.5.0] — 2026-10-27
+
+首个可运行的完整版本：后端七层 + 守护进程 + 前端组件系统 + 打包。
+0.4.0 是开发期版本号，从未打 tag 或发布，因此首版直接用 0.5.0。
 
 ### 新增
 
@@ -233,6 +240,29 @@
   `smartmwan.js` 新增 `section/stat/kv/field/select/number/checkbox/dirty/tick` 零件；
   总览页补实时吞吐与抖动列、桶分布条形图、最近事务回执；线路页补概览卡片。
   编辑页**刻意不占用** LuCI 的 `handleSave` 保留钩子（另起 `saveConfig()`）。
+* **前端组件系统（弹层 / 反馈 / 浮层 / 表单 / 加载，2026-10-27）**：新增五个平级模块
+  `smwcore.js`（层级栈、滚动锁引用计数、焦点陷阱与恢复、锚定定位、SVG 图标、断点）、
+  `smwoverlay.js`（Dialog 四档尺寸 / Drawer 右侧 / Bottom Sheet / Confirm）、
+  `smwfeedback.js`（Toast 四类语义 + 去重 + 上限 + 进度态迁移、Loading/Progress/骨架屏）、
+  `smwform.js`（字段包装 + 12 种控件 + 校验器）、`smwpopover.js`（Popover / Tooltip）；
+  `smartmwan.js` 聚合为 `smw.ui.*` 并保留旧 API 兼容；样式拆为
+  `smartmwan.css`（设计令牌与页面级）与 `overlay.css`（弹层），全部限定 `.smw-` 作用域，
+  令牌统一 `--smw-*` 且优先继承 LuCI 主题变量。
+  **交互契约**：确认框初始焦点落在「取消」、危险等级用图标+动词+可选文字确认三重表达、
+  提交期间不可关闭且重复点击丢弃、失败就地显示并可重试、`beforeClose` 支持未保存拦截、
+  关闭时归还焦点/滚动锁/层级/监听器、ESC 只作用于最上层。
+  **响应式**：移动优先，768/1024 两个断点；Dialog 在手机上转底部面板（DOM 不变），
+  Sheet 适配安全区与虚拟键盘，手机端动作按钮竖排全宽 48px。
+  **验证**：`scripts/ui-smoke.js`（194 项，含 6 个视图渲染与全部组件交互契约）、
+  `scripts/ui-preview.html`（加载真实模块与样式，供浏览器核对）；
+  headless Chromium 在 1280/500/360 视口与深色模式下截图核对。
+  修复过程中抓到的三个真实缺陷：`E()` 嵌套数组导致的多处 `[object HTML…]`、
+  `content-box` 导致 360px 屏幕上输入框溢出、`Form.field` 传入 `{el,input}` 时的晦涩报错。
+* **视图迁移**：7 个视图的 51 处 `ui.addNotification` 全部改为 Toast；
+  健康检测 / 均衡参数 / 回切策略改用统一 Form 控件（label 关联、失焦校验、错误行）；
+  配置导入导出从内联 textarea 改为 Drawer（带未保存拦截与失败重试）；
+  「更多操作」收进 Popover 菜单；变更超过 5 项时可开宽屏 Dialog 查看全部；
+  游戏页命中列头加 Tooltip 说明口径。
 * **集成测试六件套 `tests/`**（此前该目录全空）：`config` / `health` / `scheduler` /
   `failover` / `rules` / `transaction`，共 33 条。串的是**跨模块路径**
   （手写 UCI → 解析 → 校验 → 保存 → diff；健康状态机时间线；七种算法与权重的桶图效果；

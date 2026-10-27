@@ -7,12 +7,22 @@
  *   * 信封解析：桥原样透传 {ok, data, error{code,message,details}}，四态判定只此一份；
  *   * 四态渲染：加载中 / 空 / 无权限 / RPC 失败，全部如实，不写「正常」占位；
  *   * 轮询生命周期：poll.add/remove 成对，切页自停（下一 tick 发现容器已不在文档即自行摘除）；
- *   * 展示格式化：毫秒、千分比、字节、时间。
+ *   * 展示格式化：毫秒、千分比、字节、时间；
+ *   * 组件系统入口：Dialog / Drawer / Sheet / Confirm / Toast / Loading /
+ *     Popover / Tooltip / Form 统一挂在 smw.ui 下（实现分在 smwcore、
+ *     smwoverlay、smwfeedback、smwform、smwpopover 五个模块里）；
+ *   * 兼容层：smw.sheet / smw.confirm / smw.alert / smw.button 保留旧签名，
+ *     内部转发到组件系统，老视图不用改。
  *
  * 诚实性约束（任务书）：任何「状态」必须来自 RPC 字段或后端 notes，
  * 本文件不提供任何「猜测良好」的辅助函数。
  */
 'require poll';
+'require smwcore';
+'require smwoverlay';
+'require smwfeedback';
+'require smwform';
+'require smwpopover';
 /* 注意：L 与 E 由 LuCI 加载器注入为全局，无需声明；poll/rpc/uci 等模块必须显式
  * require —— 真机实证：漏声明时运行到 `poll.add` 抛 "poll is not defined"。 */
 
@@ -73,7 +83,7 @@ var smw = L.Class.extend({
 				E('em', {}, [ opts.emptyText || '暂无数据' ]));
 
 		if (parsed.state == 'error')
-			return E('div', { 'class': 'smw-state smw-state-error alert-message warning' }, [
+			return E('div', { 'class': 'smw-state smw-state-error' }, [
 				E('strong', {}, [ 'RPC 失败：' ]),
 				E('span', {}, [ parsed.error.message || String(parsed.error) ]),
 				parsed.error.code ? E('div', { 'class': 'smw-error-code' },
@@ -229,6 +239,28 @@ var smw = L.Class.extend({
 			notes.map(function(n) { return E('li', {}, [ n ]) }));
 	},
 
+	/* ---------- 按钮（MD3） ---------- */
+
+	/**
+	 * 按钮。variant 取值：
+	 *   filled      主操作（默认）；
+	 *   tonal       次重要操作（避免一屏多个主按钮互相打架）；
+	 *   outlined    取消/放弃一类；
+	 *   text        低权重操作；
+	 *   danger      危险主操作（填底错误色：停用、回滚）；
+	 *   text-danger 危险低权重操作（文字错误色）。
+	 * click 传 ui.createHandlerFn 的返回值即可 —— 按钮的禁用/恢复/spinning
+	 * 由它自动管理，本零件不重复实现。
+	 */
+	button: function(label, opts) {
+		opts = opts || {};
+		return E('button', {
+			'type': 'button',
+			'class': 'smw-btn smw-btn-' + (opts.variant || 'filled'),
+			'click': opts.click || null
+		}, [ label ]);
+	},
+
 	/* ---------- 版面零件 ---------- */
 
 	/** 区块卡片：把「标题 + 内容」收进一张卡，页面不再是一串裸表格。
@@ -328,18 +360,114 @@ var smw = L.Class.extend({
 	},
 
 	/** 简单表格：head 为字符串数组，rows 为字符串数组的数组。
+	 * opts.headTips 与 head 等长，给对应列头加一个「i」图标 + 气泡说明
+	 * （口径解释放在列头，比在表格下方堆一段长文字更容易被看到）。
 	 * 注意：行必须用 concat 展平进 children —— LuCI 的 E() 不递归展开嵌套数组，
 	 * 嵌套数组会被 String() 化成 "[object HTMLTableRowElement],..."（真机实测）。 */
-	table: function(head, rows) {
+	table: function(head, rows, opts) {
+		opts = opts || {};
+		var tips = opts.headTips || [];
 		var trs = rows.map(function(r) {
 			return E('tr', { 'class': 'tr' },
 				r.map(function(c) { return E('td', { 'class': 'td' }, [ c ]) }));
 		});
+		var ths = head.map(function(h, i) {
+			var th = E('th', { 'class': 'th' }, [ h ]);
+			if (tips[i]) {
+				var help = E('button', {
+					'type': 'button',
+					'class': 'smw-icon-btn smw-th-help',
+					'aria-label': h + '：' + tips[i]
+				}, [ smwcore.icon('info', 15) ]);
+				smwpopover.Tooltip.attach(help, tips[i], { placement: 'top' });
+				th.appendChild(help);
+			}
+			return th;
+		});
 		return E('div', { 'class': 'smw-table' },
 			E('table', { 'class': 'table' }, [
-				E('tr', { 'class': 'tr table-titles' },
-					head.map(function(h) { return E('th', { 'class': 'th' }, [ h ]) }))
+				E('tr', { 'class': 'tr table-titles' }, ths)
 			].concat(trs)));
+	},
+
+	/* ---------- 弹层兼容层（实现在 smwoverlay） ---------- */
+
+	/**
+	 * 通用底部动作面板。opts/返回值与 smwoverlay.Sheet.open 一致：
+	 * actions 里不给 onClick 时，点击即关闭并以 value resolve（菜单式用法）。
+	 * 新代码建议直接用 smw.ui.Sheet.open()。
+	 */
+	sheet: function(opts) {
+		return smwoverlay.Sheet.open(opts);
+	},
+
+	/**
+	 * 确认弹窗。resolve(true/false)，取消=false。
+	 * opts: { title, message, details[], confirmText, cancelText, danger,
+	 *         severity, requireType, disconnectRisk, onConfirm }
+	 */
+	confirm: function(opts) {
+		opts = opts || {};
+		return smwoverlay.Confirm.show({
+			title: opts.title || '确认',
+			message: opts.message,
+			details: opts.details,
+			confirmText: opts.confirmText,
+			cancelText: opts.cancelText,
+			danger: opts.danger,
+			severity: opts.severity,
+			requireType: opts.requireType,
+			disconnectRisk: opts.disconnectRisk,
+			onConfirm: opts.onConfirm
+		});
+	},
+
+	/**
+	 * 提示弹窗（单按钮）。resolve(true)。
+	 * opts: { title, message, details[], okText }
+	 */
+	alert: function(opts) {
+		opts = opts || {};
+		return smwoverlay.Dialog.open({
+			title: opts.title || '提示',
+			size: 'sm',
+			mobile: 'dialog',
+			body: [ opts.message != null ? E('p', { 'class': 'smw-confirm-msg' }, [ opts.message ]) : '',
+				(opts.details && opts.details.length)
+					? E('ul', { 'class': 'smw-confirm-details' },
+						opts.details.map(function(d) { return E('li', {}, [ d ]); }))
+					: '' ],
+			actions: [ { label: opts.okText || '知道了', variant: 'filled', value: true } ]
+		}).promise;
+	},
+
+	/**
+	 * 操作反馈（Toast）。参数形态与 LuCI 的 ui.addNotification(title, node, cls) 对齐，
+	 * 便于老视图逐句替换：smw.notify(node, 'info')。
+	 * type: 'success'|'error'|'warning'|'info'；节点里的文字会被提取为去重键。
+	 */
+	notify: function(node, type) {
+		return smwfeedback.Toast.show({
+			type: type === 'warning' ? 'warning' : (type || 'info'),
+			message: node
+		});
+	},
+
+	/* ---------- 组件系统命名空间 ---------- */
+
+	/** 统一入口：smw.ui.<组件>。视图优先用这里，不要再自己拼弹层。 */
+	ui: {
+		Dialog: smwoverlay.Dialog,
+		Drawer: smwoverlay.Drawer,
+		Sheet: smwoverlay.Sheet,
+		Confirm: smwoverlay.Confirm,
+		Toast: smwfeedback.Toast,
+		Loading: smwfeedback.Loading,
+		Popover: smwpopover.Popover,
+		Tooltip: smwpopover.Tooltip,
+		Form: smwform,
+		icon: smwcore.icon,
+		iconButton: smwcore.iconButton
 	}
 });
 

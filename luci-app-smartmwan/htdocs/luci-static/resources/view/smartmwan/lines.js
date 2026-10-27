@@ -85,10 +85,10 @@ return view.extend({
 			 * 注意：createHandlerFn 自动禁用/恢复触发按钮（spinning + disabled），
 			 * 并把 event 追加为 handler 最后一个参数——不要自己传/管理 btn。 */
 			card.appendChild(E('div', { 'class': 'smw-line-actions' }, [
-				E('button', {
-					'class': 'btn cbi-button',
-					'click': ui.createHandlerFn(self, 'handleMaintenance', l.name, !l.maintenance)
-				}, [ l.maintenance ? '退出维护模式' : '进入维护模式' ])
+				smartmwan.button(l.maintenance ? '退出维护模式' : '进入维护模式', {
+					variant: 'tonal',
+					click: ui.createHandlerFn(self, 'handleMaintenance', l.name, !l.maintenance)
+				})
 			]));
 			root.appendChild(card);
 		});
@@ -105,16 +105,16 @@ return view.extend({
 		var self = this;
 		call('setMaintenance')({ wan: wan, on: on }).then(function(env) {
 			if (env && env.ok)
-				ui.addNotification(null, E('p', [
+				smartmwan.notify(E('p', [
 					'线路 ' + wan + (on ? ' 已进入' : ' 已退出') + '维护模式'
 				]), 'info');
 			else
-				ui.addNotification(null, E('p', [
+				smartmwan.notify(E('p', [
 					'操作失败：' + ((env && env.error && env.error.message) || '未知错误')
 				]), 'error');
 			smartmwan.refresh(self, ROOT);
 		}).catch(function(e) {
-			ui.addNotification(null, E('p', [ 'RPC 失败：' + e ]), 'error');
+			smartmwan.notify(E('p', [ 'RPC 失败：' + e ]), 'error');
 		});
 	},
 

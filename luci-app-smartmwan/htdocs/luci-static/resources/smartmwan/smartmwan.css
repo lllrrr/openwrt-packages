@@ -2,20 +2,59 @@
  * smartmwan —— LuCI 视图样式（零 Lua）
  * 放置于 htdocs/luci-static/resources/smartmwan/smartmwan.css。
  *
- * 两条硬约束：
+ * 设计语言：Material Design 3（移动优先，桌面宽屏同样适用）。
+ * 三条硬约束：
  *   1. 所有选择器以 .smw- 作用域，绝不污染 LuCI 全局样式；
- *   2. 颜色一律走 CSS 变量并带 fallback —— 主题变量不存在时（老主题/暗色主题）
- *      落到 fallback，而不是变成不可读的透明或纯黑。
+ *   2. 颜色一律走 CSS 变量并带 fallback —— 优先继承 LuCI 主题变量，
+ *      主题变量不存在时（老主题/暗色主题）落到 MD3 基线值，而不是变成
+ *      不可读的透明或纯黑；
+ *   3. 弹窗一律是 Modal Bottom Sheet（底部动作面板）：手机端单列全宽按钮、
+ *      桌面端限宽居中，同一套 DOM 两种断点，不为移动端另写一套结构。
  *
- * 布局用 Grid + Flexbox：卡片网格自适应列宽，窄屏（手机）自动堆叠成单列，
- * 不需要为移动端另写一套 DOM。
+ * MD3 落地要点：
+ *   * 色彩角色：primary / surface / surface-container / on-surface / outline
+ *     分层，而不是把同一个灰阶从头用到尾；
+ *   * 形状体系：卡片 12dp、输入框 4dp、按钮与徽标全圆角、底部面板 28dp；
+ *   * 状态层：hover 8% / pressed 12% 的 currentColor 叠加（::after），
+ *     不依赖主题的 hover 实现；
+ *   * 触摸目标：按钮 ≥40dp，表格行 ≥48dp，底部面板主按钮 ≥48dp；
+ *   * 尊重 prefers-reduced-motion 与 prefers-color-scheme。
  */
 
-/* ==================== 主题变量 ==================== */
+/* ==================== 设计令牌 ==================== */
 
+body,
 .smw-panel,
 .smw-root {
-	/* 语义色：全部带 fallback，且明/暗两套都保证对比度。 */
+	/* 色彩角色：优先取 LuCI 主题变量，缺失时落 MD3 基线。
+	 * surface 系（背景）与 on-surface 系（文字）分开取值：
+	 * 主题只覆盖其中一半时，另一半仍有可读的搭配。 */
+	--smw-primary: var(--primary-color, #6750a4);
+	--smw-on-primary: #ffffff;
+	--smw-primary-container: #eaddff;
+	--smw-on-primary-container: #21005d;
+	--smw-secondary-container: #e8def8;
+	--smw-on-secondary-container: #1d192b;
+	--smw-error: var(--danger-color, #b3261e);
+	--smw-on-error: #ffffff;
+	--smw-error-container: #f9dedc;
+	--smw-on-error-container: #410e0b;
+
+	--smw-surface: var(--background-color, #fef7ff);
+	--smw-surface-container: var(--background-color-secondary, #f3edf7);
+	--smw-surface-container-high: var(--background-color-highlight, #ece6f0);
+	--smw-on-surface: var(--text-color, #1d1b20);
+	--smw-on-surface-variant: var(--text-color-medium, #49454f);
+	--smw-outline: var(--border-color-medium, #79747e);
+	--smw-outline-variant: var(--border-color, #cac4d0);
+
+	--smw-scrim: rgba(0, 0, 0, 0.4);
+	--smw-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.30), 0 1px 3px 1px rgba(0, 0, 0, 0.15);
+	--smw-shadow-2: 0 2px 6px rgba(0, 0, 0, 0.15), 0 1px 2px rgba(0, 0, 0, 0.30);
+	--smw-shadow-3: 0 4px 12px rgba(0, 0, 0, 0.15), 0 1px 3px rgba(0, 0, 0, 0.30);
+
+	/* 语义色：自包含定义，不随主题漂移 —— 状态色必须稳定，
+	 * 「健康/故障」不能因为换了套主题就变色。 */
 	--smw-ok: #1e8449;
 	--smw-ok-bg: rgba(46, 204, 113, 0.16);
 	--smw-warn: #b9770e;
@@ -27,29 +66,101 @@
 	--smw-muted-fg: #6b7280;
 	--smw-muted-bg: rgba(127, 140, 141, 0.16);
 
-	--smw-surface: var(--background-color, #fff);
-	--smw-surface-alt: var(--background-color-secondary, #f7f8fa);
-	--smw-line: var(--border-color, #e3e6ea);
-	--smw-fg: var(--text-color, #22292f);
-	--smw-accent: var(--primary-color, #337ab7);
-	--smw-radius: 10px;
-	--smw-shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.04);
+	/* 间距：4 的倍数，页面与弹层共用一套，避免各页面自己拍数字。 */
+	--smw-space-1: 4px;
+	--smw-space-2: 8px;
+	--smw-space-3: 12px;
+	--smw-space-4: 16px;
+	--smw-space-5: 24px;
+	--smw-space-6: 32px;
+
+	/* 形状：卡片 12、输入 4、徽标 8、弹窗 24、底部面板 28、按钮全圆角。 */
+	--smw-radius-card: 12px;
+	--smw-radius-field: 4px;
+	--smw-radius-chip: 8px;
+	--smw-radius-dialog: 24px;
+	--smw-radius-sheet: 28px;
+
+	/* 控件高度：桌面 40，手机 48（触摸目标）。 */
+	--smw-control-h: 40px;
+	--smw-control-h-touch: 48px;
+
+	/* 动效：常规 200ms，进出 240ms；曲线用「强调减速」，收尾柔和。 */
+	--smw-dur-fast: 120ms;
+	--smw-dur-med: 220ms;
+	--smw-dur-slow: 280ms;
+	--smw-ease: cubic-bezier(0.2, 0, 0, 1);
+	--smw-ease-emph: cubic-bezier(0.05, 0.7, 0.1, 1);
+
+	/* 层级：弹层从 2000 起由脚本按打开顺序分配；通知与提示气泡固定在最上层。 */
+	--smw-z-toast: 5000;
+	--smw-z-tooltip: 5200;
+
+	/* 焦点轮廓：3px 主色环，2px 偏移，任何主题下都可见。 */
+	--smw-focus-ring: 3px solid var(--smw-primary);
+	--smw-focus-offset: 2px;
 }
 
-/* 暗色：只改语义色与描边，不改布局。
-   用 prefers-color-scheme 而非主题 class —— 后者在不同 LuCI 主题下名字不统一，
-   猜错等于整块失效；媒体查询至少覆盖「系统偏好为暗」这一类。 */
+/* 暗色：只改令牌，不改布局。
+ * 用 prefers-color-scheme 而非主题 class —— 后者在不同 LuCI 主题下名字不统一，
+ * 猜错等于整块失效；媒体查询至少覆盖「系统偏好为暗」这一类。
+ * MD3 暗色用「降低饱和的深色 surface + 提亮的主色」，而非简单反色。 */
 @media (prefers-color-scheme: dark) {
+	body,
 	.smw-panel,
 	.smw-root {
+		--smw-primary: var(--primary-color, #d0bcff);
+		--smw-on-primary: #381e72;
+		--smw-primary-container: #4f378b;
+		--smw-on-primary-container: #eaddff;
+		--smw-secondary-container: #4a4458;
+		--smw-on-secondary-container: #e8def8;
+		--smw-error: var(--danger-color, #f2b8b5);
+		--smw-on-error: #601410;
+		--smw-error-container: #8c1d18;
+		--smw-on-error-container: #f9dedc;
+
+		--smw-surface: var(--background-color, #141218);
+		--smw-surface-container: var(--background-color-secondary, #211f26);
+		--smw-surface-container-high: var(--background-color-highlight, #2b2930);
+		--smw-on-surface: var(--text-color, #e6e0e9);
+		--smw-on-surface-variant: var(--text-color-medium, #cac4d0);
+		--smw-outline: var(--border-color-medium, #938f99);
+		--smw-outline-variant: var(--border-color, #48454e);
+
+		--smw-scrim: rgba(0, 0, 0, 0.6);
+		--smw-shadow-1: 0 1px 3px rgba(0, 0, 0, 0.5);
+
 		--smw-ok: #5ddb9c;
 		--smw-warn: #f0b357;
 		--smw-bad: #f08b7d;
 		--smw-info: #6cc0f0;
 		--smw-muted-fg: #9aa4af;
 		--smw-line: rgba(255, 255, 255, 0.12);
-		--smw-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 	}
+}
+
+/* ==================== 盒模型 ==================== */
+
+/* 组件内部统一 border-box：输入框是 width:100% + 12px 内边距 + 1px 边框，
+ * content-box 下每侧会多出 26px，在 390px 宽的手机上直接把输入框顶出屏幕
+ * （实测：弹窗内容右侧被裁掉一截）。作用域限定在本项目的容器内，
+ * 不触碰 LuCI 其他页面的默认盒模型。 */
+.smw-panel,
+.smw-panel *,
+.smw-root,
+.smw-root *,
+.smw-overlay,
+.smw-overlay *,
+.smw-toast,
+.smw-toast *,
+.smw-popover,
+.smw-popover *,
+.smw-field,
+.smw-field *,
+.smw-loading-region,
+.smw-loading-region * {
+	box-sizing: border-box;
 }
 
 /* ==================== 骨架 ==================== */
@@ -57,40 +168,52 @@
 .smw-panel {
 	display: flex;
 	flex-direction: column;
-	gap: 1.1em;
-	padding: 0.25em 0;
+	gap: 12px;
+	padding: 4px 0;
 }
 
+/* 字阶（MD3 type scale，按桌面尺寸取档）：
+ *   h2 headline-small 24/32、h3 title-medium 16/24、h4 title-small 14/20。 */
 .smw-panel h2 {
 	margin: 0;
-	font-size: 1.35em;
-	font-weight: 650;
-	letter-spacing: 0.01em;
+	font-size: 24px;
+	font-weight: 400;
+	line-height: 32px;
+	letter-spacing: 0;
+	color: var(--smw-on-surface);
 }
 
 .smw-panel h3 {
-	margin: 0.2em 0 0;
-	font-size: 1.02em;
-	font-weight: 640;
-	color: var(--smw-fg);
+	margin: 0;
+	font-size: 16px;
+	font-weight: 500;
+	line-height: 24px;
+	letter-spacing: 0.15px;
+	color: var(--smw-on-surface);
 }
 
 .smw-panel h4 {
-	margin: 0.2em 0 0;
-	font-size: 0.95em;
-	font-weight: 620;
+	margin: 0;
+	font-size: 14px;
+	font-weight: 500;
+	line-height: 20px;
+	letter-spacing: 0.1px;
+	color: var(--smw-on-surface);
 }
 
-/* 区块卡片：把「标题 + 内容」收进一张卡，页面不再是一串裸表格。 */
+.smw-panel p {
+	margin: 0;
+	line-height: 20px;
+}
+
+/* 区块卡片：MD3 filled card —— 靠 surface-container 底色分层，不靠边框与阴影。 */
 .smw-section {
 	display: flex;
 	flex-direction: column;
-	gap: 0.7em;
-	padding: 1em 1.1em;
-	border: 1px solid var(--smw-line);
-	border-radius: var(--smw-radius);
-	background: var(--smw-surface);
-	box-shadow: var(--smw-shadow);
+	gap: 12px;
+	padding: 16px;
+	border-radius: var(--smw-radius-card);
+	background: var(--smw-surface-container);
 }
 
 .smw-section > h3:first-child,
@@ -98,14 +221,13 @@
 	margin-top: 0;
 }
 
-/* 区块头：标题 + 右侧操作（按钮/状态），两端对齐。 */
+/* 区块头：标题 + 右侧操作，两端对齐。 */
 .smw-section-head {
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
 	justify-content: space-between;
-	gap: 0.6em;
-	margin-bottom: 0.15em;
+	gap: 8px;
 }
 
 .smw-section-head h3,
@@ -113,58 +235,76 @@
 	margin: 0;
 }
 
-.smw-section-head .smw-actions {
-	margin: 0;
-}
-
 /* ==================== 四态 ==================== */
 
 .smw-state {
-	padding: 1em 1.15em;
-	border: 1px solid var(--smw-line);
-	border-radius: var(--smw-radius);
-	background: var(--smw-surface-alt);
+	padding: 16px;
+	border-radius: var(--smw-radius-card);
+	background: var(--smw-surface-container);
+	color: var(--smw-on-surface-variant);
+	font-size: 14px;
+	line-height: 20px;
 }
 
 .smw-state-loading {
-	color: var(--smw-muted-fg);
+	display: flex;
+	align-items: center;
+	gap: 12px;
 }
 
 .smw-state-empty {
 	display: flex;
 	flex-direction: column;
 	align-items: center;
-	gap: 0.35em;
-	padding: 1.6em 1em;
-	color: var(--smw-muted-fg);
+	gap: 12px;
+	padding: 32px 16px;
 	text-align: center;
 }
 
-/* 空态图标：纯 CSS 的圆环，避免引入外部字体或图片依赖。 */
+/* 空态图标：纯 CSS 虚线圆环，避免引入外部字体或图片依赖。 */
 .smw-state-empty::before {
 	content: "";
-	width: 2.2em;
-	height: 2.2em;
-	border: 2px dashed var(--smw-line);
+	width: 40px;
+	height: 40px;
+	border: 2px dashed var(--smw-outline-variant);
 	border-radius: 50%;
-	opacity: 0.9;
 }
 
 .smw-state-error {
-	border-left: 4px solid var(--smw-bad);
-	background: var(--smw-bad-bg);
+	background: var(--smw-error-container);
+	color: var(--smw-on-error-container);
 }
 
 .smw-error-code {
-	margin-top: 0.4em;
-	font-size: 0.9em;
+	margin-top: 8px;
+	font-size: 12px;
 	opacity: 0.85;
 }
 
 .smw-error-details {
-	margin: 0.4em 0 0;
-	padding-left: 1.2em;
-	font-size: 0.9em;
+	margin: 8px 0 0;
+	padding-left: 20px;
+	font-size: 13px;
+}
+
+/* 行内警示（后端回滚残留、配置问题等）：MD3 用 tonal 容器 + 左侧色条，
+ * 不抢内容的视觉重量。 */
+.smw-notice {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	padding: 12px 16px;
+	border-radius: var(--smw-radius-card);
+	border-left: 4px solid var(--smw-warn);
+	background: var(--smw-warn-bg);
+	color: var(--smw-on-surface);
+	font-size: 13px;
+	line-height: 20px;
+}
+
+.smw-notice-bad {
+	border-left-color: var(--smw-bad);
+	background: var(--smw-bad-bg);
 }
 
 /* ==================== 统计卡片 ==================== */
@@ -172,26 +312,23 @@
 .smw-cards {
 	display: grid;
 	grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-	gap: 0.75em;
+	gap: 12px;
 }
 
 .smw-card {
 	position: relative;
 	display: flex;
 	flex-direction: column;
-	gap: 0.25em;
-	padding: 0.85em 1em;
-	border: 1px solid var(--smw-line);
-	border-radius: var(--smw-radius);
-	background: var(--smw-surface);
-	box-shadow: var(--smw-shadow);
+	gap: 4px;
+	padding: 16px;
+	border-radius: var(--smw-radius-card);
+	background: var(--smw-surface-container);
 	overflow: hidden;
-	transition: transform 0.15s ease, box-shadow 0.15s ease;
+	transition: box-shadow 0.15s ease;
 }
 
 .smw-card:hover {
-	transform: translateY(-1px);
-	box-shadow: 0 4px 10px rgba(16, 24, 40, 0.1);
+	box-shadow: var(--smw-shadow-1);
 }
 
 /* 左侧色条：一眼区分语义（正常/警告/故障），不靠颜色堆满整块。 */
@@ -201,81 +338,223 @@
 	left: 0;
 	top: 0;
 	bottom: 0;
-	width: 3px;
-	background: var(--smw-accent);
-	opacity: 0.55;
+	width: 4px;
+	background: var(--smw-primary);
 }
 
-.smw-card-ok::before { background: var(--smw-ok); opacity: 0.85; }
-.smw-card-warn::before { background: var(--smw-warn); opacity: 0.85; }
-.smw-card-bad::before { background: var(--smw-bad); opacity: 0.85; }
+.smw-card-ok::before { background: var(--smw-ok); }
+.smw-card-warn::before { background: var(--smw-warn); }
+.smw-card-bad::before { background: var(--smw-bad); }
 
+/* title-medium / headline-small：数值是全页最被盯的元素，用大号 + 等宽数字。 */
 .smw-card-title {
-	font-size: 0.78em;
-	font-weight: 600;
-	letter-spacing: 0.04em;
-	text-transform: uppercase;
-	color: var(--smw-muted-fg);
+	font-size: 14px;
+	font-weight: 500;
+	letter-spacing: 0.1px;
+	color: var(--smw-on-surface-variant);
 }
 
 .smw-card-value {
-	font-size: 1.3em;
-	font-weight: 650;
-	line-height: 1.25;
+	font-size: 24px;
+	font-weight: 400;
+	line-height: 32px;
 	/* 数值用等宽数字：刷新时不会左右跳动。 */
 	font-variant-numeric: tabular-nums;
 	word-break: break-word;
 }
 
 .smw-card-note {
-	font-size: 0.85em;
+	font-size: 12px;
+	line-height: 16px;
+	letter-spacing: 0.5px;
 	color: var(--smw-warn);
 }
 
 .smw-card-foot {
-	margin-top: 0.15em;
-	font-size: 0.8em;
-	color: var(--smw-muted-fg);
+	font-size: 12px;
+	line-height: 16px;
+	letter-spacing: 0.5px;
+	color: var(--smw-on-surface-variant);
 }
 
-/* ==================== 徽标 ==================== */
+/* ==================== 徽标（chip 化） ==================== */
 
 .smw-badge {
 	display: inline-flex;
 	align-items: center;
-	gap: 0.35em;
-	padding: 0.12em 0.6em;
-	border-radius: 999px;
-	font-size: 0.82em;
-	font-weight: 600;
-	line-height: 1.5;
+	gap: 6px;
+	height: 24px;
+	padding: 0 8px;
+	border-radius: var(--smw-radius-chip);
+	font-size: 12px;
+	font-weight: 500;
+	line-height: 16px;
+	letter-spacing: 0.5px;
 	white-space: nowrap;
-	background: var(--smw-muted-bg);
-	color: var(--smw-muted-fg);
+	border: 1px solid var(--smw-outline-variant);
+	color: var(--smw-on-surface-variant);
 }
 
 /* 状态点：颜色之外再给一个形状线索（色盲友好，也更适合小尺寸）。 */
 .smw-badge::before {
 	content: "";
-	width: 0.45em;
-	height: 0.45em;
+	width: 8px;
+	height: 8px;
 	border-radius: 50%;
 	background: currentColor;
-	opacity: 0.85;
+	flex: 0 0 auto;
 }
 
-.smw-badge-ok { background: var(--smw-ok-bg); color: var(--smw-ok); }
-.smw-badge-warn { background: var(--smw-warn-bg); color: var(--smw-warn); }
-.smw-badge-bad { background: var(--smw-bad-bg); color: var(--smw-bad); }
-.smw-badge-info { background: var(--smw-info-bg); color: var(--smw-info); }
+.smw-badge-ok { border-color: transparent; background: var(--smw-ok-bg); color: var(--smw-ok); }
+.smw-badge-warn { border-color: transparent; background: var(--smw-warn-bg); color: var(--smw-warn); }
+.smw-badge-bad { border-color: transparent; background: var(--smw-bad-bg); color: var(--smw-bad); }
+.smw-badge-info { border-color: transparent; background: var(--smw-info-bg); color: var(--smw-info); }
 .smw-badge-muted { background: var(--smw-muted-bg); color: var(--smw-muted-fg); }
+
+/* ==================== 按钮 ==================== */
+
+/* MD3 按钮：四种形态共用同一组指标 —— 高 40dp、全圆角 20dp、水平内边距 24dp、
+ * 文字 label-large（14sp/500/0.1px）。hover/pressed 的状态层用 currentColor
+ * 按 8%/12% 叠加（::after），不依赖任何主题的按钮 hover 实现。 */
+.smw-btn {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	min-height: 40px;
+	padding: 0 24px;
+	border: none;
+	border-radius: 20px;
+	background: transparent;
+	font: inherit;
+	font-size: 14px;
+	font-weight: 500;
+	line-height: 20px;
+	letter-spacing: 0.1px;
+	text-align: center;
+	cursor: pointer;
+	user-select: none;
+	-webkit-tap-highlight-color: transparent;
+	overflow: hidden;
+	transition: box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+.smw-btn::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	background: currentColor;
+	opacity: 0;
+	transition: opacity 0.12s ease;
+	pointer-events: none;
+}
+
+.smw-btn:hover::after { opacity: 0.08; }
+.smw-btn:active::after { opacity: 0.12; }
+
+.smw-btn:focus-visible {
+	outline: 3px solid var(--smw-primary);
+	outline-offset: 2px;
+}
+
+.smw-btn:disabled {
+	cursor: default;
+	opacity: 0.38;
+	/* 禁用态不显示状态层（::after 已由 opacity 压住，这里再显式关掉）。 */
+	pointer-events: none;
+}
+
+.smw-btn:disabled::after { opacity: 0; }
+
+/* filled：主操作。底色加深一层再放白字，主题主色偏亮时也可读。 */
+.smw-btn-filled {
+	background: var(--smw-primary);
+	color: var(--smw-on-primary);
+	box-shadow: var(--smw-shadow-1);
+}
+
+/* tonal：次重要操作（不用强调色，避免一屏多个主按钮互相打架）。 */
+.smw-btn-tonal {
+	background: var(--smw-secondary-container);
+	color: var(--smw-on-secondary-container);
+}
+
+.smw-btn-outlined {
+	border: 1px solid var(--smw-outline);
+	color: var(--smw-primary);
+}
+
+.smw-btn-text {
+	padding: 0 12px;
+	color: var(--smw-primary);
+}
+
+/* 危险操作：填底错误色（停用服务、回滚）；文字版危险操作用纯 error 文字。 */
+.smw-btn-danger {
+	background: var(--smw-error);
+	color: var(--smw-on-error);
+	box-shadow: var(--smw-shadow-1);
+}
+
+.smw-btn-text-danger {
+	padding: 0 12px;
+	color: var(--smw-error);
+}
+
+/* LuCI 的 ui.createHandlerFn 会给触发的按钮加 .spinning 并临时禁用。
+ * 旋转指示器自己画（不依赖主题的 .spinning 样式）：14dp 圆环，颜色取 currentColor，
+ * 暗色/亮色按钮下都可见。 */
+.smw-btn.spinning {
+	color: transparent;
+}
+
+.smw-btn.spinning::before {
+	content: "";
+	position: absolute;
+	width: 16px;
+	height: 16px;
+	border: 2px solid var(--smw-on-surface-variant);
+	border-top-color: transparent;
+	border-radius: 50%;
+	animation: smw-spin 0.7s linear infinite;
+}
+
+@keyframes smw-spin {
+	to { transform: rotate(360deg); }
+}
+
+/* 操作区：一行放不下就换行，间距 8dp。 */
+.smw-actions,
+.smw-line-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+}
+
+/* 表头里的「说明」图标：15px，不抢列头文字的位置。 */
+.smw-th-help {
+	width: 24px;
+	height: 24px;
+	margin-left: 4px;
+	vertical-align: middle;
+	opacity: 0.75;
+}
+
+.smw-th-help:hover {
+	opacity: 1;
+}
+
+.smw-table .th {
+	white-space: nowrap;
+}
 
 /* ==================== 表格 ==================== */
 
 .smw-table {
 	overflow-x: auto;
-	border: 1px solid var(--smw-line);
-	border-radius: var(--smw-radius);
+	border-radius: var(--smw-radius-card);
 	background: var(--smw-surface);
 }
 
@@ -285,21 +564,27 @@
 }
 
 .smw-table .th {
-	padding: 0.55em 0.7em;
-	font-size: 0.8em;
-	font-weight: 650;
-	letter-spacing: 0.03em;
-	text-transform: uppercase;
-	color: var(--smw-muted-fg);
+	padding: 0 16px;
+	height: 48px;
+	font-size: 12px;
+	font-weight: 500;
+	letter-spacing: 0.5px;
+	color: var(--smw-on-surface-variant);
 	text-align: left;
 	white-space: nowrap;
-	background: var(--smw-surface-alt);
-	border-bottom: 1px solid var(--smw-line);
+	background: var(--smw-surface-container);
 }
 
+.smw-table .th:first-child { border-radius: var(--smw-radius-card) 0 0 0; }
+.smw-table .th:last-child { border-radius: 0 var(--smw-radius-card) 0 0; }
+
 .smw-table .td {
-	padding: 0.5em 0.7em;
-	border-bottom: 1px solid var(--smw-line);
+	padding: 0 16px;
+	height: 48px;
+	font-size: 14px;
+	line-height: 20px;
+	color: var(--smw-on-surface);
+	border-bottom: 1px solid var(--smw-outline-variant);
 	vertical-align: middle;
 }
 
@@ -307,13 +592,9 @@
 	border-bottom: none;
 }
 
-/* 斑马纹 + hover：宽表不容易串行。 */
+/* 斑马纹：宽表不容易串行（MD3 数据表规范做法）。 */
 .smw-table .tr:nth-child(even) .td {
-	background: var(--smw-surface-alt);
-}
-
-.smw-table .tr:hover .td {
-	background: var(--smw-muted-bg);
+	background: var(--smw-surface-container);
 }
 
 /* 数值列等宽对齐 */
@@ -325,17 +606,21 @@
 /* ==================== 列表 ==================== */
 
 .smw-notes {
-	margin: 0.25em 0;
-	padding-left: 1.2em;
+	margin: 0;
+	padding-left: 20px;
+	font-size: 14px;
+	line-height: 20px;
 }
 
 .smw-notes li {
-	margin-bottom: 0.2em;
+	margin-bottom: 4px;
 }
 
 .smw-muted {
-	color: var(--smw-muted-fg);
-	font-size: 0.9em;
+	color: var(--smw-on-surface-variant);
+	font-size: 12px;
+	line-height: 16px;
+	letter-spacing: 0.5px;
 }
 
 .smw-warn { color: var(--smw-warn); }
@@ -346,72 +631,66 @@
 .smw-line-card {
 	display: flex;
 	flex-direction: column;
-	gap: 0.6em;
-	padding: 0.9em 1em;
-	border: 1px solid var(--smw-line);
-	border-radius: var(--smw-radius);
-	background: var(--smw-surface);
-	box-shadow: var(--smw-shadow);
+	gap: 12px;
+	padding: 16px;
+	border-radius: var(--smw-radius-card);
+	background: var(--smw-surface-container);
 }
 
 .smw-line-head {
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
-	gap: 0.5em;
+	gap: 8px;
 }
 
 .smw-line-head strong {
-	font-size: 1.05em;
+	font-size: 16px;
+	font-weight: 500;
+	line-height: 24px;
 }
 
-.smw-line-actions,
-.smw-actions {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 0.5em;
-	margin-top: 0.2em;
-}
-
-/* ==================== 份额条 ==================== */
+/* ==================== 份额条（MD3 linear progress） ==================== */
 
 .smw-bars {
 	display: flex;
 	flex-direction: column;
-	gap: 0.45em;
+	gap: 12px;
 }
 
 .smw-bar-row {
 	display: flex;
 	align-items: center;
-	gap: 0.6em;
+	gap: 12px;
 }
 
 .smw-bar-label {
 	flex: 0 0 6.5em;
 	text-align: right;
-	font-weight: 600;
+	font-size: 14px;
+	font-weight: 500;
 }
 
 .smw-bar-track {
 	flex: 1;
-	height: 0.75em;
+	height: 4px;
 	min-width: 4em;
-	border-radius: 999px;
-	background: var(--smw-muted-bg);
+	border-radius: 2px;
+	background: var(--smw-surface-container-high);
 	overflow: hidden;
 }
 
 .smw-bar-fill {
 	display: block;
 	height: 100%;
-	border-radius: 999px;
-	background: linear-gradient(90deg, var(--smw-accent), color-mix(in srgb, var(--smw-accent) 65%, #7fd0ff));
+	border-radius: 2px;
+	background: var(--smw-primary);
 	transition: width 0.4s ease;
 }
 
 .smw-bar-value {
 	flex: 0 0 4.5em;
+	font-size: 14px;
 	font-variant-numeric: tabular-nums;
 	text-align: right;
 }
@@ -421,75 +700,642 @@
 .smw-bucketmap {
 	display: flex;
 	flex-wrap: wrap;
-	gap: 0.25em;
+	gap: 4px;
 }
 
 .smw-bucket {
-	padding: 0.1em 0.4em;
-	border: 1px solid var(--smw-line);
-	border-radius: 4px;
+	padding: 4px 8px;
+	border-radius: 6px;
 	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-	font-size: 0.82em;
-	background: var(--smw-surface-alt);
+	font-size: 12px;
+	line-height: 16px;
+	background: var(--smw-surface-container-high);
+	color: var(--smw-on-surface-variant);
 }
 
 .smw-bucket-zero {
-	color: var(--smw-muted-fg);
-	opacity: 0.75;
+	opacity: 0.6;
 }
 
 /* ==================== 主备顺序 ==================== */
 
 .smw-order {
-	margin: 0.25em 0;
-	padding-left: 1.4em;
+	margin: 0;
+	padding-left: 24px;
+	font-size: 14px;
+	line-height: 20px;
 }
 
 .smw-order li {
-	margin-bottom: 0.15em;
+	margin-bottom: 4px;
 }
 
-/* ==================== 表单（配置编辑） ==================== */
+/* ==================== 图标 ==================== */
+
+/* 统一 SVG 图标：24 viewBox、stroke 绘制、currentColor 取色。
+ * 间距与对齐由容器控制，图标本身不设 margin。 */
+.smw-icon {
+	flex: 0 0 auto;
+	vertical-align: middle;
+}
+
+/* 图标按钮：40dp 圆形，触摸目标靠命中区域而不是视觉尺寸堆出来。
+ * 用于关闭弹窗、显示密码、清除搜索框等——这些位置放文字会太吵。 */
+.smw-icon-btn {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 40px;
+	height: 40px;
+	padding: 0;
+	border: none;
+	border-radius: 50%;
+	background: transparent;
+	color: var(--smw-on-surface-variant);
+	cursor: pointer;
+	-webkit-tap-highlight-color: transparent;
+	transition: background-color var(--smw-dur-fast) var(--smw-ease),
+		color var(--smw-dur-fast) var(--smw-ease);
+}
+
+.smw-icon-btn:hover {
+	background: var(--smw-muted-bg);
+	color: var(--smw-on-surface);
+}
+
+.smw-icon-btn:active {
+	background: var(--smw-surface-container-high);
+}
+
+.smw-icon-btn:focus-visible {
+	outline: var(--smw-focus-ring);
+	outline-offset: var(--smw-focus-offset);
+}
+
+.smw-icon-btn:disabled {
+	opacity: 0.38;
+	cursor: default;
+	background: transparent;
+}
+
+/* ==================== 表单 ==================== */
 
 .smw-form {
 	display: grid;
 	grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-	gap: 0.75em 1em;
+	gap: var(--smw-space-4);
 }
 
+/* 字段：标签 / 控件 / 说明 / 错误，四行固定顺序。
+ * 任何控件放进 .smw-field 都自动获得一致的三段式节奏，
+ * 页面不再各自决定「说明写在哪」。 */
 .smw-field {
 	display: flex;
 	flex-direction: column;
-	gap: 0.3em;
+	gap: 6px;
+	min-width: 0;   /* Grid 子项默认 min-width:auto，长 IP 会撑破列宽 */
 }
 
+.smw-field-label,
 .smw-field > label {
-	font-size: 0.82em;
-	font-weight: 620;
-	color: var(--smw-muted-fg);
+	font-size: 12px;
+	font-weight: 500;
+	line-height: 16px;
+	letter-spacing: 0.5px;
+	color: var(--smw-on-surface-variant);
 }
 
+.smw-field-label .smw-required,
+.smw-field > label .smw-required {
+	color: var(--smw-error);
+	margin-left: 2px;
+}
+
+.smw-field-help {
+	margin: 0;
+	font-size: 12px;
+	line-height: 16px;
+	letter-spacing: 0.4px;
+	color: var(--smw-on-surface-variant);
+}
+
+/* 错误行：默认 hidden。display:flex 会盖掉 hidden 属性，必须显式关掉。 */
+.smw-field-error {
+	margin: 0;
+	display: flex;
+	gap: 4px;
+	align-items: flex-start;
+	font-size: 12px;
+	line-height: 16px;
+	color: var(--smw-error);
+}
+
+.smw-field-error[hidden] {
+	display: none;
+}
+
+/* 输入控件：MD3 outlined —— 1dp outline、聚焦 2dp primary、圆角 4dp。
+ * 高度与按钮对齐（40dp），排在同一行时基面一致。 */
+.smw-input,
+.smw-textarea,
+.smw-select {
+	width: 100%;
+	min-height: var(--smw-control-h);
+	padding: 8px 12px;
+	border: 1px solid var(--smw-outline);
+	border-radius: var(--smw-radius-field);
+	background: var(--smw-surface);
+	color: var(--smw-on-surface);
+	font: inherit;
+	font-size: 14px;
+	line-height: 20px;
+	transition: border-color var(--smw-dur-fast) var(--smw-ease),
+		box-shadow var(--smw-dur-fast) var(--smw-ease);
+}
+
+/* 兼容旧的 smw.select / smw.number 零件（它们在 .smw-field 里生成原生控件）。 */
 .smw-field select,
 .smw-field input[type="text"],
-.smw-field input[type="number"] {
+.smw-field input[type="number"],
+.smw-field input[type="search"],
+.smw-field input[type="password"],
+.smw-field textarea {
 	width: 100%;
-	padding: 0.42em 0.55em;
-	border: 1px solid var(--smw-line);
-	border-radius: 6px;
+	min-height: var(--smw-control-h);
+	padding: 8px 12px;
+	border: 1px solid var(--smw-outline);
+	border-radius: var(--smw-radius-field);
 	background: var(--smw-surface);
-	color: var(--smw-fg);
+	color: var(--smw-on-surface);
 	font: inherit;
+	font-size: 14px;
+	line-height: 20px;
 }
 
+.smw-input:hover:not(:disabled):not([readonly]),
+.smw-textarea:hover:not(:disabled):not([readonly]),
+.smw-select:hover:not(:disabled),
+.smw-field select:hover:not(:disabled),
+.smw-field input:hover:not(:disabled):not([readonly]) {
+	border-color: var(--smw-on-surface-variant);
+}
+
+.smw-input:focus,
+.smw-textarea:focus,
+.smw-select:focus,
 .smw-field select:focus,
-.smw-field input:focus {
-	outline: 2px solid color-mix(in srgb, var(--smw-accent) 60%, transparent);
-	outline-offset: 1px;
+.smw-field input:focus,
+.smw-field textarea:focus {
+	border-color: var(--smw-primary);
+	/* 内描边模拟 2dp 聚焦边：不改变盒模型，控件不会因为聚焦而跳动。 */
+	box-shadow: inset 0 0 0 1px var(--smw-primary);
+	outline: none;
 }
 
-/* 字段下方的说明：单位、取值范围、为什么这项会影响什么。 */
-.smw-field .smw-muted {
-	font-size: 0.8em;
+.smw-input:disabled,
+.smw-textarea:disabled,
+.smw-select:disabled,
+.smw-field input:disabled,
+.smw-field select:disabled {
+	background: var(--smw-surface-container);
+	color: var(--smw-on-surface-variant);
+	cursor: not-allowed;
+}
+
+.smw-input[readonly],
+.smw-textarea[readonly] {
+	background: var(--smw-surface-container);
+}
+
+/* 校验失败：边框与错误行同时标红，不只靠颜色 —— 错误行有文字，读屏能念。 */
+.smw-field-invalid .smw-input,
+.smw-field-invalid .smw-textarea,
+.smw-field-invalid .smw-select,
+.smw-field-invalid input,
+.smw-field-invalid select,
+.smw-field-invalid textarea {
+	border-color: var(--smw-error);
+}
+
+.smw-field-invalid .smw-input:focus,
+.smw-field-invalid input:focus {
+	box-shadow: inset 0 0 0 1px var(--smw-error);
+}
+
+/* 下拉箭头自绘（不依赖主题的 select 皮肤）：data URI 里写死 outline 色，
+ * 暗色下与背景对比仍然足够；不引外部图标字体。 */
+.smw-select {
+	appearance: none;
+	-webkit-appearance: none;
+	padding-right: 36px;
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2379747e' stroke-width='1.8' stroke-linecap='round'%3E%3Cpath d='M7 10l5 5 5-5'/%3E%3C/svg%3E");
+	background-repeat: no-repeat;
+	background-position: right 10px center;
+	background-size: 18px 18px;
+}
+
+.smw-textarea {
+	min-height: 96px;
+	resize: vertical;
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	font-size: 13px;
+}
+
+/* 等宽输入：IP / 端口 / 掩码这类值，等宽下逐位对齐才看得清。 */
+.smw-input-mono {
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	letter-spacing: 0.02em;
+}
+
+/* 带附属按钮的输入（显示密码、清除搜索）：按钮压在右侧，输入框留出内边距。 */
+.smw-input-wrap {
+	position: relative;
+	display: flex;
+	align-items: center;
+	width: 100%;
+}
+
+.smw-input-wrap .smw-input,
+.smw-input-wrap input {
+	padding-right: 44px;
+}
+
+.smw-input-affix-btn {
+	position: absolute;
+	right: 2px;
+	top: 50%;
+	transform: translateY(-50%);
+	width: 36px;
+	height: 36px;
+}
+
+.smw-input-affix-clear {
+	opacity: 0.7;
+}
+
+/* 开关（Switch）：用于「开启/关闭一个功能」。
+ * 未选中：2dp outline 轨道 + 16dp outline 拇指；
+ * 选中：主色轨道 + 24dp on-primary 拇指。 */
+.smw-switch {
+	appearance: none;
+	-webkit-appearance: none;
+	position: relative;
+	width: 52px;
+	height: 32px;
+	min-height: 32px;
+	margin: 0;
+	border: 2px solid var(--smw-outline);
+	border-radius: 16px;
+	background: var(--smw-surface-container-high);
+	cursor: pointer;
+	flex: 0 0 auto;
+	transition: background-color var(--smw-dur-fast) var(--smw-ease),
+		border-color var(--smw-dur-fast) var(--smw-ease);
+}
+
+.smw-switch::after {
+	content: "";
+	position: absolute;
+	top: 50%;
+	left: 4px;
+	width: 16px;
+	height: 16px;
+	border-radius: 50%;
+	background: var(--smw-outline);
+	transform: translateY(-50%);
+	transition: left var(--smw-dur-fast) var(--smw-ease),
+		width var(--smw-dur-fast) var(--smw-ease),
+		height var(--smw-dur-fast) var(--smw-ease),
+		background-color var(--smw-dur-fast) var(--smw-ease);
+}
+
+.smw-switch:checked {
+	background: var(--smw-primary);
+	border-color: var(--smw-primary);
+}
+
+.smw-switch:checked::after {
+	left: 24px;
+	width: 24px;
+	height: 24px;
+	background: var(--smw-on-primary);
+}
+
+.smw-switch:focus-visible {
+	outline: var(--smw-focus-ring);
+	outline-offset: var(--smw-focus-offset);
+}
+
+.smw-switch:disabled {
+	opacity: 0.38;
+	cursor: not-allowed;
+}
+
+.smw-switch-row {
+	display: flex;
+	align-items: flex-start;
+	gap: 12px;
+	padding: 4px 0;
+}
+
+.smw-switch-text {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+
+.smw-switch-label,
+.smw-check-label {
+	font-size: 14px;
+	line-height: 20px;
+	color: var(--smw-on-surface);
+	cursor: pointer;
+}
+
+.smw-switch-help,
+.smw-check-help {
+	margin: 0;
+	font-size: 12px;
+	line-height: 16px;
+	color: var(--smw-on-surface-variant);
+}
+
+/* 复选框（Checkbox）：用于「在一组选项里勾几个」。与开关语义不同，不混用。 */
+.smw-checkbox {
+	appearance: none;
+	-webkit-appearance: none;
+	position: relative;
+	width: 20px;
+	height: 20px;
+	min-height: 20px;
+	margin: 0;
+	border: 2px solid var(--smw-outline);
+	border-radius: 3px;
+	background: transparent;
+	cursor: pointer;
+	flex: 0 0 auto;
+	transition: background-color var(--smw-dur-fast), border-color var(--smw-dur-fast);
+}
+
+.smw-checkbox:checked {
+	background: var(--smw-primary);
+	border-color: var(--smw-primary);
+}
+
+/* 勾：用两条边框旋转 45° 画出来，不引图标。 */
+.smw-checkbox:checked::after {
+	content: "";
+	position: absolute;
+	left: 5px;
+	top: 1px;
+	width: 5px;
+	height: 10px;
+	border: solid var(--smw-on-primary);
+	border-width: 0 2px 2px 0;
+	transform: rotate(45deg);
+}
+
+.smw-checkbox:focus-visible {
+	outline: var(--smw-focus-ring);
+	outline-offset: var(--smw-focus-offset);
+}
+
+.smw-check-row {
+	display: flex;
+	align-items: flex-start;
+	flex-wrap: wrap;
+	gap: 10px;
+	padding: 4px 0;
+}
+
+.smw-check-row .smw-checkbox {
+	margin-top: 2px;
+}
+
+.smw-check-row .smw-check-help {
+	flex: 0 0 100%;
+	padding-left: 30px;
+}
+
+/* 单选组：保留原生 radio 的方向键语义，只换外观。 */
+.smw-radio-group {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.smw-radio-item {
+	display: flex;
+	align-items: flex-start;
+	flex-wrap: wrap;
+	gap: 10px;
+	padding: 6px 0;
+	cursor: pointer;
+}
+
+.smw-radio {
+	appearance: none;
+	-webkit-appearance: none;
+	position: relative;
+	width: 20px;
+	height: 20px;
+	min-height: 20px;
+	margin: 0;
+	border: 2px solid var(--smw-outline);
+	border-radius: 50%;
+	background: transparent;
+	cursor: pointer;
+	flex: 0 0 auto;
+	transition: border-color var(--smw-dur-fast);
+}
+
+.smw-radio:checked {
+	border-color: var(--smw-primary);
+}
+
+.smw-radio:checked::after {
+	content: "";
+	position: absolute;
+	left: 50%;
+	top: 50%;
+	width: 10px;
+	height: 10px;
+	border-radius: 50%;
+	background: var(--smw-primary);
+	transform: translate(-50%, -50%);
+}
+
+.smw-radio:focus-visible {
+	outline: var(--smw-focus-ring);
+	outline-offset: var(--smw-focus-offset);
+}
+
+.smw-radio-label {
+	font-size: 14px;
+	line-height: 20px;
+}
+
+.smw-radio-help {
+	flex: 0 0 100%;
+	padding-left: 30px;
+	font-size: 12px;
+	line-height: 16px;
+	color: var(--smw-on-surface-variant);
+}
+
+/* 搜索式下拉：触发按钮 + 浮层面板（面板定位由 Popover 负责）。 */
+.smw-select-wrap {
+	width: 100%;
+	min-width: 0;
+}
+
+.smw-select-btn {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	width: 100%;
+	min-height: var(--smw-control-h);
+	padding: 8px 12px;
+	border: 1px solid var(--smw-outline);
+	border-radius: var(--smw-radius-field);
+	background: var(--smw-surface);
+	color: var(--smw-on-surface);
+	font: inherit;
+	font-size: 14px;
+	line-height: 20px;
+	text-align: left;
+	cursor: pointer;
+}
+
+.smw-select-btn:hover {
+	border-color: var(--smw-on-surface-variant);
+}
+
+.smw-select-btn[aria-expanded="true"] {
+	border-color: var(--smw-primary);
+	box-shadow: inset 0 0 0 1px var(--smw-primary);
+}
+
+.smw-select-btn:focus-visible {
+	outline: var(--smw-focus-ring);
+	outline-offset: var(--smw-focus-offset);
+}
+
+.smw-select-btn-empty .smw-select-btn-label {
+	color: var(--smw-on-surface-variant);
+}
+
+.smw-select-panel {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	width: 260px;
+	max-width: calc(100vw - 32px);
+	padding: 8px;
+}
+
+.smw-select-list {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	max-height: 240px;
+	overflow-y: auto;
+	-webkit-overflow-scrolling: touch;
+}
+
+.smw-select-option {
+	display: block;
+	width: 100%;
+	padding: 8px 12px;
+	border: none;
+	border-radius: 8px;
+	background: transparent;
+	color: var(--smw-on-surface);
+	font: inherit;
+	font-size: 14px;
+	line-height: 20px;
+	text-align: left;
+	cursor: pointer;
+}
+
+.smw-select-option:hover,
+.smw-select-option.smw-active {
+	background: var(--smw-muted-bg);
+}
+
+.smw-select-option.smw-selected {
+	color: var(--smw-primary);
+	font-weight: 500;
+}
+
+.smw-select-empty {
+	padding: 12px;
+	font-size: 13px;
+	color: var(--smw-on-surface-variant);
+}
+
+/* 可折叠分组（「高级设置」）：收起时内容仍在 DOM 里，
+ * 展开不会重建控件，用户填过的值不会丢。 */
+.smw-group {
+	border-radius: var(--smw-radius-card);
+	background: var(--smw-surface-container);
+	overflow: hidden;
+}
+
+.smw-group-head {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 8px;
+	width: 100%;
+	padding: 12px 16px;
+	border: none;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+
+.smw-group-head:focus-visible {
+	outline: var(--smw-focus-ring);
+	outline-offset: calc(-1 * var(--smw-focus-offset));
+}
+
+.smw-group-title {
+	font-size: 14px;
+	font-weight: 500;
+	line-height: 20px;
+}
+
+.smw-group-desc {
+	flex: 0 0 100%;
+	font-size: 12px;
+	line-height: 16px;
+	color: var(--smw-on-surface-variant);
+}
+
+.smw-group-head .smw-icon {
+	margin-left: auto;
+	transition: transform var(--smw-dur-med) var(--smw-ease);
+}
+
+.smw-group-head .smw-chevron-open {
+	transform: rotate(180deg);
+}
+
+.smw-group-body {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	padding: 0 16px 16px;
+}
+
+.smw-group-body[hidden] {
+	display: none;
 }
 
 /* 变更提示条：改了还没保存时提醒用户，避免「以为改了其实没下发」。 */
@@ -497,13 +1343,17 @@
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
-	gap: 0.6em;
-	padding: 0.55em 0.8em;
-	border: 1px dashed var(--smw-warn);
-	border-radius: 8px;
-	background: var(--smw-warn-bg);
-	color: var(--smw-warn);
-	font-size: 0.9em;
+	gap: 8px;
+	padding: 8px 8px 8px 16px;
+	border-radius: var(--smw-radius-card);
+	background: var(--smw-secondary-container);
+	color: var(--smw-on-secondary-container);
+	font-size: 14px;
+	line-height: 20px;
+}
+
+.smw-dirty .smw-actions {
+	margin-left: auto;
 }
 
 /* ==================== 杂项 ==================== */
@@ -511,23 +1361,29 @@
 .smw-block {
 	display: flex;
 	flex-direction: column;
-	gap: 0.4em;
+	gap: 8px;
 }
 
+/* 键值列表：MD3 list item 的纵向版式 —— 标签 label-medium 弱化，值 body-medium 强化。 */
 .smw-kv {
 	display: grid;
 	grid-template-columns: minmax(8em, auto) 1fr;
-	gap: 0.35em 1em;
+	gap: 8px 16px;
 	align-items: baseline;
 }
 
 .smw-kv dt {
-	color: var(--smw-muted-fg);
-	font-size: 0.88em;
+	color: var(--smw-on-surface-variant);
+	font-size: 12px;
+	font-weight: 500;
+	letter-spacing: 0.5px;
+	line-height: 16px;
 }
 
 .smw-kv dd {
 	margin: 0;
+	font-size: 14px;
+	line-height: 20px;
 	word-break: break-word;
 }
 
@@ -535,43 +1391,210 @@
 .smw-tick {
 	display: inline-flex;
 	align-items: center;
-	gap: 0.35em;
-	font-size: 0.82em;
-	color: var(--smw-muted-fg);
+	gap: 8px;
+	font-size: 12px;
+	font-weight: 500;
+	letter-spacing: 0.5px;
+	color: var(--smw-on-surface-variant);
 }
 
 .smw-tick::before {
 	content: "";
-	width: 0.45em;
-	height: 0.45em;
+	width: 8px;
+	height: 8px;
 	border-radius: 50%;
 	background: var(--smw-ok);
-	opacity: 0.85;
+	animation: smw-pulse 2s ease-in-out infinite;
 }
+
+@keyframes smw-pulse {
+	50% { opacity: 0.35; }
+}
+
+/* ==================== Modal Bottom Sheet ==================== */
+
+/* 遮罩：点击 = 取消。fade-in 200ms。 */
+.smw-sheet-scrim {
+	position: fixed;
+	inset: 0;
+	z-index: 2000;
+	background: var(--smw-scrim);
+	animation: smw-fade-in 0.2s ease;
+}
+
+.smw-sheet-scrim-closing {
+	animation: smw-fade-out 0.2s ease forwards;
+}
+
+/* 面板本体：贴底、限宽居中（桌面不至于拉满整行）、28dp 顶部圆角。
+ * 高度上限 88vh：留出顶部一截页面，让用户知道「这是盖在页面上的面板」。 */
+.smw-sheet {
+	position: fixed;
+	z-index: 2001;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	width: 100%;
+	max-width: 640px;
+	margin: 0 auto;
+	max-height: 88vh;
+	display: flex;
+	flex-direction: column;
+	padding: 0 24px 24px;
+	background: var(--smw-surface-container);
+	color: var(--smw-on-surface);
+	border-radius: var(--smw-radius-sheet) var(--smw-radius-sheet) 0 0;
+	box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.18);
+	/* 进入动画：MD3 emphasized-decelerate 曲线，280ms 从底部滑入。 */
+	animation: smw-sheet-in 0.28s cubic-bezier(0.05, 0.7, 0.1, 1);
+	outline: none;
+}
+
+.smw-sheet-closing {
+	animation: smw-sheet-out 0.2s cubic-bezier(0.3, 0, 0.8, 0.15) forwards;
+}
+
+/* 拖拽把手：32x4dp，是「可下滑关闭」的视觉提示。 */
+.smw-sheet-head {
+	flex: 0 0 auto;
+	padding-top: 12px;
+	touch-action: none;
+}
+
+.smw-sheet-grip {
+	width: 32px;
+	height: 4px;
+	margin: 0 auto 8px;
+	border-radius: 2px;
+	background: var(--smw-outline-variant);
+	cursor: grab;
+}
+
+.smw-sheet-title {
+	font-size: 22px;
+	font-weight: 400;
+	line-height: 28px;
+	padding-bottom: 4px;
+}
+
+.smw-sheet-body {
+	flex: 1 1 auto;
+	overflow-y: auto;
+	-webkit-overflow-scrolling: touch;
+	font-size: 14px;
+	line-height: 20px;
+	padding: 4px 0 8px;
+}
+
+.smw-sheet-msg {
+	margin: 0 0 8px;
+}
+
+.smw-sheet-details {
+	margin: 0;
+	padding-left: 20px;
+	font-size: 13px;
+	line-height: 20px;
+	color: var(--smw-on-surface-variant);
+}
+
+.smw-sheet-details li {
+	margin-bottom: 4px;
+}
+
+/* 动作区：桌面横排贴右；手机竖排全宽、主操作在最下（拇指热区）。 */
+.smw-sheet-actions {
+	flex: 0 0 auto;
+	display: flex;
+	gap: 8px;
+	justify-content: flex-end;
+	padding-top: 8px;
+}
+
+.smw-sheet-actions .smw-btn {
+	min-height: 48px;
+}
+
+@keyframes smw-fade-in {
+	from { opacity: 0; }
+}
+
+@keyframes smw-fade-out {
+	to { opacity: 0; }
+}
+
+@keyframes smw-sheet-in {
+	from { transform: translateY(100%); }
+}
+
+@keyframes smw-sheet-out {
+	to { transform: translateY(100%); }
+}
+
+/* ==================== 动效与断点 ==================== */
 
 /* 尊重「减少动效」的系统设置。 */
 @media (prefers-reduced-motion: reduce) {
 	.smw-card,
-	.smw-bar-fill {
+	.smw-bar-fill,
+	.smw-btn,
+	.smw-tick::before,
+	.smw-sheet,
+	.smw-sheet-scrim {
 		transition: none;
+		animation: none;
 	}
 	.smw-card:hover {
-		transform: none;
+		box-shadow: none;
 	}
 }
 
-/* 窄屏：卡片单列，区块内边距收紧。 */
+/* 手机断点（≤640px）：单列、收紧间距、底部面板动作竖排全宽、
+ * 按钮放宽触摸区。MD3 移动规范：最小触摸目标 48dp。 */
 @media (max-width: 640px) {
+	.smw-panel {
+		gap: 8px;
+	}
+	.smw-panel h2 {
+		font-size: 22px;
+		line-height: 28px;
+	}
 	.smw-cards {
 		grid-template-columns: 1fr;
 	}
 	.smw-section {
-		padding: 0.8em;
+		padding: 12px;
+		gap: 8px;
+	}
+	.smw-line-card {
+		padding: 12px;
 	}
 	.smw-form {
 		grid-template-columns: 1fr;
+		gap: 12px;
 	}
 	.smw-kv {
 		grid-template-columns: 1fr;
+		gap: 0 8px;
+	}
+	.smw-kv dd {
+		margin-bottom: 4px;
+	}
+	/* 表格行加高：手指点行比鼠标点行难。 */
+	.smw-table .th,
+	.smw-table .td {
+		height: 52px;
+	}
+	/* 底部面板动作竖排：主操作（DOM 中靠后）落在拇指热区。 */
+	.smw-sheet {
+		max-height: 92vh;
+		padding: 0 20px 20px;
+	}
+	.smw-sheet-actions {
+		flex-direction: column;
+		padding-top: 12px;
+	}
+	.smw-sheet-actions .smw-btn {
+		width: 100%;
 	}
 }

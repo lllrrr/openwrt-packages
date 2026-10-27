@@ -158,9 +158,9 @@ return view.extend({
 				E('p', {}, [ E('code', {}, [ r.id ]), ' —— ', outcome ]),
 				r.error ? E('p', { 'class': 'smw-error' }, [ r.error ]) : '',
 				(r.rollback && r.rollback.length)
-					? E('div', { 'class': 'alert-message warning' }, [
+					? E('div', { 'class': 'smw-notice' }, [
 						E('strong', {}, [ '内核状态需人工确认：' ]),
-						E('ul', {}, r.rollback.map(function(x) { return E('li', {}, [ x ]); }))
+						E('ul', { 'class': 'smw-notes' }, r.rollback.map(function(x) { return E('li', {}, [ x ]); }))
 					])
 					: ''
 			]));
@@ -183,7 +183,7 @@ return view.extend({
 	},
 
 	errorBox: function(msg) {
-		return 'status', E('div', { 'id': ROOT, 'class': 'smw-state smw-state-error alert-message warning' }, [
+		return 'status', E('div', { 'id': ROOT, 'class': 'smw-state smw-state-error' }, [
 			E('strong', {}, [ 'RPC 失败：' ]),
 			E('span', {}, [ msg || '无法连接守护进程，请确认 smartmwand 已启动' ])
 		]);

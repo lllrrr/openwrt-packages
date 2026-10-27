@@ -336,18 +336,29 @@ html.dark .snp-app,
 
 .snp-stat-value {
 	display: block;
-	overflow: hidden;
 	color: var(--snp-text);
 	font-size: 0.95rem;
 	font-weight: 700;
 	font-variant-numeric: tabular-nums;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+	/* A status value can be a whole phrase ("No wireless card detected", an
+	   SSID), and the block is narrow when the hero splits into two columns.
+	   Wrap it rather than clipping it, so no character is ever hidden. */
+	overflow-wrap: anywhere;
 }
 
 .snp-stat-value.is-muted {
 	color: var(--snp-muted);
 	font-weight: 600;
+}
+
+/* When the hero splits into two columns the status panel starts at 280px,
+   which leaves each of the two cards too little room for a full phrase such
+   as "No wireless card detected". Keep two cards per row only where they
+   still fit; below that, use the full panel width for one card per row. */
+@media (min-width: 901px) {
+	.snp-status {
+		grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+	}
 }
 
 /* -------------------------------------------------------------------------
@@ -525,6 +536,26 @@ html.dark .snp-app,
 .snp-mode-arrow svg {
 	width: 15px;
 	height: 15px;
+}
+
+.snp-help-strip {
+	display: flex;
+	align-items: flex-start;
+	gap: 0.65rem;
+	margin-top: 1rem;
+	padding: 0.9rem 1rem;
+	border: 1px dashed var(--snp-border-strong);
+	border-radius: var(--snp-radius-md);
+	color: var(--snp-muted);
+	font-size: 0.82rem;
+}
+
+.snp-help-strip svg {
+	width: 18px;
+	height: 18px;
+	flex: 0 0 18px;
+	margin-top: 0.08rem;
+	color: var(--snp-violet);
 }
 
 /* -------------------------------------------------------------------------

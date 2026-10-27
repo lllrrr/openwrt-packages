@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>smartmwan 组件预览（UI 组件系统自检页）</title>
+<style>
+	/* 这一小段只是「宿主页面」的排版，不是组件样式。
+	 * 组件样式全部来自真实的 smartmwan.css / overlay.css（由模块自行注入）。 */
+	html, body { margin: 0; padding: 0; }
+	body {
+		font-family: -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif;
+		overflow-wrap: break-word;
+		background: #f6f4f9;
+		color: #1d1b20;
+		padding: 24px;
+		box-sizing: border-box;
+	}
+	@media (prefers-color-scheme: dark) {
+		body { background: #121016; color: #e6e0e9; }
+	}
+	.pv-head { max-width: 1080px; margin: 0 auto 24px; }
+	.pv-head h1 { font-size: 24px; font-weight: 500; margin: 0 0 6px; }
+	.pv-head p { margin: 0; font-size: 13px; opacity: 0.72; line-height: 20px; word-break: break-word; }
+	.pv-wrap { max-width: 1080px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+	.pv-block { background: #fff; border-radius: 12px; padding: 16px; }
+	@media (prefers-color-scheme: dark) {
+		.pv-block { background: #1e1b22; }
+	}
+	.pv-block > h2 { font-size: 15px; font-weight: 500; margin: 0 0 4px; }
+	.pv-block > .pv-note { font-size: 12px; opacity: 0.66; margin: 0 0 14px; line-height: 18px; }
+	.pv-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+	.pv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+	.pv-sep { height: 1px; background: rgba(128,128,128,0.2); margin: 14px 0; }
+	.pv-label { font-size: 12px; opacity: 0.6; margin: 12px 0 6px; }
+	#pv-host { position: relative; min-height: 120px; border-radius: 8px; padding: 8px; }
+</style>
+</head>
+<body>
+<div class="pv-head">
+	<h1>smartmwan 组件预览</h1>
+	<p>
+		本页加载的是仓库里的<strong>真实组件代码</strong>（smwcore / smwoverlay / smwfeedback /
+		smwform / smwpopover）与<strong>真实样式</strong>，只把 LuCI 运行时换成最小替身。
+		用法：在仓库根目录执行 <code>python3 -m http.server 8080</code>，然后打开
+		<code>http://localhost:8080/scripts/ui-preview.html</code>。
+		切换系统的浅色/深色外观即可核对两套主题。
+	</p>
+</div>
+
+<div class="pv-wrap" id="pv-wrap">
+	<div class="pv-block">
+		<h2>按钮</h2>
+		<p class="pv-note">六种形态：主操作、次重要、描边、文字、危险、危险文字。状态层由 currentColor 叠加，不依赖主题。</p>
+		<div class="pv-row" id="pv-buttons"></div>
+	</div>
+
+	<div class="pv-block">
+		<h2>弹层（Dialog / Drawer / Sheet / Confirm）</h2>
+		<p class="pv-note">PC 居中、手机贴底；关闭按钮 / 遮罩 / ESC 各自可配；提交期间不可关闭；未保存改动会二次确认。</p>
+		<div class="pv-row" id="pv-overlays"></div>
+	</div>
+
+	<div class="pv-block">
+		<h2>反馈（Toast）</h2>
+		<p class="pv-note">四类语义、去重、上限 4 条、错误常驻、可带一个操作按钮、进行中→完成的状态迁移。</p>
+		<div class="pv-row" id="pv-toasts"></div>
+	</div>
+
+	<div class="pv-block">
+		<h2>浮层（Popover / Tooltip）</h2>
+		<p class="pv-note">挂 body，逃逸父级 overflow；边缘自动翻转；外部点击与 ESC 关闭。</p>
+		<div class="pv-row" id="pv-popover"></div>
+	</div>
+
+	<div class="pv-block">
+		<h2>表单控件</h2>
+		<p class="pv-note">标签 / 说明 / 错误行三段式，aria 关联齐全；IP 与端口执行格式校验（后端仍然权威）。</p>
+		<div class="pv-grid" id="pv-form"></div>
+		<p class="pv-label">可折叠分组（高级设置）</p>
+		<div id="pv-group"></div>
+	</div>
+
+	<div class="pv-block">
+		<h2>加载与进度</h2>
+		<p class="pv-note">区域加载、骨架屏、不确定进度（没有真实数值时不画百分比）、按钮加载态。</p>
+		<div class="pv-row" id="pv-loading"></div>
+		<div class="pv-sep"></div>
+		<div id="pv-host"></div>
+	</div>
+
+	<div class="pv-block">
+		<h2>页面级零件</h2>
+		<p class="pv-note">区块卡片、统计卡、键值表、徽标、表格（含表头气泡说明）。</p>
+		<div id="pv-parts"></div>
+	</div>
+</div>
+
+<script>
+/* ============================================================
+ * 最小 LuCI 运行时替身
+ * ------------------------------------------------------------
+ * 只实现组件真正用到的那部分：E() 建节点、L.Class.extend、L.resource、
+ * poll、rpc（页面里不发请求）、ui.createHandlerFn。
+ * 与真机行为保持一致的关键点：E() **不递归展开嵌套数组**。
+ * ============================================================ */
+(function() {
+	function applyAttrs(el, attrs) {
+		if (!attrs) return;
+		Object.keys(attrs).forEach(function(k) {
+			var v = attrs[k];
+			if (v == null) return;
+			if (typeof v === 'function') el.addEventListener(k, v);
+			else if (k === 'class') el.setAttribute('class', v);
+			else if (k in el && k !== 'style') el[k] = v;
+			else el.setAttribute(k, v);
+		});
+	}
+
+	window.E = function(tag, attrs, child) {
+		var el;
+		if (tag.indexOf(':') >= 0) {
+			var p = tag.split(':');
+			el = document.createElementNS('http://www.w3.org/2000/svg', p[1]);
+		} else {
+			el = document.createElement(tag);
+		}
+		applyAttrs(el, attrs);
+		var kids = child == null ? [] : (Array.isArray(child) ? child : [ child ]);
+		kids.forEach(function(k) {
+			if (k && k.nodeType) el.appendChild(k);
+			else el.appendChild(document.createTextNode(k == null ? '' : String(k)));
+		});
+		if (tag === 'textarea' && el.textContent)
+			el.value = el.textContent;
+		return el;
+	};
+
+	window.L = {
+		Class: {
+			extend: function(proto) {
+				function C() {}
+				Object.keys(proto || {}).forEach(function(k) { C.prototype[k] = proto[k]; });
+				return C;
+			}
+		},
+		resource: function(p) { return '../htdocs/luci-static/resources/' + p; }
+	};
+
+	window.poll = { add: function() {}, remove: function() {} };
+	window.rpc = { declare: function() { return function() { return Promise.resolve({ ok: false, error: { message: '预览页不发请求' } }); }; } };
+	window.ui = {
+		createHandlerFn: function(view, method) {
+			var args = Array.prototype.slice.call(arguments, 2);
+			return function(ev) {
+				return Promise.resolve(view[method].apply(view, args.concat([ ev ])));
+			};
+		},
+		addNotification: function() {}
+	};
+	window.view = { extend: function(proto) { return L.Class.extend(proto); } };
+})();
+</script>
+
+<script>
+/* ============================================================
+ * 模块加载：复刻 LuCI 的 require（依赖按名字注入、模块 return 类则实例化）
+ * ============================================================ */
+var MODULES = {};
+
+function loadModule(name) {
+	if (MODULES[name])
+		return MODULES[name];
+	var url = '../htdocs/luci-static/resources/' + name + '.js';
+	var src = window.__sources[name];
+	var names = [ 'E', 'L', 'document', 'poll', 'rpc', 'ui', 'view' ];
+	var values = [ window.E, window.L, document, window.poll, window.rpc, window.ui, window.view ];
+	/* 依赖挂到 window 上（LuCI 是注入为局部变量；这里语义相同、实现更简单） */
+	var fn = new Function(names.join(','), src + '\n//# sourceURL=' + url);
+	var ret = fn.apply(null, values);
+	MODULES[name] = (typeof ret === 'function') ? new ret() : ret;
+	window[name.replace(/-/g, '_')] = MODULES[name];
+	return MODULES[name];
+}
+
+/* 依次 fetch 源码（顺序即依赖顺序） */
+var ORDER = [ 'smwcore', 'smwpopover', 'smwoverlay', 'smwfeedback', 'smwform', 'smartmwan' ];
+
+async function boot() {
+	window.__sources = {};
+	for (const m of ORDER) {
+		const res = await fetch('../htdocs/luci-static/resources/' + m + '.js');
+		window.__sources[m] = await res.text();
+	}
+	ORDER.forEach(function(m) { loadModule(m); });
+	demo();
+}
+
+/* ============================================================
+ * 演示内容（这里就是「组件 API 使用示例」）
+ * ============================================================ */
+function demo() {
+	var core = window.smwcore;
+	var ovl = window.smwoverlay;
+	var fb = window.smwfeedback;
+	var form = window.smwform;
+	var pop = window.smwpopover;
+	var smw = window.smartmwan;
+
+	var row = document.getElementById('pv-buttons');
+	[
+		[ '主操作（filled）', 'filled' ],
+		[ '次重要（tonal）', 'tonal' ],
+		[ '描边（outlined）', 'outlined' ],
+		[ '文字（text）', 'text' ],
+		[ '危险（danger）', 'danger' ],
+		[ '危险文字（text-danger）', 'text-danger' ]
+	].forEach(function(p) {
+		row.appendChild(core.button(p[0], { variant: p[1], click: function() {
+			fb.Toast.info('按钮点击：' + p[0], { duration: 2000 });
+		} }));
+	});
+	var spin = core.button('点我看加载态', { variant: 'outlined' });
+	spin.addEventListener('click', function() {
+		fb.Loading.busy(spin, true, '处理中…');
+		setTimeout(function() { fb.Loading.busy(spin, false); }, 1500);
+	});
+	row.appendChild(spin);
+
+	/* ---- 弹层 ---- */
+	var ovlRow = document.getElementById('pv-overlays');
+
+	var openDialogBtn = core.button('Dialog（表单）', { variant: 'filled', click: function() {
+		ovl.Dialog.open({
+			title: '均衡参数',
+			description: '保存后仍需「应用」才会下发到内核。',
+			size: 'md',
+			body: [
+				form.field({ label: '桶数', required: true,
+					control: form.number({ value: 64, min: 2, max: 256, step: 2 }),
+					help: '桶越多分配越细，规则数也随之增长。',
+					validate: form.validators.intBetween(2, 256) }).el,
+				form.field({ label: '算法',
+					control: form.searchSelect({ options: [
+						{ value: 'src_ip', label: '源地址哈希' },
+						{ value: 'weighted_hash', label: '加权哈希' }
+					], value: 'src_ip' }).el,
+					help: '动态算法会按统计窗口重排桶。' }).el
+			],
+			actions: [
+				{ label: '取消', variant: 'text', value: null },
+				{ label: '保存', variant: 'filled', value: 'save',
+					onClick: function() { return new Promise(function(r) { setTimeout(r, 900); }); } }
+			]
+		});
+	} });
+	openDialogBtn.id = 'pv-dialog';
+	ovlRow.appendChild(openDialogBtn);
+
+	ovlRow.appendChild(core.button('Dialog（宽屏）', { variant: 'tonal', click: function() {
+		ovl.Dialog.open({
+			title: '待下发变更（32 项）',
+			description: '后端 diff 的原样输出。',
+			size: 'lg',
+			body: E('ul', { 'class': 'smw-notes' }, Array.from({ length: 20 }, function(_, i) {
+				return E('li', {}, [ E('code', {}, [ 'global.k' + i ]), '：a' + i + ' → b' + i ]);
+			})),
+			actions: [ { label: '关闭', variant: 'text', value: null } ]
+		});
+	} }));
+
+	var openDrawerBtn = core.button('Drawer', { variant: 'outlined', click: function() {
+		var dirty = false;
+		var ta = E('textarea', { 'class': 'smw-textarea', rows: '14' }, [ '{\n  "global": {\n    "buckets": 64\n  }\n}' ]);
+		ta.addEventListener('input', function() { dirty = true; });
+		ovl.Drawer.open({
+			title: '配置编辑器',
+			description: '整份配置（JSON）。',
+			width: 520,
+			body: [ E('p', { 'class': 'smw-muted' }, [ '修改后点「校验并保存」；导入会整份替换。' ]), ta ],
+			beforeClose: function() { return dirty ? '编辑器里有未保存的改动，关闭后会丢失。' : true; },
+			actions: [
+				{ label: '关闭', variant: 'text', onClick: function(c) { c.requestClose(null, 'button'); return false; } },
+				{ label: '校验并保存', variant: 'filled', onClick: function() {
+					return new Promise(function(_, rej) { setTimeout(function() { rej(new Error('示例：后端校验不通过（路径 global.buckets 越界）')); }, 800); });
+				} }
+			]
+		});
+	} });
+	openDrawerBtn.id = 'pv-drawer';
+	ovlRow.appendChild(openDrawerBtn);
+
+	var openSheetBtn = core.button('Bottom Sheet', { variant: 'outlined', click: function() {
+		ovl.Sheet.open({
+			title: '快速操作',
+			body: E('p', { 'class': 'smw-muted' }, [ '下拉把手可关闭；手机上按钮竖排全宽。' ]),
+			actions: [
+				{ label: '立即回切', variant: 'filled', value: 'failback' },
+				{ label: '进入维护模式', variant: 'tonal', value: 'maint' },
+				{ label: '取消', variant: 'text', value: null }
+			]
+		}).then(function(v) {
+			if (v) fb.Toast.success('选择了：' + v);
+		});
+	} });
+	openSheetBtn.id = 'pv-sheet';
+	ovlRow.appendChild(openSheetBtn);
+
+	var openConfirmBtn = core.button('确认（危险）', { variant: 'danger', click: function() {
+		ovl.Confirm.show({
+			title: '停用服务',
+			message: '停用后本插件会清空自己的内核对象，流量交还系统原路由。',
+			details: [ '本插件创建的路由表、nft 链与标记会被清空。', '已建立的连接按 conntrack 继续走。' ],
+			severity: 'danger',
+			disconnectRisk: true,
+			confirmText: '确认停用',
+			onConfirm: function() { return new Promise(function(r) { setTimeout(r, 700); }); }
+		}).then(function(ok) {
+			fb.Toast.show({ type: ok ? 'success' : 'info', message: ok ? '已停用' : '已取消' });
+		});
+	} });
+	openConfirmBtn.id = 'pv-confirm';
+	ovlRow.appendChild(openConfirmBtn);
+
+	ovlRow.appendChild(core.button('确认（输入文字）', { variant: 'text-danger', click: function() {
+		ovl.Confirm.show({
+			title: '恢复默认设置',
+			message: '将清空全部线路、规则与偏好设置，恢复到安装时的状态。',
+			details: [ '此操作不可撤销。', '建议先导出配置留底。' ],
+			severity: 'critical',
+			requireType: '恢复默认',
+			confirmText: '恢复'
+		}).then(function(ok) {
+			fb.Toast.show({ type: ok ? 'success' : 'info', message: ok ? '已恢复默认设置' : '已取消' });
+		});
+	} }));
+
+	/* ---- Toast ---- */
+	var tRow = document.getElementById('pv-toasts');
+	tRow.appendChild(core.button('成功', { variant: 'tonal', click: function() { fb.Toast.success('已写盘（3 项变更）'); } }));
+	tRow.appendChild(core.button('错误', { variant: 'tonal', click: function() {
+		fb.Toast.error('应用失败：事务 txn-9 未提交（nft 试算失败）');
+	} }));
+	tRow.appendChild(core.button('警告', { variant: 'tonal', click: function() {
+		fb.Toast.warning('主线路已 3 次探测失败，正在等待回切条件');
+	} }));
+	tRow.appendChild(core.button('信息', { variant: 'tonal', click: function() {
+		fb.Toast.info('无变更（幂等复核通过）');
+	} }));
+	tRow.appendChild(core.button('带操作', { variant: 'tonal', click: function() {
+		fb.Toast.warning('已导入配置', { action: { label: '查看变更', onClick: function() {
+			fb.Toast.info('示例：跳转到「待下发变更」');
+		} } });
+	} }));
+	tRow.appendChild(core.button('进行中→完成', { variant: 'tonal', click: function() {
+		var t = fb.Toast.progress({ message: '正在提交事务…' });
+		setTimeout(function() { t.done('事务 txn-12：已提交'); }, 1600);
+	} }));
+
+	/* ---- Popover / Tooltip ---- */
+	var pRow = document.getElementById('pv-popover');
+	var anchor = core.button('更多操作（点击）', { variant: 'outlined' });
+	anchor.addEventListener('click', function() {
+		pop.Popover.open(anchor, {
+			placement: 'bottom-start',
+			content: E('div', { role: 'menu' }, [
+				E('button', { 'type': 'button', 'class': 'smw-menu-item', role: 'menuitem',
+					click: function() { fb.Toast.info('重新读取配置'); } }, [ '重新读取配置（不改内核）' ]),
+				E('button', { 'type': 'button', 'class': 'smw-menu-item', role: 'menuitem',
+					click: function() { fb.Toast.info('立即探测一轮'); } }, [ '立即探测一轮' ]),
+				E('button', { 'type': 'button', 'class': 'smw-menu-item', role: 'menuitem',
+					click: function() { fb.Toast.show({ type: 'warning', message: '回滚到 last-good' }); } },
+					[ '回滚到 last-good 并重新下发' ])
+			])
+		});
+	});
+	pRow.appendChild(anchor);
+
+	var tipBtn = core.iconButton('info', { label: '命中数说明' });
+	pop.Tooltip.attach(tipBtn, '来自内核 nft counter，按规则求和；读不到时显示「—」。', { placement: 'top' });
+	pRow.appendChild(E('span', { 'class': 'pv-row' }, [ tipBtn, E('span', { 'class': 'smw-muted' }, [ '悬停或聚焦这个图标看气泡' ]) ]));
+
+	/* ---- 表单 ---- */
+	var fRow = document.getElementById('pv-form');
+	function addField(f) { fRow.appendChild(f.el); }
+
+	addField(form.field({ label: '设备名称', control: form.text({ value: 'eth0' }), help: '接口名，例如 eth0 / pppoe-wan' }));
+	addField(form.field({ label: '网关地址', required: true,
+		control: form.ip({ value: '192.168.1.1', version: 4 }),
+		help: 'IPv4 地址，四段 0–255。',
+		validate: function(v) { return form.validators.ipv4(v) ? null : '不是合法的 IPv4 地址'; } }));
+	addField(form.field({ label: 'IPv6 地址',
+		control: form.ip({ value: 'fd00::1' }),
+		help: '支持 :: 压缩与末尾内嵌 IPv4。',
+		validate: function(v) { return !v || form.validators.ipv6(v) ? null : '不是合法的 IPv6 地址'; } }));
+	addField(form.field({ label: '探测端口', required: true,
+		control: form.port({ value: '443' }),
+		help: '1–65535，或 8000-8100 这样的区间。',
+		validate: function(v) { return form.validators.port(v, true) ? null : '端口必须是 1–65535 或合法区间'; } }));
+	addField(form.field({ label: '密码', control: form.password({ value: 'secret' }).el, help: '点右侧眼睛切换显示。' }));
+	addField(form.field({ label: '搜索', control: form.search({ placeholder: '按名称过滤…' }).el }));
+	addField(form.field({ label: '探测周期（毫秒）', required: true,
+		control: form.number({ value: 5000, min: 100, max: 600000, step: 100 }),
+		help: '太短会给 CPU 增加负担。',
+		validate: form.validators.intBetween(100, 600000) }));
+	addField(form.field({ label: '日志等级',
+		control: form.select({ options: [
+			{ value: 'error', label: 'error（仅错误）' },
+			{ value: 'info', label: 'info（常规，默认）' },
+			{ value: 'debug', label: 'debug（含探测细节）' }
+		], value: 'info' }) }));
+	addField(form.field({ label: '算法（可搜索）',
+		control: form.searchSelect({ options: [
+			{ value: 'src_ip', label: '源地址哈希（同一客户端稳定走同一出口）' },
+			{ value: 'src_ip_src_port', label: '源地址 + 源端口哈希' },
+			{ value: 'full_five_tuple', label: '完整五元组哈希' },
+			{ value: 'least_traffic', label: '实时流量最少优先' }
+		], value: 'src_ip' }).el,
+		help: '选项多时用可搜索下拉。' }));
+	addField(form.field({ label: '会话保持', control: form.switch({ checked: true, label: '已建立连接不换出口' }).el,
+		help: '关闭后桶重排会让已建立连接换出口。' }));
+	addField(form.field({ label: '回切方式',
+		control: form.radio({ name: 'pv-fb', value: 'auto', options: [
+			{ value: 'auto', label: '自动回切' },
+			{ value: 'manual', label: '手动回切' }
+		] }).el }));
+	addField(form.field({ label: '附加选项',
+		control: form.checkbox({ checked: true, label: '写入 nft 计数器' }).el }));
+
+	document.getElementById('pv-group').appendChild(form.group({
+		title: '高级设置',
+		description: '折叠时内容仍在 DOM 里，展开不会丢已填的值。',
+		open: false,
+		children: [
+			form.field({ label: '最小切换间隔（毫秒）', control: form.number({ value: 5000, min: 0, step: 1000 }),
+				help: '两次出口变更之间的兜底闸门。' }).el,
+			form.field({ label: '恢复预热（毫秒）', control: form.number({ value: 10000, min: 0, step: 1000 }),
+				help: '恢复后先观察这么久再承载流量。' }).el
+		]
+	}));
+
+	/* ---- 加载 ---- */
+	var lRow = document.getElementById('pv-loading');
+	lRow.appendChild(core.button('区域加载 1.5s', { variant: 'outlined', click: function() {
+		var host = document.getElementById('pv-host');
+		host.textContent = '';
+		host.appendChild(E('div', { 'class': 'smw-table' }, E('table', { 'class': 'table' }, [
+			E('tr', { 'class': 'tr table-titles' }, [ '线路', '状态', 'RTT' ].map(function(h) {
+				return E('th', { 'class': 'th' }, [ h ]);
+			})),
+			E('tr', { 'class': 'tr' }, [ E('td', { 'class': 'td' }, [ 'wan1' ]), E('td', { 'class': 'td' }, [ '正常' ]), E('td', { 'class': 'td' }, [ '12 ms' ]) ])
+		])), E('div', { 'class': 'smw-loading-region' }, [ E('span', { 'class': 'smw-spinner' }) ]));
+		var reg = fb.Loading.region(host, { text: '正在读取线路…' });
+		setTimeout(function() { reg.done(); }, 1500);
+	} }));
+	lRow.appendChild(core.button('骨架屏', { variant: 'outlined', click: function() {
+		var host = document.getElementById('pv-host');
+		host.textContent = '';
+		host.appendChild(fb.Loading.skeleton({ rows: 5 }));
+	} }));
+	lRow.appendChild(core.button('确定进度', { variant: 'outlined', click: function() {
+		var host = document.getElementById('pv-host');
+		host.textContent = '';
+		var p = fb.Loading.progress({ label: '写入内核对象', value: 0 });
+		host.appendChild(p.el);
+		var v = 0;
+		var t = setInterval(function() {
+			v += 10;
+			p.set(v);
+			p.label('写入内核对象（' + v + '%）');
+			if (v >= 100) { clearInterval(t); p.label('已完成'); }
+		}, 200);
+	} }));
+	lRow.appendChild(core.button('不确定进度', { variant: 'outlined', click: function() {
+		var host = document.getElementById('pv-host');
+		host.textContent = '';
+		var p = fb.Loading.progress({ label: '等待后端回执（无百分比可报）' });
+		host.appendChild(p.el);
+	} }));
+
+	/* ---- 页面级零件 ---- */
+	var parts = document.getElementById('pv-parts');
+	parts.appendChild(E('div', { 'class': 'smw-cards' }, [
+		smw.stat('模式', '均衡', '', 'ok'),
+		smw.stat('活动出口', 'wan1', ''),
+		smw.stat('承载流量', '是', '', 'ok'),
+		smw.stat('nft 通道', 'nft', '')
+	]));
+	parts.appendChild(E('div', { 'style': 'height:12px' }));
+	parts.appendChild(smw.section('线路', [
+		smw.table(
+			[ '线路', '状态', 'RTT', '命中' ],
+			[
+				[ 'wan1', smw.stateBadge('healthy', '正常'), '12 ms', '1 284 包' ],
+				[ 'wan2', smw.stateBadge('degraded', '降级'), '48 ms', '—' ]
+			],
+			{ headTips: { 3: '来自内核 nft counter；读不到时显示「—」而不是 0。' } }
+		),
+		smw.kv([ [ '决策', '按源地址哈希分配 64 桶' ], [ '最近事务', 'txn-1 已提交' ] ])
+	]));
+}
+
+/* ?open=dialog|drawer|sheet|confirm：自动打开对应弹层，便于截图与人工核对。 */
+function autoOpen() {
+	var which = (new URLSearchParams(location.search)).get('open');
+	if (!which) return;
+	var btn = document.getElementById('pv-' + which);
+	if (btn) setTimeout(function() { btn.click(); }, 60);
+}
+
+/* ?debug=1：把关键元素的布局尺寸打到页面上，用于排查溢出/裁切。
+ * （浏览器里没有真机可连时，这是最省事的一次性诊断手段。） */
+function debugLayout() {
+	if (!(new URLSearchParams(location.search)).get('debug'))
+		return;
+	setTimeout(function() {
+		var panel = document.querySelector('.smw-overlay');
+		var lines = [ 'viewport=' + window.innerWidth + 'x' + window.innerHeight ];
+		if (panel) {
+			var r = panel.getBoundingClientRect();
+			lines.push('panel rect: left=' + r.left.toFixed(1) + ' width=' + r.width.toFixed(1) +
+				' right=' + r.right.toFixed(1));
+			lines.push('panel box-sizing=' + getComputedStyle(panel).boxSizing);
+		}
+		var inner = document.querySelector('.smw-overlay-body');
+		if (inner) {
+			var ri = inner.getBoundingClientRect();
+			lines.push('body pad-left=' + getComputedStyle(inner).paddingLeft +
+				' width=' + ri.width.toFixed(1) + ' scrollW=' + inner.scrollWidth);
+		}
+		document.querySelectorAll('.smw-overlay .smw-input, .smw-overlay .smw-btn').forEach(function(el) {
+			var rr = el.getBoundingClientRect();
+			lines.push((el.className.split(' ')[0]) + ': left=' + rr.left.toFixed(1) +
+				' width=' + rr.width.toFixed(1) + ' right=' + rr.right.toFixed(1) +
+				' box-sizing=' + getComputedStyle(el).boxSizing);
+		});
+		var pre = document.createElement('pre');
+		pre.id = 'pv-debug';
+		pre.style.cssText = 'position:fixed;left:0;top:0;z-index:9999;background:#fff;color:#000;' +
+			'font-size:11px;margin:0;padding:6px;max-width:100vw;white-space:pre-wrap';
+		pre.textContent = lines.join('\n');
+		document.body.appendChild(pre);
+	}, 700);
+}
+
+boot().then(function() {
+	autoOpen();
+	debugLayout();
+}).catch(function(e) {
+	var pre = document.createElement('pre');
+	pre.style.cssText = 'color:#b3261e;white-space:pre-wrap;font-size:12px';
+	pre.textContent = '预览加载失败：' + (e && e.stack ? e.stack : e);
+	document.body.insertBefore(pre, document.body.firstChild);
+});
+console.error('preview booted');
+</script>
+</body>
+</html>

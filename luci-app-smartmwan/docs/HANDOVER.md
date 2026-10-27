@@ -47,25 +47,61 @@
 #### 版式与样式
 
 * 版面零件集中在 `smartmwan.js`：`section()`（区块卡片）、`stat()`（统计卡片）、
-  `kv()`（键值表）、`field()/select()/number()/checkbox()`（表单）、
-  `dirty()`、`tick()`。新增页面直接复用，别再手写一遍卡片结构；
-* `smartmwan.css` 的两条硬约束：选择器**全部** `.smw-` 作用域（绝不污染 LuCI
-  全局样式），颜色**一律** `var(--x, fallback)`（老主题/暗色主题下变量可能不存在，
-  没有 fallback 会变成不可读的透明或纯黑）；暗色走 `prefers-color-scheme`
+  `kv()`（键值表）、`table()`（表格，支持 `headTips` 列头气泡）、`dirty()`、`tick()`；
+* `smartmwan.css` 与 `overlay.css` 的选择器**全部** `.smw-` 作用域（绝不污染 LuCI
+  全局样式），颜色**一律** `var(--smw-x, fallback)`；暗色走 `prefers-color-scheme`
   而不是主题 class —— 后者在不同 LuCI 主题下名字不统一；
+* 设计令牌统一 `--smw-*`（间距/圆角/阴影/动效/控件高度/焦点环都在
+  `smartmwan.css` 顶部的令牌块里），**不要在页面里硬编码颜色或圆角**；
 * 数值统一 `font-variant-numeric: tabular-nums`（轮询刷新时不左右跳动），
   动效在 `prefers-reduced-motion` 下关闭。
+
+#### 组件系统（弹层 / 反馈 / 浮层 / 表单）
+
+详细 API 见 `docs/UI-DESIGN.md`。这里只写「不知道就会做错」的部分：
+
+* **不要再自己拼弹层**。确认用 `smw.ui.Confirm.show()`，对话框用
+  `smw.ui.Dialog.open()`，抽屉 `Drawer.open()`，底部面板 `Sheet.open()`，
+  操作反馈用 `smw.ui.Toast.*`（`smartmwan.notify(node, 'info')` 是兼容别名）。
+  旧 API（`smw.confirm` / `smw.sheet` / `smw.alert`）仍可用，内部已转发；
+* **五个模块必须平级放置**：LuCI 的 `'require x'` 把模块名当作构造函数参数名注入，
+  `smartmwan.ui.core` 这种带点的名字会直接 `SyntaxError`；
+* **`E()` 不递归展开嵌套数组**。凡是「数组进 children」的地方都要用
+  `smwcore.flatten()`，并且**不能再包一层 `[]`** ——
+  `E('div', {}, [flatten(x)])` 会在页面上印出 `[object HTMLDivElement],...`。
+  这个坑本项目踩了三次（overlay body / group body / popover content），
+  所以测试里专门有一条断言扫描 `[object `；
+* **`Form.field({control})` 收的是节点**。`password/search/searchSelect/radio/
+  checkbox/switch` 返回 `{el, input}`，要取 `.el`（传错会抛一句明确的错误）；
+* **初始焦点不落在关闭按钮上**：优先级是「调用方指定 → 第一个输入控件 →
+  第一个动作按钮 → 面板本身」。确认框因此默认落在「取消」，回车不会误确认；
+* **提交期间禁止关闭**（`busy` 时遮罩与 ESC 都无效）：半提交状态比「点了没反应」
+  更难排查；
+* **`beforeClose` 的三种返回**：`true` 可关；字符串 = 有未保存改动（内部弹二次确认）；
+  `false` 直接拦下（调用方自己已提示过）。
 
 #### 改前端怎么自检（没有真机时）
 
 ```sh
 # ① 语法：LuCI 的 'require X'; 是合法表达式语句，node 能直接查
-for f in htdocs/luci-static/resources/smartmwan.js htdocs/luci-static/resources/view/smartmwan/*.js; do
+for f in htdocs/luci-static/resources/smw*.js \
+         htdocs/luci-static/resources/smartmwan.js \
+         htdocs/luci-static/resources/view/smartmwan/*.js; do
   node --check "$f" || echo "语法错误：$f"
 done
-# ② 渲染冒烟：用 stub 掉 LuCI 运行时（E/L/rpc/ui/view）的脚本跑一遍 render()
-#    脚本刻意**不入库**：它带示例数据，混进仓库就有被当成真实状态的风险。
+
+# ② 结构/交互冒烟：194 项断言，覆盖 7 个视图渲染 + 全部组件交互契约
+node scripts/ui-smoke.js
+
+# ③ 视觉核对：预览页加载的是真实模块与真实 CSS
+python3 -m http.server 8080
+# 打开 http://localhost:8080/scripts/ui-preview.html
+#   ?open=dialog|drawer|sheet|confirm 自动打开弹层
+#   &debug=1 打印布局尺寸（查溢出/裁切）
 ```
+
+两个脚本都入库（此前的手写 stub 脚本不入库，导致每次都重写一遍；
+现在它们同时充当「组件 API 的可执行文档」）。
 
 ## 2. 改了会出事的八条不变式
 

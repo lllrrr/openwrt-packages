@@ -97,7 +97,7 @@ return view.extend({
 	},
 
 	errorBox: function(msg) {
-		return 'traffic', E('div', { 'id': ROOT, 'class': 'smw-state smw-state-error alert-message warning' }, [
+		return 'traffic', E('div', { 'id': ROOT, 'class': 'smw-state smw-state-error' }, [
 			E('strong', {}, [ 'RPC 失败：' ]),
 			E('span', {}, [ msg || '无法读取连接与流量' ])
 		]);

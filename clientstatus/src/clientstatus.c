@@ -17,6 +17,7 @@
 #include <signal.h>
 #include <time.h>
 #include <ctype.h>
+#include <stdint.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -116,6 +117,10 @@ static const char *wf_ssid(const char *mac) {
 
 static void upper(char *s)
     { for (; *s; s++) *s = toupper((unsigned char)*s); }
+
+/* Output/state files are pipe-delimited: keep '|' out of free-text fields. */
+static void strip_pipe(char *s)
+    { for (; *s; s++) if (*s == '|') *s = '/'; }
 
 static void trim(char *s) {
     char *e;
@@ -230,7 +235,9 @@ static void build_ap(void) {
 
     /* ─── WiFi driver byte stats capability detection ─── */
     if (g_wifi_byte_stats != 0) return;   /* already determined */
-    if (g_ap_n == 0) { g_wifi_byte_stats = -1; return; }
+    /* No AP found (yet): stay undetermined so the main loop keeps retrying.
+     * Radios may come up after boot (late init, hotplug, ifplugd). */
+    if (g_ap_n == 0) return;
 
     for (int i = 0; i < g_ap_n; i++) {
         char cmd[256];
@@ -301,7 +308,7 @@ static void collect_conntrack(void) {
         ip[j] = '\0';
         if (!in_lan(ip) || ip_hit(g_ct, g_ct_n, ip)) continue;
         char *est = strstr(line, "ESTABLISHED");
-        if (est) {
+        if (est && est > line) {
             char *p = est - 1;
             while (p > line && isspace((unsigned char)*p)) p--;
             char *end = p + 1;
@@ -622,6 +629,7 @@ static void merge_and_output(void) {
         if ((!c->host[0] || strcmp(c->host, "unknown") == 0) && old)
             strncpy(c->host, old->host, NL);
         if (!c->host[0]) strcpy(c->host, "unknown");
+        strip_pipe(c->host);
 
         /* Device type */
         int is_wf = g_has_wifi && wf_hit(mac);
@@ -670,6 +678,7 @@ static void merge_and_output(void) {
         if (g_has_wifi && is_wf) strncpy(c->conn, wf_ssid(mac), SL);
         else if (g_has_wifi && strcmp(c->dtype, "WiFi") == 0) strcpy(c->conn, "WiFi");
         else strcpy(c->conn, "Ethernet");
+        strip_pipe(c->conn);
 
         g_cli_n++;
     }
@@ -715,9 +724,11 @@ static void merge_and_output(void) {
             if ((pass == 0 && !c->online) || (pass == 1 && c->online)) continue;
             char dur[32];
             fmt_dur((int)(now - c->since), dur, sizeof dur);
-            fprintf(fout, "%-17s  %-8s  %-10s  %-16s  %-20s  %-10s\n",
+            /* Pipe-delimited: hostnames and SSIDs may contain spaces,
+             * which used to break whitespace-based parsing in LuCI. */
+            fprintf(fout, "%s|%s|%s|%s|%s|%s\n",
                     c->mac, c->online ? "online" : "offline", dur,
-                    c->ip[0] ? c->ip : "—", c->host, c->conn);
+                    c->ip[0] ? c->ip : "-", c->host, c->conn);
         }
     }
     fclose(fout);
@@ -741,8 +752,33 @@ static void merge_and_output(void) {
 
 /* ─── Main ───────────────────────────────────────────── */
 
+/* Refuse to start if another live clientstatus daemon owns the PID file. */
+static int pid_is_clientstatus(int pid) {
+    char path[64], buf[256];
+    int fd; ssize_t n;
+    snprintf(path, sizeof path, "/proc/%d/cmdline", pid);
+    fd = open(path, O_RDONLY);
+    if (fd < 0) return 0;
+    n = read(fd, buf, sizeof buf - 1);
+    close(fd);
+    if (n <= 0) return 0;
+    buf[n] = '\0';
+    return strstr(buf, "clientstatus") != NULL;
+}
+
 int main(void) {
-    FILE *pf = fopen(PID_FILE, "w");
+    FILE *pf = fopen(PID_FILE, "r");
+    if (pf) {
+        int old = 0;
+        if (fscanf(pf, "%d", &old) == 1 && old > 0 && old != getpid()
+            && pid_is_clientstatus(old)) {
+            fprintf(stderr, "clientstatus: already running (pid %d)\n", old);
+            fclose(pf);
+            return 1;
+        }
+        fclose(pf);
+    }
+    pf = fopen(PID_FILE, "w");
     if (pf) { fprintf(pf, "%d\n", getpid()); fclose(pf); }
 
     struct sigaction sa = { .sa_handler = on_usr1 };
@@ -765,8 +801,8 @@ int main(void) {
     while (g_run) {
         time_t t0 = time(NULL);
 
-        /* Retry WiFi byte stats detection if undetermined */
-        if (g_has_wifi && g_wifi_byte_stats == 0)
+        /* Retry WiFi byte stats detection while undetermined */
+        if (g_wifi_byte_stats == 0)
             build_ap();
 
         load_state();
@@ -778,11 +814,16 @@ int main(void) {
         merge_and_output();
 
         int was_active = g_usr1; g_usr1 = 0;
+        int idle_sleep = !was_active;
         int sl = (was_active ? g_interval : IDLE_INTERVAL) - (int)(time(NULL) - t0);
         if (sl < 1) sl = 1;
-        for (unsigned r = (unsigned)sl; g_run && r > 0; ) {
-            r = sleep(r);
-            if (g_usr1) break;
+        /* USR1 during an idle sleep → wake at once (frontend just opened).
+         * USR1 during an active sleep → mark the frontend alive only; cutting
+         * the sleep short here would let a 5s speed poll force full rescans
+         * and render the configured interval meaningless. */
+        while (g_run && sl > 0) {
+            sl = sleep((unsigned)sl);
+            if (g_usr1 && idle_sleep) break;
         }
     }
 

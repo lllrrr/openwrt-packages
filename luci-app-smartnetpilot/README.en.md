@@ -16,15 +16,7 @@ The package lives under **Network → Smart NetPilot**
 | DHCP Client | The router sits behind a modem or an existing gateway and gets its WAN address automatically (a static address is possible too) |
 | Side Router | Keep the existing main router and use this device for additional services |
 
-After choosing a mode, the page shows only the fields that mode needs —
-**WAN Settings** for PPPoE and DHCP, or the LAN address for side-router mode —
-plus the shared **Wireless Settings**. The section buttons (WAN / Wireless /
-Other settings) sit at the bottom of the **Guided setup** card at the top of
-the page, so the mode summary is not repeated below. Click **Advanced
-settings** in the top right to reveal every option, including IPv6, the LAN
-DHCP server, the advertised DNS server, HTTPS redirection and the **Other
-Settings** section; click **Hide advanced settings** to return to the focused
-view.
+![Smart NetPilot start page (Argon theme)](screenshot.png)
 
 ## Installation
 
@@ -92,10 +84,8 @@ The built packages end up in `bin/packages/<arch>/base/`.
    advertised to clients and HTTPS redirection; the **Other Settings** section also
    holds SYN-flood protection.
 5. Click **Save & Apply** at the bottom of the page. Use **Save** first if you
-   only want to stage the changes. If the form still holds unsaved edits,
-   **Change mode** in the header asks first: **Discard and go back** throws the
-   edits away and returns to the mode chooser, while **Cancel** stays on the
-   page.
+   only want to stage the changes. **Change mode** in the header discards any
+   unsaved edits on the page and returns to the mode chooser; nothing is saved.
 6. If a change affects how you reach the device — the management address, the
    LAN DHCP role, the HTTPS setting, or the wireless name/password — a
    confirmation dialog lists what will happen before anything is applied. When

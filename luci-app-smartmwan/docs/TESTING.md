@@ -72,7 +72,7 @@ smartmwand --reclaim                 # 一次性回收本插件全部内核对�
 构建环境：真实 OpenWrt/ImmortalWrt 25.12 SDK（mediatek/filogic，aarch64_cortex-a53 musl，
 gcc 14.4.0），`make package/luci-app-smartmwan/compile V=s` → **BUILD OK**。
 
-产物：`bin/packages/aarch64_cortex-a53/base/luci-app-smartmwan-0.4.0-r1.apk`。
+产物：`bin/packages/aarch64_cortex-a53/base/luci-app-smartmwan-0.5.0-r1.apk`。
 校验方法与结果（全部实测）：
 
 | 校验项 | 方法 | 结果 |

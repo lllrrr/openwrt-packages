@@ -113,3 +113,18 @@ msgstr "客户端数据已清除"
 
 msgid "No clients found. Waiting..."
 msgstr "未发现客户端"
+
+msgid "Wireless"
+msgstr "无线"
+
+msgid "Reset"
+msgstr "重置"
+
+msgid "Click to edit"
+msgstr "点击编辑"
+
+msgid "Delete"
+msgstr "删除"
+
+msgid "Enter hostname"
+msgstr "输入主机名"

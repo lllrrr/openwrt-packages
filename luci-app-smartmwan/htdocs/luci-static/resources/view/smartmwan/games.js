@@ -63,7 +63,13 @@ return view.extend({
 						(g.ports || []).join(',') || '—',
 						(g.domains || []).join(' ') || '—'
 					];
-				})
+				}),
+				{
+					headTips: {
+						4: '来自内核 nft counter，按规则求和。读不到时显示「—」，' +
+							'不会用 0 冒充「没命中过」。'
+					}
+				}
 			),
 			E('p', { 'class': 'smw-muted' }, [
 				d.hits_note || '命中数来自内核 counter，按规则求和；同一规则可能对应多条 nft 规则。'
@@ -134,7 +140,7 @@ return view.extend({
 	},
 
 	errorBox: function(msg) {
-		return 'games', E('div', { 'id': ROOT, 'class': 'smw-state smw-state-error alert-message warning' }, [
+		return 'games', E('div', { 'id': ROOT, 'class': 'smw-state smw-state-error' }, [
 			E('strong', {}, [ 'RPC 失败：' ]),
 			E('span', {}, [ msg || '无法读取游戏路由状态' ])
 		]);

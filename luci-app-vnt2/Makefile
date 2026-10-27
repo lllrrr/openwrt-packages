@@ -6,7 +6,7 @@ LUCI_TITLE:=LuCI support for VNT2 VNTS2
 LUCI_DEPENDS:=+luci-base +luci-compat +kmod-tun
 LUCI_PKGARCH:=all
 
-PKG_VERSION:=1.7.5
+PKG_VERSION:=1.7.6
 PKG_RELEASE:=1
 PKG_PO_VERSION:=$(PKG_VERSION)
 

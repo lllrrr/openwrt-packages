@@ -51,11 +51,22 @@ local function valid_mac(mac)
 	return mac ~= nil and mac:match("^%x%x:%x%x:%x%x:%x%x:%x%x:%x%x$") ~= nil
 end
 
+-- Split a daemon data line on '|', preserving empty fields.
+-- Hostnames and SSIDs may contain spaces, so whitespace splitting is unsafe.
+local function split_pipe(line)
+	local parts = {}
+	for part in (line .. "|"):gmatch("(.-)|") do
+		parts[#parts + 1] = part:match("^%s*(.-)%s*$") or part
+	end
+	return parts
+end
+
 local function sanitize_hostname(name)
 	if not name then return nil end
 	name = name:match("^%s*(.-)%s*$") or name
 	if #name == 0 then return nil end
 	if #name > 64 then name = name:sub(1, 64) end
+	name = name:gsub("|", "/") -- output/state files are pipe-delimited
 	name = name:gsub("[\1-\31\127]", "")
 	if #name == 0 then return nil end
 	return name
@@ -103,7 +114,9 @@ function action_mtime()
 end
 
 function action_speed()
-	send_usr1()
+	-- No send_usr1() here: this endpoint reads conntrack directly, and
+	-- signalling the daemon on every 5s poll used to force full rescans,
+	-- which made the configured refresh interval meaningless.
 
 	local CACHE = "/tmp/clientstatus.speed_cache"
 	local now = os.time()
@@ -135,15 +148,12 @@ function action_speed()
 				end
 			end
 		else
-			local parts = {}
-			for p in line:match("^%s*(.-)%s*$"):gmatch("%S+") do
-				parts[#parts + 1] = p
-			end
+			local parts = split_pipe(line)
 			if #parts >= 6 and parts[2] == "online" then
 				local mac = parts[1]:upper()
 				local ip = parts[4]
 				local cnt = parts[6] or "Ethernet"
-				if ip == "\226\128\148" or ip == "-" then ip = nil end
+				if ip == "\226\128\148" or ip == "-" or ip == "" then ip = nil end
 				clients[mac] = {
 					ip = ip,
 					wifi = (cnt ~= "Ethernet" and cnt ~= "\226\128\148" and cnt ~= "")
@@ -283,7 +293,10 @@ function action_speed()
 		}
 	end
 
-	-- 5. Write cache atomically
+	-- 5. Write cache atomically (drop entries of clients that went away)
+	for m in pairs(cache) do
+		if not clients[m] then cache[m] = nil end
+	end
 	local tmp = CACHE .. ".tmp"
 	local wf = io.open(tmp, "w")
 	if wf then
@@ -319,10 +332,8 @@ function action_data()
 			           line:match("Client Status .+\226\128\148 (.+)")
 			if ts then result.updated = ts end
 		else
-			local trimmed = line:match("^%s*(.-)%s*$") or line
-			if trimmed ~= "" then
-				local parts = {}
-				for part in trimmed:gmatch("%S+") do parts[#parts + 1] = part end
+			if line ~= "" then
+				local parts = split_pipe(line)
 				if #parts >= 6 then
 					local mac, status, duration = parts[1], parts[2], parts[3]
 					local ipv4, hostname, cnt = parts[4] or "", parts[5] or "", parts[6] or ""
