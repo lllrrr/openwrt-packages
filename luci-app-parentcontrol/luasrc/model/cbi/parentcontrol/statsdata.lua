@@ -48,6 +48,63 @@ local function date_iso(ymd)
 	return (ymd:gsub("^(%d%d%d%d)(%d%d)(%d%d)$", "%1-%2-%3"))
 end
 
+-- D12 不变式守卫（F-R2-3）：真守卫，不是注释 —— 归约一旦与源数据对不上
+-- （如重置被重复叠加、归约口径漂移），页面顶部给出可见标记并留系统日志，绝不静默输出错数。
+-- 不变式共两条（第 6 轮 / design §16.1 删除了原 ③）：
+--   ① Σ_day dev_day_rows[dev].by == dev_rows[dev].minutes（矩阵 vs 设备合计）
+--   ② 台账合计 == Σ hist_key(窗口) + Σ 窗口内重置（台账是唯一源，不被二次计数；
+--     第 2 轮复审的注入实验证明：只有②能在 r.before 翻倍时报警）
+--
+-- 关于被删除的 ③（同设备同日 Σ_条目 devkey[dev][*][day] == devmap[dev][day]）：
+-- 它的两侧在 collect() 里同源归约（都由同一次 hist_key / ledger 遍历得出），一旦有人把两遍
+-- 合并成一遍就恒等、永不可能报警；而合并是语义中性的。⇒ ③ 不是正确性护栏，而是内部形状
+-- 护栏；内部形状只能用静态断言表达，静态断言又必然可伪造（第 5 轮复审 Major-4 用死循环实测
+-- 绕过）。故按 design §16.2 A60 删除。③ 想防的真实 bug 类（子行丢数据）已由行为判据覆盖：
+-- W204⑨（Σ 子行 == 设备行合计）/ W209（渲染）/ 真机 B137⑤⑥（页面数字对账）。
+-- `d.devkey` 仍由调用点传入（W218③ 断言其在场），本函数不再读它 —— 供测试与将来扩展保留。
+-- A38（第 4 轮 / review27）：抽成**纯函数**。判据文本与 collect() 内联版逐字相同，只把原来
+-- 捕获的闭包局部表改成从参数 d 取（dev_rows / dev_days / days / ledger / dates /
+-- hist_key / rrows；devkey 已随 ③ 不再读取，调用点仍传）。这样可以直接喂**人造矛盾数据**
+-- 断言「报警器真的会响」（W215 行为用例），
+-- 而不必再写「这段代码不是死的」这类不可证伪的静态断言 —— helper 抽取、等价假条件
+-- （`if false and X then`）、字符串诱饵都已被复审实测证明能绕过后者。
+-- 入参缺省一律按空表处理（空/半截输入返回 nil、不抛）；不写 d，不依赖全局。
+function M.invariants(d)
+	d = d or {}
+	local dev_rows = d.dev_rows or {}
+	local dev_days = d.dev_days or {}
+	local days     = d.days     or {}
+	local ledger   = d.ledger   or {}
+	local dates    = d.dates    or {}
+	local hist_key = d.hist_key or {}
+	local rrows    = d.rrows    or {}
+	local drift
+	for _, row in ipairs(dev_rows) do
+		local byday = dev_days[row.device]
+		local total = 0
+		if byday then
+			for _, v in pairs(byday) do total = total + v end
+		end
+		if total ~= row.minutes then
+			drift = (drift and (drift .. "; ") or "")
+				.. row.device .. " matrix=" .. total .. " != rows=" .. row.minutes
+		end
+	end
+	local total_ledger, total_source = 0, 0
+	for _, day in ipairs(days) do
+		for _, v in pairs(ledger[day.date] or {}) do total_ledger = total_ledger + v end
+	end
+	for _, dt in ipairs(dates) do
+		for _, v in pairs(hist_key[dt] or {}) do total_source = total_source + v end
+	end
+	for _, r in ipairs(rrows) do total_source = total_source + r.before end
+	if total_ledger ~= total_source then
+		drift = (drift and (drift .. "; ") or "")
+			.. "ledger=" .. total_ledger .. " != source=" .. total_source
+	end
+	return drift
+end
+
 -- 采集 + 分析
 function M.collect()
 	local d = tsv.read(false)
@@ -277,6 +334,11 @@ function M.collect()
 	end)
 	d.key_rows = rows
 
+	-- R3/A1：条目子行的展示名/停用态**复用** key_rows 同一份回退链（A50/D34 的 nz 链），
+	-- 避免矩阵里另写一套导致「按设备+条目」与矩阵显示不一致。
+	local kmeta = {}
+	for _, r in ipairs(rows) do kmeta[r.key] = r end
+
 	-- 6b) 按设备每日矩阵：台账按 (设备, day) 归约；设备判定与「按设备分析」同一口径
 	--     （能映射到设备名 device ~= "" 的条目才进表，与上面 dev_totals 完全一致）。
 	local devmap = {}
@@ -303,36 +365,77 @@ function M.collect()
 	end)
 	d.dev_day_rows = ddrows
 
+	-- 6c) 设备 × 条目 × 日期：在 devmap 基础上再拆一层条目。口径与 devmap 完全一致
+	--     （device ~= "" 才进表）。第二层归约漂移由测试侧 W204⑥⑦⑨ 承担。
+	local devkey = {}
+	for _, day in ipairs(d.days) do
+		for key, v in pairs(ledger[day.date]) do
+			local ent = labels[key]
+			local dev = (ent and ent.device) or ""
+			if dev ~= "" then
+				local dk = devkey[dev]
+				if not dk then dk = {}; devkey[dev] = dk end
+				local kk = dk[key]
+				if not kk then kk = {}; dk[key] = kk end
+				kk[day.date] = (kk[day.date] or 0) + v
+			end
+		end
+	end
+	local kdrows = {}
+	for _, dr in ipairs(ddrows) do
+		local sub = devkey[dr.device] or {}
+		local keys = {}
+		for k, by in pairs(sub) do
+			local t = 0
+			for _, v in pairs(by) do t = t + v end
+			keys[#keys + 1] = { key = k, total = t, by = by }
+		end
+		-- A1：设备内条目按 total 降序，并列按 key 升序（字符串序；key_rows 的比较器**无** key 兜底，见 design §12.4-3）
+		table.sort(keys, function(a, b)
+			if a.total ~= b.total then return a.total > b.total end
+			return a.key < b.key
+		end)
+		-- A18/L5：单条目设备（nkey==1）没有可展开的子行，条目名必须**在行内**给出 ——
+		-- 否则「每个设备要能看到它命中的每个条目（封锁名称）」在这个子集上不成立。
+		-- 名字复用 key_rows 的同一份 kmeta 回退链（不另写一套，防两处显示分叉）。
+		local only
+		if #keys == 1 then
+			local m1 = kmeta[keys[1].key]
+			only = { name = m1 and m1.name or "（未知条目）",
+				stale = (m1 and m1.stale) or false }
+		end
+		kdrows[#kdrows + 1] = { kind = "dev", device = dr.device,
+			total = dr.total, nkey = #keys, by = dr.by, only = only }
+		if #keys >= 2 then                      -- A3：单条目设备不产子行
+			for _, k in ipairs(keys) do
+				local m = kmeta[k.key]
+				kdrows[#kdrows + 1] = { kind = "key", device = dr.device,
+					key = k.key,
+					-- A20/I1：回退链的最后一档**不许**是裸 key（`weburl_3` 之类内部
+					-- 名字会漏到页面上）。kmeta 缺项时给可读占位，绝不回显 key。
+					name = m and m.name or "（未知条目）",
+					stale = (m and m.stale) or false,
+					total = k.total, by = k.by }
+			end
+		end
+	end
+	d.dev_key_day_rows = kdrows
+
 	-- D12 不变式守卫（F-R2-3）：真守卫，不是注释 —— 归约一旦与源数据对不上
 	-- （如重置被重复叠加、归约口径漂移），页面顶部给出可见标记并留系统日志，
 	-- 绝不静默输出错数。两条不变式：
 	--   ① Σ_day dev_day_rows[dev].by == dev_rows[dev].minutes（矩阵 vs 设备合计）
 	--   ② 台账合计 == Σ hist_key(窗口) + Σ 窗口内重置（台账是唯一源，不被二次计数；
 	--     第 2 轮复审的注入实验证明：只有②能在 r.before 翻倍时报警）
-	local drift
-	for _, row in ipairs(d.dev_rows) do
-		local byday = devmap[row.device]
-		local total = 0
-		if byday then
-			for _, v in pairs(byday) do total = total + v end
-		end
-		if total ~= row.minutes then
-			drift = (drift and (drift .. "; ") or "")
-				.. row.device .. " matrix=" .. total .. " != rows=" .. row.minutes
-		end
-	end
-	local total_ledger, total_source = 0, 0
-	for _, day in ipairs(d.days) do
-		for _, v in pairs(ledger[day.date]) do total_ledger = total_ledger + v end
-	end
-	for _, dt in ipairs(dates) do
-		for _, v in pairs(d.hist_key[dt] or {}) do total_source = total_source + v end
-	end
-	for _, r in ipairs(rrows) do total_source = total_source + r.before end
-	if total_ledger ~= total_source then
-		drift = (drift and (drift .. "; ") or "")
-			.. "ledger=" .. total_ledger .. " != source=" .. total_source
-	end
+	-- 原 ③（同设备同日 Σ_条目 devkey[dev][*][day] == devmap[dev][day]）已按 design §16.1
+	-- 取消：它与 ① 同源归约、恒真不可证伪。其原覆盖类（第二层归约漂移，产品侧静默）
+	-- 由测试侧 W204⑥⑦⑨ 承担 —— 那里才是这一类的真牙。
+	-- A38：判据本体搬进 M.invariants(d)（纯函数，可喂人造数据做行为测试），这里只是一次调用。
+	local drift = M.invariants({
+		dev_rows = d.dev_rows, dev_days = devmap, devkey = devkey,
+		days = d.days, ledger = ledger, dates = dates,
+		hist_key = d.hist_key, rrows = rrows,
+	})
 	if drift then
 		d.invariant_drift = drift
 		pcall(function()

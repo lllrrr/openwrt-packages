@@ -171,6 +171,50 @@ pc_uci_snap_drop() {
 	return 0
 }
 
+# A25（第 15 轮真机 O-8）：回收 /tmp/parentcontrol-uci.<pid> 的代际残留。
+# 为什么需要：pc_uci_snap_begin 在 /tmp 落一个按 PID 命名的快照文件（+ .d 派生缓存目录），
+# 正常路径由 pc_uci_snap_drop 删；但进程被 kill -9 / OOM / 拔电时 drop 永不执行 ⇒ 每次
+# 非正常退出都在 /tmp 留一份（30 天的路由器上会攒成几十份，而 /tmp 是 tmpfs，吃 RAM）。
+#
+# 与 A26（$STATE_DIR/offloadsig.cur.* 回收）同构但**不复用其代码**：那边按时间判死，
+# 这边按 PID 判活（快照文件名自带 PID，kill -0 是唯一可靠的活体判据）。
+# 红线：只用设备实测存在的 applet（白名单见 test/fixtures/device_applets.txt）—— 不用校验和、
+# 行拼接、八进制/十六进制转储这类设备上没有的命令。
+#
+# 四道保护（review2 L3/L4 修正：旧注释号称「两条安全阀」，其中「kill 不可用」一条
+# 在 dash 下是恒假的空话 —— kill 是内建命令，PATH 里删不掉，只能被同名函数覆盖；
+# 该分支永远走不到，等于没有。第 4 轮又拆掉两条（A40/A41），现在在挡事的是这四道）：
+#   ① 白名单：当前进程自己的快照（$PC_UCI_SNAP）与派生缓存目录（$PC_CL_DIR）无条件保留；
+#   ② kill -0：探针说活就不删 —— 判不了活一律当活的（回退「不删」而非「全删」）；
+#   ③ 非 root 整体退化为空操作：非 root 对别人的进程 `kill -0` 返回 EPERM，②会被骗过，
+#      所以非 root 环境下一份也不删（A41，第 4 轮 / review27 I5）；
+#   ④ 名字过滤：非 `<数字>` / `<数字>.d` 的代际名一律不碰。
+# 这四道都在「PID 已死」之外额外保护一层：宁可漏删一份，也不能删掉正在用的那份。
+# A40（第 4 轮 / review27 Low-1）：原位还有一条 `[ "$_p" = "$$" ] && continue`，
+# 已删除 —— 自己进程的 PID 自然活着，`kill -0 $$` 恒成功，② 已经把它挡住了（死代码）。
+pc_uci_snap_gc() {
+	# A41（第 4 轮 / review27 I5）：只有 root 才能对**别人的**进程 `kill -0` —— 非 root 打别人
+	# 的 PID 返回 EPERM，被当作「已死」⇒ 逐代回收会把**活着**的快照当成死的一起删掉。
+	# 本函数在普通用户环境（开发机 / CI / 容器）里整体退化为空操作，回退方向永远是「宁可漏删」。
+	[ "$(id -u)" = 0 ] || return 0
+	local _g _b _p
+	for _g in "${TMPDIR:-/tmp}"/parentcontrol-uci.*; do
+		[ -e "$_g" ] || continue
+		# 只认 `parentcontrol-uci.<数字>` 与 `parentcontrol-uci.<数字>.d` 两种代际名，
+		# 其它名字（含 PC_UCI_SNAP_FILE 指向的自定义路径）一律不碰。
+		_b=${_g##*/parentcontrol-uci.}
+		_p=${_b%%.d}
+		case $_p in
+			'' | *[!0-9]*) continue ;;
+		esac
+		[ -n "$PC_UCI_SNAP" ] && [ "$_g" = "$PC_UCI_SNAP" ] && continue
+		[ -n "$PC_CL_DIR" ] && [ "$_g" = "$PC_CL_DIR" ] && continue
+		kill -0 "$_p" 2>/dev/null && continue
+		rm -rf "$_g" 2>/dev/null
+	done
+	return 0
+}
+
 # 写包装（A70-2）：写 uci 之后立刻失效快照 —— 冷路径下快照通常没开，drop 是空操作。
 pc_uset() { uci -q set "$@"; pc_uci_snap_drop; }
 pc_udelete() { uci -q delete "$@"; pc_uci_snap_drop; }

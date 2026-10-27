@@ -5,7 +5,15 @@
 
 ## [未发布]
 
-（下一轮改动写在这里。）
+### 变更
+
+* **CI 与自动发布**：新增 `.github/workflows/build.yml` —— 只在版本号变化
+  （Makefile 的 `PKG_VERSION`/`PKG_RELEASE`）、`v*` tag 或手动 dispatch 时编译，
+  日常提交不触发。产物为 `aarch64_cortex-a53` 的 APK：Rust 用工具链交叉编译
+  （`rustup target` + `cargo-zigbuild`，不跑 OpenWrt SDK 的 `make package/compile`），
+  打包借 SDK 的 `apk mkpkg`，文件树由 `scripts/build-apk.sh` 按 Makefile 的 install 段
+  等价组装（含 apk 需要的 `.list`/`.conffiles`/`.conffiles_static`，属主 chown 成 root）。
+  打包成功后自动创建 GitHub Release（tag `v<PKG_VERSION>`，同名则覆盖附件）。
 
 ## [0.5.0] — 2026-10-27
 

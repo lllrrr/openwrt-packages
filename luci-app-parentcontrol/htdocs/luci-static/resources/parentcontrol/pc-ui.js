@@ -40,6 +40,33 @@
 		XHR.post(url, { key: key, token: token }, function () { location.reload(); });
 	}
 
+	/* 统计页「设备每日用量」矩阵：点设备行展开/收起它的条目子行。
+	   只用 querySelectorAll 现查（不缓存节点引用，避免 LuCI 表单重渲染后失效）；
+	   只切 style.display 与首列箭头文本，绝不回写 innerHTML（pcdata 转义结果不能被二次解析）；
+	   不持久化（刷新回到全折叠，不写 cookie/localStorage）。
+	   data-pc-dev 只含整数（模板保证）；这里再钉一次数字形态，选择器串不吃任何外来字符。 */
+	function pcMatrixToggle(tr) {
+		/* A19/L6：行本身带 onclick，拖选行内文字（设备名 / 数字）时 mouseup 会顺手
+		   触发展开/收起，把用户刚选好的选区弄丢。选中文本非空 ⇒ 一律不动。
+		   只在 getSelection 存在时判（老浏览器没有它，行为退回原样）。 */
+		if (window.getSelection) {
+			var _sel = window.getSelection();
+			if (_sel && String(_sel) !== '') { return; }
+		}
+		var i = tr && tr.getAttribute('data-pc-dev');
+		if (!i || !/^[0-9]+$/.test(i)) { return; }
+		var rows = document.querySelectorAll('[data-pc-owner="' + i + '"]');
+		var open = false;
+		for (var n = 0; n < rows.length; n++) {
+			if (rows[n].style.display === 'none') { open = true; break; }
+		}
+		for (var m = 0; m < rows.length; m++) {
+			rows[m].style.display = open ? '' : 'none';
+		}
+		var caret = tr.querySelector('.pc-matrix-caret');
+		if (caret) { caret.textContent = open ? '▾' : '▸'; }
+	}
+
 	// ------------------------------------------------------------------
 	// R9/D17：封锁名称行表（唯一 JS 实现）。
 	//   · 行增删（「➕ 新增名称」/「删除」）
@@ -296,6 +323,7 @@
 	window.pcSetMsg = pcSetMsg;
 	window.pcPost = pcPost;
 	window.pcResetQuota = pcResetQuota;
+	window.pcMatrixToggle = pcMatrixToggle;
 	window.pcAppsRows = pcAppsRows;
 	window.pcClientsRows = pcClientsRows;
 	window.pcClientsRebind = pcClientsRebind;

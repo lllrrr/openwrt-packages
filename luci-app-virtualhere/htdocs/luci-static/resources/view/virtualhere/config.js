@@ -378,7 +378,7 @@ return view.extend({
 		this.logContent = null;
 		this.logLoading = false;
 		this.logNode = E('textarea', {
-			'class': 'cbi-input-textarea', readonly: '', rows: 18,
+			'class': 'cbi-input-textarea', readonly: '', rows: 40, wrap: 'off',
 			style: 'width:100%;font-family:monospace',
 			'aria-label': _('Runtime log'), spellcheck: 'false'
 		}, _('Logs have not been loaded.'));

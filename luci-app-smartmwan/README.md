@@ -76,6 +76,31 @@ echo 'net.ipv4.ping_group_range=0 2147483647' >> /etc/sysctl.conf
 
 原始任务书见 [docs/SPEC.md](docs/SPEC.md)；逐条完成度见 [docs/PROGRESS.md](docs/PROGRESS.md)，交付判据见 [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md)，接手须知见 [docs/HANDOVER.md](docs/HANDOVER.md)。
 
+## 安装（预编译包）
+
+提升 `PKG_VERSION`、打 `v*` tag 或手动触发后，CI 会自动构建并发布：
+
+* 下载页：<https://github.com/LianXia233/luci-app-smartmwan/releases>
+* 架构：`aarch64_cortex-a53`（mediatek/filogic、ipq807x 等 ARM64 路由）
+* 未签名包，安装时必须带 `--allow-untrusted`：
+
+```sh
+apk add --allow-untrusted luci-app-smartmwan-0.5.0-r1.apk
+```
+
+首次安装 `enabled=0`，不会改动现有路由；到「网络 → 智能多线路」里手动启用。
+依赖 `firewall4`、`nftables`、`luci-base`、`rpcd`、`ucode-mod-socket`。
+
+### CI
+
+`.github/workflows/build.yml`：**只有版本号变化**（Makefile 的 `PKG_VERSION`/`PKG_RELEASE`）、
+`v*` tag 或手动 dispatch 才编译 —— 日常提交不触发构建。
+
+Rust 侧用工具链交叉编译（`rustup target` + `cargo-zigbuild`，Zig 自带 musl 运行时），
+**不用** OpenWrt SDK 的 `make package/.../compile`（那会拉起整套构建系统）；
+打包只借 SDK 里的 `apk mkpkg`，文件树由 `scripts/build-apk.sh` 按 Makefile 的
+install 段等价组装，成功后自动创建 Release（tag `v<PKG_VERSION>`）。
+
 ## 开发环境命令
 
 ```sh

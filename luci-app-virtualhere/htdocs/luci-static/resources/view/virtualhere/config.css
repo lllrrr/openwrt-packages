@@ -12,3 +12,9 @@
 .virtualhere-action-footer {
 	margin-top: .5em;
 }
+
+/* The untitled log widget is a direct flex item in LuCI form rows. */
+.virtualhere-log-view {
+	width: 100%;
+	min-width: 0;
+}
