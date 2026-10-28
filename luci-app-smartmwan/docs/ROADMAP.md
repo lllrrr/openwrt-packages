@@ -66,7 +66,7 @@ DoD：
 
 ## M5 —— 规则层（游戏路由）（已完成）
 
-范围：`src/rules/{mod,matchers,presets,dns_sets}.rs`（2270 行，51 条单测）
+范围：`src/rules/{mod,matchers,presets,dns_sets}.rs`（现 2441 行，55 条单测）
 
 DoD：
 
@@ -103,7 +103,7 @@ DoD：
 
 ## M6 —— 事务层（代码完成，待真机）
 
-范围：`src/transaction.rs`（2193 行，21 条单测），把 M2 的 `route::Applier` 与 `firewall::Nft`
+范围：`src/transaction.rs`（现 2322 行，24 条单测），把 M2 的 `route::Applier` 与 `firewall::Nft`
 编排成一次可回滚提交，并把 M5 的规则层真正接上（`rules::compile()` → `firewall::Input::games`）。
 
 DoD：
@@ -159,7 +159,7 @@ DoD：
 
 DoD：
 
-* [x] Unix socket + JSON，**23** 个方法（≥19，清单见 `docs/ARCHITECTURE.md`）；
+* [x] Unix socket + JSON，**29** 个方法（≥19，清单见 `docs/ARCHITECTURE.md`）；
 * [x] 统一信封 `{ok, data, error{code,message,details}, timestamp, protocol}`，错误码取 `Error::code()`；
 * [x] `SO_PEERCRED` 校验对端 uid，白名单为 root + 从 `/etc/passwd` 解析的 `wwwdata`（不猜 uid），
       非白名单在进入分发前一律 `permission`；
@@ -169,7 +169,7 @@ DoD：
 * [x] tokio 监督循环：探测环 + 调度环（`Scheduler::decide` → `Coordinator::submit`，桶图单独变化走
       `replace rule` 热替换）+ 域名集合刷新环 + SIGHUP 重载 + SIGTERM/SIGINT 优雅关停；
 * [ ] **待真机验收**：以上全部在 WSL（真 netlink + nft 1.1.3）端到端实测通过 ——
-      事务八阶段、幂等复核、崩溃后启动回收、优雅关停回收、23 个 RPC 方法请求/响应均验证；
+      事务八阶段、幂等复核、崩溃后启动回收、优雅关停回收、29 个 RPC 方法请求/响应均验证；
       但目标设备的 nft 版本、接口形态（5G 重拨、双 WAN）必须以设备实测为准。
       另需验证：管理平面不失联、IPv6 不绕过、断电重启后规则不重复（M10 矩阵）。
 
@@ -179,7 +179,7 @@ DoD：
 
 * [x] 7 个标签页 JS 视图 + `smartmwan.css`（Grid + Flexbox，`.smw-` 作用域）；
 * [x] rpcd ucode 桥 `root/usr/share/rpcd/ucode/smartmwan.uc`（零 Lua）；
-* [x] `menu.d` / `acl.d` JSON，ACL 按方法粒度授权（15 读 / 8 写 / `probeNow` 单独分组），不用 `ubus: *`；
+* [x] `menu.d` / `acl.d` JSON，ACL 按方法粒度授权（16 读 / 12 写 / `probeNow` 单独分组），不用 `ubus: *`；
 * [x] 空/加载/无权限/RPC 失败四态如实渲染；后端 note 直接透传，不写「正常」占位；
 * [x] `poll.add/remove` 生命周期成对（模块级句柄自持有，根容器离开 DOM 即自停轮询）。
 
@@ -211,10 +211,12 @@ DoD：
 
 * [x] CI/脚本：`cargo test`、`no-lua-check.sh`、`--check`、`--dump-nft` 快照比对、apk 构建
       （apk 构建与全部门禁已真实执行；GitHub Actions 等在线 CI 未做，本地脚本齐备）；
-* [ ] `tests/*.rs` 集成测试（配置→决策→nft 文本 的黄金样本回归）——仍未写，归 M11；
+* [x] `tests/*.rs` 集成测试（跨层回归）：6 个文件 / 33 条用例
+      （config 6 / failover 6 / health 4 / rules 5 / scheduler 6 / transaction 6），
+      2026-10-28 实测全绿；
 * [x] 真机验收（ImmortalWrt SNAPSHOT / mediatek-filogic aarch64 / 内核 6.18.55 / nft 1.1.7 /
       apk 3.0.5，与构建 SDK 同源）：安装/升级/卸载、enabled=0 零触碰、nft 能力探测
-      （6/8 项可用，域名规则诚实降级）、ubus 23 方法往返、LuCI `admin/network/smartmwan`
+      （6/8 项可用，域名规则诚实降级）、ubus 23 方法往返（当时值；M11 已扩到 29）、LuCI `admin/network/smartmwan`
       7 页 200、enabled=1 数据面（ip rule 1000 / 表 101 / `inet smw` 集合）、状态机全链路
       （unknown→failed→recovering→healthy）、幂等复核、停用回收清零、管理面不失联；
       抓出六处「测试全绿、真机必坏」缺陷并全部修复（`docs/PROGRESS.md` §6.20–6.25）；

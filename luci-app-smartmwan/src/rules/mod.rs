@@ -159,10 +159,17 @@ pub fn compile(input: &Input<'_>) -> Result<Compiled> {
     let failover_follow =
         matches!(cfg.global.mode, Mode::Failover) && cfg.global.game_policy == GamePolicy::Follow;
 
-    // 已占用的 nft 对象名后缀，用于确定性消歧。
-    let mut used: BTreeMap<String, u32> = BTreeMap::new();
+    // slug 必须在「哪些规则本轮下发」之前就固定：若只在通过状态过滤的规则上分配，
+    // 一条 pending / follow 规则恢复下发时会让排在其后的规则整体改名 —— nft 标签随之变化，
+    // 内核 counter 归零、命中数错位。因此先对**全部**规则按同一排序分配，再逐条过滤。
+    let slugs = game_slugs(&cfg.games);
+    debug_assert_eq!(
+        slugs.len(),
+        rules.len(),
+        "slug 分配必须与排序后的规则一一对应"
+    );
 
-    for r in &rules {
+    for (r, (_, slug)) in rules.iter().zip(slugs.iter()) {
         let path = format!("smartmwan.game[{}]", r.name);
         if !r.enabled {
             out.issues.push(issue(
@@ -315,7 +322,6 @@ pub fn compile(input: &Input<'_>) -> Result<Compiled> {
             }
         }
 
-        let slug = unique_slug(&mut used, &matchers::slug_of(&r.name));
         let mark = marks::mark(slot, marks::CLASS_GAME, input.gen, 0);
         if mark == 0 {
             return Err(Error::Config(format!("规则 {} 算出的标记为 0", r.name)));
@@ -339,7 +345,7 @@ pub fn compile(input: &Input<'_>) -> Result<Compiled> {
         };
         out.specs.push(GameSpec {
             name: r.name.clone(),
-            slug,
+            slug: slug.clone(),
             priority: r.priority,
             mark,
             v4: dst.v4.clone(),
@@ -376,6 +382,29 @@ pub fn compile(input: &Input<'_>) -> Result<Compiled> {
         )));
     }
     Ok(out)
+}
+
+/// 按 `compile()` 的排序与消歧规则，为**全部**规则算出稳定 slug（顺序同为排序后顺序）。
+///
+/// 供 `compile()` 与 RPC 展示共用：两处若各算一套，中文名（slug 为空）或同 slug 冲突时，
+/// 界面显示的 slug 与实际下发的 nft 标签就对不上 —— 命中数会显示成「—」或记到别的规则头上。
+pub fn game_slugs(games: &[crate::config::schema::GameRule]) -> Vec<(String, String)> {
+    let mut sorted: Vec<&crate::config::schema::GameRule> = games.iter().collect();
+    sorted.sort_by(|a, b| {
+        a.priority
+            .cmp(&b.priority)
+            .then_with(|| a.name.cmp(&b.name))
+    });
+    let mut used: BTreeMap<String, u32> = BTreeMap::new();
+    sorted
+        .into_iter()
+        .map(|r| {
+            (
+                r.name.clone(),
+                unique_slug(&mut used, &matchers::slug_of(&r.name)),
+            )
+        })
+        .collect()
 }
 
 /// 规则与预置项的协议取法（见模块头的合并语义表）。
@@ -519,6 +548,45 @@ mod tests {
         picks.insert("needbest".to_string(), 3u8);
         let out2 = compile_with(&c, &picks).unwrap();
         assert_eq!(marks::slot_of(out2.specs[0].mark), 3, "有结论后按结论下发");
+    }
+
+    #[test]
+    fn slug_is_stable_when_an_earlier_rule_is_pending() {
+        // "demo 1"（best，本轮无结论 ⇒ pending）排在 "demo-1" 前面，二者 slug_of 都是
+        // demo_1。若只在「本轮下发」的规则上分配 slug，pending 那条恢复下发时会把
+        // demo-1 改名成 demo_1-2 —— nft 标签随之变化，内核 counter 归零、命中数错位。
+        let mut pending = rule("demo 1");
+        pending.selection = GameSelection::Best;
+        pending.pin_wan.clear();
+        let c = cfg(vec![pending, rule("demo-1")]);
+
+        let out = compile_with(&c, &BTreeMap::new()).unwrap();
+        assert_eq!(out.pending, vec!["demo 1".to_string()]);
+        assert_eq!(out.specs.len(), 1);
+        assert_eq!(out.specs[0].slug, "demo_1-2", "pending 在前也占住 demo_1");
+
+        // 择优结论到达后，先前已下发的那条 slug 必须保持不变。
+        let mut picks = BTreeMap::new();
+        picks.insert("demo 1".to_string(), 3u8);
+        let out2 = compile_with(&c, &picks).unwrap();
+        assert_eq!(out2.specs.len(), 2);
+        assert_eq!(out2.specs[0].slug, "demo_1");
+        assert_eq!(out2.specs[1].slug, "demo_1-2");
+    }
+
+    #[test]
+    fn game_slugs_matches_the_slugs_compile_actually_emits() {
+        // RPC 展示与 compile 共用同一套消歧：否则界面显示的 slug 与内核标签对不上。
+        let c = cfg(vec![rule("PUBG EU"), rule("pubg-eu"), rule("游戏")]);
+        let map: BTreeMap<String, String> = game_slugs(&c.games).into_iter().collect();
+        let out = compile_with(&c, &BTreeMap::new()).unwrap();
+        for g in &out.specs {
+            assert_eq!(map.get(&g.name), Some(&g.slug), "{}", g.name);
+        }
+        assert_eq!(map.get("PUBG EU").map(String::as_str), Some("pubg_eu"));
+        assert_eq!(map.get("pubg-eu").map(String::as_str), Some("pubg_eu-2"));
+        // 纯中文名 slug 为空，兜底为 rule（仍按排序确定）。
+        assert_eq!(map.get("游戏").map(String::as_str), Some("rule"));
     }
 
     #[test]

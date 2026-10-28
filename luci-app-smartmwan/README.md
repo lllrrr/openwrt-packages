@@ -32,22 +32,22 @@ root/                   打包进 apk 的运行时文件（UCI 快照、procd、
 htdocs/                 LuCI 前端资源（view JS + css）
 scripts/                构建与检查脚本（含 Lua 禁用扫描）
 docs/                   任务书(SPEC) / 要求对照 / 架构 / 配置 / 安全 / 测试 / 路线图 / 进度 / 交接
-tests/                  跨层集成测试（未开始）
+tests/                  跨层集成测试（6 个文件 / 33 条用例）
 ```
 
-## 当前状态（2026-10-26）
+## 当前状态（2026-10-28）
 
 后端七层（config / system / health / scheduler / rules / transaction / rpc）+
 **守护进程入口** + **前端** + **打包**已实现，
-`cargo test --offline --lib` = **378 passed / 0 failed**（另有 2 条 bin 测试）。
-RPC 层提供 23 个方法（Unix socket + JSON 统一信封 + `SO_PEERCRED` ACL + 脱敏审计）；
+`cargo test --offline` = **395 lib + 4 bin + 33 集成测试，全部通过**。
+RPC 层提供 29 个方法（Unix socket + JSON 统一信封 + `SO_PEERCRED` ACL + 脱敏审计）；
 守护进程 `smartmwand` 常驻运行：探测环、调度环（`Scheduler::decide` → `Coordinator::submit`，
 桶图单独变化走 `replace rule` 热替换）、域名集合刷新环、SIGHUP 重载、SIGTERM 优雅关停
 （关停会撤销自己的全部内核对象）。CLI 支持 `--check / --once / --dump-nft /
 --dump-defaults / --dump-include / --capabilities / --print-config / --restore-last-good / --reclaim`。
 
 端到端验证在 **WSL**（真 netlink + 真 nft 1.1.3）完成：事务八阶段、幂等复核、
-崩溃（kill -9）后启动回收、优雅关停回收、23 个 RPC 方法请求/响应、`--reclaim`
+崩溃（kill -9）后启动回收、优雅关停回收、29 个 RPC 方法请求/响应、`--reclaim`
 对真实残留的清场与幂等复核全部实测通过，并借此修掉七处「单测全绿、真机必爆」的
 缺陷（`docs/PROGRESS.md` §6.13–6.19）。
 rpcd ucode 桥同样在 WSL 经 ucode CLI 对真实守护进程往返验证（含错误信封透传）；
@@ -104,8 +104,9 @@ install 段等价组装，成功后自动创建 Release（tag `v<PKG_VERSION>`�
 ## 开发环境命令
 
 ```sh
-cargo test --offline --lib                           # 单元测试（378 条，无需网络/root/路由器）
-cargo test --offline --bins                          # bin 测试（2 条：--reclaim 配置回落）
+cargo test --offline --lib                           # 单元测试（395 条，无需网络/root/路由器）
+cargo test --offline --bins                          # bin 测试（4 条：--reclaim 配置回落 + 下发门控）
+cargo test --offline --tests                         # 集成测试（33 条：config/failover/health/rules/scheduler/transaction）
 cargo clippy --offline --all-targets -- -D warnings  # Lint：必须 0 警告
 cargo fmt --all -- --check                           # 风格：必须无差异
 cargo build --offline --release                      # 构建 smartmwand

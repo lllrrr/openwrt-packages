@@ -13,7 +13,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -86,7 +86,7 @@ struct FileSink {
 }
 
 static LEVEL: AtomicU8 = AtomicU8::new(Level::Info as u8);
-static CLOCK_OFFSET: AtomicU64 = AtomicU64::new(0);
+static CLOCK_OFFSET: AtomicI64 = AtomicI64::new(0);
 static EVENTS: OnceLock<Mutex<VecDeque<Event>>> = OnceLock::new();
 static DROPPED: AtomicU64 = AtomicU64::new(0);
 static LOGGER: OnceLock<Logger> = OnceLock::new();
@@ -162,8 +162,12 @@ pub fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// 读取 `/etc/localtime` 的 UTC 偏移。用 libc 而不是 chrono，避免为此引入日期库。
-fn local_utc_offset_secs() -> u64 {
+/// 读取 `/etc/localtime` 的 UTC 偏移（秒，东八区为 +28800，西半球为负）。
+/// 用 libc 而不是 chrono，避免为此引入日期库。
+// 允许 unnecessary_cast：`tm_gmtoff` 的类型是 `c_long`，64 位目标是 i64、
+// 32 位目标（armv7 等 OpenWrt 常见架构）是 i32，这里统一拓宽到 i64。
+#[allow(clippy::unnecessary_cast)]
+fn local_utc_offset_secs() -> i64 {
     // SAFETY: tzname/localtime_r 只读全局时区，且我们传入自己拥有的 tm 与 tz 结构。
     unsafe {
         // musl 的 libc crate 未导出 tzset；localtime_r 内部会自行读取 TZ。
@@ -172,18 +176,14 @@ fn local_utc_offset_secs() -> u64 {
         if libc::localtime_r(&now, &mut tm).is_null() {
             return 0;
         }
-        let off = tm.tm_gmtoff;
-        if off > 0 {
-            off as u64
-        } else {
-            0
-        }
+        // 负偏移（西半球）必须保留：0 会被当成 UTC，导致时间戳整体偏几小时。
+        tm.tm_gmtoff as i64
     }
 }
 
 /// 把 epoch 毫秒渲染成 `YYYY-MM-DDTHH:MM:SS.mmm±ZZ`。
 fn fmt_time(ts_ms: u64) -> String {
-    let offset = CLOCK_OFFSET.load(Ordering::Relaxed) as i64;
+    let offset = CLOCK_OFFSET.load(Ordering::Relaxed);
     let local = (ts_ms as i64) / 1000 + offset;
     let (y, mo, d) = civil_from_days(local.div_euclid(86_400));
     let secs_of_day = local.rem_euclid(86_400);

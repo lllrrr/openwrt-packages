@@ -3,28 +3,29 @@
 > 本文件反映**当前工作树**。任何「已完成」都必须能用下面的命令复核；
 > 不能用命令复核的结论一律写成「待验证」。
 
-最后更新：0.5.0 周期，M10 真机验收第一轮 + 与任务书（`docs/SPEC.md`）的全量差距审计之后。
+最后更新：0.5.0 周期，代码审查与优化（2026-10-28）之后。
 
 ## 1. 一句话状态
 
 后端七层（配置 / 系统交互 / 健康 / 调度 / 规则 / 事务 / **RPC**）+ **守护进程入口** +
-**前端** + **打包**已完成，**378 lib + 2 bin 单测全绿**；RPC 层 23 个方法、守护进程周期循环、
+**前端** + **打包**已完成，**395 lib + 4 bin + 33 集成测试全绿**；RPC 层 29 个方法、守护进程周期循环、
 CLI、rpcd ucode 桥（方法级 ACL）+ 7 个 LuCI 视图、OpenWrt 25.12 apk 打包（含四个维护脚本
 与同源安装期文件）都已落地，**真实 SDK 产物已通过逐项校验**；只剩目标设备验收（M10）。
 规则层的落点：M5 时它的产物只被单测喂进数据面生成器，现在由事务层真正调用
 （`Coordinator::build_plan` → `rules::compile()` → `firewall::build()` → `route::Applier`）。
 运行期入口也已存在：守护进程主循环读 UCI、按周期决策并调用 `Coordinator::submit()`。
 **本轮端到端验证发生在 WSL**（真 netlink + 真 nft 1.1.3）：事务八阶段、幂等复核、
-崩溃后启动回收、优雅关停回收、23 个 RPC 方法请求/响应、`--reclaim` 真实残留清场
+崩溃后启动回收、优雅关停回收、29 个 RPC 方法请求/响应、`--reclaim` 真实残留清场
 （1 条规则 + 8 条路由 + `inet smw` 表，二次调用幂等）全部实测通过；
 ucode 桥同样在 WSL 经 CLI 对真实守护进程往返验证（含错误信封透传）；
 apk 在真实 SDK（mediatek/filogic aarch64 musl）构建成功并解包核对。
-浏览器侧渲染未在真实 LuCI 环境验证。
+浏览器侧已在真机使用中走查一轮（2026-10-27，所有者反馈驱动），修复四处浏览器专属缺陷；
+尚缺一次系统性的三视口 / 深色模式回看与手机端确认（清单见 `docs/UI-DESIGN.md` §9.3）。
 
 ## 2. 可复核指标
 
 ```sh
-cargo test --offline --lib                          # 期望：392 passed; 0 failed
+cargo test --offline --lib                          # 期望：395 passed; 0 failed
 cargo test --offline --tests                        # 期望：33 条集成测试全绿
 cargo clippy --offline --all-targets -- -D warnings # 期望：0 警告
 cargo fmt --all -- --check                          # 期望：无差异
@@ -33,18 +34,19 @@ cargo build --offline                               # 期望：0 警告
 find src -name '*.rs' -print0 | xargs -0 cat | wc -l # 行数口径，见 §3 注
 ```
 
-本环境实测结果（2026-10-26 复核，工具链 1.99.1，WSL Debian）：
+本环境实测结果（2026-10-28 复核，cargo 1.92.0，Linux x86_64）：
 
 | 命令 | 结果 |
 |---|---|
-| `cargo test --offline --lib` | `378 passed; 0 failed; 0 ignored` 用时 ~0.22s |
-| `cargo test --offline --bins` | `2 passed; 0 failed`（reclaim 配置回落两条） |
+| `cargo test --offline --lib` | `395 passed; 0 failed; 0 ignored` 用时 ~0.7s |
+| `cargo test --offline --bins` | `4 passed; 0 failed`（reclaim 配置回落两条 + 下发门控两条） |
+| `cargo test --offline --tests` | `33 passed; 0 failed`（config 6 / failover 6 / health 4 / rules 5 / scheduler 6 / transaction 6） |
 | `./scripts/no-lua-check.sh` | 退出码 0；注入 `src/accidentally_controller.lua` 或 `require("luci.dispatcher")` 后退出码 1（已实测两个方向） |
 | `cargo clippy --offline --all-targets -- -D warnings` | **通过，0 警告** |
 | `cargo fmt --all -- --check` | **通过，无差异** |
 | `cargo build --offline` | 0 警告 |
 | `nft -c -f <脚本>` | **WSL 里可用**（root + nft 1.1.3），并以此完成端到端验证；但**目标设备未测**。WSL 的 nft 1.1.3 缺 `dynamic,timeout` 与 jhash 种子参数，能力探测如实报了「不可用」——设备上更新的 nft 会给出不同结论，必须以设备实测为准 |
-| SDK 构建 `make package/luci-app-smartmwan/compile V=s` | **BUILD OK**（mediatek/filogic aarch64 musl SDK，产物 `bin/packages/aarch64_cortex-a53/base/luci-app-smartmwan-0.4.0-r1.apk`）；全部门禁先绿再构建 |
+| SDK 构建 `make package/luci-app-smartmwan/compile V=s` | **BUILD OK**（mediatek/filogic aarch64 musl SDK，产物 `bin/packages/aarch64_cortex-a53/base/luci-app-smartmwan-0.4.0-r1.apk` —— 构建当时版本号为 0.4.0，现 `PKG_VERSION=0.5.0`，重新构建即得对应包名）；全部门禁先绿再构建 |
 
 ## 3. 模块完成度
 
@@ -52,18 +54,18 @@ find src -name '*.rs' -print0 | xargs -0 cat | wc -l # 行数口径，见 §3 �
 |---|---:|---:|---|---|
 | `src/lib.rs` | 340 | 6 | 完成 | fwmark 布局、错误类型、`NS` 前缀、版本常量 |
 | `src/config/` | 4028 | 51 | 完成 | UCI 文本解析/序列化、schema v4、迁移、校验、diff、last-good |
-| `src/system/` | 8652 | 118 | 代码完成 / 待真机 | netlink、route、interface、conntrack、exec、firewall（`probe_caps`、`HandleOps`、`include_file_text()`；WSL 真 nft/netlink 已验证） |
+| `src/system/` | 8659 | 118 | 代码完成 / 待真机 | netlink、route、interface、conntrack、exec、firewall（`probe_caps`、`HandleOps`、`include_file_text()`；WSL 真 nft/netlink 已验证） |
 | `src/health/` | 3310 | 50 | 完成 | 四类探测 + 滑窗指标 + 状态机 + Registry |
-| `src/scheduler/` | 3586 | 58 | 完成 | balancing / failover / latency / hysteresis / 装配层 |
-| `src/rules/` | 2270 | 51 | 完成 | matchers / presets / dns_sets / compile；**调用者是 `transaction.rs`** |
+| `src/scheduler/` | 3672 | 60 | 完成 | balancing / failover / latency / hysteresis / 装配层 |
+| `src/rules/` | 2441 | 55 | 完成 | matchers / presets / dns_sets / compile；**调用者是 `transaction.rs`** |
 | `src/logging.rs` | 539 | 5 | 完成 | 分级 + 环形缓冲 + 轮转 + 脱敏（`recent()`/`dropped()`） |
-| `src/transaction.rs` | 2212 | 21 | 代码完成 / 待真机 | 单事务锁 + 固定阶段编排 + 逆序回滚 + last-good 快照 + 残留回收 |
-| `src/rpc/` | 1934 | 18 | 代码完成 / 待真机 | 23 方法 + 统一信封 + `SO_PEERCRED` ACL + 脱敏审计 |
-| `src/main.rs` | 1520 | 2 | 代码完成 / 待真机 | 守护进程装配 + 周期循环 + 热替换 + 域名刷新环 + 信号 + CLI（含 `--dump-include`/`--reclaim`；reclaim 配置回落有 bin 单测） |
+| `src/transaction.rs` | 2322 | 24 | 代码完成 / 待真机 | 单事务锁 + 固定阶段编排 + 逆序回滚 + last-good 快照 + 残留回收 |
+| `src/rpc/` | 2638 | 26 | 代码完成 / 待真机 | 29 方法 + 统一信封 + `SO_PEERCRED` ACL + 脱敏审计 |
+| `src/main.rs` | 1653 | 4 | 代码完成 / 待真机 | 守护进程装配 + 周期循环 + 热替换 + 下发门控 + 域名刷新环 + 信号 + CLI（含 `--dump-include`/`--reclaim`；reclaim 配置回落与下发门控有 bin 单测） |
 
-合计 `src/**/*.rs` = **28,391** 行。`transaction.rs` 的内部构成：非测试 1,449 行
+合计 `src/**/*.rs` = **29,602** 行。`transaction.rs` 的内部构成：非测试 1,521 行
 （`Stage`/`Decision`/`FirewallExec`/`Plan`/`Receipt`/`Coordinator`），
-`#[cfg(test)] mod tests` 起于第 1450 行，测试 744 行。
+`#[cfg(test)] mod tests` 起于第 1522 行，测试 801 行。
 
 > 行数口径注：本表改用 `find <dir> -name '*.rs' -print0 | xargs -0 cat | wc -l`
 > （原始文件行数，含空行与注释）。此前记录的四层数字（3524 / 7181 / 2904 / 3063，合计 17,494）
@@ -72,19 +74,19 @@ find src -name '*.rs' -print0 | xargs -0 cat | wc -l # 行数口径，见 §3 �
 按子模块的测试分布（用于判断「哪里测得厚、哪里薄」）：
 
 ```text
-system::firewall   30   transaction          21   system::route      20
-config::validate   20   health::tests        19   rpc::tests         18
-system::netlink    17   system::interface    17   scheduler::balancing 17
-system::tests      15   rules::dns_sets      15   scheduler::tests   14
-rules::tests       14   config::tests        14   scheduler::failover 12
-rules::matchers    12   health::probe        12   system::exec       11
-health::state      11   rules::presets       10   config::uci        10
-scheduler::latency  9   system::conntrack     8   health::metrics     8
-config::schema      7   scheduler::hysteresis 6  logging             5
+system::firewall   30   rpc::tests         26   transaction         24
+system::route      20   config::validate   20   health::tests       19
+system::netlink    17   system::interface  17   scheduler::balancing 17
+scheduler::tests   16   rules::tests       18   system::tests       15
+rules::dns_sets    15   config::tests      14   scheduler::failover 12
+rules::matchers    12   health::probe      12   system::exec        11
+health::state      11   rules::presets     10   config::uci         10
+scheduler::latency  9   system::conntrack   8   health::metrics      8
+config::schema      7   scheduler::hysteresis 6  logging              5
 core_tests          6
 ```
 
-合计 378（`config 51 / system 118 / health 50 / scheduler 58 / rules 51 / logging 5 / lib 6 / transaction 21 / rpc 18`）。
+合计 395（`config 51 / system 118 / health 50 / scheduler 60 / rules 55 / logging 5 / lib 6 / transaction 24 / rpc 26`）。
 复核命令：`cargo test --offline --lib -- --list` 后按模块前缀计数。
 
 ## 4. 目录现状（诚实版）
@@ -95,7 +97,7 @@ docs/           本文档集（要求/路线图/进度/交接/架构/配置/安�
 research/       两份上游审计（luci.md、buildsystem.md）—— 设计依据
 scripts/        no-lua-check.sh
 root/           安装期装配文件（M8/M9 已落地）：
-                usr/share/rpcd/ucode/smartmwan.uc   ← rpcd ucode 桥（23 方法转发）
+                usr/share/rpcd/ucode/smartmwan.uc   ← rpcd ucode 桥（29 方法转发）
                 usr/share/rpcd/acl.d/               ← 方法级 ACL（无通配）
                 usr/share/luci/menu.d/              ← 7 标签页菜单
                 etc/config/smartmwan                ← 评审快照；安装时被 --dump-defaults 产物覆盖
@@ -105,7 +107,7 @@ htdocs/         LuCI 前端资源（M8 已落地）：
                 luci-static/resources/smartmwan.js        ← 共享模块（信封/四态/轮询/格式化）
                 luci-static/resources/view/smartmwan/*.js ← 7 个视图
                 luci-static/resources/smartmwan/smartmwan.css
-tests/          空（集成测试未开始）
+tests/          6 个跨层集成测试文件（33 条用例，全部通过）
 Makefile        OpenWrt 包（M9 已落地）：自建交叉编译 + 同源安装期文件 + 四个 apk 维护脚本
 LICENSE         GPLv3 全文（2026-10-26 起）
 ```
@@ -351,7 +353,8 @@ FirewallVerify 阶段对 `list chain` 报 no-such-table 没有豁免（FirewallA
 ### 9.1 RPC 接口形态（SPEC §9）——6 个点名方法已补齐（2026-10-27）
 
 方法表 23 → **29**；`src/rpc/mod.rs::METHODS`、`docs/ARCHITECTURE.md` §6、
-`root/usr/share/rpcd/ucode/smartmwan.uc`、`acl.d` 四处已同步，6 条新单测（388 全绿）。
+`root/usr/share/rpcd/ucode/smartmwan.uc`、`acl.d` 四处已同步，6 条新单测（当时 388 全绿）；
+此后又补了跨层集成测试与本轮审查修复，当前基线 **395 lib + 4 bin + 33 集成**（2026-10-28）。
 
 | 任务书方法 | 本仓方法名 | 落地形态 |
 |---|---|---|

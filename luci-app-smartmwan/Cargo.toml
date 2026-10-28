@@ -35,7 +35,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 
-# 明确不引入的依赖及原因（详见 docs/architecture.md「依赖策略」）：
+# 明确不引入的依赖及原因（详见 docs/ARCHITECTURE.md §7「为什么自己写 netlink 和 UCI 解析」）：
 #   nix / rustix        —— 只用到少量 socket/ioctl 调用，直接 libc 更好审计
 #   rtnetlink 0.23      —— 依赖 tokio 抽象但只覆盖 link/addr/route，不含 FIBRULE 的
 #                          完整安装语义；本项目的 netlink 编解码自行实现并单测
@@ -56,8 +56,3 @@ strip = true
 [profile.dev]
 opt-level = 0
 debug = 1
-
-[features]
-default = []
-# SDK 构建时由 Makefile 打开：跳过需要 root 权限的 netlink / 原始 ICMP 测试。
-unprivileged-tests = []

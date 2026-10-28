@@ -14,6 +14,55 @@
   打包借 SDK 的 `apk mkpkg`，文件树由 `scripts/build-apk.sh` 按 Makefile 的 install 段
   等价组装（含 apk 需要的 `.list`/`.conffiles`/`.conffiles_static`，属主 chown 成 root）。
   打包成功后自动创建 GitHub Release（tag `v<PKG_VERSION>`，同名则覆盖附件）。
+* **删除死 feature `unprivileged-tests`**（`Cargo.toml`）：声明后全仓零引用、
+  Makefile 也从不打开，留着只会让人以为构建存在两套路径。同时把清单里误引的
+  `docs/architecture.md「依赖策略」`改为实际存在的 `docs/ARCHITECTURE.md` §7。
+
+### 修复
+
+* **游戏规则 slug 跨轮漂移**（`src/rules/mod.rs`）：slug 原先只在「本轮通过状态过滤的
+  规则」上分配，一条 pending（尚无择优结论）或 follow 规则恢复下发时，排在它后面的规则
+  会整体改名 —— nft 标签随之变化，内核 counter 归零、命中数错位。改为新增
+  `game_slugs()` 先对**全部**规则按 `(priority, name)` 分配，`compile()` 与 RPC 共用。
+* **`getGames` 命中数按原始名归属**（`src/rpc/mod.rs`）：原用 `slug_of(name)` 自行计算，
+  未做重名消歧 —— 中文名（slug 为空）永远显示 null，同 slug 冲突时把 A 的计数记到 B 头上。
+  改用 `rules::game_slugs()` 的映射查内核计数。
+* **择优结果变化不触发下发**（`src/main.rs`）：`cycle()` 原先只看桶图变化与配置指纹，
+  `selection = best` 的评分变化但桶图未变时永不提交，内核停留在旧出口。现记录
+  `last_picks` 并把 `picks_changed` 纳入 `needs_submit()`。
+* **桶热替换的适用条件不足**（`src/main.rs`）：择优变化改的是游戏规则的标记（槽位位），
+  而热替换只 `replace` 桶规则，会留下旧落点。新增 `hot_replace_allowed()`，择优变化时
+  回退完整事务。
+* **决策代际与热替换前提矛盾**（`src/main.rs`）：`gen` 原先在 `decide()` 桶图变化时递增，
+  而 `gen` 会写进每条游戏规则的标记 —— 桶图变化时游戏规则也跟着变，「除桶图外逐字节
+  相同」的热替换前提不成立、快照与内核分叉。改为只在完整事务提交时递增。
+* **失败的提交不再重试**（`src/main.rs`）：桶图单次提交失败后，下一轮变化标志相对上一轮
+  **决策**为假，`cycle()` 在退避检查之前提前返回，重试逻辑永远不可达。`needs_submit()`
+  现在在 `!last_ok` 时强制提交，再由 `SUBMIT_RETRY_BACKOFF_MS` 节流。
+* **日志时间戳在西半球偏几小时**（`src/logging.rs`）：时区偏移缓存量原为无符号，
+  负的 `tm_gmtoff` 被吞成 0，整机日志按 UTC 记时；改为有符号 `AtomicI64` 并保留负值。
+* **CLI 选项缺值被静默忽略**（`src/main.rs`）：`--log-level` / `--log-file` 后面没跟值
+  （或直接跟了另一个选项）时原本悄悄变成 `None`，笔误不报错；现在明确报
+  「需要一个参数值」。
+* **决策失败可能清空数据面**（`src/main.rs`）：原实现在决策出错时返回空决策，
+  下一轮提交会用空桶图覆盖已生效的分流；现在 `decide()` 返回 `Result`，失败时
+  只生成 `ok=false` 回执并明说「未向内核写入任何内容」，内核保持上一轮规则。
+* **RPC 写方法改配置时未复位调度器**（`src/rpc/mod.rs`）：`save` / `rollback` /
+  `setMaintenance` / 改全局字段四条路径原先只替换配置并同步注册表，跳过了
+  `on_config_change()` 与已删除规则的清理，与新配置的去抖计时不一致；现统一走
+  `adopt_config()`，与 `reload()` 同一条路径。
+* **包元数据与包内容架构矛盾**（`Makefile`）：`PKGARCH:=all` 与包内按目标架构编译的
+  `smartmwand` 冲突（aarch64 包会被装到 mipsel 上直接无法执行）；已移除，回到
+  SDK 目标架构。
+* **CI 发布说明与产物名硬编码**（`.github/workflows/build.yml`）：Release 已按
+  `${{ env.PKG_ARCH }}` 取产物、写架构行；发布说明的「空段落」检测原先永远判非空
+  （安装说明本身就非空），现先摘到独立文件再判。
+
+### 文档
+
+* 全仓数字与状态按本轮实测重测：395 lib + 4 bin + 33 集成测试、RPC 29 方法；
+  `docs/PROGRESS.md` §9.1、`docs/TESTING.md` §6、`docs/HANDOVER.md`、
+  `docs/ROADMAP.md` M10 的过期表述已更正，`tests/` 集成测试状态由「未写」改为已落地。
 
 ## [0.5.0] — 2026-10-27
 
@@ -23,7 +72,7 @@
 ### 新增
 
 * **仓库与构建基线**：`Cargo.toml`（1 库 + 1 守护进程二进制）、`Cargo.lock`、
-  `LICENSE`（GPL-2.0-or-later 全文）、`.gitignore`。依赖刻意最小化：
+  `LICENSE`（GPL-3.0-or-later 全文；初版为 GPLv2，2026-10-26 按所有者指示升级，见「变更」）、`.gitignore`。依赖刻意最小化：
   tokio / libc / serde / serde_json / thiserror，并在清单里逐条写明「不引入
   ubus / rtnetlink / conntrack / libuci FFI」的原因。
 * **配置层 `src/config`**：原生 UCI 文本解析与序列化（不依赖 libuci）、

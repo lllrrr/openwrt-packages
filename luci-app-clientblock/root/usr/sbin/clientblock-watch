@@ -62,8 +62,11 @@ count_ip() {
 	[ -n "$cnt" ] || cnt=0
 
 	if [ "$cnt" -ge "$th" ]; then
+		# keep the offending log line as evidence, with quotes stripped so it
+		# stays valid inside the JSON payload
+		ev=$(printf '%s' "$line" | tr -d '"\\' | cut -c1-200)
 		if ubus call luci.clientblock ipadd \
-			"{\"ip\":\"$ip\",\"note\":\"auto: $cnt $kind failures\",\"source\":\"auto\",\"fast\":\"1\"}" \
+			"{\"ip\":\"$ip\",\"note\":\"auto: $cnt $kind failures\",\"source\":\"auto\",\"fast\":\"1\",\"evidence\":\"$ev\"}" \
 			>/dev/null 2>&1; then
 			logger -t "$LOG_TAG" "blocked $ip after $cnt $kind failures"
 			# reset the counter so the same burst does not re-trigger
@@ -104,9 +107,6 @@ main() {
 		[ "$_pp" = "1" ] && kill -9 "$_p" 2>/dev/null
 	done
 
-	# Take the logread child down with us on exit.
-	trap 'rm -f "$PIDFILE"; for _c in $(ps w 2>/dev/null | grep "[l]ogread -f" | awk "{print \$1}"); do _pp=$(awk "{print \$4}" "/proc/$_c/stat" 2>/dev/null); [ "$_pp" = "$$" ] && kill -9 "$_c" 2>/dev/null; done' EXIT INT TERM
-
 	enabled || { logger -t "$LOG_TAG" "disabled, exiting"; exit 0; }
 	local th
 	th=$(threshold)
@@ -117,8 +117,30 @@ main() {
 
 	# -f follows the ubus log stream. Each line is matched for auth failures;
 	# the match is deliberately narrow so normal traffic costs nothing.
-	logread -f 2>/dev/null |
-	while IFS= read -r line; do
+	# A plain `logread -f | while` runs the loop in a subshell, so a TERM to the
+	# script leaves it orphaned and still recording. Read from a FIFO instead:
+	# the loop stays in the main shell and logread is a child we can kill.
+	PIPE=/tmp/clientblock-log.fifo
+	rm -f "$PIPE"
+	mkfifo "$PIPE" 2>/dev/null || { logger -t "$LOG_TAG" "cannot create fifo"; exit 1; }
+	logread -f > "$PIPE" 2>/dev/null &
+	LRPID=$!
+
+	# Reconcile scheduled blocks once a minute. Runs in a child so it cannot
+	# block the log reader; the trap below takes it down with us.
+	(
+		while :; do
+			ubus -S call luci.clientblock tick >/dev/null 2>&1
+			sleep 55
+		done
+	) &
+	SCHEDPID=$!
+
+	# shellcheck disable=SC2064
+	trap 'kill $LRPID $SCHEDPID 2>/dev/null; rm -f "$PIPE" "$PIDFILE"' EXIT INT TERM
+	exec 3< "$PIPE"
+
+	while IFS= read -r line <&3; do
 		ts=$(date +%s)
 
 		# ---- SSH: success ----

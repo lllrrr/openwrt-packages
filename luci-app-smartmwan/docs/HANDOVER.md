@@ -8,18 +8,19 @@
 
 * 这是 OpenWrt/ImmortalWrt **25.12+** 的多 WAN 智能选路插件，**后端 Rust、前端 LuCI JS + ucode，全项目零 Lua**；
 * 已完成：全部代码（后端七层 + 守护进程 + 前端 + 打包）+ **M10 真机验收第一轮**
-  （382 lib + 2 bin 单测全绿，clippy/fmt 双零）；
+  （395 lib + 4 bin + 33 集成测试全绿，clippy/fmt 双零）；
 * 真机（ImmortalWrt SNAPSHOT / mediatek-filogic aarch64 / nft 1.1.7）：安装/升级/卸载、
   数据面、健康探测状态机、幂等回收、管理面不失联全部实测通过；抓出**六处真机必爆缺陷**
   全部修复（`docs/PROGRESS.md` §6.20–6.25）—— 每一条在单测/WSL 里都是绿的；
 * 遗留：双 WAN 均衡/主备切换与 5G 重拨（设备第二线路 eth0 未接上游）、断电重启幂等、
-  浏览器侧渲染人工确认；`tests/` 集成测试仍未写；
+  浏览器侧系统性回看（三视口 / 深色 / 手机端，见 `docs/UI-DESIGN.md` §9.3）；
+  `tests/` 集成测试已落地（6 文件 / 33 条）；
 * 事务层现在**有运行期调用者**：守护进程主循环（`src/main.rs`）读 UCI、按周期决策、
   调 `Coordinator::submit()`；RPC 的写方法经 `Command` 通道送回同一个循环串行执行
   （`Scheduler` 与事务因此都只有一个所有者，别在 RPC 层另起一套）；
 * RPC 的 `apply` **不接收** UI 传来的配置副本，一律以磁盘上已保存的为准；
   `submit()` 返回 `Receipt` 而非 `Result`，RPC 必须原样回传，不得压成 bool；
-* 下一步：第二线路接入后验证均衡/主备/5G 重拨；`tests/` 集成测试；浏览器人工确认。
+* 下一步：第二线路接入后验证均衡/主备/5G 重拨；断电重启幂等复核；浏览器侧系统性回看。
 
 ### 前端必读（真机踩坑后新增）
 
@@ -330,14 +331,14 @@ UCI 文件 `/etc/config/smartmwan`，段类型 `smartmwan`(global) / `wan` / `ga
 
 ## 7. 接手后的正确动作序列
 
-1. 跑 `cargo test --offline --lib`（期望 **378**）+ `cargo test --offline --bins`（期望 **2**）
-   + `./scripts/no-lua-check.sh`（期望 0）确认基线；
+1. 跑 `cargo test --offline --lib`（期望 **395**）+ `cargo test --offline --bins`（期望 **4**）
+   + `cargo test --offline --tests`（期望 **33**）+ `./scripts/no-lua-check.sh`（期望 0）确认基线；
    再加 `cargo clippy --offline --all-targets -- -D warnings` 与 `cargo fmt --all -- --check`，两个都必须零；
-2. **M0–M6 已完成**（配置 / 系统 / 健康 / 调度 / 规则 / 事务），`src/transaction.rs` 2212 行 / 21 单测：
+2. **M0–M6 已完成**（配置 / 系统 / 健康 / 调度 / 规则 / 事务），`src/transaction.rs` 2322 行 / 24 单测：
    八阶段固定顺序、单事务锁、逆序回滚、last-good 快照、`reclaim()` 残留回收。
    动它之前先读 §2.8。
-3. **M7 已完成**（`src/rpc/mod.rs` 1934 行 / 18 单测 + `src/main.rs` 1520 行 / 2 bin 单测）：
-   23 方法 + 统一信封 + `SO_PEERCRED` ACL + 脱敏审计 + tokio 监督循环
+3. **M7 已完成**（`src/rpc/mod.rs` 2638 行 / 26 单测 + `src/main.rs` 1653 行 / 4 bin 单测）：
+   29 方法 + 统一信封 + `SO_PEERCRED` ACL + 脱敏审计 + tokio 监督循环
    （探测环 / 调度环 / 域名刷新环 / SIGHUP / SIGTERM）+ `--dump-include` / `--reclaim`。
    动它们之前先读 §2.9。**别把 WSL 上的端到端通过当成设备验收** —— 目标设备的 nft 版本、
    接口形态、管理面不失联都要在 M10 用 `FirewallExec::Real` 重跑。

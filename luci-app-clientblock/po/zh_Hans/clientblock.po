@@ -1,0 +1,704 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: luci-app-clientblock\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: zh_Hans\n"
+"MIME-Version: 1.0\n"
+
+msgid "phone"
+msgstr "手机"
+
+msgid "tablet"
+msgstr "平板"
+
+msgid "computer"
+msgstr "电脑"
+
+msgid "TV"
+msgstr "电视"
+
+msgid "camera"
+msgstr "摄像头"
+
+msgid "speaker"
+msgstr "音箱"
+
+msgid "printer"
+msgstr "打印机"
+
+msgid "console"
+msgstr "游戏机"
+
+msgid "network gear"
+msgstr "网络设备"
+
+msgid "server"
+msgstr "服务器"
+
+msgid "smart device"
+msgstr "智能设备"
+
+msgid "wearable"
+msgstr "穿戴设备"
+
+msgid "Apple device"
+msgstr "Apple 设备"
+
+msgid "unknown"
+msgstr "未知"
+
+msgid "Blocking…"
+msgstr "封禁中…"
+
+msgid "Failed"
+msgstr "失败"
+
+msgid "Blocked"
+msgstr "已封禁"
+
+msgid "Unblocking…"
+msgstr "解封中…"
+
+msgid "Unblocked"
+msgstr "已解封"
+
+msgid "Unblock all devices?"
+msgstr "解禁所有设备？"
+
+msgid "All devices unblocked"
+msgstr "已解禁全部设备"
+
+msgid "Device name"
+msgstr "设备名称"
+
+msgid "Scanning…"
+msgstr "扫描中…"
+
+msgid "Rescan devices"
+msgstr "重新扫描设备"
+
+msgid "Send failed"
+msgstr "发送失败"
+
+msgid "Test message sent"
+msgstr "测试消息已发送"
+
+msgid "Saved"
+msgstr "已保存"
+
+msgid "No notification channels yet"
+msgstr "还没有通知渠道"
+
+msgid "Test"
+msgstr "测试"
+
+msgid "Pause"
+msgstr "暂停"
+
+msgid "Resume"
+msgstr "恢复"
+
+msgid "Delete"
+msgstr "删除"
+
+msgid "Auto block"
+msgstr "自动封禁"
+
+msgid "New device"
+msgstr "新设备上线"
+
+msgid "Block expired"
+msgstr "封禁到期"
+
+msgid "Devices online"
+msgstr "在线设备"
+
+msgid "Devices blocked"
+msgstr "已封禁设备"
+
+msgid "Blocked IPs"
+msgstr "封禁 IP"
+
+msgid "Login failures today"
+msgstr "今日登录失败"
+
+msgid "Login failures, last 24 hours"
+msgstr "登录失败（近 24 小时）"
+
+msgid "now"
+msgstr "现在"
+
+msgid "Protection"
+msgstr "防护状态"
+
+msgid "Automatic protection"
+msgstr "自动防护"
+
+msgid "on"
+msgstr "开启"
+
+msgid "off"
+msgstr "关闭"
+
+msgid "Blocked addresses from auto-block"
+msgstr "自动封禁的地址"
+
+msgid "Schedule rules"
+msgstr "定时规则"
+
+msgid "active now"
+msgstr "当前生效"
+
+msgid "Trusted devices"
+msgstr "已信任设备"
+
+msgid "New devices awaiting review"
+msgstr "待确认的新设备"
+
+msgid "Groups"
+msgstr "分组"
+
+msgid "Port restrictions"
+msgstr "端口限制"
+
+msgid "Notification channels"
+msgstr "通知渠道"
+
+msgid "Logins today"
+msgstr "今日登录"
+
+msgid "ok"
+msgstr "成功"
+
+msgid "failed"
+msgstr "失败"
+
+msgid "Failures in last 24h"
+msgstr "近 24 小时失败"
+
+msgid "Block new devices only"
+msgstr "仅封禁新设备"
+
+msgid "Release"
+msgstr "解除"
+
+msgid "Health"
+msgstr "健康检查"
+
+msgid "all checks passed"
+msgstr "全部检查通过"
+
+msgid "attention needed"
+msgstr "需要处理"
+
+msgid "Refresh"
+msgstr "刷新"
+
+msgid "login ok"
+msgstr "登录成功"
+
+msgid "login failed"
+msgstr "登录失败"
+
+msgid "session closed"
+msgstr "会话结束"
+
+msgid "Recent activity"
+msgstr "最近活动"
+
+msgid "List URL is required"
+msgstr "必须填写列表地址"
+
+msgid "Fetching…"
+msgstr "拉取中…"
+
+msgid "Imported"
+msgstr "已导入"
+
+msgid "removed"
+msgstr "移除"
+
+msgid "Fetch"
+msgstr "拉取"
+
+msgid "No subscriptions yet"
+msgstr "还没有订阅"
+
+msgid "never"
+msgstr "从未"
+
+msgid "failures"
+msgstr "次失败"
+
+msgid "Locked down"
+msgstr "已锁定"
+
+msgid "devices"
+msgstr "台设备"
+
+msgid "Lockdown released"
+msgstr "已解除锁定"
+
+msgid "Device accepted"
+msgstr "已允许该设备"
+
+msgid "Backup written to the box below"
+msgstr "备份已写入下方文本框"
+
+msgid "Paste a backup first"
+msgstr "请先粘贴备份内容"
+
+msgid "Replace all lists and rules with this backup?"
+msgstr "用这个备份替换所有列表与规则？"
+
+msgid "Restored"
+msgstr "已恢复"
+
+msgid "sections"
+msgstr "个部分"
+
+msgid "Pick a device"
+msgstr "请选择设备"
+
+msgid "Added"
+msgstr "已添加"
+
+msgid "rules"
+msgstr "条规则"
+
+msgid "No port restrictions yet"
+msgstr "还没有端口限制"
+
+msgid "Curfew applied to"
+msgstr "已对以下数量设备执行宵禁："
+
+msgid "No groups yet"
+msgstr "还没有分组"
+
+msgid "Save"
+msgstr "保存"
+
+msgid "Curfew"
+msgstr "宵禁"
+
+msgid "Pick at least one day"
+msgstr "至少选一天"
+
+msgid "Set both times"
+msgstr "请设置起止时间"
+
+msgid "Start and end must differ"
+msgstr "起止时间不能相同"
+
+msgid "Sun"
+msgstr "周日"
+
+msgid "Mon"
+msgstr "周一"
+
+msgid "Tue"
+msgstr "周二"
+
+msgid "Wed"
+msgstr "周三"
+
+msgid "Thu"
+msgstr "周四"
+
+msgid "Fri"
+msgstr "周五"
+
+msgid "Sat"
+msgstr "周六"
+
+msgid "No schedule rules yet"
+msgstr "还没有定时规则"
+
+msgid "blocking now"
+msgstr "正在封禁"
+
+msgid "scheduled"
+msgstr "已排程"
+
+msgid "disabled"
+msgstr "已停用"
+
+msgid "Service process"
+msgstr "服务进程"
+
+msgid "Log stream"
+msgstr "日志管道"
+
+msgid "Generated rules"
+msgstr "生成的规则"
+
+msgid "Kernel IP set"
+msgstr "内核 IP 集合"
+
+msgid "Firewall rules"
+msgstr "防火墙规则"
+
+msgid "Region database"
+msgstr "归属地库"
+
+msgid "State storage"
+msgstr "状态存储"
+
+msgid "No results yet"
+msgstr "暂无结果"
+
+msgid "Clear the login log?"
+msgstr "清空登录日志？"
+
+msgid "Log cleared"
+msgstr "日志已清空"
+
+msgid "Today"
+msgstr "今天"
+
+msgid "Yesterday"
+msgstr "昨天"
+
+msgid "No entries match the filter"
+msgstr "没有匹配的记录"
+
+msgid "No login activity recorded yet"
+msgstr "还没有登录记录"
+
+msgid "entries"
+msgstr "条记录"
+
+msgid "Automatic blocking enabled"
+msgstr "已开启自动封禁"
+
+msgid "Automatic blocking disabled"
+msgstr "已关闭自动封禁"
+
+msgid "Settings saved"
+msgstr "设置已保存"
+
+msgid "No new offenders"
+msgstr "没有新的攻击源"
+
+msgid "Protection on"
+msgstr "防护已开启"
+
+msgid "Protection off"
+msgstr "防护已关闭"
+
+msgid "SSH password failure"
+msgstr "SSH 密码错误"
+
+msgid "SSH unknown user"
+msgstr "SSH 未知用户"
+
+msgid "LuCI login failure"
+msgstr "LuCI 登录失败"
+
+msgid "Trigger after"
+msgstr "触发阈值"
+
+msgid "Within (seconds)"
+msgstr "统计窗口（秒）"
+
+msgid "Expire after (0 = never)"
+msgstr "有效期（秒，0 = 永久）"
+
+msgid "Scan now"
+msgstr "立即扫描"
+
+msgid "Remove all blocked IPs?"
+msgstr "解除所有 IP 封禁？"
+
+msgid "No blocked IPs yet"
+msgstr "还没有被封禁的 IP"
+
+msgid "Type an address above and press Block IP. Single addresses and CIDR ranges both work."
+msgstr "在上方输入地址后点「封禁 IP」。支持单个地址与 CIDR 网段。"
+
+msgid "Jump to the input field"
+msgstr "跳到输入框"
+
+msgid "Unblock"
+msgstr "解禁"
+
+msgid "blocked"
+msgstr "已封禁"
+
+msgid "No devices match the filter"
+msgstr "没有匹配的设备"
+
+msgid "new"
+msgstr "新设备"
+
+msgid "Online"
+msgstr "在线"
+
+msgid "Offline"
+msgstr "离线"
+
+msgid "Accept this device as known"
+msgstr "把该设备加入已知列表"
+
+msgid "Allow"
+msgstr "允许"
+
+msgid "Block"
+msgstr "封禁"
+
+msgid "Rename"
+msgstr "重命名"
+
+msgid "(unnamed)"
+msgstr "（未命名）"
+
+msgid "unknown vendor"
+msgstr "未知厂商"
+
+msgid "Filter by name, IP or MAC"
+msgstr "按名称、IP 或 MAC 过滤"
+
+msgid "Unblock all"
+msgstr "全部解禁"
+
+msgid "Filter by IP or note"
+msgstr "按 IP 或备注过滤"
+
+msgid "Note (optional)"
+msgstr "备注（可选）"
+
+msgid "A source is blocked once it produces the selected failures often enough within the window. Detection is live, not polled."
+msgstr "同一来源在时间窗内产生所选类型的失败达到阈值即被封禁。检测是实时流式的，不是轮询。"
+
+msgid "Backup and restore"
+msgstr "备份与恢复"
+
+msgid "Exports every list and rule as JSON: blocked devices and addresses, names, schedules, groups, ports, whitelist, feeds and protection settings."
+msgstr "把所有列表与规则导出为 JSON：封禁设备与地址、名称、定时、分组、端口、白名单、订阅与防护设置。"
+
+msgid "Export"
+msgstr "导出"
+
+msgid "Import"
+msgstr "导入"
+
+msgid "Paste a backup here, then press Import"
+msgstr "把备份粘贴到这里，再点导入"
+
+msgid "Overview only. No device addresses are shown here; open the Devices tab for the full inventory."
+msgstr "仅显示汇总，不包含任何设备地址；完整清单请打开「设备」页签。"
+
+msgid "Blocked devices lose all traffic through this router: Internet, DNS, DHCP and gateway services. Their packets are dropped at every interface."
+msgstr "被封禁的设备会失去经过本路由器的全部流量：上网、DNS、DHCP 与网关服务，数据包在所有接口上被丢弃。"
+
+msgid "Status"
+msgstr "状态"
+
+msgid "Name"
+msgstr "名称"
+
+msgid "IP"
+msgstr "IP"
+
+msgid "MAC"
+msgstr "MAC"
+
+msgid "First seen"
+msgstr "首次出现"
+
+msgid "Dropped"
+msgstr "已丢弃"
+
+msgid "Action"
+msgstr "操作"
+
+msgid "Let a device use the internet but block specific local services, e.g. keep IoT off SMB/445 or telnet."
+msgstr "允许设备上网，但阻断指定的内网服务，例如不让 IoT 设备访问 SMB/445 或 telnet。"
+
+msgid "Device"
+msgstr "设备"
+
+msgid "Protocol"
+msgstr "协议"
+
+msgid "Port"
+msgstr "端口"
+
+msgid "Note"
+msgstr "备注"
+
+msgid "optional"
+msgstr "可选"
+
+msgid "Preset"
+msgstr "预设"
+
+msgid "Block port"
+msgstr "封禁端口"
+
+msgid "Apply preset"
+msgstr "应用预设"
+
+msgid "Blocked addresses cannot be reached from your LAN, and cannot reach it. Both directions are dropped. CIDR ranges are supported."
+msgstr "被封禁的地址既无法从内网访问，也无法访问内网。两个方向都丢弃，支持 CIDR 网段。"
+
+msgid "Blocklist subscriptions"
+msgstr "黑名单订阅"
+
+msgid "Pull public blocklists on demand and merge them here. Entries are tagged with their feed so removing the feed also removes them."
+msgstr "按需拉取公开黑名单并合并到此处。条目会标记来源订阅，删除订阅时一并移除。"
+
+msgid "List URL"
+msgstr "列表地址"
+
+msgid "Add feed"
+msgstr "添加订阅"
+
+msgid "Last fetch"
+msgstr "上次拉取"
+
+msgid "Quick fill:"
+msgstr "快速填入："
+
+msgid "Block IP"
+msgstr "封禁 IP"
+
+msgid "Address"
+msgstr "地址"
+
+msgid "Region"
+msgstr "归属地"
+
+msgid "Since"
+msgstr "起始时间"
+
+msgid "Every successful and failed login through SSH or LuCI, newest first. Kept in memory-backed storage, capped at 500 entries."
+msgstr "记录每一次 SSH 与 LuCI 登录（成功、失败、断开），最新在前，最多保留 500 条。"
+
+msgid "Filter by IP, user or detail"
+msgstr "按 IP、用户或详情过滤"
+
+msgid "All sources"
+msgstr "全部来源"
+
+msgid "All results"
+msgstr "全部结果"
+
+msgid "Success only"
+msgstr "仅成功"
+
+msgid "Failures only"
+msgstr "仅失败"
+
+msgid "Clear log"
+msgstr "清空日志"
+
+msgid "Time"
+msgstr "时间"
+
+msgid "Result"
+msgstr "结果"
+
+msgid "Source"
+msgstr "来源"
+
+msgid "Auth"
+msgstr "认证"
+
+msgid "User"
+msgstr "用户"
+
+msgid "Detail"
+msgstr "详情"
+
+msgid "Block a device on a weekly schedule. A window that ends before it starts crosses midnight, and its days refer to the day the window begins."
+msgstr "按星期给设备设定封禁时段。结束时间早于开始时间表示跨午夜，所选星期指窗口开始的那一天。"
+
+msgid "Days"
+msgstr "星期"
+
+msgid "From"
+msgstr "开始"
+
+msgid "To"
+msgstr "结束"
+
+msgid "Add rule"
+msgstr "添加规则"
+
+msgid "Window"
+msgstr "时段"
+
+msgid "Groups and curfew"
+msgstr "分组与宵禁"
+
+msgid "Group devices (family / kids / IoT) and block them all at once. Curfew blocks the group until 08:00."
+msgstr "把设备分组（家人 / 孩子 / IoT），可整组一键封禁。宵禁会把整组封到次日 08:00。"
+
+msgid "New group"
+msgstr "新建分组"
+
+msgid "e.g. Kids"
+msgstr "例如：孩子"
+
+msgid "Add group"
+msgstr "添加分组"
+
+msgid "Send a message when something happens. Every channel is tried independently; a broken one never blocks the action."
+msgstr "事件发生时推送消息。各渠道独立发送，某个渠道失败不会影响动作本身。"
+
+msgid "Type"
+msgstr "类型"
+
+msgid "Webhook"
+msgstr "Webhook"
+
+msgid "URL (bark / webhook)"
+msgstr "URL（Bark / Webhook）"
+
+msgid "Bot token (telegram)"
+msgstr "Bot Token（Telegram）"
+
+msgid "Chat ID (telegram)"
+msgstr "Chat ID（Telegram）"
+
+msgid "Add channel"
+msgstr "添加渠道"
+
+msgid "Notify me when:"
+msgstr "通知我："
+
+msgid "Save events"
+msgstr "保存事件"
+
+msgid "Target"
+msgstr "目标"
+
+msgid "Live checks on the parts that silently fail: the watcher process, the log stream it reads, and whether saved state actually reached the kernel."
+msgstr "针对「悄悄失效」的部件做实时检查：监听进程、它读取的日志管道，以及保存的状态是否真的下到了内核。"
+
+msgid "Re-run"
+msgstr "重新检查"
+
+msgid "Client Access Control"
+msgstr "访问控制"
+
+msgid "Overview"
+msgstr "概览"
+
+msgid "Devices"
+msgstr "设备"
+
+msgid "Addresses"
+msgstr "地址"
+
+msgid "Log"
+msgstr "日志"
+
+msgid "Policy"
+msgstr "策略"
+
+msgid "Settings"
+msgstr "设置"
+

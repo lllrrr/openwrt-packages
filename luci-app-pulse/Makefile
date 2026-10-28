@@ -6,7 +6,7 @@ LUCI_PKGARCH:=all
 # SDK csstidy drops @supports rules used by the theme.
 LUCI_MINIFY_CSS:=0
 PKG_LICENSE:=MIT
-PULSE_RELEASE:=1.0.2
+PULSE_RELEASE:=1.0.3
 PULSE_VERSION?=$(shell $(SHELL) $(CURDIR)/generate-version.sh --resolve $(PULSE_RELEASE))
 PKG_VERSION:=$(PULSE_VERSION)
 ifeq ($(strip $(PKG_VERSION)),)

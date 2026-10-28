@@ -1001,16 +1001,23 @@ async fn h_get_games(st: &AppState) -> Result<Value> {
     // 命中数：读到什么报什么。查不到就是 null —— 0 会被读成「规则没命中过」，
     // 而真相可能是「通道不是真 nft，根本没读到」。
     let hits = read_lock(&st.hits).clone();
+    // slug 必须与 `rules::compile()` 的消歧结果一致：自己再 slug_of 一遍会在
+    // 中文名（slug 为空）或同 slug 冲突时把命中数挂到别的规则上，甚至永远显示 null。
+    let slugs: std::collections::BTreeMap<String, String> =
+        rules::game_slugs(&cfg.games).into_iter().collect();
     let rules: Vec<Value> = rules
         .into_iter()
         .map(|mut r| {
-            let slug = rules::matchers::slug_of(r["name"].as_str().unwrap_or_default());
-            r.as_object_mut().unwrap().insert(
-                "hits".to_string(),
-                hits.of(&slug)
-                    .map(|(p, b)| json!({ "packets": p, "bytes": b }))
-                    .unwrap_or(Value::Null),
-            );
+            let name = r["name"].as_str().unwrap_or_default();
+            let slug = slugs.get(name).cloned().unwrap_or_default();
+            if let Some(obj) = r.as_object_mut() {
+                obj.insert(
+                    "hits".to_string(),
+                    hits.of(&slug)
+                        .map(|(p, b)| json!({ "packets": p, "bytes": b }))
+                        .unwrap_or(Value::Null),
+                );
+            }
             r
         })
         .collect();
@@ -1293,6 +1300,26 @@ async fn h_diff(st: &AppState) -> Result<Value> {
 
 // ==================== 写方法 ====================
 
+/// 把新配置放进共享槽，并复位调度器里带旧配置语义的状态。
+///
+/// 所有改配置的写方法都必须走这里，而不是各自「写槽 + 同步追踪器」：
+/// 只换配置而不复位去抖，会让旧配置的失败计数/重排计时延续到新配置上，
+/// 出现「刚改了主线路却还在沿用上一次的切换计时」这类错判；
+/// 被删掉的游戏规则也要清理选路状态，否则长期运行会留下垃圾条目。
+fn adopt_config(st: &AppState, old: &Config, new: Config) {
+    {
+        let mut g = st.scheduler.lock().unwrap_or_else(|p| p.into_inner());
+        for rule in &old.games {
+            if !new.games.iter().any(|n| n.name == rule.name) {
+                g.forget_rule(&rule.name);
+            }
+        }
+        g.on_config_change();
+    }
+    *write_lock(&st.cfg) = Arc::new(new);
+    st.registry.sync_config(&st.cfg_snapshot());
+}
+
 /// 保存配置（写盘，**不下发**）。返回校验报告与相对上一版的差异。
 async fn h_save(st: &AppState, params: &Value, caller: Caller) -> Result<Value> {
     let cfg = param_config(params)?;
@@ -1300,9 +1327,8 @@ async fn h_save(st: &AppState, params: &Value, caller: Caller) -> Result<Value> 
     let report = store.save(&cfg)?;
     let old = st.cfg_snapshot();
     let changes = config::diff(&old, &cfg);
-    // 两处同改：共享配置与健康追踪器阈值；主循环下一轮自然看到新配置。
-    *write_lock(&st.cfg) = Arc::new(cfg.clone());
-    st.registry.sync_config(&cfg);
+    // 共享配置、健康追踪器阈值、调度器去抖状态三处同步更新；主循环下一轮自然看到新配置。
+    adopt_config(st, &old, cfg);
     logging::info_ctx(
         "config",
         "save",
@@ -1351,8 +1377,8 @@ async fn h_rollback(st: &AppState) -> Result<Value> {
     // 回滚要让磁盘与内核一致：否则下次 reload 会把回滚成果覆盖掉。
     let mut store = ConfigStore::load(&st.paths.config)?;
     store.save(&cfg)?;
-    *write_lock(&st.cfg) = Arc::new(cfg);
-    st.registry.sync_config(&st.cfg_snapshot());
+    let old = st.cfg_snapshot();
+    adopt_config(st, &old, cfg);
     let (tx, rx) = oneshot::channel();
     st.ctl
         .send(Command::Cycle(tx))
@@ -1410,7 +1436,8 @@ async fn h_set_maintenance(st: &AppState, params: &Value, caller: Caller) -> Res
     let wan = param_str(params, "wan")?;
     let on = param_bool(params, "on", true);
     // Arc<Config> 不能就地改：取出一份可改副本，保存成功后再替换共享槽。
-    let mut cfg: Config = (*st.cfg_snapshot()).clone();
+    let old = st.cfg_snapshot();
+    let mut cfg: Config = (*old).clone();
     {
         let w = cfg
             .wan_mut(wan)
@@ -1419,8 +1446,7 @@ async fn h_set_maintenance(st: &AppState, params: &Value, caller: Caller) -> Res
     }
     let mut store = ConfigStore::load(&st.paths.config)?;
     store.save(&cfg)?;
-    *write_lock(&st.cfg) = Arc::new(cfg);
-    st.registry.sync_config(&st.cfg_snapshot());
+    adopt_config(st, &old, cfg);
     logging::info_ctx(
         "rpc",
         "setMaintenance",
@@ -1518,7 +1544,8 @@ async fn mutate_global<F>(st: &AppState, caller: Caller, op: &str, f: F) -> Resu
 where
     F: FnOnce(&mut config::schema::GlobalConfig) -> Result<Option<String>>,
 {
-    let mut cfg: Config = (*st.cfg_snapshot()).clone();
+    let old = st.cfg_snapshot();
+    let mut cfg: Config = (*old).clone();
     let Some(change) = f(&mut cfg.global)? else {
         return Ok(json!({
             "saved": false,
@@ -1528,8 +1555,7 @@ where
     };
     let mut store = ConfigStore::load(&st.paths.config)?;
     let report = store.save(&cfg)?;
-    *write_lock(&st.cfg) = Arc::new(cfg);
-    st.registry.sync_config(&st.cfg_snapshot());
+    adopt_config(st, &old, cfg);
     logging::info_ctx(
         "rpc",
         op,
@@ -2541,6 +2567,49 @@ mod tests {
         assert_eq!(d["hits_at_ms"], json!(1234));
         assert_eq!(d["rules"][0]["hits"]["packets"], json!(3));
         assert_eq!(d["rules"][0]["hits"]["bytes"], json!(300));
+    }
+
+    #[tokio::test]
+    async fn get_games_attributes_hits_by_compiled_slug_not_by_raw_name() {
+        // 中文名 slug 为空、ASCII 名清洗后撞车都很常见；命中数必须按 compile 的消歧
+        // 结果归属，否则界面会把 A 的流量记到 B 头上（或永远显示 null）。
+        let dir = tempfile::tempdir().unwrap();
+        let (st, _rx) = testable::test_state(dir.path());
+        let mut cfg = two_wan_cfg();
+        cfg.games = ["PUBG EU", "pubg-eu", "游戏"]
+            .iter()
+            .map(|n| crate::config::schema::GameRule {
+                name: (*n).into(),
+                enabled: true,
+                ..Default::default()
+            })
+            .collect();
+        *write_lock(&st.cfg) = Arc::new(cfg);
+
+        let mut per = std::collections::BTreeMap::new();
+        per.insert("pubg_eu".to_string(), (1u64, 10u64));
+        per.insert("pubg_eu-2".to_string(), (2u64, 20u64));
+        per.insert("rule".to_string(), (5u64, 50u64));
+        *write_lock(&st.hits) = rules::GameHits {
+            per_rule: per,
+            at_ms: 1,
+            note: String::new(),
+        };
+
+        let env = call(&st, "smartmwan.getGames", json!({})).await;
+        assert!(env.ok, "{:?}", env.error);
+        let d = env.data.unwrap();
+        let rules = d["rules"].as_array().unwrap();
+        let packets = |n: &str| {
+            rules
+                .iter()
+                .find(|r| r["name"] == json!(n))
+                .unwrap_or_else(|| panic!("缺少规则 {n}"))["hits"]["packets"]
+                .clone()
+        };
+        assert_eq!(packets("PUBG EU"), json!(1));
+        assert_eq!(packets("pubg-eu"), json!(2), "撞车后的那条必须拿 -2 的计数");
+        assert_eq!(packets("游戏"), json!(5), "纯中文名兜底为 rule");
     }
 
     #[tokio::test]

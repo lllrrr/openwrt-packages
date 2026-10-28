@@ -26,7 +26,6 @@ asset() {
  [ "$(printf '%s\n' "$matches" | wc -l)" -eq 1 ] || fail "Ambiguous release asset: $1"
  printf '%s\n' "$matches"
 }
-fetch "$(asset 'SHA256SUMS')" "$work/SHA256SUMS"
 asset 'luci-app-pulse-[A-Za-z0-9._+~-]+[.]apk' > "$work/packages"
 grep -E "^https://github.com/$REPO/releases/download/[^/]+/luci-i18n-pulse-[A-Za-z0-9._+~-]+[.]apk$" "$work/assets" >> "$work/packages" || true
 set --
@@ -34,8 +33,9 @@ while IFS= read -r url; do
  name=${url##*/}
  echo "Downloading $name..."
  fetch "$url" "$work/$name"
- # Only verify selected files; never follow paths supplied by the manifest.
- checksum=$(awk -v name="$name" '$2 == name || $2 == "./" name {print $1}' "$work/SHA256SUMS")
+ # Package names are restricted above, so they can safely select an asset.
+ digest=$(jsonfilter -i "$work/release.json" -e "@.assets[@.name=\"$name\"].digest")
+ case "$digest" in sha256:*) checksum=${digest#sha256:} ;; *) fail "Missing SHA256 digest: $name" ;; esac
  [ "${#checksum}" -eq 64 ] || fail "Missing or invalid checksum: $name"
  case "$checksum" in *[!0-9a-fA-F]*) fail "Invalid checksum: $name" ;; esac
  printf '%s  %s\n' "$checksum" "$work/$name" | sha256sum -c - || fail "Checksum mismatch: $name"

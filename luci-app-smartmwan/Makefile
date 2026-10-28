@@ -90,7 +90,9 @@ define Package/luci-app-smartmwan
   #                         ucode/rpcd 都不带；缺了它 rpcd 加载插件直接抛
   #                         「No module named 'socket'」，ubus 对象无法注册。
   # 二进制本身是 musl 静态链接（readelf -d 无 NEEDED），无需 libc 依赖声明。
-  PKGARCH:=all
+  # 但包里含**按目标架构编译**的 smartmwand，因此绝不能声明 PKGARCH:=all
+  # （那会让 aarch64 的包被装到 mipsel 上，二进制直接无法执行）。
+  # 不写 PKGARCH 时 package.mk 会落到 SDK 的目标架构，这是正确行为。
 endef
 
 define Package/luci-app-smartmwan/description
