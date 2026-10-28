@@ -6,6 +6,36 @@ msgstr ""
 "Language: zh_Hans\n"
 "MIME-Version: 1.0\n"
 
+msgid "All"
+msgstr "全部"
+
+msgid "Subscription"
+msgstr "订阅"
+
+msgid "SSH brute force"
+msgstr "SSH 爆破"
+
+msgid "Web brute force"
+msgstr "Web 爆破"
+
+msgid "Automatic"
+msgstr "自动封禁"
+
+msgid "Manual"
+msgstr "手动"
+
+msgid "Scheduled"
+msgstr "定时"
+
+msgid "Panic"
+msgstr "紧急"
+
+msgid "Imported"
+msgstr "历史导入"
+
+msgid "Other"
+msgstr "其他"
+
 msgid "phone"
 msgstr "手机"
 
@@ -213,9 +243,6 @@ msgstr "必须填写列表地址"
 msgid "Fetching…"
 msgstr "拉取中…"
 
-msgid "Imported"
-msgstr "已导入"
-
 msgid "removed"
 msgstr "移除"
 
@@ -411,6 +438,12 @@ msgstr "立即扫描"
 msgid "Remove all blocked IPs?"
 msgstr "解除所有 IP 封禁？"
 
+msgid "No entries in this category"
+msgstr "该分类下没有条目"
+
+msgid "blocked"
+msgstr "已封禁"
+
 msgid "No blocked IPs yet"
 msgstr "还没有被封禁的 IP"
 
@@ -423,8 +456,8 @@ msgstr "跳到输入框"
 msgid "Unblock"
 msgstr "解禁"
 
-msgid "blocked"
-msgstr "已封禁"
+msgid "showing first"
+msgstr "显示前"
 
 msgid "No devices match the filter"
 msgstr "没有匹配的设备"

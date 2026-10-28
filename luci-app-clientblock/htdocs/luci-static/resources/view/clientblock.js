@@ -29,7 +29,8 @@ var callUnblockAll = rpc.declare({
 
 var callIpList = rpc.declare({
 	object: 'luci.clientblock',
-	method: 'iplist'
+	method: 'iplist',
+	params: ['limit', 'cat']
 });
 
 var callIpAdd = rpc.declare({
@@ -275,6 +276,18 @@ var STYLE = `
 .cb-res-fail { background: var(--danger-surface); color: var(--danger); }
 .cb-res-end { background: var(--hover-faint); color: var(--text-muted); }
 .cb-src-ssh { background: var(--info-surface); color: var(--info); }
+.cb-src-all { background: var(--surface-2, rgba(128,128,128,.18)); color: inherit; }
+.cb-src-feed { background: var(--info-surface); color: var(--info); }
+.cb-src-manual { background: var(--success-surface, rgba(0,160,80,.15)); color: var(--success, #0a0); }
+.cb-src-sched { background: var(--warning-surface, rgba(200,140,0,.18)); color: var(--warning, #b80); }
+.cb-src-panic { background: var(--danger-surface); color: var(--danger); }
+.cb-ipcats { display: flex; flex-wrap: wrap; gap: .35rem; margin: .1rem 0 .7rem; }
+.cb-catchip { display: inline-flex; align-items: center; padding: .18rem .5rem .18rem .3rem;
+	border: 1px solid var(--border, rgba(128,128,128,.3)); border-radius: .45rem;
+	background: transparent; color: inherit; cursor: pointer; font-size: .78rem; }
+.cb-catchip:hover { border-color: var(--brand); }
+.cb-catchip-on { border-color: var(--brand); box-shadow: inset 0 0 0 1px var(--brand); }
+.cb-catchip-zero { opacity: .45; }
 .cb-src-web { background: var(--brand-subtle); color: var(--brand); }
 .cb-auth { display: inline-block; padding: .02rem .45rem; border-radius: .6rem;
 	font-size: .72rem; font-family: var(--font-mono); border: 1px solid currentColor; }
@@ -385,6 +398,25 @@ function fmtGeo(geo) {
 	var cc = (p[4] || '').trim();
 	if (cc && cc !== '0') parts.push(cc);
 	return parts.join(' · ');
+}
+
+var IP_CATS = [
+	{ key: '',         label: _('All'),           cls: 'cb-src-all' },
+	{ key: 'feed',     label: _('Subscription'),  cls: 'cb-src-feed' },
+	{ key: 'ssh',      label: _('SSH brute force'), cls: 'cb-src-auto' },
+	{ key: 'web',      label: _('Web brute force'), cls: 'cb-src-web' },
+	{ key: 'auto',     label: _('Automatic'),     cls: 'cb-src-auto' },
+	{ key: 'manual',   label: _('Manual'),        cls: 'cb-src-manual' },
+	{ key: 'schedule', label: _('Scheduled'),     cls: 'cb-src-sched' },
+	{ key: 'panic',    label: _('Panic'),         cls: 'cb-src-panic' },
+	{ key: 'import',   label: _('Imported'),      cls: 'cb-src-watchdog' },
+	{ key: 'other',    label: _('Other'),         cls: 'cb-src-manual' }
+];
+
+function catMeta(key) {
+	for (var i = 0; i < IP_CATS.length; i++)
+		if (IP_CATS[i].key === key) return IP_CATS[i];
+	return IP_CATS[IP_CATS.length - 1];
 }
 
 function typeLabel(t) {
@@ -1535,9 +1567,12 @@ return view.extend({
 
 	refreshIps: function () {
 		var self = this;
-		return callIpList().then(function (res) {
+		return callIpList(0, this.ipCat || '').then(function (res) {
 			self.ips = (res && res.ips) || [];
 			self.ipCount = (res && res.count) || 0;
+			self.ipMatched = (res && res.matched) || 0;
+			self.ipCats = (res && res.categories) || [];
+			self.renderIpChips();
 			self.renderIps();
 		}).catch(function () {
 			self.renderIps();
@@ -1597,6 +1632,34 @@ return view.extend({
 		});
 	},
 
+	renderIpChips: function () {
+		var box = document.getElementById('cb-ip-cats');
+		if (!box) return;
+		var self = this;
+		while (box.firstChild) box.removeChild(box.firstChild);
+
+		var counts = { '': this.ipCount || 0 };
+		(this.ipCats || []).forEach(function (c) { counts[c.key] = c.count; });
+
+		IP_CATS.forEach(function (c) {
+			var n = counts[c.key];
+			// keep the full taxonomy visible so it is discoverable; "other" is
+			// the catch-all and only appears when something landed in it
+			if (c.key === 'other' && !n) return;
+			var on = (self.ipCat || '') === c.key;
+			box.appendChild(E('button', {
+				'class': 'cb-catchip' + (on ? ' cb-catchip-on' : '') + (n ? '' : ' cb-catchip-zero'),
+				'click': function () {
+					self.ipCat = c.key;
+					self.refreshIps();
+				}
+			}, [
+				E('span', { 'class': 'cb-src ' + c.cls, 'style': 'margin-right:.35rem' }, c.label),
+				E('span', {}, String(n || 0))
+			]));
+		});
+	},
+
 	renderIps: function () {
 		var tbody = document.getElementById('cb-ip-tbody');
 		if (!tbody) return;
@@ -1613,6 +1676,14 @@ return view.extend({
 
 		if (!list.length) {
 			var emptyCell = E('td', { 'colspan': 6, 'class': 'cb-empty' });
+			if (this.ipCat && !q) {
+				emptyCell.appendChild(document.createTextNode(
+					_('No entries in this category')));
+				tbody.appendChild(E('tr', {}, emptyCell));
+				var cnt0 = document.getElementById('cb-ip-count');
+				if (cnt0) cnt0.textContent = '0 / ' + (this.ipCount || 0) + ' ' + _('blocked');
+				return;
+			}
 			if (q) {
 				emptyCell.appendChild(document.createTextNode(_('No entries match the filter')));
 			} else {
@@ -1638,13 +1709,11 @@ return view.extend({
 					r.ip,
 					' ',
 					E('span', { 'class': 'cb-fam' }, '(IPv' + (r.family === 'ipv6' ? '6' : '4') + ')')
-				].concat(
-					r.source === 'auto'
-						? [ ' ', E('span', { 'class': 'cb-src cb-src-auto' }, 'auto') ]
-						: (r.source === 'watchdog'
-							? [ ' ', E('span', { 'class': 'cb-src cb-src-watchdog' }, 'imported') ]
-							: [])
-				)),
+				].concat((function () {
+					var c = catMeta(r.category);
+					var text = (r.category === 'feed' && r.feed_name) ? r.feed_name : c.label;
+					return [ ' ', E('span', { 'class': 'cb-src ' + c.cls, 'title': c.label }, text) ];
+				})())),
 				E('td', { 'style': 'font-size:.8rem;opacity:.85' }, fmtGeo(r.geo) || E('span', { 'class': 'cb-drop' }, '-')),
 				E('td', {}, r.note || ''),
 				E('td', { 'class': 'cb-drop' }, (r.drop_packets || 0) + ' pkt / ' + fmtBytes(r.drop_bytes)),
@@ -1658,8 +1727,13 @@ return view.extend({
 		});
 
 		var cnt = document.getElementById('cb-ip-count');
-		if (cnt)
-			cnt.textContent = (this.ipCount || 0) + ' ' + _('blocked');
+		if (cnt) {
+			var matched = this.ipCat ? (this.ipMatched || 0) : (this.ipCount || 0);
+			var txt = (this.ipCat ? matched + ' / ' + (this.ipCount || 0) : matched) + ' ' + _('blocked');
+			if (matched > list.length)
+				txt += ' · ' + _('showing first') + ' ' + list.length;
+			cnt.textContent = txt;
+		}
 	},
 
 	// One tab may own several panes (Settings groups protection, notifications,
@@ -2020,6 +2094,7 @@ return view.extend({
 				E('button', { 'class': 'cb-btn', 'click': function (ev) { self.handleIpAdd(ev); } }, _('Block IP')),
 				E('button', { 'class': 'cb-btn cb-btn-danger', 'click': function (ev) { self.handleIpFlush(ev); } }, _('Unblock all'))
 			]),
+			E('div', { 'class': 'cb-ipcats', 'id': 'cb-ip-cats' }, []),
 			E('div', { 'class': 'cb-toolbar' }, [
 				ipSearch,
 				E('span', { 'class': 'cb-count', 'id': 'cb-ip-count' }, '')

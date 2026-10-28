@@ -1,5 +1,5 @@
 #!/bin/sh
-# Resolve source identity before copying files into the SDK; write only the supplied version.
+# Validate the configured version and write it into the frontend.
 set -eu
 base=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 fail() { echo "ERROR: $*" >&2; exit 1; }
@@ -12,14 +12,7 @@ case "${1:-}" in
   release=$2
   printf '%s\n' "$release" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || fail 'Invalid release version.'
   if [ -n "${PULSE_VERSION:-}" ]; then validate "$PULSE_VERSION"; printf '%s\n' "$PULSE_VERSION"; exit 0; fi
-  # A package copied into a firmware tree must not inherit that tree's Git identity.
-  [ -e "$base/.git" ] || fail 'No package Git metadata; provide PULSE_VERSION.'
-  [ "$(git -C "$base" rev-parse --is-shallow-repository)" = false ] || fail 'Fetch complete Git history and tags, or provide PULSE_VERSION.'
-  tag="v$release"
-  git -C "$base" rev-parse --verify "refs/tags/$tag^{commit}" >/dev/null 2>&1 || fail "Missing release tag $tag."
-  git -C "$base" merge-base --is-ancestor "refs/tags/$tag" HEAD || fail "Release tag $tag is not an ancestor of HEAD."
-  count=$(git -C "$base" rev-list --count "refs/tags/$tag..HEAD")
-  if [ "$count" -eq 0 ]; then printf '%s\n' "$release"; else printf '%s_git%s\n' "$release" "$count"; fi
+  printf '%s\n' "$release"
   ;;
  --write)
   [ "$#" -ge 2 ] && [ "$#" -le 3 ] || fail 'Usage: generate-version.sh --write VERSION [OUTPUT]'

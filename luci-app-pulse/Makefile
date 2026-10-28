@@ -7,10 +7,10 @@ LUCI_PKGARCH:=all
 LUCI_MINIFY_CSS:=0
 PKG_LICENSE:=MIT
 PULSE_RELEASE:=1.0.3
-PULSE_VERSION?=$(shell $(SHELL) $(CURDIR)/generate-version.sh --resolve $(PULSE_RELEASE))
+PULSE_VERSION?=$(PULSE_RELEASE)
 PKG_VERSION:=$(PULSE_VERSION)
 ifeq ($(strip $(PKG_VERSION)),)
-  $(error Cannot determine Pulse version; provide PULSE_VERSION or a complete tagged Git checkout)
+  $(error Pulse version must not be empty)
 endif
 PKG_RELEASE:=1
 
