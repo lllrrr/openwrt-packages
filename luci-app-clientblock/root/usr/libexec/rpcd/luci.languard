@@ -23,6 +23,14 @@ local OUI_CACHE = STATE_DIR .. "/oui_cache.json"
 local KNOWN_FILE = STATE_DIR .. "/known_devices.json"
 local PROXY_FILE = STATE_DIR .. "/trusted_proxies.json"
 local ARP_FILE = STATE_DIR .. "/arp_guard.json"
+local ALIAS_FILE = STATE_DIR .. "/aliases.json"
+local APPS_FILE = STATE_DIR .. "/apps.json"
+local APPSTAT_FILE = STATE_DIR .. "/appstats.json"
+local CT_SEEN_FILE = STATE_DIR .. "/ct_seen.json"
+local APPIPS_FILE = STATE_DIR .. "/app_ips.json"
+local QOS_FILE = STATE_DIR .. "/app_qos.json"
+local FINGERPRINT_FILE = STATE_DIR .. "/fingerprint.json"
+local QOS_RULE_FILE = "/etc/nftables.d/91-languard-appqos.nft"
 local DOMAIN_FILE = STATE_DIR .. "/domains.json"
 local DOMAIN_HOSTS = STATE_DIR .. "/domainblock.hosts"
 local NOTIFY_TMP = "/tmp/languard-notify.json"
@@ -44,6 +52,8 @@ local render_rules, reload_firewall, load_json_map, save_json_map
 local split_macs, load_ports
 local notify_event
 local load_domains, save_domains, is_domain_token, apply_domains
+local collect_devices
+local learn_app_ip
 
 
 local function trim(s)
@@ -859,9 +869,12 @@ local MAX_FEED_IPS = 20000
 
 local function fetch_feed(fd, ips, now)
 	local tmp = "/tmp/languard-feed.txt"
-	sys.call(string.format("curl -fsSL -m 25 -o %s %s", tmp, shq(fd.url)))
+	-- the exit code matters: a timeout still leaves a partial file behind,
+	-- and treating that as the whole list would delete everything after it
+	local rc = sys.call(string.format("curl -fsSL -m 60 -o %s %s", tmp, shq(fd.url)))
 	local raw = read_all(tmp)
 	fs.unlink(tmp)
+	if rc ~= 0 then return nil, "download failed (curl " .. tostring(rc) .. ")" end
 	if not raw or raw == "" then return nil, "download failed" end
 
 	-- Feeds in the wild are not uniform: netsets put one CIDR per line,
@@ -891,6 +904,14 @@ local function fetch_feed(fd, ips, now)
 		if truncated then break end
 	end
 	if n == 0 and next(dn) == nil then return nil, "nothing usable in feed" end
+
+	local prev = 0
+	for _, meta in pairs(ips) do
+		if tostring(meta.feed or "") == tostring(fd.id) then prev = prev + 1 end
+	end
+	if prev > 100 and n < prev / 2 then
+		return nil, string.format("feed shrank from %d to %d, keeping the old list", prev, n)
+	end
 
 	local added, removed = {}, {}
 	for ip, meta in pairs(ips) do
@@ -942,6 +963,49 @@ end
 -- Push the delta into the running set. No fw4 reload: rebuilding the ruleset
 -- drops every connection on the box, and a scheduled refresh has no business
 -- disturbing the LAN. A reload only happens if the set is missing entirely.
+-- One nft process per 2000 addresses instead of one per address. A batch is
+-- atomic, so a single address that is not in the set makes the whole batch
+-- fail; when that happens each element is retried on its own so the rest
+-- still lands.
+local function nft_chunk(setname, verb, list)
+	if #list == 0 then return end
+	local i = 1
+	while i <= #list do
+		local j = math.min(i + 1999, #list)
+		local part = {}
+		for k = i, j do part[#part + 1] = list[k] end
+		local rc = sys.call(string.format("nft %s element inet fw4 %s { %s } 2>/dev/null",
+			verb, setname, table.concat(part, ", ")))
+		if rc ~= 0 then
+			for _, one in ipairs(part) do
+				sys.call(string.format("nft %s element inet fw4 %s { %s } 2>/dev/null",
+					verb, setname, one))
+			end
+		end
+		i = j + 1
+	end
+end
+
+local function set_exists(name)
+	return sys.call("nft list set inet fw4 " .. name .. " >/dev/null 2>&1") == 0
+end
+
+-- Rewrite the contents of the two sets from state without touching the
+-- ruleset: flushing elements keeps the set object, its chains and every
+-- other firewall rule exactly where they are.
+local function rebuild_sets()
+	local ips = load_ipstate()
+	local v4, v6 = {}, {}
+	for ip in pairs(ips) do
+		if ip:find(":") then v6[#v6 + 1] = ip else v4[#v4 + 1] = ip end
+	end
+	sys.call("nft flush set inet fw4 blocked_ip4 2>/dev/null")
+	sys.call("nft flush set inet fw4 blocked_ip6 2>/dev/null")
+	nft_chunk("blocked_ip4", "add", v4)
+	nft_chunk("blocked_ip6", "add", v6)
+	return #v4 + #v6
+end
+
 local function apply_ip_delta(delta)
 	local function split(list)
 		local v4, v6 = {}, {}
@@ -954,25 +1018,10 @@ local function apply_ip_delta(delta)
 	local add4, add6 = split(delta.added)
 	local del4, del6 = split(delta.removed)
 
-	-- one nft process per 2000 addresses instead of one per address: a feed
-	-- refresh can move tens of thousands of entries
-	local function chunk(setname, verb, list)
-		if #list == 0 then return end
-		local i = 1
-		while i <= #list do
-			local j = math.min(i + 1999, #list)
-			local part = {}
-			for k = i, j do part[#part + 1] = list[k] end
-			sys.call(string.format("nft %s element inet fw4 %s { %s } 2>/dev/null",
-				verb, setname, table.concat(part, ", ")))
-			i = j + 1
-		end
-	end
-
-	chunk("blocked_ip4", "delete", del4)
-	chunk("blocked_ip6", "delete", del6)
-	chunk("blocked_ip4", "add", add4)
-	chunk("blocked_ip6", "add", add6)
+	nft_chunk("blocked_ip4", "delete", del4)
+	nft_chunk("blocked_ip6", "delete", del6)
+	nft_chunk("blocked_ip4", "add", add4)
+	nft_chunk("blocked_ip6", "add", add6)
 end
 
 function methods.feedrefresh(id)
@@ -1051,7 +1100,7 @@ local function check_arp_changes(now)
 		if old and old ~= mac then
 			-- phones rotate their private Wi-Fi address by design; alerting on
 			-- those would train the user to ignore the warning
-			local noisy = is_local_mac(old) or is_local_mac(mac)
+			local noisy = is_local_mac(old) and is_local_mac(mac)
 			local is_gw = (ip == gw)
 			if is_gw or not noisy then
 				local key = ip .. "|" .. mac
@@ -1085,6 +1134,778 @@ local function check_arp_changes(now)
 	return events
 end
 
+
+
+-- ---- application identification ----------------------------------------
+-- Flows come from conntrack, which already has every byte count the router
+-- forwards. Signatures say which app a flow belongs to; the format is the
+-- one OAF uses so an existing feature library can be imported verbatim:
+--
+--   id name:[proto;sport;dport;host;request;dict]
+--
+-- Only the fields this engine understands are used (proto, dport, host, and
+-- an optional CIDR list). Payload fingerprints need packet capture and are
+-- left to a later stage.
+local function load_apps()
+	local d = load_json_map(APPS_FILE, function() return { seq = 0, apps = {} } end)
+	d.seq = tonumber(d.seq) or 0
+	d.apps = type(d.apps) == "table" and d.apps or {}
+	return d
+end
+
+local function save_apps(d)
+	return save_json_map(APPS_FILE, d)
+end
+
+-- Lua 5.1 has no bitwise operators; arithmetic on the octets is enough here
+local function ipv4_to_int(ip)
+	local a, b, c, d = ip:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
+	if not a then return nil end
+	return ((tonumber(a) * 256 + tonumber(b)) * 256 + tonumber(c)) * 256 + tonumber(d)
+end
+
+local function cidr_match(ip, cidr)
+	local net, bits = cidr:match("^([%d%.]+)/(%d+)$")
+	if not net then net, bits = cidr, 32 end
+	bits = tonumber(bits)
+	local a, b = ipv4_to_int(ip), ipv4_to_int(net)
+	if not a or not b then return false end
+	if bits <= 0 then return true end
+	local size = 2 ^ (32 - bits)
+	return math.floor(a / size) == math.floor(b / size)
+end
+
+local function port_in(spec, port)
+	if not spec or spec == "" then return false end
+	local lo, hi = spec:match("^(%d+)%-(%d+)$")
+	if lo then return port >= tonumber(lo) and port <= tonumber(hi) end
+	return tonumber(spec) == port
+end
+
+-- host is matched against the domain we know for the flow, if any
+-- A signature anchored only on a port is safe when the port is distinctive
+-- (a game's 6000-9000 range). The same signature on 443 would attribute the
+-- entire web to one app, so those are dropped at import: in the source they
+-- carry a payload fingerprint we cannot evaluate without packet capture.
+local function sig_usable(sig, cls)
+	if (sig.host and sig.host ~= "") or (sig.ip and sig.ip ~= "") then
+		return true
+	end
+	if not sig.dport or sig.dport == "" then return false end
+	-- only games are identified by port alone; a video app matched on a bare
+	-- UDP port would swallow unrelated traffic (Douyin claimed torrents on
+	-- port 16000 before this check)
+	if cls ~= "game" then return false end
+	for p in sig.dport:gmatch("%d+") do
+		local n = tonumber(p)
+		if n == 80 or n == 443 or n == 8080 then return false end
+	end
+	return true
+end
+
+local function sig_matches(sig, proto, port, ip, host)
+	if sig.proto and sig.proto ~= "" and sig.proto ~= proto then return false end
+	local by_port = sig.dport and sig.dport ~= "" and port_in(sig.dport, port)
+	local by_ip = sig.ip and sig.ip ~= "" and cidr_match(ip, sig.ip)
+	local by_host = sig.host and sig.host ~= "" and host
+		and host:find(sig.host:gsub("^%.", ""), 1, true) ~= nil
+	if not (by_port or by_ip or by_host) then return false end
+	-- a signature with several conditions must satisfy all of the ones given
+	if sig.dport and sig.dport ~= "" and not by_port then return false end
+	if sig.ip and sig.ip ~= "" and not by_ip then return false end
+	if sig.host and sig.host ~= "" and not by_host then return false end
+	return true
+end
+
+-- Returns the app and how it was recognised. A match on the hostname or an
+-- address range is trustworthy; a bare port is a guess, because nothing in
+-- the packet was checked.
+local function classify_flow(apps, proto, port, ip, host)
+	for _, app in ipairs(apps.apps) do
+		for _, sig in ipairs(app.sigs or {}) do
+			if sig_matches(sig, proto, port, ip, host) then
+				local conf = ((sig.host and sig.host ~= "") or (sig.ip and sig.ip ~= ""))
+					and "high" or "low"
+				return app, conf
+			end
+		end
+	end
+	return nil
+end
+
+-- which side of the flow is on the LAN
+local function lan_prefix()
+	local out = sys.exec("ip -4 addr show dev br-lan 2>/dev/null") or ""
+	local ip = out:match("inet%s+(%d+%.%d+%.%d+)%.")
+	return ip
+end
+
+-- Clash keeps the real hostname for every proxied connection and already
+-- counts its bytes, so this is both cheaper and more accurate than guessing
+-- from conntrack: the destination the router sees is a fake IP.
+local function clash_secret()
+	local s = trim(sys.exec("uci -q get openclash.config.dashboard_password 2>/dev/null") or "")
+	if s ~= "" then return s end
+	local y = read_all("/etc/openclash/config/default.yaml") or ""
+	return y:match("secret:%s*'([^']+)'") or y:match('secret:%s*"([^"]+)"')
+end
+
+local function record(st, app_name, dev_ip, bytes, conf)
+	st.apps[app_name] = (st.apps[app_name] or 0) + bytes
+	st.dev[dev_ip] = st.dev[dev_ip] or {}
+	st.dev[dev_ip][app_name] = (st.dev[dev_ip][app_name] or 0) + bytes
+	if conf == "low" then
+		st.low = st.low or {}
+		st.low[app_name] = (st.low[app_name] or 0) + bytes
+	end
+end
+
+-- Clash reports sourceIP and sourcePort for every connection, and the router
+-- keeps the corresponding flow. Joining on that pair yields the address the
+-- client actually sent to, which for fake-ip mode is the only handle nft has.
+local function fake_ip_index(prefix)
+	local map = {}
+	local fh = io.popen("cat /proc/net/nf_conntrack 2>/dev/null", "r")
+	if not fh then return map end
+	for line in fh:lines() do
+		local src, dst, sport =
+			line:match("src=(%d+%.%d+%.%d+%.%d+)%s+dst=(%d+%.%d+%.%d+%.%d+)%s+sport=(%d+)%s+dport=")
+		if src and sport and src:sub(1, #prefix) == prefix and dst:sub(1, #prefix) ~= prefix then
+			map[src .. "|" .. sport] = dst
+		end
+	end
+	fh:close()
+	return map
+end
+
+local function collect_clash_stats(now, apps, st)
+	local secret = clash_secret()
+	if not secret then return 0 end
+	local prefix = lan_prefix() or "192.168."
+	local fakeip = fake_ip_index(prefix)
+	local raw = sys.exec(string.format(
+		"curl -s -m 5 -H %s http://127.0.0.1:9090/connections 2>/dev/null",
+		shq("Authorization: Bearer " .. secret)))
+	if not raw or raw == "" then return 0 end
+	local ok_, doc = pcall(jsonc.parse, raw)
+	if not ok_ or type(doc) ~= "table" then return 0 end
+
+	local seen = load_json_map(CT_SEEN_FILE, function() return {} end)
+	local counted = 0
+	for _, c in ipairs(doc.connections or {}) do
+		local m = c.metadata or {}
+		local host = m.host or m.destinationIP
+		local dev = m.sourceIP
+		if host and dev and dev:find("^192%.168%.") then
+			local total = (tonumber(c.upload) or 0) + (tonumber(c.download) or 0)
+			local key = "clash|" .. tostring(c.id)
+			local prev = tonumber((seen[key] or {}).b) or 0
+			local delta = total - prev
+			if delta > 0 then
+				local app, conf = classify_flow(apps, (m.network or ""):lower(),
+					tonumber(m.destinationPort) or 0, m.destinationIP, host)
+				if app and conf == "high" then
+					if conf == "high" then
+						learn_app_ip(app.name,
+							fakeip[(m.sourceIP or "") .. "|" .. (m.sourcePort or "")] or m.destinationIP)
+					end
+					record(st, app.name, dev, delta, conf)
+					counted = counted + delta
+				end
+			end
+			seen[key] = { b = total }
+		end
+	end
+	save_json_map(CT_SEEN_FILE, seen)
+	return counted
+end
+
+local function collect_app_stats(now)
+	local apps = load_apps()
+	if #apps.apps == 0 then return nil end
+
+	local prefix = lan_prefix()
+	if not prefix then return nil end
+
+	local st = load_json_map(APPSTAT_FILE, function()
+		return { day = "", apps = {}, dev = {} }
+	end)
+	local today = os.date("%Y-%m-%d", now)
+	if st.day ~= today then
+		st.day, st.apps, st.dev = today, {}, {}
+	end
+
+	local seen = load_json_map(CT_SEEN_FILE, function() return {} end)
+	local fresh = {}
+	local counted = collect_clash_stats(now, apps, st)
+
+	local fh = io.popen("cat /proc/net/nf_conntrack 2>/dev/null", "r")
+	if not fh then return nil end
+	for line in fh:lines() do
+		local proto = line:match("^ipv4%s+%d+%s+(%a+)")
+		if proto then
+			local src, dst, sport, dport =
+				line:match("src=(%d+%.%d+%.%d+%.%d+)%s+dst=(%d+%.%d+%.%d+%.%d+)%s+sport=(%d+)%s+dport=(%d+)")
+			if src then
+				-- both directions carry bytes; sum them
+				local b1, b2 = 0, 0
+				local n = 0
+				for b in line:gmatch("bytes=(%d+)") do
+					n = n + 1
+					if n == 1 then b1 = tonumber(b) else b2 = tonumber(b) end
+				end
+				local total = b1 + b2
+				local key = proto .. "|" .. src .. "|" .. sport .. "|" .. dst .. "|" .. dport
+				local prev = seen[key]
+				local delta = total - (prev and tonumber(prev.b) or 0)
+				if delta < 0 then delta = 0 end
+
+				-- the LAN side identifies the device, the other side the app.
+				-- a flow with no LAN end (router to internet) has no device and
+				-- must not be attributed to the WAN address
+				local src_lan = src:sub(1, #prefix) == prefix
+				local dst_lan = dst:sub(1, #prefix) == prefix
+				local dev_ip, remote_ip, remote_port
+				if src_lan and not dst_lan then
+					dev_ip, remote_ip, remote_port = src, dst, tonumber(dport)
+				elseif dst_lan and not src_lan then
+					dev_ip, remote_ip, remote_port = dst, src, tonumber(sport)
+				end
+
+				-- a port-only guess is not evidence: tcp/6000-9000 is used by
+				-- Home Assistant, access points and torrent clients, and they
+				-- were all being reported as a game. Only a hostname, an
+				-- address we learned, or a verified fingerprint counts.
+				if delta > 0 and dev_ip then
+					local app, conf = classify_flow(apps, proto, remote_port, remote_ip, nil)
+					if app and conf == "high" then
+						learn_app_ip(app.name, remote_ip)
+						record(st, app.name, dev_ip, delta, conf)
+						counted = counted + delta
+					end
+				end
+				fresh[key] = { b = total, app = app and app.name or nil }
+			end
+		end
+	end
+	fh:close()
+
+	-- keep the table bounded: flows that are gone contribute nothing
+	local kept, n = {}, 0
+	for k, v in pairs(fresh) do
+		n = n + 1
+		if n <= 8000 then kept[k] = v end
+	end
+
+	save_json_map(CT_SEEN_FILE, kept)
+	save_json_map(APPSTAT_FILE, st)
+	return { bytes = counted, apps = (function()
+		local c = 0
+		for _ in pairs(st.apps) do c = c + 1 end
+		return c
+	end)() }
+end
+
+function methods.applist()
+	local d = load_apps()
+	local st = load_json_map(APPSTAT_FILE, function() return { day = "", apps = {} } end)
+	local out = {}
+	for _, a in ipairs(d.apps) do
+		out[#out + 1] = { id = a.id, name = a.name, class = a.class,
+		                  sigs = #(a.sigs or {}),
+		                  bytes = (st.apps or {})[a.name] or 0 }
+	end
+	table.sort(out, function(x, y) return (x.bytes or 0) > (y.bytes or 0) end)
+	return { success = true, running = true, apps = out, day = st.day or "" }
+end
+
+function methods.appstats()
+	local st = load_json_map(APPSTAT_FILE, function() return { day = "", apps = {}, dev = {} } end)
+	local names = {}
+	for name, bytes in pairs(st.apps or {}) do
+		names[#names + 1] = { name = name, bytes = bytes,
+		                      low = (st.low or {})[name] or 0 }
+	end
+	table.sort(names, function(a, b) return a.bytes > b.bytes end)
+	-- an address is only useful once it has a device behind it
+	local by_ip = {}
+	for _, d in ipairs(collect_devices()) do
+		if d.ip then by_ip[d.ip] = d end
+	end
+
+	local devs, per_app = {}, {}
+	for ip, m in pairs(st.dev or {}) do
+		local d = by_ip[ip]
+		local row = { ip = ip, bytes = 0, apps = {},
+		              mac = d and d.mac or nil,
+		              name = d and (d.host or d.mac) or nil,
+		              vendor = d and d.vendor or nil }
+		for name, bytes in pairs(m) do
+			row.bytes = row.bytes + bytes
+			row.apps[#row.apps + 1] = { name = name, bytes = bytes }
+			per_app[name] = per_app[name] or {}
+			per_app[name][#per_app[name] + 1] = {
+				ip = ip, bytes = bytes,
+				name = d and (d.host or d.mac) or nil,
+				mac = d and d.mac or nil,
+			}
+		end
+		table.sort(row.apps, function(a, b) return a.bytes > b.bytes end)
+		devs[#devs + 1] = row
+	end
+	table.sort(devs, function(a, b) return a.bytes > b.bytes end)
+	for _, list in pairs(per_app) do
+		table.sort(list, function(a, b) return a.bytes > b.bytes end)
+	end
+
+	return { success = true, running = true, day = st.day or "", apps = names,
+	         dev = devs, per_app = per_app }
+end
+
+function methods.appreset()
+	save_json_map(APPSTAT_FILE, { day = os.date("%Y-%m-%d"), apps = {}, dev = {} })
+	save_json_map(CT_SEEN_FILE, {})
+	return ok({})
+end
+
+-- Import an OAF feature library (plain text, format v3.0). Everything that
+-- parses is kept; unknown classes fall back to "other".
+function methods.appimport(text)
+	if type(text) ~= "string" or #text < 8 then return err("empty input") end
+	local d = load_apps()
+	local by_name = {}
+	for _, a in ipairs(d.apps) do by_name[a.name] = a end
+
+	local cls, added, merged = nil, 0, 0
+	for line in text:gmatch("[^\r\n]+") do
+		local c = line:match("^#class%s+(%a+)")
+		if c then
+			cls = c
+		else
+			local id, name, body = line:match("^(%d+)%s+([^:]+):%[(.*)%]")
+			if id then
+				local sigs = {}
+				for part in body:gmatch("[^,]+") do
+					-- gmatch("[^;]*") yields an extra empty match on every
+					-- consecutive separator, which shifts every later field;
+					-- anchoring on the separator keeps the columns aligned
+					local f = {}
+					for v in (part .. ";"):gmatch("([^;]*);") do f[#f + 1] = trim(v) end
+					while #f < 6 do f[#f + 1] = "" end
+					local sig = { proto = f[1], dport = f[3], host = f[4], dict = f[6] }
+					if sig_usable(sig, cls) then sigs[#sigs + 1] = sig end
+				end
+				if #sigs > 0 then
+					local ex = by_name[name]
+					if ex then
+						ex.sigs = sigs
+						ex.class = cls or ex.class
+						merged = merged + 1
+					else
+						d.seq = d.seq + 1
+						local app = { id = d.seq, name = name, class = cls or "other", sigs = sigs }
+						d.apps[#d.apps + 1] = app
+						by_name[name] = app
+						added = added + 1
+					end
+				end
+			end
+		end
+	end
+	if added + merged == 0 then return err("nothing recognised") end
+	save_apps(d)
+	return ok({ added = added, merged = merged, total = #d.apps })
+end
+
+function methods.appdel(id)
+	local d = load_apps()
+	local keep, found = {}, false
+	for _, a in ipairs(d.apps) do
+		if tostring(a.id) == tostring(id) then found = true else keep[#keep + 1] = a end
+	end
+	if not found then return err("no such app") end
+	d.apps = keep
+	save_apps(d)
+	return ok({})
+end
+
+
+-- ---- per-app QoS -------------------------------------------------------
+-- qosmate maps a DSCP value to an hfsc class in its prerouting chain at
+-- priority mangle (-150). A table hooked earlier can therefore steer traffic
+-- simply by setting the DSCP; no tc work of our own is needed.
+--
+-- Which addresses belong to an app is learned from the flows we already
+-- classify: Clash reports the host and the address the client actually
+-- connected to, which for proxied traffic is a stable fake IP.
+local QOS_LEVELS = {
+	cs5 = "1:11", ef = "1:11",
+	cs4 = "1:12", af41 = "1:12",
+	cs0 = "1:13",
+	af11 = "1:14", cs2 = "1:14",
+	cs1 = "1:15",
+}
+
+local function load_appips()
+	local d = load_json_map(APPIPS_FILE, function() return {} end)
+	return d
+end
+
+local _qos_dirty = false
+
+learn_app_ip = function(app, ip)
+	if not app or not ip or ip == "" then return end
+	local d = load_appips()
+	local list = d[app] or {}
+	for _, v in ipairs(list) do if v == ip then return end end
+	-- keep the newest entries; a long-lived app accumulates CDN addresses
+	table.insert(list, 1, ip)
+	while #list > 64 do table.remove(list) end
+	d[app] = list
+	save_json_map(APPIPS_FILE, d)
+	_qos_dirty = true
+end
+
+local function load_qos()
+	local d = load_json_map(QOS_FILE, function() return { seq = 0, rules = {} } end)
+	d.seq = tonumber(d.seq) or 0
+	d.rules = type(d.rules) == "table" and d.rules or {}
+	return d
+end
+
+local function set_name_for(app)
+	-- Chinese names collapse to "____" under a sanitising gsub, so use the
+	-- library id instead and fall back to a numeric suffix
+	for _, a in ipairs(load_apps().apps) do
+		if a.name == app then return "s_a" .. tostring(a.id) end
+	end
+	local h = 0
+	for i = 1, #app do h = (h * 31 + app:byte(i)) % 100000 end
+	return "s_a" .. h
+end
+
+local function render_qos_rules()
+	local d = load_qos()
+	local ips = load_appips()
+	local lines = { "# generated by languard - do not edit", "" }
+
+	local used = {}
+	for _, r in ipairs(d.rules) do
+		if r.app and r.app ~= "" then used[r.app] = true end
+	end
+
+	lines[#lines + 1] = "table inet languard_qos {"
+	for app in pairs(used) do
+		local list = ips[app]
+		if list and #list > 0 then
+			local name = set_name_for(app)
+			lines[#lines + 1] = "\tset " .. name .. " {"
+			lines[#lines + 1] = "\t\ttype ipv4_addr"
+			lines[#lines + 1] = "\t\tflags interval"
+			lines[#lines + 1] = "\t\telements = { " .. table.concat(list, ", ") .. " }"
+			lines[#lines + 1] = "\t}"
+		end
+	end
+
+	lines[#lines + 1] = ""
+	lines[#lines + 1] = "\tchain pre {"
+	lines[#lines + 1] = "\t\ttype filter hook prerouting priority -160; policy accept;"
+	for _, r in ipairs(d.rules) do
+		local dscp = r.dscp or "cs1"
+		local conds = {}
+		if r.ip and r.ip ~= "" then conds[#conds + 1] = "ip saddr " .. r.ip end
+		if r.app and r.app ~= "" then
+			local name = set_name_for(r.app)
+			if ips[r.app] and #ips[r.app] > 0 then
+				conds[#conds + 1] = "ip daddr @" .. name
+			else
+				conds[#conds + 1] = "ip daddr 0.0.0.0/32"   -- nothing learned yet
+			end
+		end
+		if #conds > 0 then
+			lines[#lines + 1] = string.format(
+				"\t\t%s ip dscp set %s counter comment \"qos:%s\"",
+				table.concat(conds, " "), dscp, (r.app or "device") .. (r.ip and ("@" .. r.ip) or ""))
+		end
+	end
+	lines[#lines + 1] = "\t}"
+	lines[#lines + 1] = "}"
+
+	local f = io.open(QOS_RULE_FILE, "w")
+	if not f then return false end
+	f:write(table.concat(lines, "\n") .. "\n")
+	f:close()
+	return true
+end
+
+-- Traffic that Clash redirects is terminated and re-originated by it, so a
+-- DSCP we set on the client's packet never reaches the WAN. The only way to
+-- keep the mark is to make those addresses skip the redirect entirely.
+-- The bypass set is derived from the rules: when a rule is removed its app
+-- stops being referenced and its addresses leave the set.
+local BYPASS_SET = "languard_bypass"
+
+local function bypass_addresses()
+	local d = load_qos()
+	local ips = load_appips()
+	local want, seen = {}, {}
+	for _, r in ipairs(d.rules) do
+		if r.app and r.app ~= "" and not seen[r.app] then
+			seen[r.app] = true
+			for _, ip in ipairs(ips[r.app] or {}) do
+				-- a fake address only means something inside Clash; routing
+				-- it directly would black-hole the connection
+				if not want[ip] and not cidr_match(ip, "198.18.0.0/15") then
+					want[ip] = true
+				end
+			end
+		end
+	end
+	local list = {}
+	for ip in pairs(want) do list[#list + 1] = ip end
+	return list
+end
+
+local function bypass_rule_present()
+	local out = sys.exec("nft list chain inet fw4 openclash 2>/dev/null | grep -c '@" .. BYPASS_SET .. "'") or "0"
+	return (tonumber(trim(out)) or 0) > 0
+end
+
+local function apply_bypass()
+	local list = bypass_addresses()
+	sys.call(string.format(
+		"nft list set inet fw4 %s >/dev/null 2>&1 || nft add set inet fw4 %s '{ type ipv4_addr; flags interval; }' 2>/dev/null",
+		BYPASS_SET, BYPASS_SET))
+	sys.call("nft flush set inet fw4 " .. BYPASS_SET .. " 2>/dev/null")
+	if #list > 0 then nft_chunk(BYPASS_SET, "add", list) end
+	if not bypass_rule_present() then
+		-- fw4 reloads and OpenClash restarts rebuild this chain, so the rule
+		-- is re-inserted at the top whenever it is missing
+		sys.call("nft insert rule inet fw4 openclash ip daddr @" .. BYPASS_SET .. " return 2>/dev/null")
+	end
+	return #list
+end
+
+local function apply_qos()
+	render_qos_rules()
+	apply_bypass()
+	-- replace our table in place; fw4 reloads pick the file up afterwards
+	sys.call("nft delete table inet languard_qos 2>/dev/null")
+	local rc = sys.call("nft -f " .. QOS_RULE_FILE .. " 2>/dev/null")
+	return rc == 0
+end
+
+function methods.qoslist()
+	local d = load_qos()
+	local out = {}
+	for _, r in ipairs(d.rules) do
+		out[#out + 1] = { id = r.id, ip = r.ip, app = r.app, dscp = r.dscp,
+		                  ips = (load_appips()[r.app] or {}) and #(load_appips()[r.app] or {}) or 0 }
+	end
+	return { success = true, running = true, rules = out, levels = QOS_LEVELS }
+end
+
+function methods.qosadd(ip, app, dscp)
+	if (not ip or ip == "") and (not app or app == "") then
+		return err("pick a device, an app, or both")
+	end
+	if dscp and QOS_LEVELS[dscp] == nil then return err("unknown class") end
+	local d = load_qos()
+	for _, r in ipairs(d.rules) do
+		if (r.ip or "") == (ip or "") and (r.app or "") == (app or "") then
+			return err("that rule already exists")
+		end
+	end
+	d.seq = d.seq + 1
+	d.rules[#d.rules + 1] = { id = d.seq, ip = ip or "", app = app or "",
+	                          dscp = dscp or "cs1" }
+	save_json_map(QOS_FILE, d)
+	local okk = apply_qos()
+	return ok({ id = d.seq, applied = okk })
+end
+
+function methods.qosdel(id)
+	local d = load_qos()
+	local keep, found = {}, false
+	for _, r in ipairs(d.rules) do
+		if tostring(r.id) == tostring(id) then found = true else keep[#keep + 1] = r end
+	end
+	if not found then return err("no such rule") end
+	d.rules = keep
+	save_json_map(QOS_FILE, d)
+	apply_qos()
+	return ok({})
+end
+
+
+-- ---- payload fingerprint sampling --------------------------------------
+-- A signature that names only a port is a guess. When it also carries a byte
+-- pattern ("00:33|1:66|02:00|03:0a" = offset:value), the first bytes of the
+-- flow settle it. Capturing every packet would be wasteful, so the filter
+-- only asks for the ports that actually have a fingerprint, and only a few
+-- hundred packets per run are inspected.
+local function fingerprint_ports(apps)
+	local specs, seen = {}, {}
+	for _, a in ipairs(apps.apps) do
+		for _, sig in ipairs(a.sigs or {}) do
+			if sig.dict and sig.dict ~= "" and sig.dport and sig.dport ~= ""
+			   and not seen[sig.dport] then
+				seen[sig.dport] = true
+				specs[#specs + 1] = sig.dport
+			end
+		end
+	end
+	if #specs == 0 then return nil end
+	local parts = {}
+	for i, spec in ipairs(specs) do
+		if i > 12 then break end
+		local lo, hi = spec:match("^(%d+)%-(%d+)$")
+		if lo then
+			parts[#parts + 1] = "(portrange " .. lo .. "-" .. hi .. ")"
+		else
+			parts[#parts + 1] = "(port " .. spec .. ")"
+		end
+	end
+	return table.concat(parts, " or ")
+end
+
+-- "00:33|1:66|02:00" and "00:73:01:00:02:00" are both offset:value lists
+local function dict_match(dict, payload)
+	if not dict or dict == "" then return false end
+	local parts = {}
+	for chunk in dict:gmatch("[^|]+") do
+		local colon = 0
+		for _ in chunk:gmatch(":") do colon = colon + 1 end
+		if colon > 1 then
+			local nums = {}
+			for n in chunk:gmatch("[^:]+") do nums[#nums + 1] = n end
+			for i = 1, #nums - 1, 2 do
+				parts[#parts + 1] = nums[i] .. ":" .. nums[i + 1]
+			end
+		else
+			parts[#parts + 1] = chunk
+		end
+	end
+	local checked = 0
+	for _, p in ipairs(parts) do
+		local off, val = p:match("^(%d+):(%x+)$")
+		if off then
+			local o, v = tonumber(off), tonumber(val, 16)
+			local b = payload:byte(o + 1)
+			if b == nil or b ~= v then return false end
+			checked = checked + 1
+		end
+	end
+	return checked > 0
+end
+
+local function pcap_u32(s, i, le)
+	local a, b, c, d = s:byte(i, i + 3)
+	if not a then return nil end
+	if le then return a + b * 256 + c * 65536 + d * 16777216 end
+	return d + c * 256 + b * 65536 + a * 16777216
+end
+
+local function pcap_u16(s, i, le)
+	local a, b = s:byte(i, i + 1)
+	if not a then return nil end
+	if le then return a + b * 256 end
+	return b + a * 256
+end
+
+-- Walk the capture and hand back one {proto, dst, dport, payload} per packet.
+local function parse_pcap(data)
+	local magic = pcap_u32(data, 1, true)
+	local le = (magic == 0xa1b2c3d4)
+	local pos = 25
+	local out = {}
+	while pos + 16 <= #data do
+		local incl = pcap_u32(data, pos + 8, le)
+		if not incl or incl == 0 then break end
+		local pkt = data:sub(pos + 16, pos + 15 + incl)
+		pos = pos + 16 + incl
+		if #pkt >= 34 then
+			local etype = pcap_u16(pkt, 13, false)
+			local off = 14
+			if etype == 0x8100 then
+				etype = pcap_u16(pkt, 17, false)
+				off = 18
+			end
+			if etype == 0x0800 then
+				local ipoff = off + 1
+				local vihl = pkt:byte(ipoff)
+				if vihl then
+					local ihl = (vihl % 16) * 4
+					local proto = pkt:byte(ipoff + 9)
+					local dst = table.concat({ pkt:byte(ipoff + 16, ipoff + 19) }, ".")
+					local l4 = ipoff + ihl
+					local sport, dport, pl
+					if proto == 17 then
+						sport = pcap_u16(pkt, l4, false)
+						dport = pcap_u16(pkt, l4 + 2, false)
+						pl = pkt:sub(l4 + 8)
+					elseif proto == 6 then
+						sport = pcap_u16(pkt, l4, false)
+						dport = pcap_u16(pkt, l4 + 2, false)
+						local doff = math.floor((pkt:byte(l4 + 12) or 0) / 16) * 4
+						pl = pkt:sub(l4 + doff)
+					end
+					if dport then
+						out[#out + 1] = {
+							proto = (proto == 17) and "udp" or "tcp",
+							dst = dst, dport = dport, payload = pl or "",
+						}
+					end
+				end
+			end
+		end
+	end
+	return out
+end
+
+local function fingerprint_scan(apps, now)
+	local filter = fingerprint_ports(apps)
+	if not filter then return nil end
+	local cap = "/tmp/lg_fingerprint.pcap"
+	os.remove(cap)
+	sys.call(string.format(
+		"timeout 4 tcpdump -i br-lan -s 96 -c 250 -w %s %s 2>/dev/null", cap, shq(filter)))
+	local f = io.open(cap, "rb")
+	if not f then return nil end
+	local data = f:read("*a")
+	f:close()
+	os.remove(cap)
+	if not data or #data < 24 then return nil end
+
+	local packets = parse_pcap(data)
+	local hit, learned = 0, 0
+	local st = load_json_map(FINGERPRINT_FILE, function() return {} end)
+
+	for _, p in ipairs(packets) do
+		if #p.payload >= 6 then
+			for _, a in ipairs(apps.apps) do
+				local matched = false
+				for _, sig in ipairs(a.sigs or {}) do
+					if sig.dict and sig.dict ~= "" and sig.proto == p.proto
+					   and port_in(sig.dport, p.dport)
+					   and dict_match(sig.dict, p.payload) then
+						matched = true
+						break
+					end
+				end
+				if matched then
+					hit = hit + 1
+					st[a.name] = { ts = now, hits = ((st[a.name] or {}).hits or 0) + 1 }
+					learn_app_ip(a.name, p.dst)
+					learned = learned + 1
+					break
+				end
+			end
+		end
+	end
+	if hit > 0 then save_json_map(FINGERPRINT_FILE, st) end
+	return { packets = #packets, hits = hit, learned = learned }
+end
 
 -- Called from tick: refresh at most one due subscription per run so a slow
 -- source never stalls the minute tick.
@@ -1358,7 +2179,14 @@ function parse_static_hosts()
 	return map
 end
 
-local function collect_devices()
+-- A container or VM on a NAS answers ARP with its own generated MAC, so the
+-- same box shows up twice and looks like an address conflict. An alias maps
+-- such a MAC onto the device it belongs to; the row then folds into one.
+local function load_aliases()
+	return load_json_map(ALIAS_FILE, function() return {} end)
+end
+
+collect_devices = function()
 	local state = load_state()
 	local names = load_names()
 	local leases = parse_leases()
@@ -1368,10 +2196,15 @@ local function collect_devices()
 
 	local seen = {}
 	local list = {}
+	local aliases = load_aliases()
 
 	local function add(mac, ip, host, online)
 		mac = normalize_mac(mac)
 		if not mac then return end
+		-- fold a virtual interface into its physical device
+		local target = aliases[mac]
+		if type(target) == "table" then target = target.into end
+		if target and target ~= mac then mac = target end
 		if seen[mac] then
 			local e = seen[mac]
 			e.ip = e.ip or ip
@@ -1422,6 +2255,39 @@ local function collect_devices()
 	end
 	for mac, st in pairs(state) do
 		add(mac, st.ip, st.host, neigh[mac] ~= nil)
+	end
+
+	-- an address answered by a different MAC than the one bound to it is
+	-- either a stale binding or a virtual interface that took the address
+	local by_ip = {}
+	for _, e in ipairs(list) do
+		if e.ip then
+			by_ip[e.ip] = by_ip[e.ip] or {}
+			table.insert(by_ip[e.ip], e)
+		end
+	end
+	for _, es in pairs(by_ip) do
+		if #es > 1 then
+			local live
+			for _, e in ipairs(es) do if e.online then live = e end end
+			if live then
+				for _, e in ipairs(es) do
+					if e ~= live then
+						e.conflict = live.mac
+						live.conflict = live.conflict or e.mac
+					end
+				end
+			end
+		end
+	end
+
+	for virtual, target in pairs(aliases) do
+		local into = type(target) == "table" and target.into or target
+		local e = into and seen[normalize_mac(into)]
+		if e then
+			e.aliases = e.aliases or {}
+			e.aliases[#e.aliases + 1] = virtual
+		end
 	end
 
 	table.sort(list, function(a, b)
@@ -1872,6 +2738,27 @@ end
 
 -- Trusted proxies: addresses whose log lines carry the real client in a
 -- forwarding header. They are never blocked and never counted as an attacker.
+function methods.devmerge(mac, into)
+	local a = normalize_mac(mac)
+	local b = normalize_mac(into)
+	if not a or not b or a == b then return err("invalid mac") end
+	local aliases = load_aliases()
+	if aliases[b] then return err("target is itself an alias") end
+	aliases[a] = { into = b, since = os.time() }
+	save_json_map(ALIAS_FILE, aliases)
+	return ok({ mac = a, into = b })
+end
+
+function methods.devunmerge(mac)
+	local a = normalize_mac(mac)
+	if not a then return err("invalid mac") end
+	local aliases = load_aliases()
+	if aliases[a] == nil then return err("not an alias") end
+	aliases[a] = nil
+	save_json_map(ALIAS_FILE, aliases)
+	return ok({})
+end
+
 function methods.proxylist()
 	local p = load_json_map(PROXY_FILE, function() return {} end)
 	local keys = {}
@@ -2207,8 +3094,18 @@ function methods.sync()
 	else
 		render_rules(state)
 	end
-	reload_firewall()
-	return ok({ blocked_count = (function() local n = 0 for _ in pairs(state) do n = n + 1 end return n end)() })
+
+	-- rewriting the set contents is enough to reconcile state and kernel, and
+	-- unlike a firewall reload it does not disturb anything else on the box
+	if set_exists("blocked_ip4") or set_exists("blocked_ip6") then
+		rebuild_sets()
+	else
+		reload_firewall()
+	end
+
+	local n = 0
+	for _ in pairs(state) do n = n + 1 end
+	return ok({ blocked_count = n })
 end
 
 local function table_count(t)
@@ -2814,10 +3711,24 @@ function methods.tick()
 	local oui = oui_enrich(2)
 	local ff = refresh_due_feeds(now)
 	local arp = check_arp_changes(now)
+	local fp = nil
+	local fst = load_json_map(FINGERPRINT_FILE, function() return {} end)
+	-- a flow lasts long enough that one sample every five minutes is plenty
+	if now - (tonumber(fst.last) or 0) >= 300 then
+		fp = fingerprint_scan(load_apps(), now)
+		fst = load_json_map(FINGERPRINT_FILE, function() return {} end)
+		fst.last = now
+		save_json_map(FINGERPRINT_FILE, fst)
+	end
+	_qos_dirty = false
+	local apps = collect_app_stats(now)
+	if _qos_dirty then apply_qos() end
+	-- cheap self-heal: the redirect chain is rebuilt by fw4 and OpenClash
+	if not bypass_rule_present() then apply_bypass() end
 	return { success = true, running = true,
 	         expired = e.expired, schedule_changed = sc.changed,
 	         active = sc.active, new_devices = nd, oui_lookups = oui,
-	         feed = ff, arp_events = arp }
+	         feed = ff, arp_events = arp, app_stats = apps, fingerprint = fp }
 end
 
 function methods.schedlist()
@@ -3165,6 +4076,7 @@ function methods.dashboard()
 		auto_enabled = cfg.enabled, threshold = cfg.threshold, window = cfg.window, ttl = cfg.ttl,
 		health_ok = sc.ok, health_failing = failing,
 		trusted = n_trusted, pending = n_pending,
+		panic_on = load_panic().on and true or false, panic_since = load_panic().since,
 		arp_24h = arp_24h, arp_recent = arp_recent,
 		recent = recent,
 	}
@@ -3243,6 +4155,16 @@ if arg[1] == "list" then
 		feeddel     = { id = "" },
 		feedrefresh = { id = "" },
 		feedset     = { id = "", interval = "" },
+		applist     = {},
+		qoslist     = {},
+		qosadd      = { ip = "", app = "", dscp = "" },
+		qosdel      = { id = "" },
+		appstats    = {},
+		appimport   = { text = "" },
+		appdel      = { id = "" },
+		appreset    = {},
+		devmerge    = { mac = "", into = "" },
+		devunmerge  = { mac = "" },
 		domainlist  = {},
 		domainadd   = { name = "" },
 		domaindel   = { name = "" },
@@ -3425,6 +4347,32 @@ elseif arg[1] == "call" then
 		res = methods.feedrefresh(req.id)
 	elseif name == "feedset" then
 		res = methods.feedset(req.id, req.interval)
+	elseif name == "applist" then
+		res = methods.applist()
+		reply_list(res, { "apps" })
+		return
+	elseif name == "appstats" then
+		res = methods.appstats()
+		reply_list(res, { "apps", "dev" })
+		return
+	elseif name == "qoslist" then
+		res = methods.qoslist()
+		reply_list(res, { "rules" })
+		return
+	elseif name == "qosadd" then
+		res = methods.qosadd(req.ip, req.app, req.dscp)
+	elseif name == "qosdel" then
+		res = methods.qosdel(req.id)
+	elseif name == "appimport" then
+		res = methods.appimport(req.text)
+	elseif name == "appdel" then
+		res = methods.appdel(req.id)
+	elseif name == "appreset" then
+		res = methods.appreset()
+	elseif name == "devmerge" then
+		res = methods.devmerge(req.mac, req.into)
+	elseif name == "devunmerge" then
+		res = methods.devunmerge(req.mac)
 	elseif name == "domainlist" then
 		res = methods.domainlist()
 		reply_list(res, { "domains" })

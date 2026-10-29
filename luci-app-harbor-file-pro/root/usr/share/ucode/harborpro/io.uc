@@ -13,10 +13,11 @@ const open = _fs.open,
       rename = _fs.rename,
       unlink = _fs.unlink,
       writefile = _fs.writefile;
-const _ubus = require('ubus');
-const connect = _ubus.connect;
-const _uci = require('uci');
-const cursor = _uci.cursor;
+function connect() { return require('ubus').connect(); }
+function cursor() { return require('uci').cursor(); }
+function shell_quote(value) { return "'" + replace(value, "'", "'\\''") + "'"; }
+let agent_context;
+function environment(key) { return agent_context ? agent_context.env[key] : getenv(key); }
 
 const CHUNK = 65536;
 
@@ -54,7 +55,7 @@ function ensure_runtime_dir() {
 }
 
 function header(name, value) {
-	printf('%s: %s\r\n', name, value);
+	printf('%s: %s\r\n', name, replace('' + value, /[\r\n]/g, ''));
 }
 
 function end_headers() {
@@ -92,12 +93,12 @@ function read_params() {
 		}
 	};
 
-	parse(getenv('QUERY_STRING'));
+	parse(environment('QUERY_STRING'));
 
-	let ctype = getenv('CONTENT_TYPE') ?? '';
-	if (getenv('REQUEST_METHOD') == 'POST' &&
+	let ctype = environment('CONTENT_TYPE') ?? '';
+	if (environment('REQUEST_METHOD') == 'POST' &&
 	    index(ctype, 'application/x-www-form-urlencoded') == 0) {
-		let len = +(getenv('CONTENT_LENGTH') ?? 0);
+		let len = +(environment('CONTENT_LENGTH') ?? 0);
 		if (len > 0 && len < 65536)
 			parse(stdin.read(len));
 	}
@@ -106,7 +107,7 @@ function read_params() {
 }
 
 function normalize_path(path) {
-	if (type(path) != 'string' || path == '' || substr(path, 0, 1) != '/')
+	if (type(path) != 'string' || path == '' || index(path, '\x00') >= 0 || substr(path, 0, 1) != '/')
 		return null;
 
 	let parts = [];
@@ -133,6 +134,7 @@ function is_system_path(path) {
 }
 
 function allow_system_operations() {
+	if (agent_context) return agent_context.preferences.allow_system_operations == 1;
 	let uci = cursor();
 	uci.load('harbor_file_pro');
 	let v = uci.get('harbor_file_pro', 'main', 'allow_system_operations');
@@ -144,7 +146,7 @@ function session_id(params) {
 	if (params.sessionid && match(params.sessionid, /^[a-fA-F0-9]{32}$/))
 		return params.sessionid;
 
-	let cookies = getenv('HTTP_COOKIE') ?? '';
+	let cookies = environment('HTTP_COOKIE') ?? '';
 	let m = match(cookies, /sysauth[_a-z]*=([a-fA-F0-9]{32})/);
 
 	return m ? m[1] : null;
@@ -153,7 +155,7 @@ function session_id(params) {
 function authorize(sid, path, perm) {
 	perm ??= 'read';
 
-	if (!sid)
+	if (!sid || sid == '00000000000000000000000000000000')
 		return 'no session id (no sessionid parameter, no sysauth cookie)';
 
 	let ubus = connect();
@@ -233,8 +235,11 @@ function parse_range(header_value, size) {
 	return { start, end, length: end - start + 1 };
 }
 
+function byte_integer(value) { return type(value) == 'int' && value >= 0 && value <= 9007199254740991; }
+function seek_exact(fd, offset) { return fd.seek(offset, 0) && fd.tell() == offset; }
+
 function stream(fd, offset, remaining) {
-	fd.seek(offset, 0);
+	if (!seek_exact(fd, offset)) fail('500 Internal Server Error', 'cannot seek to requested offset');
 
 	while (remaining > 0) {
 		let want = (remaining < CHUNK) ? remaining : CHUNK;
@@ -268,6 +273,7 @@ function content_disposition(name, inline) {
 }
 
 function home_dir() {
+	if (agent_context) return getenv("HOME") || "/tmp";
 	let uci = cursor();
 	uci.load('harbor_file_pro');
 	let v = uci.get('harbor_file_pro', 'main', 'home_dir');
@@ -317,9 +323,9 @@ function do_patch(path, params) {
 		fail('400 Bad Request', 'not a regular file');
 
 	let offset = +(params.offset ?? -1);
-	let len = +(getenv('CONTENT_LENGTH') ?? 0);
+	let len = +(environment('CONTENT_LENGTH') ?? 0);
 
-	if (offset != offset || offset < 0 || offset > st.size)
+	if (!byte_integer(offset) || !byte_integer(len) || offset > st.size)
 		return json_reply('400 Bad Request', { code: 1, message: 'offset out of range' });
 
 	if (offset + len > st.size)
@@ -338,7 +344,7 @@ function do_patch(path, params) {
 	if (!fd)
 		return json_reply('403 Forbidden', { code: 1, message: 'cannot open for writing' });
 
-	fd.seek(offset, 0);
+	if (!seek_exact(fd, offset)) { fd.close(); return json_reply('500 Internal Server Error', { code: 1, message: 'cannot seek to requested offset' }); }
 
 	let written = 0;
 	let okay = pump_body(len, (buf) => {
@@ -359,6 +365,24 @@ function do_patch(path, params) {
 		data: { path, offset, written, size: st.size } });
 }
 
+function open_rewrite_file(path, mode) {
+	let random = open('/dev/urandom', 'r');
+	if (!random) return null;
+	let bytes = random.read(16); random.close();
+	if (length(bytes) != 16) return null;
+	let tmp = _fs.dirname(path) + '/.harbor-rewrite.' + hexenc(bytes);
+	let fd = open(tmp, 'wx', mode);
+	if (!fd) return null;
+	if (!_fs.chmod(tmp, mode)) { fd.close(); unlink(tmp); return null; }
+	return { path: tmp, fd };
+}
+
+function finish_rewrite(fd, path, size) {
+	fd.flush();
+	let closed = fd.close();
+	return closed && _fs.stat(path)?.size == size;
+}
+
 function do_splice(path, params) {
 	let st = stat(path);
 	if (!st || st.type != 'file')
@@ -366,9 +390,9 @@ function do_splice(path, params) {
 
 	let start = +(params.start ?? -1);
 	let end   = +(params.end ?? -1);
-	let len   = +(getenv('CONTENT_LENGTH') ?? 0);
+	let len   = +(environment('CONTENT_LENGTH') ?? 0);
 
-	if (start != start || end != end || start < 0 || end < start || end > st.size)
+	if (!byte_integer(start) || !byte_integer(end) || !byte_integer(len) || end < start || end > st.size)
 		return json_reply('400 Bad Request', { code: 1, message: 'range out of bounds' });
 
 	let expect = params.expected_size;
@@ -379,9 +403,10 @@ function do_splice(path, params) {
 			size: st.size
 		});
 
-	let tmp = path + '.harbor-splice';
+	let output = open_rewrite_file(path, st.mode & 0o7777);
+	let tmp = output?.path;
 	let src = open(path, 'r');
-	let dst = open(tmp, 'w', st.mode & 0o7777);
+	let dst = output?.fd;
 
 	if (!src || !dst) {
 		if (src) src.close();
@@ -390,30 +415,29 @@ function do_splice(path, params) {
 	}
 
 	let copied = 0, okay = true;
-	src.seek(0, 0);
+	if (!seek_exact(src, 0)) okay = false;
 	while (copied < start && okay) {
 		let want = ((start - copied) < CHUNK) ? (start - copied) : CHUNK;
 		let buf = src.read(want);
 		if (!length(buf)) { okay = false; break; }
-		if (dst.write(buf) == null) okay = false;
+		if (dst.write(buf) != length(buf)) okay = false;
 		copied += length(buf);
 	}
 
 	if (okay)
-		okay = pump_body(len, (buf) => dst.write(buf) != null);
+		okay = pump_body(len, (buf) => dst.write(buf) == length(buf));
 
 	if (okay) {
-		src.seek(end, 0);
-		while (true) {
+		if (!seek_exact(src, end)) okay = false;
+		while (okay) {
 			let buf = src.read(CHUNK);
 			if (!length(buf))
 				break;
-			if (dst.write(buf) == null) { okay = false; break; }
+			if (dst.write(buf) != length(buf)) { okay = false; break; }
 		}
 	}
 
-	dst.flush();
-	dst.close();
+	if (!finish_rewrite(dst, tmp, st.size - (end - start) + len)) okay = false;
 	src.close();
 
 	if (!okay) {
@@ -579,9 +603,10 @@ function decode_needle(q, encoding) {
 }
 
 function splice_string(path, st, start, end, repl) {
-	let tmp = path + '.harbor-replace';
+	let output = open_rewrite_file(path, st.mode & 0o7777);
+	let tmp = output?.path;
 	let src = open(path, 'r');
-	let dst = open(tmp, 'w', st.mode & 0o7777);
+	let dst = output?.fd;
 
 	if (!src || !dst) {
 		if (src) src.close();
@@ -595,11 +620,11 @@ function splice_string(path, st, start, end, repl) {
 		let want = ((start - copied) < CHUNK) ? (start - copied) : CHUNK;
 		let buf = src.read(want);
 		if (!length(buf)) { okay = false; break; }
-		if (dst.write(buf) == null) okay = false;
+		if (dst.write(buf) != length(buf)) okay = false;
 		copied += length(buf);
 	}
 
-	if (okay && length(repl) && dst.write(repl) == null)
+	if (okay && length(repl) && dst.write(repl) != length(repl))
 		okay = false;
 
 	if (okay) {
@@ -608,12 +633,11 @@ function splice_string(path, st, start, end, repl) {
 			let buf = src.read(CHUNK);
 			if (!length(buf))
 				break;
-			if (dst.write(buf) == null) { okay = false; break; }
+			if (dst.write(buf) != length(buf)) { okay = false; break; }
 		}
 	}
 
-	dst.flush();
-	dst.close();
+	if (!finish_rewrite(dst, tmp, st.size - (end - start) + length(repl))) okay = false;
 	src.close();
 
 	if (!okay) {
@@ -632,9 +656,10 @@ function splice_string(path, st, start, end, repl) {
 function rewrite_with_replacements(path, st, offsets, needle, repl, dst_path, lens) {
 	if (!ensure_runtime_dir()) return 'cannot create runtime directory';
 	let out_path = dst_path ?? path;
-	let tmp = out_path + '.harbor-replace';
+	let output = open_rewrite_file(out_path, st.mode & 0o7777);
+	let tmp = output?.path;
 	let src = open(path, 'r');
-	let dst = open(tmp, 'w', st.mode & 0o7777);
+	let dst = output?.fd;
 
 	if (!src || !dst) {
 		if (src) src.close();
@@ -654,7 +679,7 @@ function rewrite_with_replacements(path, st, offsets, needle, repl, dst_path, le
 			let want = ((at - src_at) < CHUNK) ? (at - src_at) : CHUNK;
 			let buf = src.read(want);
 			if (!length(buf)) { okay = false; break; }
-			if (dst.write(buf) == null) okay = false;
+			if (dst.write(buf) != length(buf)) okay = false;
 			else { src_at += length(buf); out_at += length(buf); }
 		}
 
@@ -663,7 +688,7 @@ function rewrite_with_replacements(path, st, offsets, needle, repl, dst_path, le
 
 		src.seek(at + nlen, 0);
 		src_at = at + nlen;
-		if (length(repl) && dst.write(repl) == null)
+		if (length(repl) && dst.write(repl) != length(repl))
 			okay = false;
 		else
 			out_at += length(repl);
@@ -675,12 +700,11 @@ function rewrite_with_replacements(path, st, offsets, needle, repl, dst_path, le
 		let buf = src.read(CHUNK);
 		if (!length(buf))
 			break;
-		if (dst.write(buf) == null) { okay = false; break; }
+		if (dst.write(buf) != length(buf)) { okay = false; break; }
 		out_at += length(buf);
 	}
 
-	dst.flush();
-	dst.close();
+	if (!finish_rewrite(dst, tmp, out_at)) okay = false;
 	src.close();
 
 	if (!okay) {
@@ -955,7 +979,7 @@ function do_search(path, params) {
 		return json_reply('400 Bad Request', { code: 1, message: 'pattern too long' });
 
 	let start = +(params.start ?? 0);
-	if (start != start || start < 0) start = 0;
+	if (!byte_integer(start)) return json_reply('400 Bad Request', { code: 1, message: 'invalid search offset' });
 
 	let limit = +(params.limit ?? 100);
 	if (limit != limit || limit < 1) limit = 100;
@@ -986,7 +1010,7 @@ function do_search(path, params) {
 		before = -1;
 	let window_mode = last_mode || before >= 0;
 
-	fd.seek(start, 0);
+	if (!seek_exact(fd, start)) { fd.close(); return json_reply('500 Internal Server Error', { code: 1, message: 'cannot seek to requested offset' }); }
 
 	let acc = {
 		total: 0, accepted: 0, capped: false, matches: [], mlens: [], window: [], wlens: [],
@@ -1110,27 +1134,12 @@ function do_sha256(path) {
 	}});
 }
 
-function main() {
-	let params = read_params();
-	let mode   = params.mode ?? 'download';
-	let path   = normalize_path(params.path);
-
-	if (!path)
-		fail('400 Bad Request', 'invalid path');
-
-	let writing = (mode == 'patch' || mode == 'splice' || mode == 'replace_all' || mode == 'stage_commit' || mode == 'stage_discard');
-
-	let sid = session_id(params);
-	let reason = authorize(sid, path, writing ? 'write' : 'read');
-
-	if (reason) {
-		warn(sprintf('[harbor-io-pro] 403 mode=%s path=%s sid=%s: %s\n',
-			mode, path, sid ? 'present' : 'missing', reason));
-		fail('403 Forbidden', 'permission denied: ' + reason);
-	}
-
-	if (writing && is_system_path(path) && !allow_system_operations())
-		fail('403 Forbidden', 'system folder access is disabled');
+function serve(params) {
+	let mode = params.mode ?? 'download';
+	let path = normalize_path(params.path);
+	if (!path) fail('400 Bad Request', 'invalid path');
+	let writing = index(['patch', 'splice', 'replace_all', 'stage_commit', 'stage_discard'], mode) >= 0;
+	if (writing && is_system_path(path) && !allow_system_operations()) fail('403 Forbidden', 'system folder access is disabled');
 
 	if (mode == 'thumbnail') {
 		let src = stat(path);
@@ -1178,8 +1187,7 @@ function main() {
 		let offset = +(params.offset ?? 0);
 		let len    = +(params.length ?? 4096);
 
-		if (offset != offset || offset < 0)  offset = 0;
-		if (len != len || len <= 0)          len = 4096;
+		if (!byte_integer(offset) || !byte_integer(len)) { fd.close(); fail('400 Bad Request', 'invalid byte range'); }
 		if (len > SLICE_MAX)                 len = SLICE_MAX;
 
 		if (offset > size)
@@ -1188,6 +1196,7 @@ function main() {
 		if (offset + len > size)
 			len = size - offset;
 
+		if (!seek_exact(fd, offset)) { fd.close(); fail('500 Internal Server Error', 'cannot seek to requested offset'); }
 		printf("Status: 200 OK\r\n");
 		header('Content-Type', 'application/octet-stream');
 		header('Content-Length', '' + len);
@@ -1208,7 +1217,7 @@ function main() {
 	let name   = params.filename ? basename(params.filename) : basename(path);
 	let ctype  = params.mimetype ?? (inline ? mime_for(path) : 'application/octet-stream');
 
-	let range = parse_range(getenv('HTTP_RANGE'), size);
+	let range = parse_range(environment('HTTP_RANGE'), size);
 
 	if (range == 'unsatisfiable') {
 		fd.close();
@@ -1237,7 +1246,7 @@ function main() {
 	header('X-Content-Type-Options', 'nosniff');
 	end_headers();
 
-	if (getenv('REQUEST_METHOD') != 'HEAD') {
+	if (environment('REQUEST_METHOD') != 'HEAD') {
 		if (range)
 			stream(fd, range.start, range.length);
 		else
@@ -1247,7 +1256,41 @@ function main() {
 	fd.close();
 }
 
-return {
-	main
-};
+function main() {
+	let params = read_params();
+	let mode = params.mode ?? 'download';
+	let path = normalize_path(params.path);
+	if (!path) fail('400 Bad Request', 'invalid path');
+	let writing = index(['patch', 'splice', 'replace_all', 'stage_commit', 'stage_discard', 'api_upload'], mode) >= 0;
+	if (writing && environment('REQUEST_METHOD') != 'POST') fail('405 Method Not Allowed', 'POST required');
+	let sid = session_id(params);
+	let reason = authorize(sid, path, writing ? 'write' : 'read');
+	if (reason) fail('403 Forbidden', 'permission denied: ' + reason);
+	if (params.device_id) {
+		let bus = connect(), allowed;
+		try { allowed = bus && bus.call('session', 'access', { ubus_rpc_session: sid, scope: 'ubus', object: 'harbor.file', function: writing ? 'write' : 'read' }); } catch (e) {}
+		if (allowed?.access !== true) fail('403 Forbidden', 'remote file access denied');
+		let env = {};
+		for (let key in ['REQUEST_METHOD', 'CONTENT_LENGTH', 'CONTENT_TYPE', 'HTTP_RANGE', 'QUERY_STRING']) env[key] = environment(key);
+		try {
+			return require('harborpro.remote').stream_remote(params, env, {
+				ensure_runtime_dir, normalize_path, headers_started: () => { headers_sent = true; },
+				read_preferences: () => ({ allow_system_operations: allow_system_operations() ? 1 : 0 }),
+				command_exists: function(name) { let p = _fs.popen('command -v ' + shell_quote(name) + ' >/dev/null 2>&1', 'r'); return p && p.close() == 0; }
+			});
+		}
+		catch (e) {
+			let message = '' + e;
+			try { message = json(message).message || message; } catch (ignored) {}
+			if (headers_sent) { warn(message); exit(1); }
+			fail('502 Bad Gateway', message);
+		}
+	}
+	return serve(params);
+}
+function agent(params, env, preferences) {
+	agent_context = { env, preferences };
+	return serve(params);
+}
 
+return { main, agent, agent_source: () => _fs.readfile(sourcepath()) };

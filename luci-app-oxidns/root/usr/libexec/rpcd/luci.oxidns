@@ -12,6 +12,11 @@ DEFAULT_WORKING_DIR="/var/lib/oxidns"
 DEFAULT_RULES_DIR="/etc/oxidns/rule"
 DEFAULT_SERVICE_NAME="oxidns"
 DEFAULT_CORE_REPOSITORY="svenshi/oxidns"
+# 内核的优先来源：自建的 OpenWrt 包仓库。它发布 SDK 交叉编译的 apk，包内是
+# /usr/bin/oxidns + /etc/oxidns/config.yaml（conffile）+ /usr/share/oxidns/webui，
+# 并且**刻意不提供** /etc/init.d/oxidns 与 /etc/config/oxidns（那两个由本应用提供），
+# 所以用 apk 装它不会与本应用撞路径。只有它给出了当前架构的资产才走这条路。
+OPENWRT_PKG_REPOSITORY="hahaher123/openwrt-oxidns"
 DEFAULT_CORE_BUNDLE="full"
 GITHUB_API_BASE="https://api.github.com"
 LEARN_RESET_SCRIPT="${OXIDNS_LEARN_RESET_SCRIPT:-/usr/libexec/oxidns/learn-reset.sh}"
@@ -2622,6 +2627,293 @@ core_install_error() {
 	return 1
 }
 
+# ── 内核来源：优先 openwrt-oxidns 的 apk ────────────────────────────────────
+#
+# 取源顺序（core_install / core_update 共同使用）：
+#   1) 查 OPENWRT_PKG_REPOSITORY 的 latest release；
+#   2) 有本机包架构的资产、且版本高于已装版本 → 下载 apk，用 apk add 安装；
+#   3) 架构不支持（或没有 apk 命令）→ 回落官方 svenshi/oxidns 的 musl archive；
+#   4) 架构支持但版本不高于已装版本 → 什么都不装，回 up_to_date。
+# core_reinstall（修复重装）不走这套：它的语义是"按当前版本从官方重装"。
+
+openwrt_pkg_arch() {
+	# /etc/apk/arch 是 apk 自己的判定，比 uname 映射更准：aarch64_cortex-a53
+	# 这种子架构不匹配 aarch64_generic 的资产，就该按"不支持"回落官方。
+	if [ -r /etc/apk/arch ]; then
+		PKG_ARCH_VALUE="$(head -n1 /etc/apk/arch 2>/dev/null | tr -d ' \r' || true)"
+		if [ -n "$PKG_ARCH_VALUE" ]; then
+			printf '%s' "$PKG_ARCH_VALUE"
+			return 0
+		fi
+	fi
+	case "$(uname -m 2>/dev/null)" in
+		x86_64 | amd64)
+			printf 'x86_64'
+			;;
+		aarch64 | arm64)
+			printf 'aarch64_generic'
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
+# 已装 oxidns 包的版本（如 1.6.1-r5）。裸二进制方式装的内核没有包记录，返回空。
+installed_pkg_version() {
+	if command -v apk >/dev/null 2>&1; then
+		# apk-tools 3: `apk list -I <name>` → "oxidns-1.6.1-r5 x86_64 {...} [installed]"
+		PKG_VER_VALUE="$(apk list -I oxidns 2>/dev/null | sed -n 's/^oxidns-\([0-9][^ ]*\).*/\1/p' | head -n1 || true)"
+		if [ -n "$PKG_VER_VALUE" ]; then
+			printf '%s' "$PKG_VER_VALUE"
+			return 0
+		fi
+		# apk-tools 2: `apk info -v <name>` → "oxidns-1.6.1-r5"
+		PKG_VER_VALUE="$(apk info -v oxidns 2>/dev/null | sed -n 's/^oxidns-\([0-9][^ ]*\)$/\1/p' | head -n1 || true)"
+		[ -n "$PKG_VER_VALUE" ] && printf '%s' "$PKG_VER_VALUE"
+		return 0
+	fi
+	if command -v opkg >/dev/null 2>&1; then
+		opkg status oxidns 2>/dev/null | sed -n 's/^Version:[[:space:]]*//p' | head -n1 || true
+	fi
+}
+
+# 当前内核版本：包记录优先（带 -rN，比 build-info 精确），没有包再看 build-info。
+installed_core_version() {
+	PKG_VER_VALUE="$(installed_pkg_version || true)"
+	if [ -n "$PKG_VER_VALUE" ]; then
+		printf '%s' "$PKG_VER_VALUE"
+		return 0
+	fi
+	json_value_from_string version "$(build_info_json)"
+}
+
+# version_gt <a> <b>：a 严格大于 b 时返回 0。
+# 认 "X.Y.Z" 与 "X.Y.Z-rN" 两种写法，缺 -rN 视为 r0（所以 1.6.1-r5 > 1.6.1）。
+version_gt() {
+	GT_A="$1"
+	GT_B="$2"
+	GT_AREV=0
+	GT_BREV=0
+	case "$GT_A" in
+		*-r*) GT_AREV="${GT_A##*-r}"; GT_A="${GT_A%-r*}" ;;
+	esac
+	case "$GT_B" in
+		*-r*) GT_BREV="${GT_B##*-r}"; GT_B="${GT_B%-r*}" ;;
+	esac
+	case "$GT_AREV" in '' | *[!0-9]*) GT_AREV=0 ;; esac
+	case "$GT_BREV" in '' | *[!0-9]*) GT_BREV=0 ;; esac
+	GT_CMP="$(awk -v a="$GT_A" -v b="$GT_B" 'BEGIN {
+		na = split(a, x, "."); nb = split(b, y, ".");
+		n = (na > nb) ? na : nb;
+		for (i = 1; i <= n; i++) {
+			xa = (i <= na) ? x[i] + 0 : 0;
+			yb = (i <= nb) ? y[i] + 0 : 0;
+			if (xa > yb) { print 1; exit }
+			if (xa < yb) { print -1; exit }
+		}
+		print 0;
+	}')"
+	if [ "$GT_CMP" -gt 0 ]; then
+		return 0
+	fi
+	if [ "$GT_CMP" -lt 0 ]; then
+		return 1
+	fi
+	[ "$GT_AREV" -gt "$GT_BREV" ]
+}
+
+OPENWRT_TAG=""
+OPENWRT_VERSION=""
+OPENWRT_ASSET=""
+OPENWRT_URL=""
+OPENWRT_SHA256=""
+OPENWRT_SIZE=""
+
+# 查询 openwrt-oxidns 的 latest release 并选好本机架构的资产。
+# 返回 0 = 可用（OPENWRT_* 已填好）；1 = 本机不受支持或查询失败。
+resolve_openwrt_pkg() {
+	OPENWRT_TAG=""
+	OPENWRT_VERSION=""
+	OPENWRT_ASSET=""
+	OPENWRT_URL=""
+	OPENWRT_SHA256=""
+	OPENWRT_SIZE=""
+
+	# openwrt-oxidns 只发布 apk，opkg 系统（24.10 及更早）没有 apk 命令。
+	if ! command -v apk >/dev/null 2>&1; then
+		core_progress_log "info" "apk not available on this system: falling back to the official archive"
+		return 1
+	fi
+
+	OPENWRT_ARCH="$(openwrt_pkg_arch || true)"
+	if [ -z "$OPENWRT_ARCH" ]; then
+		core_progress_log "info" "openwrt-oxidns does not build for arch $(uname -m 2>/dev/null): falling back to the official archive"
+		return 1
+	fi
+
+	RESOLVE_TMP="$(mktemp -d "$TMP_ROOT/oxidns-openwrt-resolve.XXXXXX")" || return 1
+	RESOLVE_FILE="$RESOLVE_TMP/release.json"
+	RESOLVE_URL="$(release_api_url "$OPENWRT_PKG_REPOSITORY" latest)"
+	core_progress_log "info" "query openwrt-oxidns: arch=$OPENWRT_ARCH url=$RESOLVE_URL"
+	if ! download_file "$RESOLVE_URL" "$RESOLVE_FILE"; then
+		rm -rf "$RESOLVE_TMP"
+		core_progress_log "info" "openwrt-oxidns release metadata unavailable: falling back to the official archive"
+		return 1
+	fi
+
+	OPENWRT_TAG="$(json_value_from_string tag_name "$(cat "$RESOLVE_FILE" 2>/dev/null || true)")"
+	if [ -z "$OPENWRT_TAG" ]; then
+		rm -rf "$RESOLVE_TMP"
+		core_progress_log "info" "openwrt-oxidns latest release has no tag: falling back to the official archive"
+		return 1
+	fi
+	OPENWRT_VERSION="${OPENWRT_TAG#v}"
+	OPENWRT_ASSET="oxidns-${OPENWRT_VERSION}_${OPENWRT_ARCH}.apk"
+
+	set +e
+	select_release_asset "$RESOLVE_FILE" "$OPENWRT_ASSET"
+	RESOLVE_RC="$?"
+	set -e
+	rm -rf "$RESOLVE_TMP"
+
+	if [ "$RESOLVE_RC" -ne 0 ]; then
+		core_progress_log "info" "openwrt-oxidns $OPENWRT_TAG has no asset $OPENWRT_ASSET: falling back to the official archive"
+		OPENWRT_TAG=""
+		OPENWRT_VERSION=""
+		OPENWRT_ASSET=""
+		return 1
+	fi
+	OPENWRT_URL="$SELECT_URL"
+	OPENWRT_SHA256="$SELECT_SHA256"
+	OPENWRT_SIZE="$SELECT_SIZE"
+	core_progress_log "success" "openwrt-oxidns latest=$OPENWRT_VERSION asset=$OPENWRT_ASSET"
+
+	if ! valid_sha256 "$OPENWRT_SHA256"; then
+		core_progress_log "info" "openwrt-oxidns asset has no valid SHA256 digest: falling back to the official archive"
+		OPENWRT_TAG=""
+		OPENWRT_VERSION=""
+		OPENWRT_ASSET=""
+		return 1
+	fi
+	return 0
+}
+
+# 官方仓库 latest 的版本号（如 1.6.1）。用于回落前比较，避免把 1.6.1-r5 降级成 1.6.1。
+official_latest_version() {
+	OFFICIAL_TMP="$(mktemp -d "$TMP_ROOT/oxidns-official-resolve.XXXXXX")" || return 1
+	OFFICIAL_FILE="$OFFICIAL_TMP/release.json"
+	if ! download_file "$(release_api_url "$CORE_REPOSITORY" latest)" "$OFFICIAL_FILE"; then
+		rm -rf "$OFFICIAL_TMP"
+		return 1
+	fi
+	OFFICIAL_TAG="$(json_value_from_string tag_name "$(cat "$OFFICIAL_FILE" 2>/dev/null || true)")"
+	rm -rf "$OFFICIAL_TMP"
+	[ -n "$OFFICIAL_TAG" ] || return 1
+	printf '%s' "${OFFICIAL_TAG#v}"
+}
+
+# 从 openwrt-oxidns 的 apk 安装内核。调用前 resolve_openwrt_pkg 必须已成功。
+install_core_from_openwrt_pkg() {
+	ACTION="$1"
+	require_download_transport || return 1
+
+	CORE_TMP_DIR="$(mktemp -d "$TMP_ROOT/oxidns-core.XXXXXX")"
+	APK_FILE="$CORE_TMP_DIR/$OPENWRT_ASSET"
+	core_progress_log "info" "source=openwrt-oxidns release=$OPENWRT_TAG asset=$OPENWRT_ASSET"
+
+	core_progress_log "info" "download package: $OPENWRT_URL"
+	if ! download_file "$OPENWRT_URL" "$APK_FILE"; then
+		core_install_error "core_download_failed" "failed to download the openwrt-oxidns package" "download_archive" "asset=$OPENWRT_ASSET url=$OPENWRT_URL; ${DOWNLOAD_ERROR:-unknown download error}"
+		return 1
+	fi
+
+	core_progress_command "sha256sum $APK_FILE"
+	ACTUAL_SHA256="$(sha256_file "$APK_FILE" || true)"
+	if [ -z "$ACTUAL_SHA256" ] || [ "$ACTUAL_SHA256" != "$OPENWRT_SHA256" ]; then
+		core_install_error "core_checksum_failed" "openwrt-oxidns package SHA256 does not match the release digest" "verify_checksum" "asset=$OPENWRT_ASSET expected=$OPENWRT_SHA256 actual=${ACTUAL_SHA256:-missing}"
+		return 1
+	fi
+	core_progress_log "success" "checksum verified: $ACTUAL_SHA256"
+
+	SERVICE_RESTART="not_requested"
+	SERVICE_WAS_RUNNING=0
+	if service_running; then SERVICE_WAS_RUNNING=1; fi
+	INIT="$(init_script)"
+	if [ "$SERVICE_WAS_RUNNING" = "1" ] && [ -x "$INIT" ]; then
+		core_progress_command "$INIT stop"
+		"$INIT" stop >/dev/null 2>&1 || true
+	fi
+
+	APK_OUT="$(mktemp "$TMP_ROOT/oxidns-apk.XXXXXX")"
+	core_progress_command "apk add --allow-untrusted --force-overwrite $OPENWRT_ASSET"
+	if ! apk add --allow-untrusted --force-overwrite "$APK_FILE" >"$APK_OUT" 2>&1; then
+		APK_DETAIL="$(read_error_detail_file "$APK_OUT" 2>/dev/null || true)"
+		rm -f "$APK_OUT"
+		# 安装失败要把服务拉回去，别让它停在停止状态
+		if [ "$SERVICE_WAS_RUNNING" = "1" ] && [ -x "$INIT" ]; then
+			"$INIT" start >/dev/null 2>&1 || true
+		fi
+		core_install_error "core_pkg_install_failed" "failed to install the openwrt-oxidns package" "install_package" "${APK_DETAIL:-apk add failed}"
+		return 1
+	fi
+	rm -f "$APK_OUT"
+	core_progress_log "success" "package installed: $OPENWRT_ASSET"
+
+	# 包里的 conffile 机制会保留用户改过的 config.yaml，这里只做核对，不改写。
+	CONFIG_CHECK_OK=0
+	CONFIG_CHECK_OUTPUT=""
+	if [ -e "$CONFIG_PATH" ]; then
+		core_progress_command "$OXIDNS_BIN check -c $CONFIG_PATH -d $WORKING_DIR"
+		if CONFIG_CHECK_OUTPUT="$(validate_config_file "$CONFIG_PATH" 2>&1)"; then
+			CONFIG_CHECK_OK=1
+			core_progress_log "success" "$CONFIG_CHECK_OUTPUT"
+		else
+			CONFIG_CHECK_OUTPUT="${CONFIG_CHECK_OUTPUT:-configuration check failed}"
+			core_progress_log "error" "$CONFIG_CHECK_OUTPUT"
+		fi
+	fi
+
+	if [ "$SERVICE_WAS_RUNNING" = "1" ] && [ -x "$INIT" ]; then
+		SERVICE_OUT="$(mktemp "$TMP_ROOT/oxidns-service.XXXXXX")"
+		core_progress_command "$INIT start"
+		if "$INIT" start >"$SERVICE_OUT" 2>&1; then
+			SERVICE_RESTART="requested"
+			core_progress_log "success" "service restarted"
+		else
+			MSG="$(read_error_detail_file "$SERVICE_OUT" 2>/dev/null || true)"
+			rm -f "$SERVICE_OUT"
+			core_install_error "service_restart_failed" "core installed, but service restart failed" "restart_service" "${MSG:-service restart failed}"
+			return 1
+		fi
+		rm -f "$SERVICE_OUT"
+	fi
+
+	rm -rf "$CORE_TMP_DIR"
+	core_progress_log "success" "core $ACTION completed: version=$OPENWRT_VERSION source=openwrt-oxidns"
+	printf '{"ok":true,"action":'
+	json_string "$ACTION"
+	printf ',"version":'
+	json_string "$OPENWRT_VERSION"
+	printf ',"source":'
+	json_string "openwrt-oxidns"
+	printf ',"release":'
+	json_string "$OPENWRT_TAG"
+	printf ',"asset":'
+	json_string "$OPENWRT_ASSET"
+	printf ',"binary_path":'
+	json_string "$OXIDNS_BIN"
+	printf ',"webui_path":'
+	json_string "$WEBUI_DIR"
+	printf ',"service_restart":'
+	json_string "$SERVICE_RESTART"
+	printf ',"config_check":{"ok":'
+	json_bool "$CONFIG_CHECK_OK"
+	printf ',"message":'
+	json_string "$CONFIG_CHECK_OUTPUT"
+	printf '}}\n'
+}
+
 install_core_from_release() {
 	ACTION="$1"
 	RELEASE_TARGET="$2"
@@ -2822,11 +3114,85 @@ emit_core_install_locked() {
 		json_error "core_already_installed" "OxiDNS core is already installed; use repair reinstall instead"
 		return 1
 	fi
+	# 首次安装优先用 openwrt-oxidns 的包；本机架构不在它的构建矩阵里才回落官方。
+	if resolve_openwrt_pkg; then
+		install_core_from_openwrt_pkg install || return 1
+		return 0
+	fi
 	install_core_from_release install latest "$CORE_BUNDLE"
 }
 
 emit_core_install() {
 	run_with_core_lock emit_core_install_locked
+}
+
+emit_core_update_locked() {
+	load_settings
+	core_progress_reset "update OxiDNS core"
+	CURRENT_VERSION="$(installed_core_version)"
+	if [ -z "$CURRENT_VERSION" ]; then
+		core_progress_log "error" "core is not installed or cannot report its version"
+		json_error "core_not_installed" "OxiDNS core is not installed or cannot report its version"
+		return 1
+	fi
+	core_progress_log "info" "current_version=$CURRENT_VERSION"
+
+	# 两个来源各查一次 latest：
+	#   openwrt-oxidns 的 apk（受架构限制）与官方 archive（任何 musl 架构）。
+	# 都比当前版本，取更高的那个装 —— 只看 openwrt 会在它落后于官方时漏更新，
+	# 只看官方则会把 1.6.1-r5 降级成 1.6.1。
+	OPENWRT_OK=0
+	if resolve_openwrt_pkg; then
+		OPENWRT_OK=1
+	fi
+	OFFICIAL_VERSION="$(official_latest_version || true)"
+	core_progress_log "info" "candidates: openwrt-oxidns=${OPENWRT_VERSION:-none} official=${OFFICIAL_VERSION:-none}"
+
+	USE_OPENWRT=0
+	BEST_VERSION=""
+	if [ "$OPENWRT_OK" = "1" ]; then
+		USE_OPENWRT=1
+		BEST_VERSION="$OPENWRT_VERSION"
+	fi
+	if [ -n "$OFFICIAL_VERSION" ]; then
+		if [ -z "$BEST_VERSION" ] || version_gt "$OFFICIAL_VERSION" "$BEST_VERSION"; then
+			USE_OPENWRT=0
+			BEST_VERSION="$OFFICIAL_VERSION"
+		fi
+	fi
+
+	if [ -z "$BEST_VERSION" ]; then
+		# 两个来源都查不到（网络受限）：保留旧行为，交给官方下载路径报错。
+		core_progress_log "info" "no release metadata available, trying the official archive"
+		install_core_from_release update latest "$CORE_BUNDLE" || return 1
+		return 0
+	fi
+
+	if ! version_gt "$BEST_VERSION" "$CURRENT_VERSION"; then
+		core_progress_log "success" "already up to date: installed=$CURRENT_VERSION latest=$BEST_VERSION"
+		printf '{"ok":true,"action":"update","up_to_date":true,"source":'
+		if [ "$USE_OPENWRT" = "1" ]; then json_string "openwrt-oxidns"; else json_string "official"; fi
+		printf ',"version":'
+		json_string "$CURRENT_VERSION"
+		printf ',"latest":'
+		json_string "$BEST_VERSION"
+		printf '}\n'
+		return 0
+	fi
+
+	if [ "$USE_OPENWRT" = "1" ]; then
+		core_progress_log "info" "update $CURRENT_VERSION -> $BEST_VERSION (openwrt-oxidns apk)"
+		install_core_from_openwrt_pkg update || return 1
+		return 0
+	fi
+
+	core_progress_log "info" "update $CURRENT_VERSION -> $BEST_VERSION (official archive)"
+	install_core_from_release update latest "$CORE_BUNDLE" || return 1
+	return 0
+}
+
+emit_core_update() {
+	run_with_core_lock emit_core_update_locked
 }
 
 emit_core_reinstall_locked() {
@@ -3424,6 +3790,7 @@ case "${1:-}" in
 		printf '{'
 		printf '"status":{},'
 		printf '"core_install":{},'
+		printf '"core_update":{},'
 		printf '"core_reinstall":{},'
 		printf '"core_upload_install":{"path":"string"},'
 		printf '"core_progress":{},'
@@ -3462,6 +3829,9 @@ case "${1:-}" in
 				;;
 			core_install)
 				emit_core_install
+				;;
+			core_update)
+				emit_core_update
 				;;
 			core_reinstall)
 				emit_core_reinstall

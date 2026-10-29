@@ -20,6 +20,9 @@ msgstr ""
 
 msgid "API username"
 msgstr ""
+msgid "Already up to date (%s)."
+msgstr ""
+
 msgid "Apply"
 msgstr ""
 msgid "Applying DNS hijack..."
@@ -92,6 +95,9 @@ msgid "Core bundle"
 msgstr ""
 
 msgid "Core operation completed."
+msgstr ""
+
+msgid "Core updated to %s."
 msgstr ""
 
 msgid "Core operation failed"
@@ -199,7 +205,7 @@ msgstr ""
 msgid "Install core files"
 msgstr ""
 
-msgid "Install or repair the OxiDNS core binary. Runtime upgrades are handled by OxiDNS itself."
+msgid "Install, update or repair the OxiDNS core binary. Updates prefer the openwrt-oxidns package when it has a build for this device."
 msgstr ""
 
 msgid "Install the OxiDNS core before editing the configuration."
@@ -250,7 +256,7 @@ msgstr ""
 msgid "LuCI backend"
 msgstr ""
 
-msgid "LuCI can download the official OxiDNS release archive or install an uploaded .tar.gz archive or single oxidns binary. Future upgrades are handled by the OxiDNS core."
+msgid "Update checks the openwrt-oxidns package first and falls back to the official OxiDNS release archive for architectures it does not build. Upload accepts a .tar.gz archive or a single oxidns binary."
 msgstr ""
 
 msgid "Manage the OxiDNS runtime, service, configuration, and logs from LuCI."
@@ -542,6 +548,12 @@ msgid "Unable to query OxiDNS status"
 msgstr ""
 
 msgid "Unavailable"
+msgstr ""
+
+msgid "Update Core"
+msgstr ""
+
+msgid "Updating OxiDNS core..."
 msgstr ""
 
 msgid "Unpack core archive"

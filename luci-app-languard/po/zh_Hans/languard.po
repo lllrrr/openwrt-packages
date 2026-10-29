@@ -806,3 +806,132 @@ msgstr "已启用"
 
 msgid "Domains are answered with 0.0.0.0 and :: by dnsmasq, so the whole LAN is covered without touching the firewall. Feed entries that are hostnames land here instead of the address list."
 msgstr "域名由 dnsmasq 应答为 0.0.0.0 与 ::，整个局域网立即生效，不需要动防火墙。订阅里的主机名会进到这里而不是地址列表。"
+
+msgid "Fix now"
+msgstr "立即修复"
+
+msgid "Sync to kernel"
+msgstr "同步到内核"
+
+msgid "Kernel set rebuilt from saved state"
+msgstr "已按保存的状态重建内核集合"
+
+msgid "IP conflict"
+msgstr "IP 冲突"
+
+msgid "this address is also claimed by"
+msgstr "该地址同时被以下 MAC 占用"
+
+msgid "Current mode"
+msgstr "当前模式"
+
+msgid "normal"
+msgstr "正常"
+
+msgid "blocking new devices only"
+msgstr "仅封禁新设备"
+
+msgid "since"
+msgstr "自"
+
+msgid "Back to normal"
+msgstr "恢复正常"
+
+msgid "Merge into"
+msgstr "合并到"
+
+msgid "merged interface(s)"
+msgstr "个已合并接口"
+
+msgid "Undo merge"
+msgstr "取消合并"
+
+msgid "this interface belongs to another device"
+msgstr "该网卡属于另一台设备"
+
+msgid "Apps"
+msgstr "应用"
+
+msgid "Traffic by app"
+msgstr "应用流量"
+
+msgid "App"
+msgstr "应用"
+
+msgid "Class"
+msgstr "分类"
+
+msgid "Rules"
+msgstr "规则数"
+
+msgid "Traffic"
+msgstr "流量"
+
+msgid "By device"
+msgstr "按设备"
+
+msgid "Signature library"
+msgstr "特征库"
+
+msgid "Reset counters"
+msgstr "清空统计"
+
+msgid "No traffic attributed yet"
+msgstr "还没有识别到流量"
+
+msgid "Traffic attributed to applications. Proxied flows are named by the hostname Clash reports; everything else is matched from the router flow table by port or address range."
+msgstr "按应用统计的流量。走代理的流由 Clash 上报的主机名识别；其余按端口或地址段从路由器的流表匹配。"
+
+msgid "Paste a feature library (OAF format v3.0) to import it. Entries are matched by hostname, address range or a distinctive port; signatures that only name port 80/443 are skipped because they would claim the whole web."
+msgstr "粘贴特征库（OAF 格式 v3.0）即可导入。条目按主机名、地址段或具有辨识度的端口匹配；只写 80/443 端口的签名会被跳过，否则会把整个网页流量都算到一个应用上。"
+
+msgid "Reset the traffic counters?"
+msgstr "清空流量统计？"
+
+msgid "total"
+msgstr "共"
+
+msgid "port match"
+msgstr "端口匹配"
+
+msgid "Devices using"
+msgstr "使用该应用的设备"
+
+msgid "Show all"
+msgstr "显示全部"
+
+msgid "part of this was matched by port only, without checking the packet"
+msgstr "其中一部分仅按端口匹配，未校验数据包内容"
+
+msgid "Rate rules"
+msgstr "限速规则"
+
+msgid "All devices"
+msgstr "全部设备"
+
+msgid "All apps"
+msgstr "全部应用"
+
+msgid "No rate rules yet"
+msgstr "还没有限速规则"
+
+msgid "Pick a device, an app, or both"
+msgstr "请选择设备或应用（至少一项）"
+
+msgid "lowest (cs1)"
+msgstr "最低 (cs1)"
+
+msgid "low (af11)"
+msgstr "低 (af11)"
+
+msgid "normal (cs0)"
+msgstr "普通 (cs0)"
+
+msgid "high (cs4)"
+msgstr "高 (cs4)"
+
+msgid "highest (ef)"
+msgstr "最高 (ef)"
+
+msgid "Sets a DSCP class on matching traffic; qosmate turns that into an hfsc class. Leave the device empty to cover every device."
+msgstr "给匹配的流量打 DSCP 标记，qosmate 会把它映射成 hfsc 队列。设备留空表示对所有设备生效。"

@@ -353,7 +353,7 @@
             error.textContent = HF.labels.request_failed;
             error.style.display = 'block';
         };
-        image.src = HarborIO.inlineURL(item.path) + '&v=' + encodeURIComponent(item.mtime || 0);
+        image.src = HF.file_io(item).inlineURL(item.path) + '&v=' + encodeURIComponent(item.mtime || 0);
         return record;
     }
 
@@ -391,7 +391,7 @@
         frame.onerror = function() {
             error.style.display = 'block';
         };
-        frame.src = HarborIO.inlineURL(item.path, 'application/pdf') + '&v=' + encodeURIComponent(item.mtime || 0);
+        frame.src = HF.file_io(item).inlineURL(item.path, 'application/pdf') + '&v=' + encodeURIComponent(item.mtime || 0);
         return record;
     }
 
@@ -460,7 +460,7 @@
             if (record.closed) {
                 return;
             }
-            video.src = HarborIO.inlineURL(item.path) + '&v=' +
+            video.src = HF.file_io(item).inlineURL(item.path) + '&v=' +
                 encodeURIComponent(item.mtime || 0);
             video.load();
         }
@@ -498,7 +498,7 @@
     }
 
     HF.wm_hex_offset = function wm_hex_offset(value) {
-        return '0x' + ('00000000' + Math.max(0, Number(value || 0)).toString(16).toUpperCase()).slice(-8);
+        return '0x' + Math.max(0, Number(value || 0)).toString(16).toUpperCase().padStart(8, '0');
     }
 
     HF.wm_escape_regex = function wm_escape_regex(value) {
@@ -606,7 +606,7 @@
     }
 
     HF.wm_read_editor_file = function wm_read_editor_file(item) {
-        return HarborIO.readAll(item.path).then(function(buffer) {
+        return HF.file_io(item).readAll(item.path).then(function(buffer) {
             return {
                 bytes: new Uint8Array(buffer),
                 size: buffer.byteLength,
@@ -620,7 +620,8 @@
             var xhr = new XMLHttpRequest();
             var form = new FormData();
             form.append('content', blob, item.name || 'content.bin');
-            xhr.open('POST', HF.api.save_editor_upload + '?path=' + encodeURIComponent(item.path) + (text_mode ? '&text=1' : ''), true);
+            xhr.open('POST', item.device_id ? HF.file_io(item).requestURL('api_upload', item.path, { rpc_action: 'save_editor_upload', text: text_mode ? '1' : '0' }) : HF.api.save_editor_upload + '?path=' + encodeURIComponent(item.path) + (text_mode ? '&text=1' : ''), true);
+            if (item.device_id) xhr.setRequestHeader('Content-Type', 'application/octet-stream');
             xhr.upload.onprogress = function(event) {
                 if (event.lengthComputable && progress) {
                     progress(event.loaded, event.total);
@@ -636,7 +637,7 @@
                 }
             };
             xhr.onerror = function() { reject(HF.labels.save_failed); };
-            xhr.send(form);
+            xhr.send(item.device_id ? blob : form);
         });
     }
 
@@ -756,10 +757,8 @@
             if (!val) {
                 return -1;
             }
-            var n = (/^0x/i).test(val) ? parseInt(val, 16)
-                : (/^[0-9a-fA-F]+$/).test(val) ? parseInt(val, 16)
-                : parseInt(val, 10);
-            return n === n && n >= 0 ? n : -1;
+            var n = /^(?:0x)?[0-9a-f]+$/i.test(val) ? parseInt(val, 16) : NaN;
+            return Number.isSafeInteger(n) && n >= 0 ? n : -1;
         }
         if (options.offsetJump) {
             var jump_label = HF.Util.createElement('label', 'fm-editor-search-option');
@@ -1339,7 +1338,7 @@
                 session.saving = false;
                 session.original = session.text;
                 session.dirty = false;
-                HF.Recovery.clearBuffer(item.path);
+                HF.Recovery.clearBuffer(HF.file_key(item));
                 history_buttons.refresh(history.canUndo(), history.canRedo());
                 progress.hide();
                 item.size = Number(data.size || bytes.length);
@@ -1385,7 +1384,7 @@
                 if (gutter_raf) cancelAnimationFrame(gutter_raf);
                 if (gutter_mirror) gutter_mirror.remove();
                 editor._fmScrollAnimation = (editor._fmScrollAnimation || 0) + 1;
-                HF.Recovery.clearBuffer(item.path); window.removeEventListener('resize', on_window_resize); document.removeEventListener('selectionchange', update_cursor); }
+                HF.Recovery.clearBuffer(HF.file_key(item)); window.removeEventListener('resize', on_window_resize); document.removeEventListener('selectionchange', update_cursor); }
         });
         var footer = HF.wm_create_memory_footer({
             size: function() { return HF.wm_encode_utf8(session.text).length; },
@@ -1437,14 +1436,14 @@
 
         function recovery_save() {
             if (session.dirty) {
-                HF.Recovery.saveBuffer('text', item.path, {
+                HF.Recovery.saveBuffer('text', HF.file_key(item), {
                     text: session.text,
                     cursor: selection_offset(),
                     scrollTop: editor.scrollTop,
                     scrollLeft: editor.scrollLeft
                 });
             } else {
-                HF.Recovery.clearBuffer(item.path);
+                HF.Recovery.clearBuffer(HF.file_key(item));
             }
         }
 
@@ -1707,9 +1706,9 @@
             }).catch(function(error) { tip_text(error || HF.labels.request_failed, 'error'); });
         }
 
-        if (HF.Recovery.hasBuffer(item.path) === 'text') {
+        if (HF.Recovery.hasBuffer(HF.file_key(item)) === 'text') {
             HF.wm_create_recover_banner(content, function() {
-                var rec = HF.Recovery.getBuffer(item.path);
+                var rec = HF.Recovery.getBuffer(HF.file_key(item));
                 var recovered = rec && rec.payload && typeof rec.payload.text === 'string' ? rec.payload.text : '';
                 HF.wm_read_editor_file(item).then(function(data) {
                     var raw = HF.wm_decode_utf8(data.bytes, true);
@@ -1749,7 +1748,7 @@
                     tip_text('');
                 });
             }, function() {
-                HF.Recovery.clearBuffer(item.path);
+                HF.Recovery.clearBuffer(HF.file_key(item));
                 start_load();
             });
         } else {
@@ -1759,7 +1758,7 @@
     }
 
     HF.wm_open_memory_hex_window = function wm_open_memory_hex_window(item) {
-        var session = { item: item, source: new HarborByteSource(item.path, Math.max(0, Number(item.size || 0))), stage: null, dirty: false, readonly: !HF.can_modify_system_path(item.path), saving: false, matches: [], current: -1, query: '', caseSensitive: false, selected: -1, nibble: false, pane: 'hex', rowHeight: 26, renderTimer: null };
+        var session = { item: item, source: new HarborByteSource(item.path, Math.max(0, Number(item.size || 0)), HF.file_io(item)), stage: null, dirty: false, readonly: !HF.can_modify_system_path(item.path), saving: false, matches: [], current: -1, query: '', caseSensitive: false, selected: -1, nibble: false, pane: 'hex', rowHeight: 26, renderTimer: null };
         function total() { return session.source.total; }
         function current_src() { return session.stage ?? item.path; }
         function stage_of() { return item.path + '.harbor-stage'; }
@@ -1778,6 +1777,26 @@
             HF.set_warning_status(HF.labels.system_folder_blocked);
         }
         var scroll = HF.Util.createElement('div', 'fm-memory-hex-scroll');
+        scroll.style.overflowAnchor = 'none';
+        var viewRow = 0, viewTop = 0, viewHeight = 0, wheelRest = 0;
+        function viewGeometry() {
+            var rows = Math.ceil(total() / 16), count = Math.max(1, Math.floor((scroll.clientHeight - 28) / session.rowHeight));
+            return { rows: rows, count: count, last: Math.max(0, rows - count), scaled: rows * session.rowHeight + 68 > 1000000, range: Math.max(1, 1000000 - scroll.clientHeight) };
+        }
+        function syncView(g) {
+            if (g.scaled && viewHeight === scroll.clientHeight && Math.abs(scroll.scrollTop - viewTop) > 0.5) {
+                viewTop = scroll.scrollTop;
+                viewRow = Math.max(0, Math.min(g.last, Math.round(viewTop / g.range * g.last)));
+            }
+        }
+        function setViewRow(row) {
+            var g = viewGeometry();
+            viewRow = Math.max(0, Math.min(g.last, Math.floor(row)));
+            viewTop = g.scaled ? Math.floor(viewRow / Math.max(1, g.last) * g.range) : viewRow * session.rowHeight;
+            paint(true);
+            scroll.scrollTop = viewTop;
+            viewTop = scroll.scrollTop;
+        }
         var table = document.createElement('table');
         table.className = 'fm-memory-hex-table';
         var colgroup = document.createElement('colgroup');
@@ -1822,7 +1841,7 @@
             ime_input.focus();
         }
         ime_input.addEventListener('input', function() {
-            if (session.readonly) { ime_prepare(); return; }
+            if (session.readonly || session.saving || pages_missing(session.selected, 1)) { ime_prepare(); return; }
             var value = ime_input.value;
             var offset = session.selected;
             if (offset < 0 || offset >= total()) { ime_prepare(); return; }
@@ -1885,14 +1904,14 @@
             recovery_timer = setTimeout(function () {
                 recovery_timer = null;
                 if (session.dirty && total() > 0 && total() <= 4 * 1024 * 1024) {
-                    HF.Recovery.saveBuffer('hex', item.path, {
+                    HF.Recovery.saveBuffer('hex', HF.file_key(item), {
                         bytes: HF.Recovery.bytesToBase64(session.source.get(0, total())),
                         selected: session.selected,
                         scrollTop: scroll.scrollTop,
                         scrollLeft: scroll.scrollLeft
                     });
                 } else if (!session.dirty) {
-                    HF.Recovery.clearBuffer(item.path);
+                    HF.Recovery.clearBuffer(HF.file_key(item));
                 }
             }, 600);
         }
@@ -1901,6 +1920,7 @@
             return {
                 overlay: new Map(session.source.overlay),
                 selected: session.selected,
+                viewRow: viewRow,
                 scrollTop: scroll.scrollTop,
                 scrollLeft: scroll.scrollLeft
             };
@@ -1912,8 +1932,8 @@
                 session.nibble = false;
             }
             refresh_dirty();
-            paint();
-            scroll.scrollTop = Number(state.scrollTop) || 0;
+            if (viewGeometry().scaled) setViewRow(Number(state.viewRow) || 0);
+            else { paint(); scroll.scrollTop = Number(state.scrollTop) || 0; }
             scroll.scrollLeft = Number(state.scrollLeft) || 0;
             refresh();
             history_buttons.refresh(history.canUndo(), history.canRedo());
@@ -1951,19 +1971,25 @@
             }
         }
         function ascii_char(offset) {
+            if (pages_missing(offset, 1)) return '·';
             var code = bget(offset);
             return code >= 32 && code <= 126 ? String.fromCharCode(code) : '·';
         }
         function hex_char(offset) {
+            if (pages_missing(offset, 1)) return '··';
             return ('0' + bget(offset).toString(16)).slice(-2).toUpperCase();
         }
         function focus_cell(index) {
             var cls = session.pane === 'ascii' ? '.fm-memory-ascii-cell' : '.fm-memory-hex-cell';
             var cell = scroll.querySelector(cls + '[data-offset="' + index + '"]');
-            if (cell) { cell.focus(); }
+            if (cell) { cell.focus({ preventScroll: true }); }
         }
         function reveal_offset(index) {
-            var row = Math.floor(index / 16);
+            var row = Math.floor(index / 16), g = viewGeometry();
+            if (g.scaled) {
+                if (row < viewRow || row >= viewRow + g.count) setViewRow(row - Math.floor(g.count / 2));
+                return;
+            }
             var top = 28 + row * session.rowHeight;
             var bottom = top + session.rowHeight;
             if (top < scroll.scrollTop || bottom > scroll.scrollTop + scroll.clientHeight) {
@@ -1975,14 +2001,14 @@
             }
         }
         function jump_to(offset) {
-            if (!(offset >= 0) || offset >= total()) {
+            if (!Number.isSafeInteger(offset) || offset < 0 || offset >= total()) {
                 HF.set_warning_status(HF.tr('Invalid offset'));
                 return;
             }
             if (HF.state.notice_record && !HF.state.notice_record.closed) HF.window_manager.close(HF.state.notice_record);
             select(offset);
             reveal_offset(offset);
-            session.source.ensure(offset, 256).then(function () { paint(); });
+            session.source.ensure(offset, 256).then(function () { paint(); }).catch(function(error) { tip_text(error.message || HF.labels.request_failed); });
             if (!('ontouchstart' in window)) { focus_cell(offset); }
         }
 
@@ -1994,7 +2020,7 @@
             if (!('ontouchstart' in window)) { focus_cell(next); }
         }
         function handle_ascii_key(event) {
-            if (session.readonly) return;
+            if (session.readonly || session.saving || pages_missing(session.selected, 1)) return;
             var key = event.key;
             var offset = session.selected;
             if (offset < 0 || offset >= total()) return;
@@ -2044,7 +2070,7 @@
             }
         }
         function handle_hex_key(event) {
-            if (session.readonly) return;
+            if (session.readonly || session.saving || pages_missing(session.selected, 1)) return;
             var key = event.key;
             var offset = session.selected;
             if (offset < 0 || offset >= total()) return;
@@ -2116,14 +2142,23 @@
             var row = document.createElement('tr'); row.className = 'fm-memory-hex-table-spacer';
             var cell = document.createElement('td'); cell.colSpan = 19; cell.style.height = Math.max(0, height) + 'px'; row.appendChild(cell); return row;
         }
-        function paint() {
+        function paint(keepView) {
+            if (record && record.closed) return;
+            var g = viewGeometry();
+            if (keepView !== true) syncView(g);
+            if (g.scaled && viewHeight !== scroll.clientHeight) {
+                viewRow = Math.min(viewRow, g.last);
+                viewTop = Math.floor(viewRow / Math.max(1, g.last) * g.range);
+                viewHeight = scroll.clientHeight;
+            }
             var rows = Math.ceil(total() / 16);
             var header_height = 28;
-            var start = Math.max(0, Math.floor(Math.max(0, scroll.scrollTop - header_height) / session.rowHeight) - 3);
+            var start = Math.max(0, (g.scaled ? viewRow : Math.floor(Math.max(0, scroll.scrollTop - header_height) / session.rowHeight)) - 3);
             var visible = Math.max(20, Math.ceil(scroll.clientHeight / session.rowHeight) + 6);
             var end = Math.min(rows, start + visible);
             while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
-            tbody.appendChild(spacer(start * session.rowHeight));
+            var topSpace = g.scaled ? Math.max(0, viewTop - (viewRow - start) * session.rowHeight) : start * session.rowHeight;
+            tbody.appendChild(spacer(topSpace));
             for (var row_index = start; row_index < end; row_index++) {
                 var row = document.createElement('tr');
                 var base = row_index * 16;
@@ -2182,9 +2217,10 @@
                 }
                 ascii_cell.appendChild(ascii); row.appendChild(ascii_cell); tbody.appendChild(row);
             }
-            tbody.appendChild(spacer((rows - end) * session.rowHeight + 40));
+            tbody.appendChild(spacer(g.scaled ? Math.max(0, 1000000 - 28 - topSpace - (end - start) * session.rowHeight) : (rows - end) * session.rowHeight + 40));
+            if (g.scaled) { scroll.scrollTop = viewTop; viewTop = scroll.scrollTop; }
             if (pages_missing(start * 16, Math.max(1, (end - start) * 16))) {
-                session.source.ensure(start * 16, Math.max(1, (end - start) * 16)).then(function() { paint(); });
+                session.source.ensure(start * 16, Math.max(1, (end - start) * 16)).then(function() { paint(); }).catch(function(error) { tip_text(error.message || HF.labels.request_failed); });
             }
         }
         function pages_missing(from, length) {
@@ -2227,7 +2263,8 @@
             var match = session.matches[session.current];
             session.selected = match.index;
             HF.wm_refresh_search_counter(search, session);
-            HF.wm_animate_scroll(scroll, scroll.scrollLeft, Math.max(0, 28 + Math.floor(match.index / 16) * session.rowHeight - scroll.clientHeight * 0.4), 210).then(paint);
+            if (viewGeometry().scaled) { setViewRow(Math.floor(match.index / 16) - Math.floor(viewGeometry().count * 0.4)); }
+            else HF.wm_animate_scroll(scroll, scroll.scrollLeft, Math.max(0, 28 + Math.floor(match.index / 16) * session.rowHeight - scroll.clientHeight * 0.4), 210).then(paint);
         }
         function search_hex(query, regex, case_sensitive, direction, as_text) {
             if (as_text === undefined) {
@@ -2365,7 +2402,7 @@
                 tip_text(HF.tr('Saving…') + ' ' + done_runs + '/' + total_runs);
             }).then(function() {
                 if (session.stage) {
-                    return HarborIO.stageCommit(item.path).then(function () {
+                    return HF.file_io(item).stageCommit(item.path).then(function () {
                         session.stage = null;
                         session.server_undo = [];
         session.server_redo = [];
@@ -2375,7 +2412,7 @@
                     });
                 }
             }).then(function() {
-                session.saving = false; session.dirty = false; HF.Recovery.clearBuffer(item.path);
+                session.saving = false; session.dirty = false; HF.Recovery.clearBuffer(HF.file_key(item));
                 history_buttons.refresh(history.canUndo(), history.canRedo());
                 item.size = total(); item.display_size = HF.format_size(item.size);
                 tip_text(''); refresh(); paint();
@@ -2387,7 +2424,7 @@
                 var entry = session.server_undo.pop();
                 session.server_redo.push(entry);
                 if (entry.first || !session.server_undo.length) {
-                    HarborIO.stageDiscard(item.path).then(function () {
+                    HF.file_io(item).stageDiscard(item.path).then(function () {
                         session.stage = null;
                         session.source.setPath(item.path);
                         refresh_dirty();
@@ -2426,7 +2463,7 @@
             apply_edit_state(next);
         }
 
-        var record = HF.window_manager.create({ title: item.path || item.name, icon: item.icon_name || 'binary', className: 'fm-window-binary', content: content, width: 840, height: 590, minWidth: 390, minHeight: 270, beforeClose: function() { if (session.saving) { return false; } if (!session.dirty) { return true; } return HF.confirm_window({ title: HF.tr('Close'), message: HF.labels.discard_text_changes }); }, onClose: function() { HF.Recovery.clearBuffer(item.path); if (session.stage) { HarborIO.stageDiscard(item.path); session.stage = null; } } });
+        var record = HF.window_manager.create({ title: item.path || item.name, icon: item.icon_name || 'binary', className: 'fm-window-binary', content: content, width: 840, height: 590, minWidth: 390, minHeight: 270, beforeClose: function() { if (session.saving) { return false; } if (!session.dirty) { return true; } return HF.confirm_window({ title: HF.tr('Close'), message: HF.labels.discard_text_changes }); }, onClose: function() { if (resizeObserver) resizeObserver.disconnect(); if (session.renderTimer) clearTimeout(session.renderTimer); if (recovery_timer) clearTimeout(recovery_timer); session.source.invalidate(); HF.Recovery.clearBuffer(HF.file_key(item)); if (session.stage) { HF.file_io(item).stageDiscard(item.path); session.stage = null; } } });
         var footer = HF.wm_create_memory_footer({ size: function() { return total(); }, get saving() { return session.saving; }, get dirty() { return session.dirty; }, get readonly() { return session.readonly; } }, save, function() { HF.window_manager.close(record); });
         content.appendChild(footer.element);
         var history_buttons = HF.wm_add_history_buttons(record, undo_edit, redo_edit);
@@ -2530,10 +2567,47 @@
             session.advance_to = list[list.length - 1].index + replacement.length;
             search_hex(session.query, false, session.caseSensitive, 0);
         } });
-        scroll.addEventListener('scroll', schedulePaint, { passive: true });
+        scroll.addEventListener('scroll', function() {
+            syncView(viewGeometry());
+            schedulePaint();
+        }, { passive: true });
+        function scrollRows(delta) {
+            wheelRest += delta;
+            var rows = Math.trunc(wheelRest / session.rowHeight);
+            if (rows) { wheelRest -= rows * session.rowHeight; setViewRow(viewRow + rows); }
+        }
+        scroll.addEventListener('wheel', function(event) {
+            if (!viewGeometry().scaled || event.ctrlKey || event.shiftKey || !event.deltaY) return;
+            event.preventDefault();
+            scroll.scrollLeft += event.deltaX;
+            scrollRows(event.deltaY * (event.deltaMode === 1 ? session.rowHeight : event.deltaMode === 2 ? scroll.clientHeight : 1));
+        }, { passive: false });
+        var touch = null;
+        scroll.addEventListener('touchstart', function(event) {
+            touch = event.touches.length === 1 ? { x: event.touches[0].clientX, y: event.touches[0].clientY } : null;
+        }, { passive: true });
+        scroll.addEventListener('touchmove', function(event) {
+            if (event.touches.length !== 1) { touch = null; return; }
+            if (!touch || !viewGeometry().scaled) return;
+            event.preventDefault();
+            var next = event.touches[0];
+            scroll.scrollLeft += touch.x - next.clientX;
+            scrollRows(touch.y - next.clientY);
+            touch = { x: next.clientX, y: next.clientY };
+        }, { passive: false });
+        scroll.addEventListener('touchend', function() { touch = null; }, { passive: true });
+        scroll.addEventListener('touchcancel', function() { touch = null; }, { passive: true });
+        scroll.addEventListener('keydown', function(event) {
+            var next, g = viewGeometry();
+            if (event.key === 'PageDown' || event.key === 'PageUp') next = Math.max(0, session.selected) + (event.key === 'PageDown' ? 1 : -1) * g.count * 16;
+            else if ((event.ctrlKey || event.metaKey) && (event.key === 'Home' || event.key === 'End')) next = event.key === 'Home' ? 0 : total() - 1;
+            if (next !== undefined && total()) { event.preventDefault(); jump_to(Math.max(0, Math.min(total() - 1, next))); }
+        });
+        var resizeObserver = window.ResizeObserver ? new ResizeObserver(schedulePaint) : null;
+        if (resizeObserver) resizeObserver.observe(scroll);
 
         function start_load() {
-            tip_text(HF.tr('Reading full file…'));
+            tip_text(HF.tr('Reading current file pages…'));
             session.source.ensure(0, Math.min(total(), 131072)).then(function() {
                 refresh_dirty();
                 paint();
@@ -2551,9 +2625,9 @@
             }).catch(function(error) { tip_text(error || HF.labels.request_failed); });
         }
 
-        if (HF.Recovery.hasBuffer(item.path) === 'hex' && total() <= 4 * 1024 * 1024) {
+        if (HF.Recovery.hasBuffer(HF.file_key(item)) === 'hex' && total() <= 4 * 1024 * 1024) {
             HF.wm_create_recover_banner(content, function() {
-                var rec = HF.Recovery.getBuffer(item.path);
+                var rec = HF.Recovery.getBuffer(HF.file_key(item));
                 var recovered = (rec && rec.payload && rec.payload.bytes) ? HF.Recovery.base64ToBytes(rec.payload.bytes) : null;
                 session.source.ensure(0, Math.min(total(), 131072)).then(function() {
                     if (recovered && recovered.length && recovered.length <= total()) {
@@ -2583,7 +2657,7 @@
                     tip_text('');
                 }
             }, function() {
-                HF.Recovery.clearBuffer(item.path);
+                HF.Recovery.clearBuffer(HF.file_key(item));
                 start_load();
             });
         } else {
@@ -2604,14 +2678,14 @@
 
         show_tip(HF.labels.replacing + ' 0%');
         var poll = setInterval(function () {
-            HarborIO.replaceProgress(item.path).then(function (p) {
+            HF.file_io(item).replaceProgress(item.path).then(function (p) {
                 if (p.total > 0) {
                     show_tip(HF.labels.replacing + ' ' + Math.floor(p.done * 100 / p.total) + '% (' + p.done + '/' + p.total + ')');
                 }
             }).catch(function () {});
         }, 250);
 
-        HarborIO.replaceAll(item.path, q, r, { encoding: opts.encoding, regex: opts.regex, ignoreCase: opts.ignoreCase, stageSrc: opts.stageSrc, range: opts.range }).then(function (data) {
+        HF.file_io(item).replaceAll(item.path, q, r, { encoding: opts.encoding, regex: opts.regex, ignoreCase: opts.ignoreCase, stageSrc: opts.stageSrc, range: opts.range }).then(function (data) {
             clearInterval(poll);
             show_tip(HF.labels.replacing + ' 100%');
             setTimeout(function () { show_tip(''); }, 400);
@@ -2662,7 +2736,7 @@
             tip.textContent = HF.tr('Reading full file…');
             tip.style.display = 'block';
             var fetch_len = HF.CHUNK_SIZE + 4096;
-            HarborIO.slice(item.path, offset, fetch_len).then(function (result) {
+            HF.file_io(item).slice(item.path, offset, fetch_len).then(function (result) {
                 var bytes = new Uint8Array(result.buffer);
                 var text = decoder.decode(bytes);
                 var start_skip = 0;
@@ -2717,7 +2791,7 @@
             session.saving = true;
             refresh_status();
             var bytes = encoder.encode(area.value);
-            HarborIO.splice(item.path, session.ws, session.we, bytes, session.total).then(function (data) {
+            HF.file_io(item).splice(item.path, session.ws, session.we, bytes, session.total).then(function (data) {
                 session.saving = false;
                 session.total = Number(data.size || session.total);
                 session.we = session.ws + bytes.length;
@@ -2780,7 +2854,7 @@
             var undo = { ws: session.ws, we: session.we, text: area.value, total: session.total };
             tip.textContent = HF.labels.replacing;
             tip.style.display = 'block';
-            HarborIO.splice(item.path, 0, session.total, bytes, session.total).then(function (data) {
+            HF.file_io(item).splice(item.path, 0, session.total, bytes, session.total).then(function (data) {
                 tip.style.display = 'none';
                 session.total = Number(data.size || bytes.length);
                 session.ws = 0;
@@ -2832,7 +2906,7 @@
             search: function (q, regex, case_sensitive, direction) {
                 session.useRegex = !!regex;
                 session.caseSensitive = !!case_sensitive;
-                HarborIO.search(item.path, q, { regex: regex ? 1 : 0, ignoreCase: !case_sensitive }).then(function (r) {
+                HF.file_io(item).search(item.path, q, { regex: regex ? 1 : 0, ignoreCase: !case_sensitive }).then(function (r) {
                     var total = r.matches ? r.matches.length : 0;
                     if (!total) {
                         HF.set_warning_status(HF.labels.not_found);
@@ -2868,7 +2942,7 @@
                 var u = whole_undo;
                 whole_undo = null;
                 var bytes = encoder.encode(u.text);
-                HarborIO.splice(item.path, 0, session.total, bytes, session.total).then(function () {
+                HF.file_io(item).splice(item.path, 0, session.total, bytes, session.total).then(function () {
                     session.total = u.total;
                     load(u.ws);
                 }).catch(function (error) {
@@ -2939,4 +3013,3 @@
         open_memory_hex: HF.wm_open_memory_hex_window
     };
 })(window.HarborFile = window.HarborFile || {});
-

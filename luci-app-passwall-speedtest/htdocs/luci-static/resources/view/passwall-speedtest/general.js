@@ -575,7 +575,7 @@ return view.extend({
 		o.rmempty = false;
 
 		o = s.taboption('basic', form.Flag, 'iterate_enabled', _('Time-boxed iterative test'),
-			_('Run the test in time-boxed mode: each tested node runs its own independent loop until the duration elapses. After its first pass, a node only re-tests the IPs that passed its previous pass, so its candidate pool shrinks toward the most stable, lowest-latency IPs. Nothing is written to result.csv or passwall during the run; when the timer ends, each node\'s best remaining IP is written back.'));
+			_('Run the test in time-boxed mode: each tested node runs its own independent loop until the duration elapses. After its first pass, a node only re-tests the IPs that passed its previous pass, so its candidate pool shrinks toward the most stable, lowest-latency IPs. Nothing is written to result.csv or passwall during the run; when the timer ends, each node\'s best remaining IP is written back. A node exits early once its pool converges to the download-test candidate count (download_test_count) — further passes cannot change the final download list; the threshold is 3 when the download test is off.'));
 		o.default = o.disabled;
 		o.rmempty = false;
 

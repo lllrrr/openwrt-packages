@@ -3485,3 +3485,38 @@ html[data-harbor-file-manager] #view.fm-fluid-host{
 .fm-target-device[hidden]{
     display: none;
 }
+
+.fm-remote-password {
+    display: flex;
+    align-items: stretch;
+    min-width: 0;
+    width: 100%;
+    gap: 6px;
+}
+.fm-remote-password .fm-settings-control {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.fm-remote-password .fm-dialog-action {
+    flex: 0 0 34px;
+    min-width: 34px;
+    padding: 0;
+}
+
+.fm-remote-settings .fm-remote-editor .fm-remote-password {
+    flex: 1 1 220px;
+    width: auto;
+}
+.fm-remote-settings .fm-remote-editor .fm-remote-password .fm-settings-control {
+    flex: 1 1 0;
+    width: 0;
+}
+
+.fm-remote-terminal{
+    --fm-terminal-scale: 0.88;
+}
+
+.fm-remote-terminal .fm-window-body{
+    display: flex;
+    padding: 0;
+}

@@ -33,6 +33,17 @@ var callIpList = rpc.declare({
 	params: ['limit', 'cat']
 });
 
+var callSync = rpc.declare({ object: 'luci.languard', method: 'sync' });
+var callAppList = rpc.declare({ object: 'luci.languard', method: 'applist' });
+var callAppStats = rpc.declare({ object: 'luci.languard', method: 'appstats' });
+var callAppImport = rpc.declare({ object: 'luci.languard', method: 'appimport', params: ['text'] });
+var callAppDel = rpc.declare({ object: 'luci.languard', method: 'appdel', params: ['id'] });
+var callAppReset = rpc.declare({ object: 'luci.languard', method: 'appreset' });
+var callQosList = rpc.declare({ object: 'luci.languard', method: 'qoslist' });
+var callQosAdd = rpc.declare({ object: 'luci.languard', method: 'qosadd', params: ['ip', 'app', 'dscp'] });
+var callQosDel = rpc.declare({ object: 'luci.languard', method: 'qosdel', params: ['id'] });
+var callDevMerge = rpc.declare({ object: 'luci.languard', method: 'devmerge', params: ['mac', 'into'] });
+var callDevUnmerge = rpc.declare({ object: 'luci.languard', method: 'devunmerge', params: ['mac'] });
 var callDomainList = rpc.declare({ object: 'luci.languard', method: 'domainlist' });
 var callDomainAdd = rpc.declare({ object: 'luci.languard', method: 'domainadd', params: ['name'] });
 var callDomainDel = rpc.declare({ object: 'luci.languard', method: 'domaindel', params: ['name'] });
@@ -395,8 +406,14 @@ var STYLE = `
 
 /* ---- loading skeleton ---- */
 .cb-tablewrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.cb-import { width: 100%; box-sizing: border-box; font-family: var(--font-mono);
+	font-size: .78rem; padding: .5rem; border-radius: .3rem; resize: vertical;
+	border: 1px solid var(--hairline); background: var(--surface-sunken); color: inherit; }
 .cb-sel { padding: .25rem .4rem; border-radius: .3rem; border: 1px solid var(--hairline);
-	background: transparent; color: inherit; font-size: .8rem; }
+	background: var(--surface-sunken); color: inherit; font-size: .8rem;
+	/* without this the native popup is drawn in the OS light palette */
+	color-scheme: dark; }
+.cb-sel option { background: var(--surface-sunken); color: inherit; }
 @media (max-width: 768px) { .cb-log .cb-date { display: none; } }
 .cb-skel { pointer-events: none; }
 .cb-skel-line { display: block; height: .9rem; border-radius: .3rem;
@@ -799,7 +816,12 @@ return view.extend({
 
 		box.appendChild(E('div', { 'class': 'cb-card' }, [
 			E('div', { 'class': 'cb-card-head' }, [
-				E('span', { 'class': 'cb-dot' }), E('span', {}, _('Protection'))
+				E('span', { 'class': 'cb-dot', 'style': d.panic_on ? 'background:var(--danger)' : null }),
+				E('span', {}, _('Protection')),
+				d.panic_on
+					? E('span', { 'class': 'cb-src cb-src-panic', 'style': 'margin-left:auto' },
+						_('blocking new devices only'))
+					: ''
 			]),
 			E('div', { 'class': 'cb-card-body' }, E('div', { 'class': 'cb-dash-rows' }, [
 				row(_('Automatic protection'), d.auto_enabled
@@ -816,11 +838,22 @@ return view.extend({
 				row(_('Notification channels'), d.channels || 0),
 				row(_('Logins today'), (d.logins_ok_today || 0) + ' ' + _('ok') + ' · ' + (d.logins_fail_today || 0) + ' ' + _('failed')),
 				row(_('Failures in last 24h'), d.logins_fail_24h || 0),
-				E('div', { 'style': 'margin-top:.8rem;display:flex;gap:.5rem;flex-wrap:wrap' }, [
-					E('button', { 'class': 'cb-btn cb-btn-danger',
-						'click': function (ev) { self.handlePanic(true, ev); } }, _('Block new devices only')),
-					E('button', { 'class': 'cb-btn',
-						'click': function (ev) { self.handlePanic(false, ev); } }, _('Release'))
+				E('div', { 'class': 'cb-dash-row' }, [
+					E('span', { 'class': 'cb-k' }, _('Current mode')),
+					E('span', {
+						'class': 'cb-v',
+						'style': d.panic_on ? 'color:var(--danger)' : 'color:var(--success)'
+					}, d.panic_on
+						? _('blocking new devices only') +
+						  (d.panic_since ? ' · ' + _('since') + ' ' + fmtTime(d.panic_since) : '')
+						: _('normal'))
+				]),
+				E('div', { 'class': 'cb-actions', 'style': 'margin-top:.8rem' }, [
+					d.panic_on
+						? E('button', { 'class': 'cb-btn cb-btn-primary',
+							'click': function (ev) { self.handlePanic(false, ev); } }, _('Back to normal'))
+						: E('button', { 'class': 'cb-btn cb-btn-danger',
+							'click': function (ev) { self.handlePanic(true, ev); } }, _('Block new devices only'))
 				])
 			]))
 		]));
@@ -840,9 +873,12 @@ return view.extend({
 					});
 					wrap.appendChild(list);
 				}
-				wrap.appendChild(E('div', { 'style': 'margin-top:.7rem' },
+				wrap.appendChild(E('div', { 'class': 'cb-actions', 'style': 'margin-top:.7rem' }, [
 					E('button', { 'class': 'cb-btn cb-btn-primary',
-						'click': function (ev) { self.refreshDash(); } }, _('Refresh'))));
+						'click': function (ev) { self.refreshDash(); } }, _('Refresh')),
+					!d.health_ok ? E('button', { 'class': 'cb-btn',
+						'click': function (ev) { self.handleSync(ev); } }, _('Sync to kernel')) : ''
+				]));
 				return wrap;
 			})())
 		]);
@@ -1040,6 +1076,221 @@ return view.extend({
 		}).catch(function (e) {
 			ui.addNotification(null, E('p', {}, e.message || _('Failed')), 'error');
 		});
+	},
+
+	refreshApps: function () {
+		var self = this;
+		return callAppList().then(function (res) {
+			self.apps = (res && res.apps) || [];
+			var cnt = document.getElementById('cb-app-count');
+			if (cnt) cnt.textContent = self.apps.length + ' ' + _('apps');
+		}).catch(function () {});
+	},
+
+	refreshAppStats: function () {
+		var self = this;
+		return Promise.all([ callAppList(), callAppStats() ]).then(function (r) {
+			self.apps = (r[0] && r[0].apps) || [];
+			self.appStats = r[1] || {};
+			self.renderAppStats();
+			var cnt = document.getElementById('cb-app-count');
+			if (cnt) cnt.textContent = self.apps.length + ' ' + _('apps');
+			var day = document.getElementById('cb-app-day');
+			if (day) day.textContent = self.appStats.day || '';
+		}).catch(function () {});
+	},
+
+	renderAppStats: function () {
+		var tbody = document.getElementById('cb-app-tbody');
+		if (!tbody) return;
+		while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
+
+		var self = this;
+		var list = (this.appStats && this.appStats.apps) || [];
+		if (!list.length) {
+			tbody.appendChild(E('tr', {}, E('td', { 'colspan': 4, 'class': 'cb-empty' },
+				_('No traffic attributed yet'))));
+			this.renderAppDevices();
+			return;
+		}
+		list.slice(0, 50).forEach(function (a) {
+			var meta = null;
+			(self.apps || []).forEach(function (x) { if (x.name === a.name) meta = x; });
+			var active = self.appFilter === a.name;
+			tbody.appendChild(E('tr', {
+				'style': 'cursor:pointer' + (active ? ';background:var(--brand-subtle)' : ''),
+				'click': function () {
+					self.appFilter = active ? null : a.name;
+					self.renderAppStats();
+				}
+			}, [
+				E('td', { 'class': 'cb-u' }, [
+					a.name,
+					a.low > 0
+						? E('span', { 'class': 'cb-src cb-src-panic', 'style': 'margin-left:.35rem',
+							'title': _('part of this was matched by port only, without checking the packet') },
+							_('port match'))
+						: ''
+				]),
+				E('td', { 'class': 'cb-hide-sm' }, meta ? (meta.class || '') : ''),
+				E('td', { 'class': 'cb-hide-sm cb-t' }, meta ? String(meta.sigs) : ''),
+				E('td', { 'style': 'text-align:right;font-family:var(--font-mono)' }, fmtBytes(a.bytes))
+			]));
+		});
+		this.renderAppDevices();
+	},
+
+	renderAppDevices: function () {
+		var box = document.getElementById('cb-app-dev');
+		if (!box) return;
+		var self = this;
+		while (box.firstChild) box.removeChild(box.firstChild);
+
+		var devs = (this.appStats && this.appStats.dev) || [];
+		var filter = this.appFilter;
+
+		if (filter) {
+			box.appendChild(E('div', { 'class': 'cb-dash-row' }, [
+				E('span', { 'class': 'cb-k' }, _('Devices using') + ' ' + filter),
+				E('button', { 'class': 'cb-btn', 'style': 'margin-left:auto',
+					'click': function () { self.appFilter = null; self.renderAppStats(); } },
+					_('Show all'))
+			]));
+			var users = [];
+			devs.forEach(function (d) {
+				(d.apps || []).forEach(function (x) {
+					if (x.name === filter) users.push({ dev: d, bytes: x.bytes });
+				});
+			});
+			users.sort(function (a, b) { return b.bytes - a.bytes; });
+			if (!users.length) {
+				box.appendChild(E('span', { 'class': 'cb-note' }, _('None')));
+				return;
+			}
+			users.forEach(function (u) {
+				box.appendChild(E('div', { 'class': 'cb-dash-row' }, [
+					E('span', { 'class': 'cb-k' }, (u.dev.name || u.dev.ip) + ' · ' + u.dev.ip),
+					E('span', { 'class': 'cb-v' }, fmtBytes(u.bytes))
+				]));
+			});
+			return;
+		}
+
+		if (!devs.length) {
+			box.appendChild(E('span', { 'class': 'cb-note' }, _('None')));
+			return;
+		}
+		devs.slice(0, 20).forEach(function (d) {
+			box.appendChild(E('div', { 'class': 'cb-dash-row' }, [
+				E('span', { 'class': 'cb-k' }, [
+					(d.name || d.ip),
+					E('span', { 'class': 'cb-drop' }, '  ' + d.ip)
+				]),
+				E('span', { 'class': 'cb-v' }, d.apps.slice(0, 3).map(function (x) {
+					return x.name + ' ' + fmtBytes(x.bytes);
+				}).join(' · '))
+			]));
+		});
+	},
+
+	refreshQos: function () {
+		var self = this;
+		return callQosList().then(function (res) {
+			self.qos = (res && res.rules) || [];
+			self.renderQos();
+		}).catch(function () {});
+	},
+
+	renderQos: function () {
+		var self = this;
+		var tbody = document.getElementById('cb-qos-tbody');
+		if (!tbody) return;
+		while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
+
+		// device picker
+		var dev = document.getElementById('cb-qos-dev');
+		if (dev && !dev.dataset.filled) {
+			dev.appendChild(E('option', { 'value': '' }, _('All devices')));
+			(this.devices || []).forEach(function (d) {
+				if (!d.ip) return;
+				dev.appendChild(E('option', { 'value': d.ip },
+					(d.host || d.mac) + ' · ' + d.ip));
+			});
+			dev.dataset.filled = '1';
+		}
+		var appSel = document.getElementById('cb-qos-app');
+		if (appSel && !appSel.dataset.filled) {
+			appSel.appendChild(E('option', { 'value': '' }, _('All apps')));
+			(this.apps || []).forEach(function (a) {
+				appSel.appendChild(E('option', { 'value': a.name }, a.name));
+			});
+			appSel.dataset.filled = '1';
+		}
+
+		var list = this.qos || [];
+		if (!list.length) {
+			tbody.appendChild(E('tr', {}, E('td', { 'colspan': 5, 'class': 'cb-empty' },
+				_('No rate rules yet'))));
+			return;
+		}
+		list.forEach(function (r) {
+			tbody.appendChild(E('tr', {}, [
+				E('td', {}, r.ip || _('All devices')),
+				E('td', { 'class': 'cb-u' }, r.app || _('All apps')),
+				E('td', { 'class': 'cb-mono' }, r.dscp),
+				E('td', { 'class': 'cb-hide-sm cb-t' }, String(r.ips || 0)),
+				E('td', { 'style': 'text-align:right' },
+					E('button', { 'class': 'cb-btn cb-btn-danger',
+						'click': function () {
+							callQosDel(r.id).then(function () { return self.refreshQos(); });
+						} }, _('Delete')))
+			]));
+		});
+	},
+
+	handleQosAdd: function (ev) {
+		var self = this;
+		var ip = (document.getElementById('cb-qos-dev') || {}).value || '';
+		var app = (document.getElementById('cb-qos-app') || {}).value || '';
+		var dscp = (document.getElementById('cb-qos-dscp') || {}).value || 'cs1';
+		if (!ip && !app) {
+			ui.addNotification(null, E('p', {}, _('Pick a device, an app, or both')), 'warning');
+			return;
+		}
+		var btn = ev.currentTarget;
+		btn.disabled = true;
+		return callQosAdd(ip, app, dscp).then(function () {
+			return self.refreshQos();
+		}).catch(function (e) {
+			ui.addNotification(null, E('p', {}, e.message || _('Failed')), 'error');
+		}).finally(function () { btn.disabled = false; });
+	},
+
+	handleAppImport: function (ev) {
+		var self = this;
+		var ta = document.getElementById('cb-app-import');
+		if (!ta || !ta.value.trim()) { if (ta) ta.focus(); return; }
+		var btn = ev.currentTarget;
+		btn.disabled = true;
+		return callAppImport(ta.value).then(function (res) {
+			if (res && res.success === false) throw new Error(res.error || _('Failed'));
+			ta.value = '';
+			ui.addNotification(null, E('p', {},
+				_('Imported') + ' ' + (res.added || 0) + ' · ' + _('total') + ' ' + (res.total || 0)), 'info');
+			return self.refreshAppStats();
+		}).catch(function (e) {
+			ui.addNotification(null, E('p', {}, e.message || _('Failed')), 'error');
+		}).finally(function () { btn.disabled = false; });
+	},
+
+	handleAppReset: function (ev) {
+		var self = this;
+		if (!confirm(_('Reset the traffic counters?'))) return;
+		var btn = ev.currentTarget;
+		btn.disabled = true;
+		return callAppReset().then(function () { return self.refreshAppStats(); })
+			.catch(function () {})
+			.finally(function () { btn.disabled = false; });
 	},
 
 	refreshTrend: function () {
@@ -1405,6 +1656,20 @@ return view.extend({
 		});
 	},
 
+	// Rebuild the two kernel sets from saved state. This only touches set
+	// elements, so it is safe to run while the LAN is busy.
+	handleSync: function (ev) {
+		var self = this;
+		var btn = ev && ev.currentTarget;
+		if (btn) btn.disabled = true;
+		return callSync().then(function () {
+			ui.addNotification(null, E('p', {}, _('Kernel set rebuilt from saved state')), 'info');
+			return Promise.all([ self.refreshHealth(), self.refreshDash() ]);
+		}).catch(function (e) {
+			ui.addNotification(null, E('p', {}, e.message || _('Failed')), 'error');
+		}).finally(function () { if (btn) btn.disabled = false; });
+	},
+
 	refreshHealth: function () {
 		var self = this;
 		return callSelfCheck().then(function (res) {
@@ -1448,13 +1713,26 @@ return view.extend({
 			return;
 		}
 
+		var self = this;
+		var FIXABLE = { nftset: 1, rulesfile: 1, nfthook: 1 };
+
 		list.forEach(function (c) {
 			var bad = !c.ok;
+			var extra = [];
+			if (bad && c.hint) extra.push(E('span', { 'class': 'cb-hint' }, c.hint));
+			if (bad && FIXABLE[c.id]) {
+				extra.push(E('span', { 'class': 'cb-hint' },
+					E('button', {
+						'class': 'cb-btn cb-btn-primary',
+						'style': 'font-size:.75rem;padding:.1rem .55rem',
+						'click': function (ev) { self.handleSync(ev); }
+					}, _('Fix now'))));
+			}
 			box.appendChild(E('div', { 'class': 'cb-check' + (bad ? ' bad' : '') }, [
 				E('span', { 'class': 'cb-mark ' + (bad ? 'bad' : 'ok') }, bad ? '\u2715' : '\u2713'),
 				E('span', { 'class': 'cb-name' }, names[c.id] || c.id),
 				E('span', { 'class': 'cb-val' }, c.detail || '')
-			].concat(bad && c.hint ? [ E('span', { 'class': 'cb-hint' }, c.hint) ] : [])));
+			].concat(extra)));
 		});
 	},
 
@@ -2009,6 +2287,7 @@ return view.extend({
 		overview: [ 'dash' ],
 		devices: [ 'devices' ],
 		ips: [ 'ips' ],
+		apps: [ 'apps' ],
 		logs: [ 'logs' ],
 		policy: [ 'sched' ],
 		settings: [ 'auto', 'notify', 'health', 'backup' ]
@@ -2024,12 +2303,20 @@ return view.extend({
 			var el = document.getElementById('cb-pane-' + p);
 			if (el) el.classList.toggle('active', mine.indexOf(p) !== -1);
 		});
-		['overview', 'devices', 'ips', 'logs', 'policy', 'settings'].forEach(function (t) {
+		['overview', 'devices', 'ips', 'apps', 'logs', 'policy', 'settings'].forEach(function (t) {
 			var btn = document.getElementById('cb-tab-' + t);
 			if (btn) btn.classList.toggle('active', t === name);
 		});
 		if (name === 'overview') return this.refreshDash();
 		if (name === 'ips') return Promise.all([ this.refreshIps(), this.refreshFeeds(), this.refreshDomains() ]);
+		if (name === 'apps') {
+			var selfA = this;
+			return Promise.all([ this.refreshApps(), this.refreshAppStats(), callList('0') ])
+				.then(function (r) {
+					selfA.devices = (r[2] && r[2].devices) || selfA.devices || [];
+					return selfA.refreshQos();
+				});
+		}
 		if (name === 'logs') return this.refreshLogs();
 		if (name === 'policy') return Promise.all([ this.refreshSched(), this.refreshGroups(), this.refreshPorts() ]);
 		if (name === 'settings') {
@@ -2055,6 +2342,12 @@ return view.extend({
 		rows.forEach(function (d) {
 			var newBadge = d.is_new
 				? E('span', { 'class': 'cb-res cb-sched-on', 'style': 'margin-left:.35rem' }, _('new'))
+				: '';
+			var conflictBadge = d.conflict
+				? E('span', {
+					'class': 'cb-src cb-src-panic', 'style': 'margin-left:.35rem',
+					'title': _('this address is also claimed by') + ' ' + d.conflict
+				}, _('IP conflict'))
 				: '';
 
 			var stateBadge = d.blocked
@@ -2102,14 +2395,44 @@ return view.extend({
 				}, d.host || _('(unnamed)'))
 				: (d.host || E('span', { 'class': 'cb-mono' }, _('(unnamed)')));
 
+			// a container or VM on the same box answers with its own generated
+			// MAC; offer to fold it into the physical device
+			var mergeBtn = (d.local_mac && d.conflict)
+				? E('button', {
+					'class': 'cb-btn', 'style': 'margin-right:.3rem',
+					'title': _('this interface belongs to another device'),
+					'click': function () {
+						callDevMerge(d.mac, d.conflict).then(function () {
+							return self.refresh();
+						}).catch(function (e) {
+							ui.addNotification(null, E('p', {}, e.message || _('Failed')), 'error');
+						});
+					}
+				}, _('Merge into') + ' ' + d.conflict)
+				: '';
+
+			var aliasNote = (d.aliases && d.aliases.length)
+				? E('div', { 'class': 'cb-drop', 'style': 'margin-top:.15rem' }, [
+					d.aliases.length + ' ' + _('merged interface(s)'),
+					E('button', {
+						'class': 'cb-proxyx', 'title': _('Undo merge'),
+						'click': function () {
+							callDevUnmerge(d.aliases[0]).then(function () { return self.refresh(); })
+								.catch(function () {});
+						}
+					}, '\u00d7')
+				])
+				: '';
+
 			tbody.appendChild(E('tr', { 'class': d.blocked ? 'cb-blocked' : (d.online ? '' : 'cb-offline') }, [
-				E('td', {}, [ stateBadge, newBadge ]),
+				E('td', {}, [ stateBadge, newBadge, conflictBadge ]),
 				E('td', {}, [
 					nameCell,
 					(d.vendor || d.device_type)
 						? E('div', { 'class': 'cb-drop cb-vendor', 'title': (d.vendor || '') + ' · ' + typeLabel(d.device_type) },
 							(d.vendor || _('unknown vendor')) + ' · ' + typeLabel(d.device_type))
-						: ''
+						: '',
+					aliasNote
 				]),
 				E('td', { 'class': 'cb-mono' }, d.ip || '-'),
 				E('td', { 'class': 'cb-mono cb-hide-sm' }, d.mac),
@@ -2117,7 +2440,7 @@ return view.extend({
 					? ((d.first_assumed ? '≈ ' : '') + fmtTime(d.first_seen))
 					: '-'),
 				E('td', { 'class': 'cb-hide-sm' }, d.blocked ? [ dropText, E('br'), E('span', { 'class': 'cb-drop' }, fmtTime(d.blocked_at)) ] : ''),
-				E('td', { 'style': 'text-align:right;white-space:nowrap' }, [ trustBtn, action ])
+				E('td', { 'style': 'text-align:right;white-space:nowrap' }, [ mergeBtn, trustBtn, action ])
 			]));
 		});
 
@@ -2409,6 +2732,96 @@ return view.extend({
 			])
 		]);
 
+		var appsPane = E('div', {
+			'class': 'cb-pane',
+			'id': 'cb-pane-apps'
+		}, [
+			E('p', { 'style': 'opacity:.75;margin:.25rem 0 1rem' },
+				_('Traffic attributed to applications. Proxied flows are named by the hostname Clash reports; everything else is matched from the router flow table by port or address range.')),
+			E('div', { 'class': 'cb-card' }, [
+				E('div', { 'class': 'cb-card-head' }, [
+					E('span', { 'class': 'cb-dot' }),
+					E('span', {}, _('Traffic by app')),
+					E('span', { 'class': 'cb-count', 'id': 'cb-app-day', 'style': 'margin-left:auto' }, '')
+				]),
+				E('div', { 'class': 'cb-card-body' }, [
+					E('div', { 'class': 'cb-tablewrap' }, [
+						E('table', { 'class': 'cb-table' }, [
+							E('thead', {}, E('tr', {}, [
+								E('th', {}, _('App')),
+								E('th', { 'class': 'cb-hide-sm' }, _('Class')),
+								E('th', { 'class': 'cb-hide-sm' }, _('Rules')),
+								E('th', { 'style': 'text-align:right' }, _('Traffic'))
+							])),
+							E('tbody', { 'id': 'cb-app-tbody' })
+						])
+					]),
+					E('div', { 'class': 'cb-actions', 'style': 'margin-top:.7rem' }, [
+						E('button', { 'class': 'cb-btn', 'click': function (ev) { self.refreshAppStats(ev); } }, _('Refresh')),
+						E('button', { 'class': 'cb-btn cb-btn-danger', 'click': function (ev) { self.handleAppReset(ev); } }, _('Reset counters'))
+					])
+				])
+			]),
+			E('div', { 'class': 'cb-card' }, [
+				E('div', { 'class': 'cb-card-head' }, [
+					E('span', { 'class': 'cb-dot' }), E('span', {}, _('By device'))
+				]),
+				E('div', { 'class': 'cb-card-body' }, E('div', { 'id': 'cb-app-dev', 'class': 'cb-dash-rows' }))
+			]),
+			E('div', { 'class': 'cb-card' }, [
+				E('div', { 'class': 'cb-card-head' }, [
+					E('span', { 'class': 'cb-dot' }), E('span', {}, _('Signature library'))
+				]),
+				E('div', { 'class': 'cb-card-body' }, [
+					E('p', { 'class': 'cb-note' },
+						_('Paste a feature library (OAF format v3.0) to import it. Entries are matched by hostname, address range or a distinctive port; signatures that only name port 80/443 are skipped because they would claim the whole web.')),
+					E('textarea', {
+						'id': 'cb-app-import', 'class': 'cb-import',
+						'rows': '6', 'placeholder': '#class game 2 游戏\n2001 王者荣耀:[tcp;;6000-9000;;;]'
+					}),
+					E('div', { 'class': 'cb-actions', 'style': 'margin-top:.6rem' }, [
+						E('button', { 'class': 'cb-btn cb-btn-primary',
+							'click': function (ev) { self.handleAppImport(ev); } }, _('Import')),
+						E('span', { 'class': 'cb-count', 'id': 'cb-app-count' }, '')
+					])
+				])
+			]),
+			E('div', { 'class': 'cb-card' }, [
+				E('div', { 'class': 'cb-card-head' }, [
+					E('span', { 'class': 'cb-dot' }), E('span', {}, _('Rate rules'))
+				]),
+				E('div', { 'class': 'cb-card-body' }, [
+					E('p', { 'class': 'cb-note' },
+						_('Sets a DSCP class on matching traffic; qosmate turns that into an hfsc class. Leave the device empty to cover every device.')),
+					E('div', { 'class': 'cb-actions', 'style': 'margin-bottom:.6rem' }, [
+						E('select', { 'id': 'cb-qos-dev', 'class': 'cb-sel' }, []),
+						E('select', { 'id': 'cb-qos-app', 'class': 'cb-sel' }, []),
+						E('select', { 'id': 'cb-qos-dscp', 'class': 'cb-sel' }, [
+							E('option', { 'value': 'cs1' }, _('lowest (cs1)')),
+							E('option', { 'value': 'af11' }, _('low (af11)')),
+							E('option', { 'value': 'cs0' }, _('normal (cs0)')),
+							E('option', { 'value': 'cs4' }, _('high (cs4)')),
+							E('option', { 'value': 'ef' }, _('highest (ef)'))
+						]),
+						E('button', { 'class': 'cb-btn cb-btn-primary',
+							'click': function (ev) { self.handleQosAdd(ev); } }, _('Add rule'))
+					]),
+					E('div', { 'class': 'cb-tablewrap' }, [
+						E('table', { 'class': 'cb-table' }, [
+							E('thead', {}, E('tr', {}, [
+								E('th', {}, _('Device')),
+								E('th', {}, _('App')),
+								E('th', {}, _('Class')),
+								E('th', { 'class': 'cb-hide-sm' }, _('Addresses')),
+								E('th', { 'style': 'text-align:right' }, _('Action'))
+							])),
+							E('tbody', { 'id': 'cb-qos-tbody' })
+						])
+					])
+				])
+			])
+		]);
+
 		var logsPane = E('div', {
 			'class': 'cb-pane',
 			'id': 'cb-pane-logs'
@@ -2565,7 +2978,9 @@ return view.extend({
 			E('div', { 'class': 'cb-health-head' }, [
 				E('span', { 'id': 'cb-health-head', 'style': 'display:flex;gap:.5rem;align-items:center' }),
 				E('button', { 'class': 'cb-btn', 'style': 'margin-left:auto',
-					'click': function (ev) { self.refreshHealth(); } }, _('Re-run'))
+					'click': function (ev) { self.refreshHealth(); } }, _('Re-run')),
+				E('button', { 'class': 'cb-btn',
+					'click': function (ev) { self.handleSync(ev); } }, _('Sync to kernel'))
 			]),
 			E('div', { 'class': 'cb-checks', 'id': 'cb-health-body' })
 		]);
@@ -2577,6 +2992,7 @@ return view.extend({
 				tabBtn('overview', _('Overview')),
 				tabBtn('devices', _('Devices')),
 				tabBtn('ips', _('Addresses')),
+				tabBtn('apps', _('Apps')),
 				tabBtn('logs', _('Log')),
 				tabBtn('policy', _('Policy')),
 				tabBtn('settings', _('Settings'))
@@ -2584,6 +3000,7 @@ return view.extend({
 			dashPane,
 			devicesPane,
 			ipsPane,
+			appsPane,
 			autoPane,
 			backupPane,
 			logsPane,

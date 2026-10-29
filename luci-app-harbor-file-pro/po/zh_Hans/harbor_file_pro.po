@@ -1741,3 +1741,27 @@ msgstr "打开此设备需要 coreutils-stat"
 
 msgid "Source partially retained"
 msgstr "部分源内容已保留"
+
+msgid "Show password"
+msgstr "显示密码"
+
+msgid "Hide password"
+msgstr "隐藏密码"
+
+msgid "Install the missing remote file tools (ucode, ucode-mod-fs and ucode-mod-uci) on this device?"
+msgstr "是否在此远端设备安装缺少的文件操作工具（ucode、ucode-mod-fs 和 ucode-mod-uci）？"
+
+msgid "Remote file tools are not ready"
+msgstr "远端文件操作工具尚未就绪"
+
+msgid "The remote operation outcome is unknown. Check the device before retrying; the operation may still be running."
+msgstr "远端操作结果尚不确定。请先检查该设备再重试；操作可能仍在运行。"
+
+msgid "The browser must be able to reach this remote device’s ttyd port. This is not an SSH tunnel; the local terminal will not be used as a fallback."
+msgstr "浏览器必须能够访问该远端设备的 ttyd 端口。这不是 SSH 隧道，连接失败不会改用本机终端。"
+
+msgid "Install ttyd on this remote device? Its package scripts may start a web terminal service. Review the device’s authentication and network access settings."
+msgstr "向该远端设备安装 ttyd？软件包脚本可能启动网页终端服务，请检查该设备的认证和网络访问设置。"
+
+msgid "Reading current file pages…"
+msgstr "正在读取当前文件分页…"

@@ -5,9 +5,12 @@
 	var PAGE_SIZE = 65536;
 	var MAX_PAGES = 64;            
 
-	function HarborByteSource(path, total) {
+	function HarborByteSource(path, total, io) {
 		this.path = path;
+		this.io = io || global.HarborIO;
+		if (!Number.isSafeInteger(total) || total < 0) throw new Error('Invalid file size');
 		this.total = total;
+		this.generation = 0;
 		this.pages = new Map();      
 		this.lru = [];               
 		this.pending = new Map();    
@@ -27,7 +30,7 @@
 	};
 
 	HarborByteSource.prototype._loadPage = function (index) {
-		var self = this;
+		var self = this, generation = this.generation;
 
 		if (this.pages.has(index)) {
 			this._touch(index);
@@ -40,18 +43,14 @@
 		var offset = index * PAGE_SIZE;
 		var length = Math.min(PAGE_SIZE, this.total - offset);
 
-		var p = global.HarborIO.slice(this.path, offset, length)
+		var p = this.io.slice(this.path, offset, length)
 			.then(function (res) {
+				if (generation !== self.generation) return;
+				if (res.offset !== offset || res.total !== self.total || res.buffer.byteLength !== length) throw new Error('File size or page changed; reopen the file');
 				self.pages.set(index, new Uint8Array(res.buffer));
 				self._touch(index);
-				self.pending.delete(index);
-
-				if (res.total && res.total !== self.total)
-					self.total = res.total;
-			})
-			.catch(function (err) {
-				self.pending.delete(index);
-				throw err;
+			}).finally(function () {
+				if (self.pending.get(index) === p) self.pending.delete(index);
 			});
 
 		this.pending.set(index, p);
@@ -59,7 +58,8 @@
 	};
 
 	HarborByteSource.prototype.ensure = function (offset, length) {
-		if (offset >= this.total)
+		if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(length) || length < 0 || !Number.isSafeInteger(offset + length) || length > PAGE_SIZE * MAX_PAGES) return Promise.reject(new Error('Invalid page range'));
+		if (!length || offset >= this.total)
 			return Promise.resolve();
 
 		var end = Math.min(offset + length, this.total);
@@ -148,6 +148,8 @@
 	};
 
 	HarborByteSource.prototype.invalidate = function () {
+		this.generation++;
+		this.pending.clear();
 		this.pages.clear();
 		this.lru = [];
 		this.overlay.clear();
@@ -166,23 +168,20 @@
 			return chain.then(function () {
 				if (on_progress)
 					on_progress(index, runs.length, written);
-				return global.HarborIO.patch(self.path, run.offset, run.bytes, self.total)
+				return self.io.patch(self.path, run.offset, run.bytes, self.total)
 					.then(function () { written += run.bytes.length; });
 			});
 		}, Promise.resolve()).then(function () {
 			if (on_progress)
 				on_progress(runs.length, runs.length, written);
-			self.overlay.clear();
-
-			self.pages.clear();
-			self.lru = [];
+			self.invalidate();
 
 			return { written: written, runs: runs.length };
 		});
 	};
 
 	HarborByteSource.prototype.search = function (needle, opts) {
-		return global.HarborIO.search(this.path, needle, opts);
+		return this.io.search(this.path, needle, opts);
 	};
 
 	global.HarborByteSource = HarborByteSource;

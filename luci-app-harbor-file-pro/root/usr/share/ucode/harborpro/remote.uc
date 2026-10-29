@@ -207,7 +207,7 @@ function listing(d, path, capacity) {
 }
 function parameters(http) {
 	let p = {};
-	for (let k in ['id', 'name', 'host', 'port', 'username', 'password', 'challenge', 'device_id', 'device_revision', 'source_device', 'target_device', 'source_revision', 'target_revision', 'path', 'sources', 'target_dir', 'tree_path', 'suggest_rename', 'rename_map', 'exclude_paths', 'conflict_action', 'preserve_permissions', 'task_id', 'operation']) p[k] = http.formvalue(k);
+	for (let k in ['id', 'name', 'host', 'port', 'username', 'password', 'challenge', 'device_id', 'device_revision', 'source_device', 'target_device', 'source_revision', 'target_revision', 'path', 'sources', 'target_dir', 'tree_path', 'suggest_rename', 'rename_map', 'exclude_paths', 'conflict_action', 'preserve_permissions', 'task_id', 'operation', 'rpc_action', 'rpc_data']) p[k] = http.formvalue(k);
 	return p;
 }
 function same_device(a, b) {
@@ -430,6 +430,174 @@ function tail(path, limit) {
 	let text = f.read('all') ?? ''; f.close();
 	return text;
 }
+const AGENT_CONTEXT = "const fs = require('fs');\nlet context = { request: null };\nlet handler;\nlet consumed = false;\ncontext.http = {\n formvalue: function(key) {\n  if (key == '__harbor_parse__' && handler && !consumed) {\n   consumed = true;\n   let remaining = +(context.request.env.CONTENT_LENGTH ?? 0);\n   while (remaining > 0) {\n    let chunk = fs.stdin.read(min(65536, remaining));\n    if (!length(chunk)) die('Incomplete upload');\n    remaining -= length(chunk);\n    handler({ name: 'content', file: context.request.params.filename ?? 'content.bin' }, chunk, false);\n   }\n   handler({ name: 'content', file: context.request.params.filename ?? 'content.bin' }, '', true);\n  }\n  return context.request.params[key];\n },\n getenv: function(key) { return context.request.env[key]; },\n setfilehandler: function(fn) { handler = fn; },\n status: function() {},\n prepare_content: function() {},\n write_json: function(value) { print(sprintf('%J', value)); }\n};\nreturn context;\n";
+const AGENT_TOOLS = "command -v ucode >/dev/null 2>&1 && ucode -e 'require(\"fs\"); require(\"uci\"); print(hexdec(\"6f6b\"));' 2>/dev/null";
+const AGENT_APIS = [ 'list', 'detect_type', 'read_text', 'save_text', 'save_editor_upload', 'create_directory', 'create_file', 'rename', 'delete', 'batch_delete', 'chmod', 'upload_check', 'upload', 'archive_create_start', 'archive_extract_start', 'archive_status', 'thumbnail_generate_start', 'thumbnail_generate_status', 'package_install_start', 'package_install_status', 'tool_install_start', 'terminal_info' ];
+const AGENT_MODES = [ 'download', 'inline', 'slice', 'patch', 'splice', 'search', 'replace_all', 'stage_commit', 'stage_discard', 'replace_progress', 'sha256', 'thumbnail' ];
+function agent_device(p) {
+ if (type(p.device_revision) != 'string' || !length(p.device_id ?? '')) error('Device settings changed; reopen the device');
+ return checked_device(p.device_id, p.device_revision);
+}
+function agent_root() { return '/tmp/harbor_file_pro/file-agent'; }
+function agent_setup_script() {
+ return 'set -e\numask 077\nfor dir in /tmp/harbor_file_pro ' + quote(agent_root()) + '; do\n [ ! -L "$dir" ] || exit 1\n if [ -e "$dir" ]; then [ -d "$dir" ] && [ -O "$dir" ] || exit 1; else mkdir -m 700 "$dir"; fi\n chmod 700 "$dir"\ndone\n';
+}
+function authorize_remote(http, action, p) {
+ let sid = http.formvalue('sessionid');
+ if (!match(sid ?? '', /^[a-fA-F0-9]{32}$/) || sid == '00000000000000000000000000000000') error('Remote file access denied');
+ let writing = index(['get', 'save', 'delete', 'trust', 'start', 'install_stat', 'agent_install'], action) >= 0 || (action == 'rpc' && index(['list', 'detect_type', 'read_text', 'archive_status', 'thumbnail_generate_status', 'package_install_status', 'terminal_info'], p.rpc_action) < 0);
+ let bus = require('ubus').connect(), result;
+ try { result = bus && bus.call('session', 'access', { ubus_rpc_session: sid, scope: 'ubus', object: 'harbor.file', function: writing ? 'write' : 'read' }); } catch (e) {}
+ if (result?.access !== true) error('Remote file access denied');
+}
+function agent_info(p) {
+ let d = agent_device(p);
+ let available = trim(run(d, AGENT_TOOLS + ' || true')) == 'ok';
+ return { ready: available, device_revision: d.revision, packages: [ 'ucode', 'ucode-mod-fs', 'ucode-mod-uci' ] };
+}
+function agent_install(p) {
+ let d = agent_device(p), info = tool_info(d);
+ if (!info.root) error('Remote installation requires a root SSH account');
+ if (!info.can_install) error('Remote device has neither opkg nor apk');
+ let dir = workspace(), id = fs.basename(dir);
+ private_dir(dir + '/target');
+ let script = agent_setup_script() + '[ "$(id -u)" = 0 ] || exit 1\nlock=' + quote('/tmp/harbor_file_pro/stat-install.lock') + '\nmkdir "$lock" || exit 1\ntrap \'rmdir "$lock"\' EXIT HUP INT TERM\n';
+ script += info.installer == 'apk' ? 'apk update\napk add ucode ucode-mod-fs ucode-mod-uci\n' : 'opkg update\nopkg install ucode ucode-mod-fs ucode-mod-uci\n';
+ script += AGENT_TOOLS + '\n';
+ let command = ssh_command(d, dir + '/target', script, false);
+ return launch_task(dir, 'umask 077\ncd ' + quote(dir) + '\ntrap \'rm -f target/password\' EXIT HUP INT TERM\ntimeout 900 sh -c ' + quote(command) + '\nrc=$?\nprintf "%s\\n" "$rc" > result.tmp\nmv result.tmp result\nexit "$rc"\n', { task_id: id, kind: 'install', started: time(), done: false, device_id: d.id, device_revision: d.revision, package_name: 'ucode ucode-mod-fs ucode-mod-uci', package_type: info.installer == 'apk' ? 'apk' : 'ipk', installer: info.installer, path: d.name + ' (' + d.host + ':' + d.port + ')' });
+}
+function agent_prepare(p) {
+ let d = agent_device(p);
+ if (!agent_info(p).ready) error('Remote file tools are missing', { agent_missing: true, device_id: d.id, device_revision: d.revision });
+ let api = H.api_source ? H.api_source() : null;
+ let io = require('harborpro.io').agent_source();
+ if (!length(api) || !length(io) || index(api, 'function read_preferences() {') < 0 || index(io, 'function agent(') < 0) error('Cannot read remote file helper sources');
+ api = replace(api, "'use strict';", "'use strict';\nconst agent_context = require('agent_context');\nconst http = agent_context.http;", 1);
+ api = replace(api, 'function read_preferences() {', 'function read_preferences() {\n return { ...PREFERENCE_DEFAULTS, ...agent_context.request.preferences };\n', 1);
+ api = replace(api, "const RUNTIME_DIR = '/tmp/harbor_file_pro';", "const RUNTIME_DIR = '" + agent_root() + "/runtime';", 1);
+ io = replace(io, "const RUNTIME_DIR = '/tmp/harbor_file_pro';", "const RUNTIME_DIR = '" + agent_root() + "/runtime';", 1);
+ let codes = { 'agent_api.uc': api, 'agent_io.uc': io, 'agent_context.uc': AGENT_CONTEXT };
+ let dir = workspace();
+ let combined = join('\n', map(keys(codes), (key) => codes[key]));
+ try {
+  if (fs.writefile(dir + '/source', combined) != length(combined) || !fs.chmod(dir + '/source', 0o600)) error('Cannot prepare remote helper sources');
+  let hash = split(trim(shell('sha256sum < ' + quote(dir + '/source'), dir, 5)), ' ')[0];
+  fs.unlink(dir + '/source');
+  if (!match(hash, /^[a-f0-9]{64}$/)) error('Cannot identify remote helper');
+  let path = agent_root() + '/' + hash;
+  let probe = trim(run(d, '[ ! -L ' + quote(path) + ' ] && [ -O ' + quote(path + '/ready') + ' ] && cat ' + quote(path + '/ready') + ' || true'));
+  if (probe != hash) {
+   let stage = agent_root() + '/.' + token();
+   let deploy = agent_setup_script() + 'stage=' + quote(stage) + '\nmkdir -m 700 "$stage"\ntrap \'rm -rf "$stage"\' EXIT HUP INT TERM\n';
+   for (let name, code in codes) {
+    let delimiter = 'HF_' + token();
+    deploy += 'cat > "$stage"/' + quote(name) + ' <<\'' + delimiter + '\'\n' + code + '\n' + delimiter + '\n';
+   }
+   deploy += 'printf %s ' + quote(hash) + ' > "$stage/ready"\nif [ -e ' + quote(path) + ' ] || [ -L ' + quote(path) + ' ]; then [ ! -L ' + quote(path) + ' ] && [ -O ' + quote(path + '/ready') + ' ] && [ "$(cat ' + quote(path + '/ready') + ')" = ' + quote(hash) + ' ]; else mv "$stage" ' + quote(path) + '; fi\n';
+   let pipe = fs.popen(ssh_command(d, dir, 'sh -s', false) + ' >' + quote(dir + '/deploy.log') + ' 2>&1', 'w');
+   if (!pipe) error('Cannot start remote helper setup');
+   let written = pipe.write(deploy), rc = pipe.close();
+   if (written != length(deploy) || rc != 0) error(tail(dir + '/deploy.log', 4096) || 'Remote helper setup failed');
+  }
+  save_json(ROOT + '/agent-' + d.id, { revision: d.revision, path, hash });
+ }
+ catch (e) { fs.unlink(dir + '/source'); fs.unlink(dir + '/deploy.log'); remove_query(dir); die(e); }
+ fs.unlink(dir + '/deploy.log'); remove_query(dir);
+ return { ready: true, device_id: d.id, device_revision: d.revision };
+}
+function agent_request(p, params, api, env) {
+ let d = agent_device(p);
+ trusted(d);
+ let cached = read_json(ROOT + '/agent-' + d.id);
+ if (!cached || cached.revision != d.revision || !match(cached.hash ?? '', /^[a-f0-9]{64}$/) || cached.path != agent_root() + '/' + cached.hash) error('Remote file helper is not ready; reopen the operation');
+ if (api && index(AGENT_APIS, api) < 0) error('Unsupported remote file action');
+ if (!api && index(AGENT_MODES, params.mode ?? 'download') < 0) error('Unsupported remote file mode');
+ let prefs = H.read_preferences();
+ let request = { params, api, env, preferences: { allow_system_operations: prefs.allow_system_operations, show_hidden_files: prefs.show_hidden_files ?? 0, enable_thumbnails: prefs.enable_thumbnails ?? 0 } };
+ delete request.params.device_id; delete request.params.device_revision; delete request.params.sessionid; delete request.params.remote_action;
+ delete request.env.QUERY_STRING;
+ if (api) {
+  let query = [];
+  for (let key, value in request.params) if (type(value) == 'string' || type(value) == 'int') push(query, key + '=' + replace('' + value, /[^A-Za-z0-9_.~-]/g, (c) => sprintf('%%%02X', ord(c))));
+  request.env.QUERY_STRING = join('&', query);
+ }
+ let input = sprintf('%J', request) + '\n';
+ if (length(input) > 4194304) error('Remote request is too large');
+ let program = 'const req = json(require("fs").stdin.read("line")); req.preferences.home_dir = getenv("HOME") || "/tmp"; if (req.api) { require("agent_context").request = req; require("agent_api")["api_" + req.api](); } else require("agent_io").agent(req.params, req.env, req.preferences);';
+ let script = '[ ! -L ' + quote(cached.path) + ' ] && [ -O ' + quote(cached.path + '/ready') + ' ] && [ "$(cat ' + quote(cached.path + '/ready') + ')" = ' + quote(cached.hash) + ' ] || { echo "Remote file helper is not ready; reopen the operation" >&2; exit 1; }\nexec ucode -L ' + quote(cached.path) + ' -e ' + quote(program);
+ return { device: d, script, input };
+}
+function agent_rpc(p) {
+ let data;
+ try { data = json(p.rpc_data ?? '{}'); } catch (e) { error('Invalid remote file request'); }
+ if (type(data) != 'object' || index(AGENT_APIS, p.rpc_action) < 0 || p.rpc_action == 'upload' || p.rpc_action == 'save_editor_upload') error('Invalid remote file request');
+ if (p.rpc_action == 'tool_install_start' && index([ 'bsdtar', 'tar', 'gzip', 'gunzip', 'bzip2', 'xz', 'ffmpeg', 'convert', 'gm', 'ttyd' ], data.tool) < 0) error('Unsupported remote tool');
+ if (p.rpc_action == 'tool_install_start' || p.rpc_action == 'package_install_start') {
+  let info = tool_info(agent_device(p));
+  if (!info.root) error('Remote installation requires a root SSH account');
+  if (!info.can_install) error('Remote device has neither opkg nor apk');
+ }
+ let job = agent_request(p, data, p.rpc_action, { REQUEST_METHOD: 'POST', CONTENT_LENGTH: '0' });
+ let dir = workspace(), raw, response;
+ try {
+  if (fs.writefile(dir + '/request', job.input) != length(job.input) || !fs.chmod(dir + '/request', 0o600)) error('Cannot prepare remote request');
+  raw = shell(ssh_command(job.device, dir, job.script, false) + ' < ' + quote(dir + '/request'), dir, 120);
+ } catch (e) { fs.unlink(dir + '/request'); remove_query(dir); die(e); }
+ fs.unlink(dir + '/request'); remove_query(dir);
+ try { response = json(raw); } catch (e) { error('Invalid remote file response'); }
+ if (type(response) != 'object' || type(response.code) != 'int') error('Invalid remote file response');
+ return response;
+}
+function stream_remote(params, env, helpers) {
+ H = helpers;
+ let api = params.mode == 'api_upload' ? params.rpc_action : null;
+ if (api && api != 'upload' && api != 'save_editor_upload') error('Invalid remote upload');
+ let job = agent_request(params, { ...params }, api, env), dir = workspace();
+ let pipe;
+ try {
+  if (fs.writefile(dir + '/request', job.input) != length(job.input) || !fs.chmod(dir + '/request', 0o600)) error('Cannot prepare remote request');
+  pipe = fs.popen('{ cat ' + quote(dir + '/request') + '; cat; } | sh -c ' + quote(ssh_command(job.device, dir, job.script, false)) + ' 2>' + quote(dir + '/error'), 'r');
+  if (!pipe) error('Cannot start remote file request');
+  if (api) {
+   let raw = pipe.read(1048576), rc = pipe.close(); pipe = null;
+   if (rc != 0) error(tail(dir + '/error', 4096) || 'Remote upload failed');
+   let response = json(raw);
+   if (H.headers_started) H.headers_started();
+   print('Status: 200 OK\r\nContent-Type: application/json\r\nCache-Control: no-store\r\n\r\n', sprintf('%J', response));
+  }
+  else {
+   let header = '', end = -1, separator = 4, chunk;
+   while (length(header) < 16384) {
+    chunk = pipe.read(1024);
+    if (!length(chunk)) error(tail(dir + '/error', 4096) || 'Remote file request failed');
+    header += chunk;
+    end = index(header, '\r\n\r\n');
+    if (end < 0) { end = index(header, '\n\n'); separator = 2; }
+    else separator = 4;
+    if (end >= 0) break;
+   }
+   if (end < 0 || end > 16384) error('Invalid remote file headers');
+   let lines = split(substr(header, 0, end), /\r?\n/), response = lines[0] + '\r\n', seen = {};
+   if (!match(lines[0], /^Status: [1-5][0-9]{2} [^[:cntrl:]]+$/)) error('Invalid remote file headers');
+   for (let i = 1; i < length(lines); i++) {
+    let field = match(lines[i], /^([A-Za-z0-9-]+):[ \t]*(.*)$/);
+    if (!field || match(field[2], /[[:cntrl:]]/)) error('Invalid remote file headers');
+    let key = lc(field[1]);
+    if (index(['content-type', 'content-length', 'content-range', 'content-disposition', 'accept-ranges', 'cache-control', 'etag', 'last-modified', 'x-content-type-options', 'x-harbor-total', 'x-harbor-offset'], key) < 0) continue;
+    if (seen[key] || key == 'content-length' && !match(field[2], /^[0-9]+$/)) error('Invalid remote file headers');
+    seen[key] = true; response += field[1] + ': ' + field[2] + '\r\n';
+   }
+   if (H.headers_started) H.headers_started();
+   print(response, '\r\n', substr(header, end + separator));
+   while (length(chunk = pipe.read(65536) ?? '')) print(chunk);
+   pipe.close(); pipe = null;
+  }
+ }
+ catch (e) { if (pipe) pipe.close(); fs.unlink(dir + '/request'); remove_query(dir); die(e); }
+ fs.unlink(dir + '/request'); remove_query(dir);
+}
+
 function status(id) {
 	if (!match(id ?? '', /^[a-f0-9]{32}$/)) error('Invalid task ID');
 	let dir = ROOT + '/' + id, task = read_json(dir + '/state');
@@ -494,8 +662,9 @@ function dispatch(http, helpers) {
 	H = helpers;
 	try {
 		let action = http.formvalue('remote_action'), p = parameters(http), result;
-		let write = action == 'get' || action == 'save' || action == 'delete' || action == 'trust' || action == 'start' || action == 'install_stat';
+		let write = action == 'get' || action == 'save' || action == 'delete' || action == 'trust' || action == 'start' || action == 'install_stat' || action == 'agent_install' || action == 'agent_prepare' || action == 'rpc';
 		if (write && http.getenv('REQUEST_METHOD') != 'POST') error('POST required');
+		authorize_remote(http, action, p);
 		if (action == 'devices') prune_runtime();
 		if (action == 'devices') {
 			let info = tool_info(null);
@@ -506,6 +675,10 @@ function dispatch(http, helpers) {
 			if (!d) error('Device not found');
 			result = tool_info(d);
 		}
+		else if (action == 'agent_info') result = agent_info(p);
+		else if (action == 'agent_install') result = agent_install(p);
+		else if (action == 'agent_prepare') result = agent_prepare(p);
+		else if (action == 'rpc') result = agent_rpc(p);
 		else if (action == 'install_stat') result = install_stat(p);
 		else if (action == 'get') { result = device(p.id); delete result.host_key; }
 		else if (action == 'save') result = update_device(p);
@@ -547,4 +720,4 @@ function dispatch(http, helpers) {
 	}
 }
 
-return { dispatch };
+return { dispatch, stream_remote };

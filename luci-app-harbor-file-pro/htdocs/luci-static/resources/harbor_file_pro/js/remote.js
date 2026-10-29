@@ -19,8 +19,8 @@
         return new Promise(function(resolve, reject) {
             HF.Util.ajax({
                 url: HF.api.list, type: 'POST', dataType: 'json',
-                timeout: action === 'start' || action === 'check' || action === 'install_stat' ? 75000 : action === 'list' || action === 'capacity' || action === 'tools' ? 45000 : 15000,
-                data: Object.assign({}, data || {}, { remote_action: action }),
+                timeout: action === 'rpc' || action === 'agent_prepare' ? 120000 : action === 'start' || action === 'check' || action === 'install_stat' ? 75000 : action === 'list' || action === 'capacity' || action === 'tools' ? 45000 : 15000,
+                data: Object.assign({}, data || {}, { remote_action: action, sessionid: HF.sessionid || (window.HarborIO && HarborIO.getSessionID()) || '' }),
                 success: function(res) {
                     if (res && res.code === 0) { resolve(res.data || {}); return; }
                     var error = new Error(res && res.message || HF.labels.request_failed);
@@ -54,6 +54,7 @@
                 devices.clear();
                 (data.devices || []).forEach(function(d) { devices.set(d.id, d); });
                 capacities.forEach(function(entry, id) { if (!currentCapacity(entry)) capacities.delete(id); });
+                preparedFiles.forEach(function(entry, id) { if (!devices.has(id) || devices.get(id).revision !== entry.revision) invalidateFiles(id); });
                 HF.render_sidebar();
                 if (HF.state.target_picker && HF.configure_target_devices) HF.configure_target_devices(HF.state.target_picker);
                 if (activeDevice()) HF.update_toolbar();
@@ -70,6 +71,7 @@
             var meta = HF.add_sidebar_meta(node, label('unknown'));
             meta.dataset.remoteCapacity = d.id;
             node.dataset.deviceId = d.id; node.title = d.name; list.appendChild(node);
+            HF.bind_drop_target(node, lastPaths[d.id] || '/', d.name, { device_id: d.id, device_revision: d.revision });
             ensureCapacity(d);
         });
         if (!devicesLoaded && !devicesLoading) loadDevices().catch(function() {});
@@ -169,21 +171,13 @@
         var d = devices.get(id);
         if (!d) return Promise.reject(new Error(label('unavailable')));
         var revision = d.revision;
-        function valid() { return (!current || current()) && devices.has(id) && devices.get(id).revision === revision; }
-        function read() { return request('list', { device_id: id, device_revision: revision, path: path }); }
-        return read().catch(function(error) {
-            error.stopFallback = !!(error.data && error.data.stat_missing);
-            if (!valid() || !error.data || !error.data.stat_missing || error.data.device_revision !== revision) throw error;
-            return request('tools', { device_id: id, device_revision: revision }).then(function(info) {
-                if (!valid()) throw error;
-                toolChecks.set(id, Object.assign({}, info, { revision: revision }));
-                if (info.stat) return true;
-                if (!info.can_install) throw new Error(!info.root ? label('root_required') : label('pm_missing'));
-                return installRemoteStat(d);
-            }).then(function(okay) {
-                if (!okay || !valid()) throw error;
-                return read();
-            }).catch(function(failure) { failure.stopFallback = true; throw failure; });
+        return fileRequest({ device_id: id, device_revision: revision }, 'list', { path: path }).then(function(res) {
+            if (!res || res.code !== 0) throw new Error(res && res.message || HF.labels.request_failed);
+            if ((current && !current()) || !devices.has(id) || devices.get(id).revision !== revision) throw new Error(label('stale_device'));
+            if (!res.data || !Array.isArray(res.data.items) || typeof res.data.path !== 'string') throw new Error(HF.labels.request_failed);
+            var data = Object.assign({}, res.data, { device_revision: revision, device_name: devices.get(id).name });
+            if (data.used_bytes === undefined) data.used_bytes = Math.max(0, Number(data.total_bytes || 0) - Number(data.available_bytes || 0));
+            return data;
         });
     };
     HF.open_remote_path = function(id, path, addHistory, selectPath) {
@@ -203,7 +197,7 @@
             data.device_id = id;
             if (data.device_name) devices.set(id, Object.assign({}, devices.get(id), { id: id, name: data.device_name, revision: data.device_revision, trusted: true }));
             data.items = (data.items || []).filter(function(item) { return HF.state.preferences.show_hidden_files === 1 || !item.hidden; }).map(function(item) {
-                return Object.assign({}, item, { device_id: id });
+                return Object.assign({}, item, { device_id: id, device_revision: data.device_revision });
             });
             HF.state.current = Object.assign({ kind: 'directory', device_id: id }, data);
             delete HF.state.current.items;
@@ -221,7 +215,7 @@
         });
     }
     function deviceChanged(id, identityChanged) {
-        capacities.delete(id); toolChecks.delete(id);
+        capacities.delete(id); toolChecks.delete(id); invalidateFiles(id);
         if (identityChanged) {
             remember(id, undefined);
             if (HF.state.clipboard && HF.state.clipboard.device_id === id) HF.state.clipboard = null;
@@ -235,6 +229,10 @@
         data.then(function(d) {
             if (sequence !== host._editorSequence) return;
             host._deviceId = d.id;
+            host._inputs.password.type = 'password';
+            host._passwordToggle.setAttribute('aria-pressed', 'false');
+            host._passwordToggle.title = label('show_password');
+            host._passwordToggle.setAttribute('aria-label', label('show_password'));
             Object.keys(host._inputs).forEach(function(k) { host._inputs[k].value = d[k] === undefined ? '' : d[k]; host._inputs[k].setCustomValidity(''); });
             host._message.textContent = '';
             host._inputs.name.focus();
@@ -252,7 +250,7 @@
             var text = HF.Util.createElement('label', 'fm-settings-label', label(key));
             var input = HF.Util.createElement('input', 'fm-settings-control ' + (key === 'port' ? 'fm-settings-number-control' : 'fm-settings-text-control'));
             input.id = 'fm_remote_' + key; text.htmlFor = input.id;
-            input.type = key === 'port' ? 'number' : 'text';
+            input.type = key === 'port' ? 'number' : key === 'password' ? 'password' : 'text';
             input.autocomplete = 'off'; input.spellcheck = false;
             input.required = true;
             input.placeholder = { name: label('name_placeholder'), host: '192.168.1.1 / router.example.com', port: '22', username: 'root', password: label('password_placeholder') }[key];
@@ -260,7 +258,20 @@
             input.maxLength = key === 'password' ? 1024 : key === 'name' ? 128 : key === 'username' ? 64 : 253;
             if (key === 'port') { input.min = '1'; input.max = '65535'; }
             host._inputs[key] = input;
-            row.appendChild(text); row.appendChild(input); form.appendChild(row);
+            row.appendChild(text);
+            if (key === 'password') {
+                var wrap = HF.Util.createElement('div', 'fm-remote-password');
+                var toggle = button('*', function() {
+                    input.type = input.type === 'password' ? 'text' : 'password';
+                    toggle.setAttribute('aria-pressed', input.type === 'text' ? 'true' : 'false');
+                    toggle.title = input.type === 'text' ? label('hide_password') : label('show_password');
+                    toggle.setAttribute('aria-label', toggle.title);
+                });
+                toggle.title = label('show_password'); toggle.setAttribute('aria-label', toggle.title); toggle.setAttribute('aria-pressed', 'false');
+                host._passwordToggle = toggle;
+                wrap.appendChild(input); wrap.appendChild(toggle); row.appendChild(wrap);
+            } else row.appendChild(input);
+            form.appendChild(row);
         });
         var actions = HF.Util.createElement('div', 'fm-settings-page-actions');
         var reset = button(label('add'), function() { editDevice(''); });
@@ -369,16 +380,17 @@
             row._actions.appendChild(install);
         }
     }
-    function installRemoteStat(d) {
-        var existing = installations.get(d.id);
+    function installRemoteStat(d, agent) {
+        var key = d.id + (agent ? ':agent' : '');
+        var existing = installations.get(key);
         if (existing && !existing.data.done) { showInstall(existing); return existing.completion; }
-        if (installRequests.has(d.id)) return installRequests.get(d.id);
-        var pending = HF.confirm_window({ title: label('install_remote'), message: d.name + '\n' + d.username + '@' + d.host + ':' + d.port + '\n' + label('install_confirm') }).then(function(yes) {
+        if (installRequests.has(key)) return installRequests.get(key);
+        var pending = HF.confirm_window({ title: label('install_remote'), message: d.name + '\n' + d.username + '@' + d.host + ':' + d.port + '\n' + label(agent ? 'agent_install_confirm' : 'install_confirm') }).then(function(yes) {
             if (!yes || !devices.has(d.id) || devices.get(d.id).revision !== d.revision) return false;
-            var job = { device: Object.assign({}, d), data: { done: false, package_name: 'coreutils-stat', path: d.name + ' (' + d.host + ':' + d.port + ')', message: label('loading') } };
+            var job = { agent: !!agent, device: Object.assign({}, d), data: { done: false, package_name: agent ? 'ucode ucode-mod-fs ucode-mod-uci' : 'coreutils-stat', path: d.name + ' (' + d.host + ':' + d.port + ')', message: label('loading') } };
             job.completion = new Promise(function(resolve) { job.resolve = resolve; });
-            installations.set(d.id, job); showInstall(job);
-            request('install_stat', { device_id: d.id, device_revision: d.revision }).then(function(data) {
+            installations.set(key, job); showInstall(job);
+            request(agent ? 'agent_install' : 'install_stat', { device_id: d.id, device_revision: d.revision }).then(function(data) {
                 job.data = Object.assign({}, job.data, data); updateInstall(job);
                 if (data.task_id) { job.id = data.task_id; pollInstall(job); }
                 else refreshInstallDevice(job);
@@ -387,8 +399,8 @@
                 updateInstall(job); refreshInstallDevice(job);
             });
             return job.completion;
-        }).finally(function() { installRequests.delete(d.id); });
-        installRequests.set(d.id, pending);
+        }).finally(function() { installRequests.delete(key); });
+        installRequests.set(key, pending);
         return pending;
     }
     function showInstall(job) {
@@ -422,6 +434,10 @@
     function refreshInstallDevice(job) {
         var current = devices.get(job.device.id);
         if (!current || current.revision !== job.device.revision) { if (job.resolve) job.resolve(false); return; }
+        if (job.agent) {
+            request('agent_info', { device_id: current.id, device_revision: current.revision }, true).then(function(info) { if (job.resolve) job.resolve(!!(devices.has(current.id) && devices.get(current.id).revision === job.device.revision && info.ready && job.data.success && job.data.state !== 'unknown')); }, function() { if (job.resolve) job.resolve(false); });
+            return;
+        }
         toolChecks.delete(current.id);
         request('tools', { device_id: current.id, device_revision: current.revision }, true).then(function(data) {
             var valid = devices.has(current.id) && devices.get(current.id).revision === current.revision && data.device_revision === current.revision;
@@ -481,7 +497,7 @@
                     exclude_paths: JSON.stringify(excluded || [])
                 });
                 if (names) params.rename_map = JSON.stringify(names);
-                var task = { clipboard: clipboard, id: 'pending-' + (++taskSequence), context: context, description: nameOf(context.source_device) + ' → ' + nameOf(context.target_device), data: { done: false, preparing: true }, lastBytes: 0, lastTime: Date.now() };
+                var task = { started: Date.now(), clipboard: clipboard, id: 'pending-' + (++taskSequence), context: context, description: nameOf(context.source_device) + ' → ' + nameOf(context.target_device), data: { done: false, preparing: true }, lastBytes: 0, lastTime: Date.now() };
                 tasks.set(task.id, task); showTask(task);
                 request('start', params).then(function(data) {
                     if (!data.task_id) { task.data = data; updateTask(task); finishTask(task); return; }
@@ -538,7 +554,8 @@
         if (data.done === true && data.success === true && task.record && !task.record.closed) HF.window_manager.close(task.record);
         var target = devices.get(task.context.target_device);
         if (target && target.revision === task.context.target_revision) {
-            capacities.delete(target.id); ensureCapacity(target);
+            capacities.delete(target.id);
+            if (activeDevice() !== target.id || !HF.state.current || HF.state.current.kind !== 'directory') ensureCapacity(target);
         }
         if ((activeDevice() === task.context.target_device || task.context.operation === 'move' && activeDevice() === task.context.source_device) && HF.state.current && HF.state.current.kind === 'directory') HF.refresh_current();
         return true;
@@ -550,7 +567,7 @@
             task.lastBytes = Number(data.bytes || 0); task.lastTime = now;
             task.data = data; task.waiting = false; updateTask(task);
             if (finishTask(task)) return;
-            task.timer = setTimeout(function() { pollTask(task); }, 1000);
+            task.timer = setTimeout(function() { pollTask(task); }, Date.now() - task.started < 5000 ? 250 : 1000);
         }).catch(function() {
             task.waiting = true; updateTask(task);
             task.timer = setTimeout(function() { pollTask(task); }, 2000);
@@ -616,36 +633,229 @@
         });
     };
     if (HF.FileOperations) HF.FileOperations.open_transfer_dialog = HF.open_transfer_dialog;
-    var menu = HF.show_context_menu;
-    HF.show_context_menu = function(id, x, y, anchor) {
-        if (activeDevice()) {
-            ['open_binary', 'properties', 'terminal', 'download', 'compress', 'extract', 'upload', 'upload_folder', 'rename', 'delete', 'new_folder', 'new_file', 'upload_here', 'upload_folder_here', 'terminal_here'].forEach(function(key) {
-                HF.set_button_state('fm_menu_' + key, true, label('unavailable'));
-            });
-            if (HF.state.context_item && HF.state.context_item.type !== 'directory') HF.set_button_state('fm_menu_open', true, label('unavailable'));
+    var localTerminal = HF.open_terminal;
+    HF.open_terminal = function(item) {
+        var owner = HF.file_context(item && item.device_id !== undefined ? item : HF.state.current);
+        if (!owner.device_id) return localTerminal(item);
+        owner.path = HF.resolve_terminal_target(item).path;
+        HF.hide_context_menus(); HF.hide_details();
+        var d = devices.get(owner.device_id), fields = Object.create(null), closed = false, timer = null, sequence = 0, url = '';
+        if (!d || d.revision !== owner.device_revision) return HF.set_error_status(label('stale_device'));
+        var panel = document.getElementById('fm_terminal_dialog').querySelector('.fm-terminal-shell').cloneNode(true);
+        panel.querySelectorAll('[id]').forEach(function(node) { fields[node.id] = node; node.removeAttribute('id'); });
+        var frame = fields.fm_terminal_frame, loading = fields.fm_terminal_loading, failure = fields.fm_terminal_error;
+        var install = fields.fm_terminal_install_tool, external = fields.fm_terminal_open_external;
+        frame.src = 'about:blank'; frame.referrerPolicy = 'no-referrer';
+        var record = HF.window_manager.create({ title: nameOf(owner.device_id) + ' · ' + HF.labels.terminal, icon: 'terminal', className: 'fm-remote-terminal', content: panel, width: 900, height: 560, minWidth: 300, minHeight: 240, persistSize: false, onClose: function() { closed = true; sequence++; clearTimeout(timer); frame.src = 'about:blank'; } });
+        var controls = record.element.querySelector('.fm-window-controls');
+        var openExternal = HF.window_manager.add_control(controls, 'external', '↗', HF.labels.open_terminal_external, function() { if (url) window.open(url, '_blank', 'noopener,noreferrer'); });
+        controls.insertBefore(openExternal, controls.firstChild); openExternal.disabled = true;
+        var reconnect = HF.window_manager.add_control(controls, 'reconnect', '↻', HF.labels.refresh, connect);
+        controls.insertBefore(reconnect, controls.firstChild);
+        function failed(message, missing) {
+            clearTimeout(timer); loading.classList.remove('show'); failure.classList.add('show');
+            fields.fm_terminal_error_text.textContent = HF.labels.terminal_failed;
+            fields.fm_terminal_error_hint.textContent = message + '\n' + label('terminal_direct');
+            install.style.display = missing ? '' : 'none'; external.style.display = url ? '' : 'none';
         }
-        return menu(id, x, y, anchor);
+        function connect() {
+            if (closed) return;
+            var requestSequence = ++sequence;
+            frame.onload = null; frame.onerror = null; frame.src = 'about:blank'; url = ''; openExternal.disabled = true;
+            clearTimeout(timer); failure.classList.remove('show'); loading.classList.add('show');
+            install.style.display = 'none'; external.style.display = 'none';
+            fields.fm_terminal_loading_hint.textContent = d.name + ' · ' + owner.path;
+            HF.request_json(HF.file_endpoint('terminal_info', owner), {}, function(info) {
+                if (closed || sequence !== requestSequence) return;
+                if (!info.available) return failed(HF.labels.terminal_service_missing, true);
+                try { url = HF.resolve_terminal_url(info, d.host); openExternal.disabled = false; } catch (error) { return failed(error.message, false); }
+                if (window.location.protocol === 'https:' && /^http:/i.test(url)) return failed(HF.labels.terminal_https_hint, false);
+                frame.onload = function() { if (closed || sequence !== requestSequence) return; clearTimeout(timer); loading.classList.remove('show'); };
+                frame.onerror = function() { if (!closed && sequence === requestSequence) failed(HF.labels.terminal_failed_hint, false); };
+                timer = setTimeout(function() { if (!closed && sequence === requestSequence) failed(HF.labels.terminal_failed_hint, false); }, 8000);
+                frame.src = url;
+            }, function(message) { if (!closed && sequence === requestSequence) failed(message, false); });
+        }
+        install.addEventListener('click', function() {
+            HF.confirm_window({ title: label('install_remote'), message: d.name + '\n' + d.username + '@' + d.host + ':' + d.port + '\n' + label('terminal_install') }).then(function(yes) {
+                if (!yes || closed) return;
+                HF.request_write(HF.file_endpoint('tool_install_start', owner), { tool: 'ttyd' }, '', function(task) { HF.remote_file_job('install', task, connect); });
+            });
+        });
+        external.addEventListener('click', function() { if (url) window.open(url, '_blank', 'noopener,noreferrer'); });
+        connect(); return record;
     };
-    ['open_binary', 'open_text', 'open_image', 'open_pdf', 'open_video', 'open_properties', 'open_terminal', 'trigger_download', 'open_archive_dialog', 'start_archive_extract', 'open_name_dialog', 'open_delete_dialog', 'trigger_upload', 'open_link_target', 'toggle_bookmark'].forEach(function(key) {
+    if (HF.SystemWindows) HF.SystemWindows.open_terminal = HF.open_terminal;
+    var preparingFiles = new Map(), preparedFiles = new Map();
+    function invalidateFiles(id) {
+        preparedFiles.delete(id);
+    }
+    HF.ensure_remote_files = function(owner) {
+        if (!owner || !owner.device_id) return Promise.resolve();
+        var d = devices.get(owner.device_id), revision = owner.device_revision;
+        if (!d || typeof revision !== 'string' || revision !== d.revision) return Promise.reject(new Error(label('stale_device')));
+        var cached = preparedFiles.get(d.id);
+        if (cached && cached.revision === revision && Date.now() - cached.time < 60000) return Promise.resolve(cached.data);
+        var key = d.id + ':' + revision;
+        if (preparingFiles.has(key)) return preparingFiles.get(key);
+        var attempted = Object.create(null);
+        function prepare() {
+            if (!devices.has(d.id) || devices.get(d.id).revision !== revision) return Promise.reject(new Error(label('stale_device')));
+            return request('agent_prepare', { device_id: d.id, device_revision: revision }).catch(function(error) {
+                var info = error.data, kind = info && (info.stat_missing ? 'stat' : info.agent_missing ? 'agent' : '');
+                if (!kind || attempted[kind] || info.device_revision !== revision || !devices.has(d.id) || devices.get(d.id).revision !== revision) throw error;
+                attempted[kind] = true;
+                error.stopFallback = true;
+                return installRemoteStat(d, kind === 'agent').then(function(ready) {
+                    if (!ready) throw error;
+                    return prepare();
+                }).catch(function(failure) { failure.stopFallback = true; throw failure; });
+            });
+        }
+        var pending = prepare().then(function(data) {
+            if (!data.ready || data.device_revision !== revision || !devices.has(d.id) || devices.get(d.id).revision !== revision) throw new Error(label('stale_device'));
+            preparedFiles.set(d.id, { revision: revision, time: Date.now(), data: data });
+            return data;
+        }).finally(function() { preparingFiles.delete(key); });
+        preparingFiles.set(key, pending);
+        return pending;
+    };
+    function fileRequest(owner, action, data, retried) {
+        return HF.ensure_remote_files(owner).then(function() {
+            return request('rpc', Object.assign({}, owner, { rpc_action: action, rpc_data: JSON.stringify(data) }));
+        }).then(function(res) {
+            if (!res || res.code !== 0) {
+                invalidateFiles(owner.device_id);
+                if (!retried && res && res.data && res.data.helper_missing && ['list', 'detect_type', 'read_text', 'archive_status', 'thumbnail_generate_status', 'package_install_status', 'terminal_info'].indexOf(action) >= 0) return fileRequest(owner, action, data, true);
+            }
+            return res;
+        }).catch(function(error) { invalidateFiles(owner.device_id); throw error; });
+    }
+    var localAjax = HF.Util.ajax;
+    HF.Util.ajax = function(options) {
+        var url = new URL(options.url || '', 'http://harbor.invalid');
+        var id = url.searchParams.get('_hf_device');
+        if (!id) return localAjax(options);
+        var owner = { device_id: id, device_revision: url.searchParams.get('_hf_revision') || '' };
+        var action = url.searchParams.get('_hf_action'), data = Object.assign({}, options.data || {});
+        url.searchParams.forEach(function(value, key) { if (key.indexOf('_hf_') !== 0) data[key] = value; });
+        fileRequest(owner, action, data).then(function(res) {
+            if (res && res.data && typeof res.data === 'object') {
+                res.data.device_id = id; res.data.device_revision = owner.device_revision;
+                if (res.data.missing_tool) res.data.remote_retry = function() { HF.Util.ajax(options); };
+                (res.data.items || []).forEach(function(item) { item.device_id = id; item.device_revision = owner.device_revision; });
+            }
+            if (options.success) options.success(res);
+        }).catch(function(error) {
+            if (options.success) options.success({ code: 1, message: error.message + (error.uncertain && String(options.type || 'GET').toUpperCase() === 'POST' ? '\n' + label('outcome_unknown') : ''), data: error.data });
+        });
+    };
+    var originalOpenItem = HF.open_item;
+    HF.open_item = function(item, force) {
+        if (!item || !item.device_id) return originalOpenItem(item, force);
+        HF.hide_details(); HF.hide_context_menus();
+        if (item.type === 'directory') return HF.open_remote_path(item.device_id, item.path, true);
+        if (force || item.preview === 'package' || HF.is_archive_item(item)) return originalOpenItem(item, force);
+        HF.request_json(HF.file_endpoint('detect_type', item), { path: item.path }, function(data) {
+            item.preview = data.kind === 'text' ? 'text' : data.kind === 'image' ? 'image' : data.kind === 'pdf' ? 'pdf' : data.kind === 'video' || data.kind === 'audio' ? 'video' : 'none';
+            originalOpenItem(item);
+        });
+    };
+    ['open_binary', 'open_text', 'open_image', 'open_pdf', 'open_video', 'open_properties', 'trigger_download', 'start_archive_extract'].forEach(function(key) {
         var original = HF[key];
-        if (!original) return;
-        HF[key] = function() {
-            var first = arguments[0];
-            if (activeDevice() || first && first.device_id || Array.isArray(first) && first.some(function(item) { return item.device_id; })) return HF.remote_unavailable();
-            return original.apply(HF, arguments);
+        HF[key] = function(item) {
+            if (!item || !item.device_id) return original.apply(HF, arguments);
+            var args = Array.prototype.slice.call(arguments);
+            HF.ensure_remote_files(item).then(function() {
+                var record = original.apply(HF, args);
+                if (key === 'open_properties') record = document.getElementById('fm_property_dialog')._fmWindow;
+                if (record && record.title_node) record.title_node.textContent = nameOf(item.device_id) + ' · ' + record.title_node.textContent;
+            }).catch(function(error) { HF.set_error_status(error.message); });
         };
-        if (HF.FileOperations && HF.FileOperations[key] === original) HF.FileOperations[key] = HF[key];
+        if (HF.DocumentWindows && HF.DocumentWindows[key] === original) HF.DocumentWindows[key] = HF[key];
         if (HF.SystemWindows && HF.SystemWindows[key] === original) HF.SystemWindows[key] = HF[key];
+        if (HF.FileOperations && HF.FileOperations[key] === original) HF.FileOperations[key] = HF[key];
     });
-    ['can_upload_to_path', 'can_move_to_path'].forEach(function(key) {
-        var original = HF[key];
-        HF[key] = function(path) { return !activeDevice() && original(path); };
-    });
+    if (HF.FileOperations) HF.FileOperations.open_item = HF.open_item;
+    HF.remote_file_job = function(kind, data, retry) {
+        var owner = HF.file_context(data), job = { data: data, kind: kind };
+        var source = document.getElementById(kind === 'archive' ? 'fm_archive_task_dialog' : kind === 'thumbnail' ? 'fm_thumbnail_dialog' : 'fm_package_install_dialog');
+        var panel = HF.Util.createElement('div', 'fm-remote-install-panel');
+        var body = source.querySelector('.fm-package-install-body').cloneNode(true), fields = Object.create(null);
+        body.querySelectorAll('[id]').forEach(function(node) { fields[node.id] = node; node.removeAttribute('id'); });
+        panel.appendChild(body);
+        var actions = HF.Util.createElement('div', 'fm-dialog-actions');
+        var install = button(label('install'), function() {
+            var tool = job.data.missing_tool;
+            if (!tool) return;
+            var d = devices.get(owner.device_id);
+            HF.confirm_window({ title: label('install_remote'), message: nameOf(owner.device_id) + '\n' + (d ? d.username + '@' + d.host + ':' + d.port : '') + '\n' + tool }).then(function(yes) {
+                if (!yes) return;
+                HF.request_write(HF.file_endpoint('tool_install_start', owner), { tool: tool }, '', function(task) { HF.remote_file_job('install', task, retry); });
+            });
+        });
+        var close = button(HF.labels.close, function() { HF.window_manager.close(job.record); });
+        actions.appendChild(install); actions.appendChild(close); panel.appendChild(actions);
+        job.record = HF.window_manager.create({ title: nameOf(owner.device_id), icon: 'file', className: 'fm-remote-file-job', content: panel, width: 600, height: 500, minWidth: 300, minHeight: 180, persistSize: false, beforeClose: function() { return kind === 'install' || !!job.data.done || !!job.data.missing_tool; } });
+        function paint() {
+            if (kind === 'archive' || kind === 'thumbnail') {
+                (kind === 'archive' ? HF.paint_archive_task : HF.paint_thumbnail_task)(job.data, function(id) {
+                    if (id === 'fm_archive_task_title' || id === 'fm_thumbnail_title') return job.record.title_node;
+                    if (id === 'fm_archive_task_close' || id === 'fm_archive_task_done' || id === 'fm_thumbnail_close' || id === 'fm_thumbnail_done') return close;
+                    if (id === 'fm_archive_install_tool' || id === 'fm_thumbnail_install_tool') return install;
+                    return fields[id];
+                });
+                job.record.title_node.textContent = nameOf(owner.device_id) + ' · ' + job.record.title_node.textContent;
+            } else {
+                var values = HF.package_install_fields(job.data, null);
+                Object.keys(values).forEach(function(key) { if (fields['fm_package_install_' + key]) fields['fm_package_install_' + key].textContent = values[key]; });
+                job.record.title_node.textContent = nameOf(owner.device_id) + ' · ' + values.title;
+                install.style.display = 'none'; close.disabled = false;
+            }
+            HF.window_manager.render_taskbar();
+        }
+        function poll() {
+            request('rpc', Object.assign({}, owner, { rpc_action: kind === 'archive' ? 'archive_status' : kind === 'thumbnail' ? 'thumbnail_generate_status' : 'package_install_status', rpc_data: JSON.stringify({ task_id: job.data.task_id }) })).then(function(res) {
+                if (!res || res.code !== 0) throw new Error(res && res.message || HF.labels.request_failed);
+                job.failures = 0; job.data = Object.assign({}, res.data, owner); paint();
+                if (!job.data.done) setTimeout(poll, 1000);
+                else {
+                    if (job.data.success && activeDevice() === owner.device_id) HF.refresh_current();
+                    if (job.data.success && kind === 'install' && retry) retry();
+                }
+            }).catch(function(error) { job.failures = (job.failures || 0) + 1; job.data.message = label('waiting') + ': ' + error.message; if (job.failures >= 30) { job.data.done = true; job.data.success = false; job.data.state = 'unknown'; job.data.message = label('outcome_unknown'); } paint(); if (!job.data.done) setTimeout(poll, 2000); });
+        }
+        paint();
+        if (data.task_id && !data.done) poll();
+        else if (data.success && kind === 'install' && retry) retry();
+        return job;
+    };
+    var localArchiveProgress = HF.start_archive_progress;
+    HF.start_archive_progress = function(data) {
+        if (!data || !data.device_id) return localArchiveProgress(data);
+        return HF.remote_file_job('archive', data);
+    };
+    var localArchiveMissing = HF.show_archive_missing_tool;
+    HF.show_archive_missing_tool = function(res, mode) {
+        if (!res || !res.data || !res.data.device_id) return localArchiveMissing(res, mode);
+        return HF.remote_file_job('archive', Object.assign({ done: true, success: false, mode: mode, message: res.message }, res.data), res.data.remote_retry);
+    };
+    var localPackageInstall = HF.start_package_install;
+    HF.start_package_install = function(item) {
+        if (!item || !item.device_id) return localPackageInstall(item);
+        HF.close_file_dialog('fm_package_confirm_dialog');
+        HF.request_write(HF.file_endpoint('package_install_start', item), { path: item.path }, '', function(data) { HF.remote_file_job('install', data); });
+    };
+    var localThumbnails = HF.start_thumbnail_generation;
+    HF.start_thumbnail_generation = function(path, owner) {
+        owner = owner || HF.file_context();
+        if (!owner.device_id) return localThumbnails(path);
+        HF.Util.ajax({ url: HF.file_endpoint('thumbnail_generate_start', owner), type: 'POST', dataType: 'json', data: { path: path }, success: function(res) {
+            if (res && res.code === 0) HF.remote_file_job('thumbnail', res.data);
+            else if (res && res.data && res.data.missing_tool) HF.remote_file_job('thumbnail', Object.assign({ done: true, success: false, dependency_missing: true, path: path, message: res.message }, res.data), res.data.remote_retry);
+            else HF.set_error_status(res && res.message || HF.labels.thumbnail_failed);
+        } });
+    };
     var pathTitle = HF.path_title;
     HF.path_title = function(path) { return activeDevice() ? (path === '/' ? nameOf(activeDevice()) : String(path).split('/').pop()) : pathTitle(path); };
-    var star = HF.update_star;
-    HF.update_star = function() {
-        star();
-        if (activeDevice()) document.getElementById('fm_address_star').style.display = 'none';
-    };
 })(window.HarborFile);

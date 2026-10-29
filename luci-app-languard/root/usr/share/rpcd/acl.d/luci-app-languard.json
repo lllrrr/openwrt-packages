@@ -3,12 +3,12 @@
 		"description": "Grant access to LAN client block management",
 		"read": {
 			"ubus": {
-				"luci.languard": [ "list", "status", "iplist", "autoget", "loglist", "selfcheck", "schedlist", "notifyget", "grouplist", "portlist", "dashboard", "wllist", "panicstate", "trend", "portpresets", "feedlist", "exportconfig", "knownlist", "proxylist", "domainlist" ]
+				"luci.languard": [ "list", "status", "iplist", "autoget", "loglist", "selfcheck", "schedlist", "notifyget", "grouplist", "portlist", "dashboard", "wllist", "panicstate", "trend", "portpresets", "feedlist", "exportconfig", "knownlist", "proxylist", "domainlist", "applist", "appstats", "qoslist" ]
 			}
 		},
 		"write": {
 			"ubus": {
-				"luci.languard": [ "block", "unblock", "unblock_all", "rename", "ipadd", "ipdel", "ipflush", "sync", "scan", "autoset", "logevent", "logclear", "schedadd", "scheddel", "schedtoggle", "schedeval", "notifyadd", "notifydel", "notifytoggle", "notifyevents", "notifytest", "tick", "expire", "groupadd", "groupdel", "groupset", "curfew", "portadd", "portdel", "porttoggle", "wladd", "wldel", "panic", "porttemplate", "feedadd", "feeddel", "feedrefresh", "feedset", "importconfig", "knownadd", "proxyadd", "proxydel", "domainadd", "domaindel", "domaintoggle" ]
+				"luci.languard": [ "block", "unblock", "unblock_all", "rename", "ipadd", "ipdel", "ipflush", "sync", "scan", "autoset", "logevent", "logclear", "schedadd", "scheddel", "schedtoggle", "schedeval", "notifyadd", "notifydel", "notifytoggle", "notifyevents", "notifytest", "tick", "expire", "groupadd", "groupdel", "groupset", "curfew", "portadd", "portdel", "porttoggle", "wladd", "wldel", "panic", "porttemplate", "feedadd", "feeddel", "feedrefresh", "feedset", "importconfig", "knownadd", "proxyadd", "proxydel", "domainadd", "domaindel", "domaintoggle", "devmerge", "devunmerge", "appimport", "appdel", "appreset", "qosadd", "qosdel" ]
 			},
 			"file": {
 				"/etc/nftables.d/*": [ "write" ],

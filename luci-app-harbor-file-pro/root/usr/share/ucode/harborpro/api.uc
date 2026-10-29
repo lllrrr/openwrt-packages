@@ -703,6 +703,7 @@ function get_directory_space_info(path) {
 	return {
 		available: (+f[3]) * 1024,
 		total:     (+f[1]) * 1024,
+		used:      (+f[2]) * 1024,
 		margin:    OPERATION_SPACE_MARGIN
 	};
 }
@@ -1635,10 +1636,11 @@ function api_thumbnail_generate_start() {
 
 	let lines = [];
 	for (let j in jobs) {
-		push(lines, sprintf('echo "BEGIN %s"', j.path));
-		push(lines, sprintf('if gm convert %s -auto-orient -thumbnail %dx%d %s 2>&1; then echo "OK %s"; else echo "FAIL %s"; fi',
+		let shown = replace(j.path, /[\r\n]/g, ' ');
+		push(lines, sprintf("printf '%%s\\n' %s", shellquote('BEGIN ' + shown)));
+		push(lines, sprintf("if gm convert %s -auto-orient -thumbnail %dx%d %s 2>&1; then printf '%%s\\n' %s; else printf '%%s\\n' %s; fi",
 			shellquote(j.path), THUMBNAIL_SIZE, THUMBNAIL_SIZE, shellquote(j.cache),
-			j.path, j.path));
+			shellquote('OK ' + shown), shellquote('FAIL ' + shown)));
 	}
 
 	let script = RUNTIME_DIR + '/harbor_file_pro_thumbnail.sh';
@@ -1691,7 +1693,7 @@ function api_thumbnail_generate_status() {
 	st.current_file  = current;
 	st.log           = truncate_log(log, 8192);
 
-	if (!st.done && st.pid && !process_alive(st.pid)) {
+	if (!st.done && (task_finished(THUMBNAIL_RC) || st.pid && !process_alive(st.pid))) {
 		st.current_file = '';
 		settle_task(THUMBNAIL_STATE_FILE, st, THUMBNAIL_RC, failc == 0);
 	}
@@ -1919,6 +1921,7 @@ function read_bookmarks() {
 		push(out, {
 			label: trim('' + (sec.label ?? p)) || p,
 			path: p,
+			device_id: sec.device_id ?? '',
 			folder: trim('' + (sec.folder ?? ''))
 		});
 	});
@@ -1947,6 +1950,7 @@ function write_bookmarks(list) {
 		let sid = uci.add(CONFIG, 'bookmark');
 		uci.set(CONFIG, sid, 'label', b.label);
 		uci.set(CONFIG, sid, 'path', b.path);
+		if (b.device_id) uci.set(CONFIG, sid, 'device_id', b.device_id);
 		if (b.folder != null && b.folder != '')
 			uci.set(CONFIG, sid, 'folder', b.folder);
 	}
@@ -1966,15 +1970,19 @@ function write_bookmarks(list) {
 
 function bookmark_payload(list) {
 	let out = [];
+	let u = open_config().uci;
 	for (let b in list) {
-		let st = stat(b.path);
+		let st = b.device_id ? null : stat(b.path);
+		let device = u && b.device_id ? u.get_all(CONFIG, b.device_id) : null;
 		push(out, {
 			label: b.label,
 			path: b.path,
+			device_id: b.device_id ?? '', device_name: device?.name ?? '',
 			folder: b.folder ?? '',
-			exists: (st != null && st.type == 'directory')
+			exists: b.device_id ? device?.['.type'] == 'remote_device' : (st != null && st.type == 'directory')
 		});
 	}
+	if (u) u.unload(CONFIG);
 	return out;
 }
 
@@ -2109,6 +2117,14 @@ function apply_bookmarks_payload(list, folders) {
 }
 
 function api_bookmark_save() {
+	let device_id = http.formvalue('device_id') ?? '';
+	if (device_id && !match(device_id, /^[A-Za-z0-9_]+$/)) return fail(http, 1, tr('Invalid device'));
+	if (device_id) {
+		let u = open_config().uci;
+		let device = u ? u.get_all(CONFIG, device_id) : null;
+		if (u) u.unload(CONFIG);
+		if (device?.['.type'] != 'remote_device') return fail(http, 1, tr('Invalid device'));
+	}
 	let path = normalize_path(formvalue_any(http, [ 'path', 'address' ]));
 	if (!path)
 		return fail(http, 1, tr('Invalid path'));
@@ -2144,21 +2160,21 @@ function api_bookmark_save() {
 	if (original && original != path) {
 		let kept = [];
 		for (let b in list) {
-			if (b.path != original)
+			if (b.path != original || (b.device_id ?? '') != device_id)
 				push(kept, b);
 		}
 		list = kept;
 	}
 
 	for (let b in list) {
-		if (b.path == path) {
+		if (b.path == path && (b.device_id ?? '') == device_id) {
 			b.label = label;
 			b.folder = clean_folder;
 			found = true;
 		}
 	}
 	if (!found)
-		push(list, { label, path, folder: clean_folder });
+		push(list, { label, path, device_id, folder: clean_folder });
 
 	if (clean_folder != '') {
 		let folders = read_bookmark_folders();
@@ -2178,6 +2194,8 @@ function api_bookmark_save() {
 }
 
 function api_bookmark_delete() {
+	let device_id = http.formvalue('device_id') ?? '';
+	if (device_id && !match(device_id, /^[A-Za-z0-9_]+$/)) return fail(http, 1, tr('Invalid device'));
 	let path = normalize_path(formvalue_any(http, [ 'path', 'address' ]));
 	if (!path)
 		return fail(http, 1, tr('Invalid path'));
@@ -2185,7 +2203,7 @@ function api_bookmark_delete() {
 	let list = read_bookmarks();
 	let next = [];
 	for (let b in list)
-		if (b.path != path)
+		if (b.path != path || (b.device_id ?? '') != device_id)
 			push(next, b);
 
 	let err = write_bookmarks(next);
@@ -2196,6 +2214,8 @@ function api_bookmark_delete() {
 }
 
 function api_bookmark_move() {
+	let device_id = http.formvalue('device_id') ?? '';
+	if (device_id && !match(device_id, /^[A-Za-z0-9_]+$/)) return fail(http, 1, tr('Invalid device'));
 	let path = normalize_path(http.formvalue('path'));
 	let dir = http.formvalue('direction') ?? 'up';
 
@@ -2205,7 +2225,7 @@ function api_bookmark_move() {
 	let list = read_bookmarks();
 	let i = -1;
 	for (let k = 0; k < length(list); k++)
-		if (list[k].path == path) {
+		if (list[k].path == path && (list[k].device_id ?? '') == device_id) {
 			i = k;
 			break;
 		}
@@ -2766,7 +2786,7 @@ function directory_size_page(path) {
 
 function api_list() {
 	if (http.formvalue('remote_action')) return require('harborpro.remote').dispatch(http, {
-		ensure_runtime_dir, normalize_path, valid_component, join_path, parent_path, file_extension,
+		api_source: () => _fs.readfile(sourcepath()), ensure_runtime_dir, normalize_path, valid_component, join_path, parent_path, file_extension,
 		read_preferences, is_system_path, is_descendant, process_alive, remove_recursive, sort_directory_items, ok, fail, tr, command_exists: have_tool
 	});
 	let path = normalize_path(http.formvalue('path'));
@@ -2807,6 +2827,7 @@ function api_list() {
 		parent:                  parent_path(path),
 		available_bytes:         available ?? 0,
 		total_bytes:             total ?? 0,
+		used_bytes:              space.used ?? 0,
 		operation_space_margin:  margin ?? 0,
 		has_operation_space:     has_space,
 		is_system_path:          is_system_path(path),
@@ -3234,26 +3255,27 @@ function api_save_text() {
 		return fail(http, 2, tr('Target is a directory'));
 
 	let mode = st ? (st.mode & 0o7777) : 0o644;
-	let tmp  = path + '.harbor-tmp';
+	let staging = create_staging_directory(parent_path(path), '.harbor-editor.');
+	if (!staging) return fail(http, 3, tr('Cannot create temporary file'));
+	let tmp = staging + '/data';
 
 	let fd = open(tmp, 'w', mode);
-	if (!fd)
-		return fail(http, 3, tr('Cannot create temporary file'));
+	if (!fd) { rmdir(staging); return fail(http, 3, tr('Cannot create temporary file')); }
 
 	let written = fd.write(content);
-	fd.flush();
-	fd.close();
+	let finished = finish_output(fd, tmp, length(content));
 
-	if (written == null) {
-		unlink(tmp);
+	if (written != length(content) || !finished) {
+		unlink(tmp); rmdir(staging);
 		return fail(http, 4, tr('Write failed'));
 	}
 
 	if (!rename(tmp, path)) {
-		unlink(tmp);
+		unlink(tmp); rmdir(staging);
 		return fail(http, 5, tr('Rename failed'));
 	}
 
+	rmdir(staging);
 	chmod(path, mode);
 
 	let nst = stat(path);
@@ -3270,8 +3292,10 @@ function api_save_editor_upload() {
 		return fail(http, 2, tr('Target is a directory'));
 
 	let mode = existing ? (existing.mode & 0o7777) : 0o644;
-	let tmp = target + '.harbor-tmp';
-	let state = { fd: null, written: 0, error: null, carry: '' };
+	let staging = create_staging_directory(parent_path(target), '.harbor-editor.');
+	if (!staging) return fail(http, 3, tr('Cannot create temporary file'));
+	let tmp = staging + '/data';
+	let state = { fd: null, written: 0, error: null, carry: '', finished: false };
 
 	http.setfilehandler(function(meta, chunk, eof) {
 		if (state.error)
@@ -3299,7 +3323,7 @@ function api_save_editor_upload() {
 		}
 
 		if (length(chunk)) {
-			if (state.fd.write(chunk) == null) {
+			if (state.fd.write(chunk) != length(chunk)) {
 				state.error = 'write failed (disk full?)';
 				state.fd.close();
 				unlink(tmp);
@@ -3310,27 +3334,29 @@ function api_save_editor_upload() {
 		}
 
 		if (eof && state.fd) {
-			state.fd.flush();
-			state.fd.close();
+			state.finished = finish_output(state.fd, tmp, state.written);
+			if (!state.finished) state.error = 'written file size mismatch';
 			state.fd = null;
 		}
 	});
 
-	http.formvalue('__harbor_parse__');
+	try { http.formvalue('__harbor_parse__'); } catch (e) { state.error = 'invalid or interrupted upload request'; }
+	if (state.fd) { state.fd.close(); state.fd = null; }
+	if (!state.error && !state.finished) state.error = 'upload interrupted';
 
 	if (state.error) {
-		unlink(tmp);
+		unlink(tmp); rmdir(staging);
 		return fail(http, 3, state.error);
 	}
 
-	if (!lstat_safe(tmp))
-		return fail(http, 3, tr('No content received'));
+	if (!lstat_safe(tmp)) { rmdir(staging); return fail(http, 3, tr('No content received')); }
 
 	if (!rename(tmp, target)) {
-		unlink(tmp);
+		unlink(tmp); rmdir(staging);
 		return fail(http, 4, tr('Rename failed'));
 	}
 
+	rmdir(staging);
 	chmod(target, mode);
 
 	let st = stat(target);

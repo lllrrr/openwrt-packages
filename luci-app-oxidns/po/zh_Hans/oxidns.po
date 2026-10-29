@@ -29,6 +29,9 @@ msgstr "API 密码"
 
 msgid "API username"
 msgstr "API 用户名"
+msgid "Already up to date (%s)."
+msgstr "已是最新版本（%s）。"
+
 msgid "Apply"
 msgstr "应用"
 msgid "Applying DNS hijack..."
@@ -102,6 +105,9 @@ msgstr "内核 bundle"
 
 msgid "Core operation completed."
 msgstr "内核操作已完成。"
+
+msgid "Core updated to %s."
+msgstr "内核已更新到 %s。"
 
 msgid "Core operation failed"
 msgstr "内核操作失败"
@@ -208,8 +214,8 @@ msgstr "安装内核"
 msgid "Install core files"
 msgstr "安装内核文件"
 
-msgid "Install or repair the OxiDNS core binary. Runtime upgrades are handled by OxiDNS itself."
-msgstr "安装或修复 OxiDNS 内核二进制。运行时升级由 OxiDNS 自身处理。"
+msgid "Install, update or repair the OxiDNS core binary. Updates prefer the openwrt-oxidns package when it has a build for this device."
+msgstr "安装、更新或修复 OxiDNS 内核二进制。更新优先使用 openwrt-oxidns 为当前设备构建的软件包。"
 
 msgid "Install the OxiDNS core before editing the configuration."
 msgstr "请先安装 OxiDNS 内核，再编辑配置。"
@@ -259,8 +265,8 @@ msgstr "日志"
 msgid "LuCI backend"
 msgstr "LuCI 后端"
 
-msgid "LuCI can download the official OxiDNS release archive or install an uploaded .tar.gz archive or single oxidns binary. Future upgrades are handled by the OxiDNS core."
-msgstr "LuCI 可以下载官方 OxiDNS release archive，也可以安装上传的 .tar.gz archive 或单个 oxidns 二进制。后续升级由 OxiDNS 内核自身处理。"
+msgid "Update checks the openwrt-oxidns package first and falls back to the official OxiDNS release archive for architectures it does not build. Upload accepts a .tar.gz archive or a single oxidns binary."
+msgstr "更新会先检查 openwrt-oxidns 的软件包，它未覆盖的架构回落到 OxiDNS 官方发布归档。上传支持 .tar.gz 归档或单个 oxidns 二进制。"
 
 msgid "Manage the OxiDNS runtime, service, configuration, and logs from LuCI."
 msgstr "在 LuCI 中管理 OxiDNS 运行时、服务、配置和日志。"
@@ -552,6 +558,12 @@ msgstr "无法查询 OxiDNS 状态"
 
 msgid "Unavailable"
 msgstr "不可用"
+
+msgid "Update Core"
+msgstr "更新内核"
+
+msgid "Updating OxiDNS core..."
+msgstr "正在更新 OxiDNS 内核..."
 
 msgid "Unpack core archive"
 msgstr "解压内核压缩包"

@@ -22,6 +22,7 @@
 			"ubus": {
 				"luci.oxidns": [
 					"core_install",
+					"core_update",
 					"core_reinstall",
 					"core_upload_install",
 					"core_remove",

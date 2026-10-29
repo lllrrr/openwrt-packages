@@ -22,7 +22,7 @@ apk add --allow-untrusted --no-network ./luci-i18n-oxidns-zh-cn-<版本>.apk
 | 页面 | 用途 |
 | --- | --- |
 | `Overview` | 内核 / 服务状态、WebUI 入口；DNS 劫持开关（把局域网发往 53 端口的 DNS 请求重定向到本机 OxiDNS，目标端口从 config.yaml 解析） |
-| `Core` | 内核安装、上传安装、修复重装、删除 |
+| `Core` | 内核安装、更新、上传安装、修复重装、删除 |
 | `Configuration` | 查看、校验、保存配置文件 |
 | `Rule Files` | 编辑规则列表文件；定时重置学习文件 |
 | `Geo Data` | geoip.dat / geosite.dat 下载与更新（默认 jsDelivr 上的 Loyalsoldier 增强版，落点 `/usr/share/v2ray`，地址与目录可改、可一键还原） |
@@ -33,7 +33,7 @@ apk add --allow-untrusted --no-network ./luci-i18n-oxidns-zh-cn-<版本>.apk
 
 ## 升级与删除
 
-- **内核**：用 OxiDNS 自带的升级功能（WebUI / API / CLI），LuCI 不提供升级入口。
+- **内核**：`Core` 页 `Update Core`。它同时查 [openwrt-oxidns](https://github.com/hahaher123/openwrt-oxidns) 与官方 [svenshi/oxidns](https://github.com/svenshi/oxidns) 的最新版本，取更高者：优先装 openwrt-oxidns 的 apk（arm64/x86_64），该仓库没有构建的架构回落到官方 musl 归档；两者都不高于当前版本就提示「已是最新」，不会降级。
 - **插件**：下载新版本包重装即可。
 - **删除内核**：`Core` 页 `Remove Core`，保留配置与工作目录。
 
@@ -49,3 +49,4 @@ apk add --allow-untrusted --no-network ./luci-i18n-oxidns-zh-cn-<版本>.apk
 2. **定时重置学习文件** —— `learned-cn.txt` / `learned-proxy.txt` 可每天 / 每周定时清空（cron 托管块 + 后端脚本），走管理 API 快照与文件同步清理，无需重启。
 3. **日志页直读日志文件** —— 显示 config.yaml 中 `log.file` 指定的文件（未配置时退回 `logread`），UTC 时间戳换算成 `+08:00`，「清空」原地截断日志文件，无需重启。
 4. **配置页提示优化** —— 校验 / 保存结果按状态着色，区分 `Save` 与 `Save & Restart`，操作期间按钮禁用并保留真实错误文案。
+5. **内核更新（`Update Core`）** —— 已装内核时提供更新入口：并发查询 openwrt-oxidns 与官方仓库，取版本更高者；openwrt-oxidns 的 apk 走 `apk add`（校验 Release digest），其未覆盖的架构回落官方归档；两边都不高于当前版本则只提示，不降级重装。

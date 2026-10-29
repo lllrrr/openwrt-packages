@@ -158,6 +158,7 @@ sh -n root/etc/init.d/oxidns
 sh -n scripts/build-luci-package.sh
 sh -n scripts/integration-check.sh
 sh -n scripts/release-check.sh
+sh -n scripts/core-update-check.sh
 
 # ---------------------------------------------------------------- 源码守卫
 # OpenWrt 25.12 的 busybox **没有 stat applet**（设备实测 `ash: stat: not found`，

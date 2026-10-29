@@ -22,7 +22,7 @@
 		return validSessionID(value) ? value : '';
 	}
 
-	function qs(params) {
+	function queryString(params) {
 		var out = [];
 		for (var k in params)
 			if (params[k] !== undefined && params[k] !== null)
@@ -30,9 +30,14 @@
 		return out.join('&');
 	}
 
+	function byteInteger(value) { return Number.isSafeInteger(value) && value >= 0; }
+
+	function createIO(context) {
+	function qs(params) { return queryString(Object.assign({}, params, context)); }
 	var HarborIO = {
 
 		getSessionID: sessionID,
+		requestURL: function(mode, path, extra) { return ENDPOINT + '?' + qs(Object.assign({ mode: mode, path: path, sessionid: sessionID() }, extra || {})); },
 
 		download: function (path, filename) {
 			var target = 'harbor_dl_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
@@ -54,6 +59,7 @@
 				filename: filename || path.split('/').pop()
 			};
 
+			Object.assign(fields, context);
 			for (var k in fields) {
 				var input = document.createElement('input');
 				input.type = 'hidden';
@@ -93,12 +99,13 @@
 		},
 
 		slice: function (path, offset, length) {
+			if (!byteInteger(offset) || !byteInteger(length) || !byteInteger(offset + length)) return Promise.reject(new Error('Invalid byte range'));
 			var url = ENDPOINT + '?' + qs({
 				mode: 'slice',
 				sessionid: sessionID(),
 				path: path,
-				offset: offset | 0,
-				length: length | 0
+				offset: offset,
+				length: length
 			});
 
 			return fetch(url, { credentials: 'same-origin' }).then(function (res) {
@@ -110,18 +117,21 @@
 				var total = parseInt(res.headers.get('X-Harbor-Total') || '0', 10);
 				var off = parseInt(res.headers.get('X-Harbor-Offset') || '0', 10);
 
+				if (!byteInteger(total) || !byteInteger(off) || off !== Math.min(offset, total)) throw new Error('Invalid slice response offset');
 				return res.arrayBuffer().then(function (buf) {
+					if (buf.byteLength !== Math.min(length, 1048576, total - off)) throw new Error('Incomplete slice response');
 					return { buffer: buf, offset: off, total: total };
 				});
 			});
 		},
 
 		patch: function (path, offset, bytes, expectedSize) {
+			if (!byteInteger(offset) || expectedSize != null && !byteInteger(expectedSize)) return Promise.reject(new Error('Invalid byte offset or file size'));
 			var url = ENDPOINT + '?' + qs({
 				mode: 'patch',
 				sessionid: sessionID(),
 				path: path,
-				offset: offset | 0,
+				offset: offset,
 				expected_size: expectedSize
 			});
 
@@ -140,12 +150,13 @@
 		},
 
 		splice: function (path, start, end, bytes, expectedSize) {
+			if (!byteInteger(start) || !byteInteger(end) || end < start || expectedSize != null && !byteInteger(expectedSize)) return Promise.reject(new Error('Invalid byte range or file size'));
 			var url = ENDPOINT + '?' + qs({
 				mode: 'splice',
 				sessionid: sessionID(),
 				path: path,
-				start: start | 0,
-				end: end | 0,
+				start: start,
+				end: end,
 				expected_size: expectedSize
 			});
 
@@ -282,6 +293,8 @@
 		}
 	};
 
-	global.HarborIO = HarborIO;
+	return HarborIO;
+	}
+	global.HarborIO = createIO({});
+	global.HarborIO.forDevice = function(item) { return createIO({ device_id: item.device_id, device_revision: item.device_revision || '' }); };
 })(window);
-

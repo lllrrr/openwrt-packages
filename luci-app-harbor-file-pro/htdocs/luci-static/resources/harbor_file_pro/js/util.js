@@ -1,5 +1,21 @@
 
 (function (HF) {
+    HF.file_context = function(owner) {
+        owner = owner || HF.state.current || {};
+        return { device_id: owner.device_id || '', device_revision: owner.device_revision || '', path: owner.path || '/' };
+    };
+    HF.file_key = function(item) { return item.device_id ? JSON.stringify([item.device_id, item.device_revision, item.path]) : item.path; };
+    HF.file_io = function(item) { return item && item.device_id ? HarborIO.forDevice(item) : HarborIO; };
+    HF.file_endpoint = function(name, owner) {
+        if (!owner || !owner.device_id) return HF.api[name];
+        if (!HF.remote_request) throw new Error('Remote file support is not loaded');
+        return HF.api.list + '?_hf_device=' + encodeURIComponent(owner.device_id) + '&_hf_revision=' + encodeURIComponent(owner.device_revision || '') + '&_hf_action=' + encodeURIComponent(name);
+    };
+    HF.close_file_dialog = function(id) {
+        var dialog = document.getElementById(id);
+        if (dialog && dialog._fmWindow) HF.window_manager.close(dialog._fmWindow);
+        else if (dialog) dialog.style.display = 'none';
+    };
     HF.permBits = [8,7,6, 5,4,3, 2,1,0];
     HF.icon_base = HF.resource + 'icons/';
     HF.status_duration_fast = 1500;

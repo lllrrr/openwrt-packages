@@ -26,8 +26,8 @@ msgstr "插件设置"
 msgid "Time-boxed iterative test"
 msgstr "限时迭代测速"
 
-msgid "Run the test in time-boxed mode: each tested node runs its own independent loop until the duration elapses. After its first pass, a node only re-tests the IPs that passed its previous pass, so its candidate pool shrinks toward the most stable, lowest-latency IPs. Nothing is written to result.csv or passwall during the run; when the timer ends, each node's best remaining IP is written back."
-msgstr "计时模式：每个待测节点跑独立的收敛循环，直到累计时长达配置的时长——第 1 遍测完自己的候选后，此后每遍只测上一遍通过的 IP，候选池逐遍收敛到最稳定、延迟最低的 IP。运行期间不写 result.csv、不写回 passwall；计时结束后一次性把各节点剩余通过集中的最优 IP 写回。"
+msgid "Run the test in time-boxed mode: each tested node runs its own independent loop until the duration elapses. After its first pass, a node only re-tests the IPs that passed its previous pass, so its candidate pool shrinks toward the most stable, lowest-latency IPs. Nothing is written to result.csv or passwall during the run; when the timer ends, each node's best remaining IP is written back. A node exits early once its pool converges to the download-test candidate count (download_test_count) — further passes cannot change the final download list; the threshold is 3 when the download test is off."
+msgstr "计时模式：每个待测节点跑独立的收敛循环，直到累计时长达配置的时长——第 1 遍测完自己的候选后，此后每遍只测上一遍通过的 IP，候选池逐遍收敛到最稳定、延迟最低的 IP。运行期间不写 result.csv、不写回 passwall；计时结束后一次性把各节点剩余通过集中的最优 IP 写回。候选收敛到「每 worker 下载测速候选数」（download_test_count）即提前结束——再迭代也不会改变最终下载名单；下载实测关闭时该阈值为 3。"
 
 msgid "Iterative test duration (minutes)"
 msgstr "迭代测速时长（分钟）"

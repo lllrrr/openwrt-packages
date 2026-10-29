@@ -78,6 +78,12 @@ HarborFile.init({
         bookmark_folder_move: '{{ dispatcher.build_url('admin', 'harbor_pro', 'bookmark_folder_move') }}'
     },
     labels: {
+        remote_show_password: '{{ _('Show password') }}',
+        remote_hide_password: '{{ _('Hide password') }}',
+        remote_agent_install_confirm: '{{ _('Install the missing remote file tools (ucode, ucode-mod-fs and ucode-mod-uci) on this device?') }}',
+        remote_agent_not_ready: '{{ _('Remote file tools are not ready') }}',
+        remote_stale_device: '{{ _('Device settings changed; reopen the device') }}',
+
         remote_source_partial: '{{ _('Source partially retained') }}',
         remote_target_device: '{{ _('Destination device') }}',
         remote_move_unconfirmed: '{{ _('Verified move was not confirmed; source deletion must be checked') }}',
@@ -129,6 +135,9 @@ HarborFile.init({
         remote_cancel: '{{ _('Cancel') }}',
         remote_remove: '{{ _('Delete') }}',
         remote_loading: '{{ _('Connecting') }}',
+        remote_terminal_direct: '{{ _('The browser must be able to reach this remote device’s ttyd port. This is not an SSH tunnel; the local terminal will not be used as a fallback.') }}',
+        remote_terminal_install: '{{ _('Install ttyd on this remote device? Its package scripts may start a web terminal service. Review the device’s authentication and network access settings.') }}',
+        remote_outcome_unknown: '{{ _('The remote operation outcome is unknown. Check the device before retrying; the operation may still be running.') }}',
         remote_waiting: '{{ _('Waiting for task status') }}',
         remote_copy_only: '{{ _('Use Copy instead of Cut for remote transfers') }}',
         remote_failed_connection: '{{ _('Cannot connect') }}',
@@ -429,6 +438,7 @@ HarborFile.init({
         replace_all: '{{ _('Replace all') }}',
         regular_expression: '{{ _('Regular expression') }}',
         replace: '{{ _('Replace') }}',
+        reading_current_file_pages: '{{ _('Reading current file pages…') }}',
         reading_full_file: '{{ _('Reading full file…') }}',
         hex_search_placeholder: '{{ _('Enter hex bytes, e.g. DE AD BE EF') }}',
         hex_replace_placeholder: '{{ _('Replace hex value') }}',
@@ -1546,7 +1556,7 @@ window.HarborFile.tr = function (msgid) {
                 HF.set_warning_status(HF.labels.folder_not_supported);
                 return;
             }
-            if (target) HF.begin_upload(files, target.path, target.label);
+            if (target) HF.begin_upload(files, target.path, target.label, target);
         });
     });
     document.getElementById('fm_name_cancel').addEventListener('click', HF.close_modal);
@@ -1734,7 +1744,7 @@ window.HarborFile.tr = function (msgid) {
         HF.close_modal();
         if (items.length) {
             HF.Util.ajax({
-                url: HF.api.batch_delete,
+                url: HF.file_endpoint('batch_delete', items[0]),
                 type: 'POST',
                 dataType: 'json',
                 data: { paths: JSON.stringify(HF.item_list_paths(items)) },

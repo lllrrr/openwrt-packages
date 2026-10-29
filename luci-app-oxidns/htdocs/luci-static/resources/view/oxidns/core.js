@@ -15,6 +15,12 @@ var callCoreInstall = rpc.declare({
 	expect: {}
 });
 
+var callCoreUpdate = rpc.declare({
+	object: 'luci.oxidns',
+	method: 'core_update',
+	expect: {}
+});
+
 var callCoreReinstall = rpc.declare({
 	object: 'luci.oxidns',
 	method: 'core_reinstall',
@@ -278,7 +284,7 @@ function startCoreProgressPolling(logNode) {
 	};
 }
 
-function runCoreAction(label, call, timeout) {
+function runCoreAction(label, call, timeout, successText) {
 	var nodes = showCoreProgressModal(label);
 	var progress = startCoreProgressPolling(nodes.log);
 
@@ -292,8 +298,11 @@ function runCoreAction(label, call, timeout) {
 
 		return progress.refresh().then(function() {
 			return L.resolveDefault(refreshStatus(), null).then(function() {
-				setCoreProgressFinished(nodes, _('Core operation completed.'), E('p', {}, _('Core operation completed.')));
-				ui.addNotification(null, E('p', {}, _('Core operation completed.')), 'info');
+				var text = (typeof successText === 'function')
+					? successText(result)
+					: _('Core operation completed.');
+				setCoreProgressFinished(nodes, text, E('p', {}, text));
+				ui.addNotification(null, E('p', {}, text), 'info');
 			});
 		});
 	}).catch(function(err) {
@@ -310,6 +319,14 @@ function runCoreAction(label, call, timeout) {
 
 function handleInstall() {
 	return runCoreAction(_('Installing OxiDNS core...'), callCoreInstall, 300);
+}
+
+function handleUpdate() {
+	return runCoreAction(_('Updating OxiDNS core...'), callCoreUpdate, 600, function(result) {
+		if (result && result.up_to_date)
+			return _('Already up to date (%s).').format(result.version || '-');
+		return _('Core updated to %s.').format((result && result.version) || '-');
+	});
 }
 
 function handleReinstall() {
@@ -411,6 +428,7 @@ function actionButton(label, handler, style) {
 function actionButtons(status) {
 	if (coreInstalled(status)) {
 		return [
+			actionButton(_('Update Core'), handleUpdate, 'positive'),
 			actionButton(_('Repair Reinstall'), handleReinstall, 'action'),
 			actionButton(_('Upload Core'), handleUploadInstall, 'action'),
 			actionButton(_('Remove Core'), handleRemove, 'negative')
@@ -449,7 +467,7 @@ return view.extend({
 		return E('div', { 'class': 'cbi-map' }, [
 			E('h2', {}, _('OxiDNS Core')),
 			E('div', { 'class': 'cbi-map-descr' },
-				_('Install or repair the OxiDNS core binary. Runtime upgrades are handled by OxiDNS itself.')),
+				_('Install, update or repair the OxiDNS core binary. Updates prefer the openwrt-oxidns package when it has a build for this device.')),
 			E('div', { 'class': 'cbi-section' }, [
 				E('h3', {}, _('Core Status')),
 				E('div', { 'class': 'table cbi-section-table' }, rows)
@@ -457,7 +475,7 @@ return view.extend({
 			E('div', { 'class': 'cbi-section' }, [
 				E('h3', {}, _('Actions')),
 				E('div', { 'class': 'cbi-section-descr' },
-					_('LuCI can download the official OxiDNS release archive or install an uploaded .tar.gz archive or single oxidns binary. Future upgrades are handled by the OxiDNS core.')),
+					_('Update checks the openwrt-oxidns package first and falls back to the official OxiDNS release archive for architectures it does not build. Upload accepts a .tar.gz archive or a single oxidns binary.')),
 				E('div', {
 					'id': 'oxidns-core-actions',
 					'class': 'cbi-button-row',

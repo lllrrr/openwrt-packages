@@ -31,8 +31,18 @@
         };
     }
 
-    HF.resolve_terminal_url = function resolve_terminal_url(info) {
+    HF.resolve_terminal_url = function resolve_terminal_url(info, remote_host) {
         var raw = String(info && info.url || '').trim();
+        if (remote_host) {
+            var remote_protocol = Number(info && info.ssl) === 1 ? 'https:' : 'http:';
+            var remote_origin = remote_protocol + '//' + HF.format_host_for_url(remote_host);
+            if (raw) {
+                var remote_url = new URL(raw, remote_origin + '/');
+                if (!/^https?:$/.test(remote_url.protocol) || remote_url.hostname.toLowerCase() !== new URL(remote_origin).hostname.toLowerCase() || remote_url.username || remote_url.password) throw new Error(HF.labels.terminal_failed);
+                return remote_url.href;
+            }
+            return remote_origin + ':' + (Number(info && info.port) || 7681) + '/';
+        }
         var https_page = window.location.protocol === 'https:';
 
         if (raw) {
@@ -693,7 +703,7 @@
             if (!active()) return;
             if (!pending.length) { show(true); return; }
             var path = pending.pop();
-            HF.request_json(HF.api.list, { path: path, directory_size: 1 }, function(data) {
+            HF.request_json(HF.file_endpoint('list', item), { path: path, directory_size: 1 }, function(data) {
                 if (!active()) return;
                 if (!visited.has(data.identity)) {
                     visited.add(data.identity);
@@ -765,7 +775,7 @@
             }
             save.disabled = true;
             HF.Util.ajax({
-                url: HF.api.chmod,
+                url: HF.file_endpoint('chmod', item),
                 type: 'POST',
                 data: { path: item.path, mode: newMode, recursive: directory && recursive.checked ? '1' : '0' },
                 dataType: 'json',
