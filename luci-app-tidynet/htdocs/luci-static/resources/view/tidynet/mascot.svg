@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs><linearGradient id="mint" x1="12" y1="12" x2="54" y2="58" gradientUnits="userSpaceOnUse"><stop stop-color="#D8F4DD"/><stop offset="1" stop-color="#91D0C2"/></linearGradient></defs>
+  <rect x="2" y="2" width="60" height="60" rx="21" fill="#F0F8F1"/>
+  <path d="M14 31 13 18Q13 13 18 16L27 22M50 31 51 18Q51 13 46 16L37 22" fill="url(#mint)" stroke="#619F91" stroke-width="1.7" stroke-linejoin="round"/>
+  <path d="M11 37C11 25 19 21 32 21S53 25 53 37C53 50 46 55 32 55S11 50 11 37Z" fill="url(#mint)" stroke="#619F91" stroke-width="1.7"/>
+  <ellipse cx="23" cy="36" rx="2.1" ry="2.7" fill="#345D58"/><ellipse cx="41" cy="36" rx="2.1" ry="2.7" fill="#345D58"/>
+  <ellipse cx="18" cy="42" rx="4" ry="2.4" fill="#EDADAA" opacity=".7"/><ellipse cx="46" cy="42" rx="4" ry="2.4" fill="#EDADAA" opacity=".7"/>
+  <path d="M28 41Q32 46 36 41" stroke="#345D58" stroke-width="1.9" stroke-linecap="round"/>
+  <path d="M27 15Q32 11 37 15M24 10Q32 4 40 10" stroke="#6DAF9D" stroke-width="2.3" stroke-linecap="round"/>
+  <circle cx="32" cy="18" r="1.6" fill="#6DAF9D"/>
+</svg>

@@ -435,6 +435,24 @@ msgstr "有效期（秒，0 = 永久）"
 msgid "Scan now"
 msgstr "立即扫描"
 
+msgid "Trusted proxies"
+msgstr "信任代理"
+
+msgid "A reverse proxy in front of the LAN makes every request look like it came from the proxy itself. Addresses listed here are never blocked, and when a log line names one of them as the source, the real client is read from X-Forwarded-For / X-Real-IP instead."
+msgstr "反向代理会让所有请求看起来都来自代理自己。这里列出的地址永远不会被封禁；当日志把其中某个地址记为来源时，会改从 X-Forwarded-For / X-Real-IP 读取真实客户端。"
+
+msgid "Add"
+msgstr "添加"
+
+msgid "Use router address"
+msgstr "使用路由器地址"
+
+msgid "None configured"
+msgstr "未配置"
+
+msgid "Remove"
+msgstr "移除"
+
 msgid "Remove all blocked IPs?"
 msgstr "解除所有 IP 封禁？"
 

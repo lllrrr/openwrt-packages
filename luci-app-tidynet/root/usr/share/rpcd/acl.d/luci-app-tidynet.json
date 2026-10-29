@@ -1,0 +1,12 @@
+{
+  "luci-app-tidynet": {
+    "description": "TidyNet Mihomo, DNS and ad-blocking manager",
+    "read": {
+      "ubus": { "tidynet": [ "status", "settings", "stats", "proxy_status", "proxy_probe", "proxy_node_delay", "resolve" ] }
+    },
+    "write": {
+      "file": { "/tmp/tidynet-upload.yaml": [ "write" ] },
+      "ubus": { "tidynet": [ "configure", "action", "proxy_select" ] }
+    }
+  }
+}

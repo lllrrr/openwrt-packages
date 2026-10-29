@@ -1,0 +1,13 @@
+{
+	"admin/services/tidynet": {
+		"title": "TidyNet",
+		"order": 5,
+		"action": {
+			"type": "view",
+			"path": "tidynet/main"
+		},
+		"depends": {
+			"acl": [ "luci-app-tidynet" ]
+		}
+	}
+}

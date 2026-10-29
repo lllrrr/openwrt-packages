@@ -33,6 +33,10 @@ var callIpList = rpc.declare({
 	params: ['limit', 'cat']
 });
 
+var callProxyList = rpc.declare({ object: 'luci.clientblock', method: 'proxylist' });
+var callProxyAdd = rpc.declare({ object: 'luci.clientblock', method: 'proxyadd', params: ['ip'] });
+var callProxyDel = rpc.declare({ object: 'luci.clientblock', method: 'proxydel', params: ['ip'] });
+
 var callIpAdd = rpc.declare({
 	object: 'luci.clientblock',
 	method: 'ipadd',
@@ -288,6 +292,14 @@ var STYLE = `
 .cb-catchip:hover { border-color: var(--brand); }
 .cb-catchip-on { border-color: var(--brand); box-shadow: inset 0 0 0 1px var(--brand); }
 .cb-catchip-zero { opacity: .45; }
+.cb-subhead { margin: 1.1rem 0 .4rem; font-weight: 600; font-size: .9rem; }
+.cb-note { font-size: .78rem; opacity: .65; margin: .1rem 0 .5rem; line-height: 1.5; }
+.cb-proxylist { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: .5rem; min-height: 1.4rem; }
+.cb-proxychip { display: inline-flex; align-items: center; gap: .3rem; padding: .12rem .2rem .12rem .5rem;
+	border: 1px solid var(--border, rgba(128,128,128,.35)); border-radius: .4rem; font-size: .8rem; }
+.cb-proxyx { background: none; border: none; color: inherit; opacity: .5; cursor: pointer;
+	font-size: 1rem; line-height: 1; padding: 0 .3rem; }
+.cb-proxyx:hover { opacity: 1; color: var(--danger); }
 .cb-src-web { background: var(--brand-subtle); color: var(--brand); }
 .cb-auth { display: inline-block; padding: .02rem .45rem; border-radius: .6rem;
 	font-size: .72rem; font-family: var(--font-mono); border: 1px solid currentColor; }
@@ -1563,6 +1575,74 @@ return view.extend({
 					'click': function (ev) { self.handleScanNow(ev); } }, _('Scan now'))
 			])
 		]));
+
+		box.appendChild(E('div', { 'class': 'cb-subhead' }, _('Trusted proxies')));
+		box.appendChild(E('p', { 'class': 'cb-note' },
+			_('A reverse proxy in front of the LAN makes every request look like it came from the proxy itself. Addresses listed here are never blocked, and when a log line names one of them as the source, the real client is read from X-Forwarded-For / X-Real-IP instead.')));
+		box.appendChild(E('div', { 'class': 'cb-proxylist', 'id': 'cb-proxy-list' }, []));
+		box.appendChild(E('div', { 'class': 'cb-actions' }, [
+			E('input', {
+				'type': 'text', 'id': 'cb-proxy-input', 'class': 'cb-input',
+				'placeholder': '192.168.1.5',
+				'style': 'max-width:14rem'
+			}),
+			E('button', { 'class': 'cb-btn cb-btn-primary',
+				'click': function (ev) { self.handleProxyAdd(ev); } }, _('Add')),
+			E('button', { 'class': 'cb-btn',
+				'click': function () {
+					var el = document.getElementById('cb-proxy-input');
+					if (el) el.value = '192.168.1.5';
+				} }, _('Use router address'))
+		]));
+
+	},
+
+	refreshProxies: function () {
+		var self = this;
+		var box = document.getElementById('cb-proxy-list');
+		if (!box) return;
+		return callProxyList().then(function (res) {
+			var list = (res && res.proxies) || [];
+			while (box.firstChild) box.removeChild(box.firstChild);
+			if (!list.length) {
+				box.appendChild(E('span', { 'class': 'cb-note' }, _('None configured')));
+				return;
+			}
+			list.forEach(function (p) {
+				box.appendChild(E('span', { 'class': 'cb-proxychip' }, [
+					E('span', { 'class': 'cb-mono' }, p.ip),
+					E('button', {
+						'class': 'cb-proxyx',
+						'title': _('Remove'),
+						'click': function () {
+							return callProxyDel(p.ip).then(function () {
+								return self.refreshProxies();
+							});
+						}
+					}, '\u00d7')
+				]));
+			});
+		}).catch(function () {});
+	},
+
+	handleProxyAdd: function (ev) {
+		var self = this;
+		var el = document.getElementById('cb-proxy-input');
+		if (!el) return;
+		var ip = (el.value || '').trim();
+		if (!ip) { el.focus(); return; }
+		var btn = ev.currentTarget;
+		btn.disabled = true;
+		return callProxyAdd(ip).then(function (res) {
+			if (res && res.success === false)
+				throw new Error(res.error || _('Failed'));
+			el.value = '';
+			return self.refreshProxies();
+		}).catch(function (e) {
+			ui.addNotification(null, E('p', {}, e.message || _('Failed')), 'error');
+		}).finally(function () {
+			btn.disabled = false;
+		});
 	},
 
 	refreshIps: function () {
@@ -1765,7 +1845,11 @@ return view.extend({
 		if (name === 'ips') return Promise.all([ this.refreshIps(), this.refreshFeeds() ]);
 		if (name === 'logs') return this.refreshLogs();
 		if (name === 'policy') return Promise.all([ this.refreshSched(), this.refreshGroups(), this.refreshPorts() ]);
-		if (name === 'settings') return Promise.all([ this.refreshAuto(), this.refreshNotify(), this.refreshHealth() ]);
+		if (name === 'settings') {
+			var self2 = this;
+			return Promise.all([ this.refreshAuto(), this.refreshNotify(), this.refreshHealth() ])
+				.then(function () { return self2.refreshProxies(); });
+		}
 	},
 
 	renderTable: function () {

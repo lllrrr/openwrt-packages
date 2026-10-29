@@ -3,12 +3,12 @@
 		"description": "Grant access to LAN client block management",
 		"read": {
 			"ubus": {
-				"luci.clientblock": [ "list", "status", "iplist", "autoget", "loglist", "selfcheck", "schedlist", "notifyget", "grouplist", "portlist", "dashboard", "wllist", "panicstate", "trend", "portpresets", "feedlist", "exportconfig", "knownlist" ]
+				"luci.clientblock": [ "list", "status", "iplist", "autoget", "loglist", "selfcheck", "schedlist", "notifyget", "grouplist", "portlist", "dashboard", "wllist", "panicstate", "trend", "portpresets", "feedlist", "exportconfig", "knownlist", "proxylist" ]
 			}
 		},
 		"write": {
 			"ubus": {
-				"luci.clientblock": [ "block", "unblock", "unblock_all", "rename", "ipadd", "ipdel", "ipflush", "sync", "scan", "autoset", "logevent", "logclear", "schedadd", "scheddel", "schedtoggle", "schedeval", "notifyadd", "notifydel", "notifytoggle", "notifyevents", "notifytest", "tick", "expire", "groupadd", "groupdel", "groupset", "curfew", "portadd", "portdel", "porttoggle", "wladd", "wldel", "panic", "porttemplate", "feedadd", "feeddel", "feedrefresh", "importconfig", "knownadd" ]
+				"luci.clientblock": [ "block", "unblock", "unblock_all", "rename", "ipadd", "ipdel", "ipflush", "sync", "scan", "autoset", "logevent", "logclear", "schedadd", "scheddel", "schedtoggle", "schedeval", "notifyadd", "notifydel", "notifytoggle", "notifyevents", "notifytest", "tick", "expire", "groupadd", "groupdel", "groupset", "curfew", "portadd", "portdel", "porttoggle", "wladd", "wldel", "panic", "porttemplate", "feedadd", "feeddel", "feedrefresh", "importconfig", "knownadd", "proxyadd", "proxydel" ]
 			},
 			"file": {
 				"/etc/nftables.d/*": [ "write" ],

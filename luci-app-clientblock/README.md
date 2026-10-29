@@ -286,6 +286,53 @@ ubus call luci.clientblock logclear
 
 本地管理地址（Docker `02:42:xx`、虚拟机、手机私有 Wi-Fi 地址）不参与厂商查询，因为它们在规范上就没有厂商。
 
+## 信任代理
+
+反向代理（lucky / nginx / HAProxy / WAF）会让后端日志里的来源地址变成代理自己，
+所有请求看起来都来自同一个 IP。**设置 → 自动防护 → 信任代理** 用来解决这个问题：
+
+- 列出的地址**永远不会被封禁**，任何路径都不会（手动、自动、订阅、定时、紧急）
+- 日志里的来源若命中列表，会改从该行的 `X-Forwarded-For` / `X-Real-IP` 读取真实客户端
+- 添加代理时，若该地址已在黑名单里会被自动移除
+
+lucky 实测默认就会写这两个头，且会**覆盖**客户端自带的伪造值：
+
+```
+X-Forwarded-For: https, 203.0.113.7     ← lucky 会带协议前缀，取最后一个逗号后的部分
+X-Real-IP:       203.0.113.7            ← 干净的单 IP，优先用它
+```
+
+代理地址默认填路由器自身（`192.168.1.5`），lucky 跑在路由器上时就是它。
+
+### 让 LuCI 日志显示真实 IP
+
+uhttpd 把 **socket 对端**当作客户端地址，而且只向处理程序导出固定的一组请求头
+（`ACCEPT` / `AUTHORIZATION` / `COOKIE` / `HOST` / `REFERER` / `USER_AGENT` 等），
+**没有** `X-Forwarded-For` 或 `X-Real-IP`。所以反代之后的 LuCI 只能看到代理自己。
+
+本包安装时会执行 `clientblock-luci-realip`，只修改 `dispatcher.uc` 里**两行登录日志**，
+把来源地址换成代理转发的地址；认证、路由、界面都不动。原文件备份在同目录
+`dispatcher.uc.clientblock-orig`。
+
+由于 uhttpd 拿不到转发头，代理需要把客户端地址写进它**确实会导出**的
+`X-HTTP-Method-Override`（LuCI 不用这个头）：
+
+```
+lucky → Web服务 → openwrt 规则 → 高级设置
+  追加客户端协议头到指定Header  = 开
+  自定义Header Key             = X-HTTP-Method-Override
+```
+
+**防伪造**：lucky 只在该头不存在时写入，客户端可以自带。所以 LuCI 侧只有在
+`/proc/net/nf_conntrack` 里确实存在该地址的连接时才采信，否则退回代理地址。
+
+**LuCI 升级会覆盖 `dispatcher.uc`**。升级后「设置 → 健康检查」会显示
+`luci_realip: not applied`，执行一次即可恢复：
+
+```sh
+lua /usr/libexec/clientblock-luci-realip && /etc/init.d/uhttpd restart
+```
+
 ## 封禁分类
 
 地址表上方是一排分类筛选，点一下只看该类：

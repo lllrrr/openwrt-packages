@@ -1,0 +1,52 @@
+#!/bin/sh
+legacy_dns_port=0
+chmod 600 /etc/config/tidynet
+chmod 755 /usr/libexec/rpcd/tidynet /usr/libexec/tidynet-job
+chmod 755 /etc/init.d/tidynet
+mkdir -p /etc/tidynet/profiles /etc/tidynet/rules /etc/tidynet/runtime
+chmod 700 /etc/tidynet /etc/tidynet/profiles /etc/tidynet/rules /etc/tidynet/runtime
+[ -s /etc/tidynet/config.yaml ] || install -m 0644 /usr/share/tidynet/default.yaml /etc/tidynet/config.yaml
+# Drop obsolete optional AdGuard Home credentials owned by the old TidyNet schema.
+uci -q delete tidynet.main.agh_enabled
+uci -q delete tidynet.main.agh_port
+uci -q delete tidynet.main.agh_username
+uci -q delete tidynet.main.agh_password
+uci -q get tidynet.main.enabled >/dev/null 2>&1 || uci -q set tidynet.main.enabled='0'
+uci -q get tidynet.main.api_listen >/dev/null 2>&1 || uci -q set tidynet.main.api_listen='127.0.0.1:9090'
+uci -q get tidynet.main.dns_enabled >/dev/null 2>&1 || uci -q set tidynet.main.dns_enabled='0'
+if [ "$(uci -q get tidynet.main.dns_listen)" = '127.0.0.1:1053' ]; then
+	uci -q set tidynet.main.dns_listen='127.0.0.1:10535'
+	legacy_dns_port=1
+else
+	uci -q get tidynet.main.dns_listen >/dev/null 2>&1 || uci -q set tidynet.main.dns_listen='127.0.0.1:10535'
+fi
+uci -q get tidynet.main.dns_mode >/dev/null 2>&1 || uci -q set tidynet.main.dns_mode='redir-host'
+uci -q get tidynet.main.dns_ipv6 >/dev/null 2>&1 || uci -q set tidynet.main.dns_ipv6='0'
+uci -q get tidynet.main.adblock_enabled >/dev/null 2>&1 || uci -q set tidynet.main.adblock_enabled='0'
+[ -n "$(uci -q get tidynet.main.dns_upstreams 2>/dev/null)" ] || {
+	uci -q add_list tidynet.main.dns_upstreams='223.5.5.5'
+	uci -q add_list tidynet.main.dns_upstreams='https://dns.alidns.com/dns-query'
+}
+if ! uci -q get tidynet.default_ads >/dev/null 2>&1; then
+	uci -q set tidynet.default_ads=rule_source
+	uci -q set tidynet.default_ads.name='StevenBlack hosts'
+	uci -q set tidynet.default_ads.url='https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts'
+	uci -q set tidynet.default_ads.enabled='1'
+	uci -q set tidynet.default_ads.format='hosts'
+	uci -q set tidynet.default_ads.behavior='domain'
+	uci -q set tidynet.default_ads.action='block'
+fi
+uci -q commit tidynet
+chmod 600 /etc/config/tidynet
+if [ "$legacy_dns_port" = 1 ] && [ -f /etc/tidynet/state/dns-noresolv-managed ]; then
+	hash=$(printf '\043')
+	uci -q del_list "dhcp.@dnsmasq[0].server=/$hash/127.0.0.1#1053"
+	uci -q add_list "dhcp.@dnsmasq[0].server=/$hash/127.0.0.1#10535"
+	uci -q commit dhcp
+	. /usr/lib/tidynet/core.sh
+	render_dns_config
+	/etc/init.d/dnsmasq restart >/dev/null 2>&1 || :
+fi
+if [ "$(uci -q get tidynet.main.enabled)" = 1 ] || [ "$(uci -q get tidynet.main.dns_enabled)" = 1 ]; then /etc/init.d/tidynet enable; fi
+if [ "$(uci -q get tidynet.main.adblock_enabled)" = 1 ]; then /etc/init.d/tidynet-stats enable; fi
+exit 0

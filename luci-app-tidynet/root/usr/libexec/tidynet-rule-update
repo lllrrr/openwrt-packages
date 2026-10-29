@@ -1,0 +1,3 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+printf '%s\n' '{"operation":"adblock-update","section":""}' | /usr/libexec/rpcd/tidynet call action >/dev/null

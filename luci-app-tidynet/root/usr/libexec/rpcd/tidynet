@@ -1,0 +1,29 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+. /usr/lib/tidynet/core.sh
+case "$1" in
+ list)
+  printf '%s\n' '{"status":{},"settings":{},"stats":{},"proxy_status":{},"proxy_probe":{"target":"String"},"proxy_node_delay":{"group":"String","member":"String"},"proxy_select":{"group":"String","member":"String"},"configure":{"payload":"String"},"action":{"operation":"String","section":"String"},"resolve":{"domain":"String"}}';;
+ call)
+  input=$(head -c 24577)
+  [ "${#input}" -le 24576 ] || { error '请求过大。'; exit 0; }
+  case "$2" in
+   status) status;;
+   settings) settings;;
+   stats) stats;;
+   proxy_status) proxy_status;;
+   proxy_probe) proxy_probe "$(jget "$input" '@.target')";;
+   proxy_node_delay) proxy_node_delay "$(jget "$input" '@.group')" "$(jget "$input" '@.member')";;
+   resolve) resolve "$(jget "$input" '@.domain')";;
+   configure|action|proxy_select)
+    lock || { error '另一个任务正在进行，请稍后重试。'; exit 0; }
+    TN_DETACHED=0
+    trap '[ "$TN_DETACHED" = 1 ] || unlock' EXIT
+    case "$2" in
+     configure) configure_locked "$(jget "$input" '@.payload')";;
+     action) action_locked "$(jget "$input" '@.operation')" "$(jget "$input" '@.section')";;
+     proxy_select) proxy_select "$(jget "$input" '@.group')" "$(jget "$input" '@.member')";;
+    esac;;
+   *) error '未知接口。';;
+  esac;;
+esac

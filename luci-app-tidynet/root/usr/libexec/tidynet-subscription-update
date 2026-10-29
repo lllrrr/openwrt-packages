@@ -1,0 +1,6 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+section=$1
+case "$section" in *[!A-Za-z0-9_]*) exit 2;; esac
+printf '{"operation":"subscription-update","section":"%s"}\n' "$section" |
+	/usr/libexec/rpcd/tidynet call action >/dev/null 2>&1

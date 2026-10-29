@@ -7,6 +7,12 @@
 	[ -s /etc/clientblock/names.json ]       || echo '{}' > /etc/clientblock/names.json
 	chmod 600 /etc/clientblock/*.json 2>/dev/null
 
+	# LuCI logs the socket peer as the client; with a trusted proxy in front
+	# that is the proxy. Teach its login log to use the forwarded address.
+	if lua /usr/libexec/clientblock-luci-realip >/dev/null 2>&1; then
+		/etc/init.d/uhttpd restart >/dev/null 2>&1
+	fi
+
 	/etc/init.d/rpcd restart    >/dev/null 2>&1
 	/etc/init.d/clientblock enable  >/dev/null 2>&1
 	/etc/init.d/clientblock restart >/dev/null 2>&1

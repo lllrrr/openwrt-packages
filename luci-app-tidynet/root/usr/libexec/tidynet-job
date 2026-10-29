@@ -1,0 +1,416 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+. /usr/lib/tidynet/core.sh
+
+operation=$1
+section=$2
+mkdir -p "$TN_RUN" "$TN_HOME/download" "$TN_HOME/profiles" "$TN_HOME/rules" || exit 1
+chmod 700 "$TN_HOME" "$TN_HOME/download" "$TN_HOME/profiles" "$TN_HOME/rules"
+printf '%s\n' "$$" > "$TN_RUN/lock/pid"
+trap 'unlock' EXIT
+trap 'job_record "$operation" error "任务被中断；现有核心与配置已保留。"; exit 1' HUP INT TERM
+rc=0
+message='任务已完成。'
+error_message='任务失败；现有配置和核心已保留。请检查网络、磁盘空间和任务日志后重试。'
+
+set_config() {
+	uci -q set "tidynet.$1=$2" && uci -q commit tidynet && chmod 600 /etc/config/tidynet
+}
+
+controller_is_local() {
+	local controller host
+	while IFS= read -r controller; do
+		controller=${controller%%#*}
+		controller=$(printf '%s' "$controller" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+		case "$controller" in
+			\"*\") controller=${controller#\"}; controller=${controller%\"};;
+			\'*) controller=${controller#\'}; controller=${controller%\'};;
+		esac
+		controller=$(printf '%s' "$controller" | tr '[:upper:]' '[:lower:]')
+		[ -z "$controller" ] && continue
+		case "$controller" in *:*) host=${controller%:*};; *) return 1;; esac
+		case "$host" in \[*\]) host=${host#\[}; host=${host%\]};; esac
+		case "$host" in
+			127.0.0.1|localhost|::1) ;;
+			*) ip -o addr show 2>/dev/null | awk -v host="$host" '$3 == "inet" || $3 == "inet6" { split($4, addr, "/"); if (addr[1] == host) found = 1 } END { exit !found }' || return 1;;
+		esac
+	done <<EOF
+$(sed -n 's/^[[:space:]]*external-controller:[[:space:]]*//p' "$1")
+EOF
+	return 0
+}
+
+ensure_local_controller() {
+	local controller
+	controller=$(sed -n 's/^[[:space:]]*external-controller:[[:space:]]*//p' "$1" | head -n 1 | sed 's/#.*$//; s/^[[:space:]]*//; s/[[:space:]]*$//')
+	case "$controller" in
+		\"*\") controller=${controller#\"}; controller=${controller%\"};;
+		\'*\') controller=${controller#\'}; controller=${controller%\'};;
+	esac
+	[ -n "$controller" ] && return 0
+	controller=$(get tidynet.main.api_listen)
+	[ -n "$controller" ] || controller=127.0.0.1:9090
+	case "$controller" in 127.0.0.1:*|localhost:*) ;; *)
+		local secret
+		secret=$(api_secret 2>/dev/null)
+		[ -n "$secret" ] || secret=$(hexdump -v -n 32 -e '1/1 "%02x"' /dev/urandom)
+		[ "${#secret}" = 64 ] || return 1
+		printf '\nsecret: "%s"\n' "$secret" >> "$1";;
+	esac
+	[ ! -s "$TN_HOME/runtime/ui/index.html" ] || printf 'external-ui: ui\n' >> "$1"
+	printf '\nexternal-controller: %s\n' "$controller" >> "$1"
+}
+
+download_core() {
+	local release tag arch asset_names idx name wanted digest url archive candidate actual was_running=0
+	command -v curl >/dev/null 2>&1 && command -v sha256sum >/dev/null 2>&1 || { error_message='缺少 curl 或 sha256sum；请检查 ImmortalWrt 基础依赖。'; return 1; }
+	case "$(uname -m)" in
+		x86_64) arch=amd64-compatible;;
+		aarch64|arm64) arch=arm64;;
+		armv7l|armv7*) arch=armv7;;
+		*) error_message="暂不支持设备架构 $(uname -m)。"; return 1;;
+	esac
+	release=$(curl --fail --location --silent --show-error --connect-timeout 10 --max-time 45 --max-filesize 4194304 --proto '=https' --proto-redir '=https' -H 'Accept: application/vnd.github+json' -H 'User-Agent: TidyNet' 'https://api.github.com/repos/MetaCubeX/mihomo/releases/latest') || { error_message='读取 Mihomo 官方发布信息失败。'; return 1; }
+	tag=$(jget "$release" '@.tag_name')
+	case "$tag" in v[0-9]*.[0-9]*.[0-9]*) ;; *) error_message='Mihomo 官方发布信息中的版本号无效。'; return 1;; esac
+	wanted="mihomo-linux-$arch-$tag.gz"
+	asset_names=$(jget "$release" '@.assets[*].name')
+	idx=0; name=''; digest=''; url=''
+	while IFS= read -r name; do
+		if [ "$name" = "$wanted" ]; then
+			digest=$(jget "$release" "@.assets[$idx].digest")
+			url=$(jget "$release" "@.assets[$idx].browser_download_url")
+			break
+		fi
+		idx=$((idx+1))
+	done <<EOF
+$asset_names
+EOF
+	case "$digest" in sha256:[0-9a-fA-F][0-9a-fA-F]*) ;; *) error_message='发布页没有可验证的 SHA-256 摘要，已拒绝安装。'; return 1;; esac
+	case "$url" in https://github.com/MetaCubeX/mihomo/releases/download/*) ;; *) error_message='发布页返回了非官方核心下载地址。'; return 1;; esac
+	digest=${digest#sha256:}
+	archive="$TN_HOME/download/$wanted"
+	candidate="$TN_HOME/download/tidynet-mihomo.new"
+	curl --fail --location --silent --show-error --retry 3 --connect-timeout 10 --max-time 600 --max-filesize 100000000 --proto '=https' --proto-redir '=https' "$url" -o "$archive" || { rm -f "$archive"; error_message='下载 Mihomo 核心失败。'; return 1; }
+	actual=$(sha256sum "$archive" | awk '{print $1}')
+	[ "$actual" = "$digest" ] || { rm -f "$archive"; error_message='Mihomo 核心 SHA-256 校验失败，文件未安装。'; return 1; }
+	if command -v gzip >/dev/null 2>&1; then gzip -dc "$archive" > "$candidate" || { rm -f "$archive" "$candidate"; error_message='解压 Mihomo 核心失败。'; return 1; }
+	else rm -f "$archive"; error_message='系统缺少 gzip，无法解压 Mihomo 核心。'; return 1; fi
+	chmod 755 "$candidate" || return 1
+	"$candidate" -v >/dev/null 2>&1 || { rm -f "$archive" "$candidate"; error_message='下载的文件不能运行，已拒绝安装。'; return 1; }
+	if pidof tidynet-mihomo >/dev/null 2>&1; then
+		was_running=1
+		"$TN_INIT/tidynet" stop || { rm -f "$archive" "$candidate"; error_message='停止 TidyNet 服务失败，未替换核心。'; return 1; }
+	fi
+	mv -f "$candidate" "$TN_CORE" || { rm -f "$archive"; error_message='替换 Mihomo 核心失败。'; return 1; }
+	chmod 755 "$TN_CORE"
+	set_config main.core_version "$tag" || { error_message='核心已安装，但版本记录未能保存。'; return 1; }
+	rm -f "$archive"
+	if [ "$was_running" = 1 ]; then "$TN_INIT/tidynet" start || { error_message='核心已更新，但服务启动失败。请检查配置校验日志。'; return 1; }; fi
+	message="Mihomo 核心 $tag 已下载并校验安装。"
+}
+
+update_subscription() {
+	local id=$section url target temp old_profile protocol
+	is_section tidynet "$id" subscription || { error_message='订阅不存在。'; return 1; }
+	if [ "$(get tidynet.$id.source)" = local ]; then
+		[ "$operation" = subscription-use ] || { error_message='本地配置请重新上传。'; return 1; }
+		target="$TN_HOME/profiles/$id.yaml"
+		"$TN_CORE" -t -d "$TN_HOME/runtime" -f "$target" >/dev/null 2>&1 || { error_message='本地配置校验失败。'; return 1; }
+		old_profile=$(get tidynet.main.profile)
+		set_config main.profile "$id" || return 1
+		if ! "$TN_INIT/tidynet" reload; then set_config main.profile "$old_profile"; "$TN_INIT/tidynet" reload; return 1; fi
+		message='本地配置已应用。'; return 0
+	fi
+	url=$(get "tidynet.$id.url"); is_subscription_url "$url" || { error_message='订阅地址无效；请使用 HTTPS，或局域网私有地址的 HTTP。'; return 1; }
+	case "$url" in https://*) protocol='=https';; http://*) protocol='=http';; esac
+	target="$TN_HOME/profiles/$id.yaml"; temp="$TN_HOME/download/$id.yaml.new"
+	curl --fail --location --silent --show-error --retry 2 --connect-timeout 10 --max-time 180 --max-filesize 20971520 --proto "$protocol" --proto-redir "$protocol" "$url" -o "$temp" || { rm -f "$temp"; error_message='订阅下载失败。'; return 1; }
+	[ -s "$temp" ] || { rm -f "$temp"; error_message='订阅内容为空。'; return 1; }
+	[ -x "$TN_CORE" ] || { rm -f "$temp"; error_message='请先下载 Mihomo 核心。'; return 1; }
+	"$TN_CORE" -t -d "$TN_HOME/runtime" -f "$temp" >/dev/null 2>&1 || { rm -f "$temp"; error_message='订阅不是有效的完整 Mihomo/Clash YAML 配置，现有订阅未更改。'; return 1; }
+	if ! controller_is_local "$temp"; then
+		rm -f "$temp"; error_message='订阅把 Mihomo 控制器绑定到非本机地址，TidyNet 已拒绝应用以避免暴露控制接口。'; return 1
+	fi
+	if ! ensure_local_controller "$temp" || ! "$TN_CORE" -t -d "$TN_HOME/runtime" -f "$temp" >/dev/null 2>&1; then
+		rm -f "$temp"; error_message='无法为订阅启用 TidyNet 本机控制器，现有订阅未更改。'; return 1
+	fi
+	chmod 600 "$temp"
+	if [ -f "$target" ]; then cp -p "$target" "$target.bak" || { rm -f "$temp"; error_message='无法备份现有订阅。'; return 1; }; fi
+	mv -f "$temp" "$target" || { error_message='保存订阅文件失败。'; return 1; }
+	set_config "$id.updated" "$(date '+%Y-%m-%d %H:%M:%S')" || { error_message='订阅已保存，但更新时间未写入。'; return 1; }
+	if [ "$operation" = subscription-use ]; then
+		old_profile=$(get tidynet.main.profile)
+		set_config main.profile "$id" || { error_message='无法切换当前订阅。'; return 1; }
+		if [ "$(get tidynet.main.enabled)" = 1 ]; then
+			"$TN_INIT/tidynet" reload || {
+				set_config main.profile "$old_profile" >/dev/null 2>&1
+					"$TN_INIT/tidynet" reload >/dev/null 2>&1 || :
+				[ -f "$target.bak" ] && mv -f "$target.bak" "$target"
+				error_message='订阅已切换但 Mihomo 启动失败；已尝试恢复之前的配置。'; return 1
+			}
+		fi
+		message='订阅已更新并设为当前配置。'
+	else message='订阅配置已下载并通过 Mihomo 校验。'; fi
+	[ -f "$target.bak" ] && rm -f "$target.bak"
+}
+
+update_rule_source() {
+	local id=$section url format raw out action suffix
+	is_section tidynet "$id" rule_source || { error_message='规则源不存在。'; return 1; }
+	[ "$(get "tidynet.$id.enabled")" = 1 ] || { error_message='此规则源已停用。'; return 1; }
+	url=$(get "tidynet.$id.url"); format=$(get "tidynet.$id.format"); action=$(get "tidynet.$id.action"); is_url "$url" || { error_message='规则源 URL 无效。'; return 1; }
+	case "$format" in hosts|domains) ;; *) error_message='当前仅支持 hosts 或纯域名格式规则源。'; return 1;; esac
+	case "$action" in allow) suffix=allow;; *) suffix=block;; esac
+	raw="$TN_HOME/download/$id.raw"; out="$TN_HOME/download/$id.$suffix.domains.new"
+	curl --fail --location --silent --show-error --retry 2 --connect-timeout 10 --max-time 180 --max-filesize 20971520 --proto '=https' --proto-redir '=https' "$url" -o "$raw" || { rm -f "$raw"; error_message='广告规则下载失败。'; return 1; }
+	[ -s "$raw" ] || { rm -f "$raw"; error_message='规则源内容为空，旧规则已保留。'; return 1; }
+	awk '
+		function valid_domain(domain, labels, count, i) {
+			if (length(domain) > 253) return 0
+			count = split(domain, labels, ".")
+			if (count < 2) return 0
+			for (i = 1; i <= count; i++)
+				if (length(labels[i]) > 63 || labels[i] !~ /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/) return 0
+			return 1
+		}
+		function add_domain(domain) {
+			domain = tolower(domain)
+			if (!valid_domain(domain) || seen[domain]++) return
+			if (++count > 1000000) { too_many = 1; exit }
+			print domain
+		}
+		{
+			sub(/\r$/, ""); sub(/#.*/, ""); if (NF == 0) next
+			if ($1 ~ /^[0-9.]+$/ || $1 == "::" || $1 == "::1") {
+				for (i = 2; i <= NF; i++) add_domain($i)
+			}
+			else if (NF == 1) add_domain($1)
+		}
+		END { if (too_many) exit 1 }
+	' "$raw" > "$out" || { rm -f "$raw" "$out"; error_message='规则域名无效或超过一百万条限制，旧规则已保留。'; return 1; }
+	[ -s "$out" ] || { rm -f "$raw" "$out"; error_message='没有解析到有效域名，旧规则已保留。'; return 1; }
+	chmod 600 "$out"; mv -f "$out" "$TN_HOME/rules/$id.$suffix.domains" || { rm -f "$raw"; error_message='保存规则文件失败。'; return 1; }
+	rm -f "$raw"
+}
+
+apply_adblock() {
+	local tmp_allow tmp_block hostfile id current original enabled dnsmasq="/etc/init.d/dnsmasq" state_dir="$TN_HOME/state"
+	[ -z "$(uci -q changes dhcp 2>/dev/null)" ] || { error_message='dnsmasq 有尚未提交的设置，请先保存或撤销后重试。'; return 1; }
+	enabled=$(get tidynet.main.adblock_enabled)
+	tmp_allow="$TN_HOME/download/allow.domains"
+	tmp_block="$TN_HOME/download/block.domains"
+	hostfile="$TN_HOME/rules/blocked.hosts"
+	: > "$tmp_allow"; : > "$tmp_block"
+	for id in $(sections tidynet rule_source); do
+		[ "$(get "tidynet.$id.enabled")" = 1 ] || continue
+		if [ "$(get "tidynet.$id.action")" = allow ]; then
+			cat "$TN_HOME/rules/$id.allow.domains" >> "$tmp_allow" 2>/dev/null || :
+		else
+			cat "$TN_HOME/rules/$id.block.domains" >> "$tmp_block" 2>/dev/null || :
+		fi
+	done
+	list_values tidynet main blocked_domains | tr '[:upper:]' '[:lower:]' >> "$tmp_block"
+	list_values tidynet main allowed_domains | tr '[:upper:]' '[:lower:]' >> "$tmp_allow"
+	sort -u "$tmp_allow" -o "$tmp_allow"
+	sort -u "$tmp_block" -o "$tmp_block"
+	awk 'FILENAME == ARGV[1] {allow[$0]=1; next} !($0 in allow) {print "0.0.0.0 " $0}' "$tmp_allow" "$tmp_block" > "$hostfile.new" || return 1
+	if [ ! -s "$hostfile.new" ]; then
+		if [ "$enabled" = 1 ]; then
+			rm -f "$hostfile.new" "$tmp_allow" "$tmp_block"
+			set_config main.adblock_enabled 0 >/dev/null 2>&1
+			error_message='没有可应用的拦截域名；广告过滤已保持关闭。'; return 1
+		fi
+	fi
+	chmod 644 "$hostfile.new" && mv -f "$hostfile.new" "$hostfile" || return 1
+	if [ "$enabled" != 1 ]; then
+		uci -q del_list "dhcp.@dnsmasq[0].addnhosts=/etc/tidynet/rules/blocked.hosts"
+		if [ -f "$state_dir/logqueries-managed" ]; then
+			current=$(uci -q get 'dhcp.@dnsmasq[0].logqueries' 2>/dev/null)
+			original=$(cat "$state_dir/logqueries-original" 2>/dev/null)
+			if [ "$current" = 1 ]; then
+				if [ -n "$original" ]; then uci -q set "dhcp.@dnsmasq[0].logqueries=$original"
+				else uci -q delete 'dhcp.@dnsmasq[0].logqueries'; fi
+			fi
+			rm -f "$state_dir/logqueries-managed" "$state_dir/logqueries-original"
+		fi
+		[ -x "$TN_INIT/tidynet-stats" ] && { "$TN_INIT/tidynet-stats" stop >/dev/null 2>&1; "$TN_INIT/tidynet-stats" disable >/dev/null 2>&1; }
+		if [ -n "$(uci -q changes dhcp 2>/dev/null)" ]; then
+			uci -q commit dhcp
+			[ -x "$dnsmasq" ] && "$dnsmasq" restart >/dev/null 2>&1 || :
+		fi
+		rm -f "$tmp_allow" "$tmp_block"
+		return 0
+	fi
+	current=$(uci -q get 'dhcp.@dnsmasq[0].addnhosts' 2>/dev/null)
+	case "$current" in *"/etc/tidynet/rules/blocked.hosts"*) ;; *) uci -q add_list "dhcp.@dnsmasq[0].addnhosts=/etc/tidynet/rules/blocked.hosts" || return 1;; esac
+	mkdir -p "$state_dir"; chmod 700 "$state_dir"
+	mkdir -p /tmp/tidynet
+	if [ ! -f "$state_dir/logqueries-managed" ]; then
+		uci -q get 'dhcp.@dnsmasq[0].logqueries' > "$state_dir/logqueries-original" 2>/dev/null || :
+		touch "$state_dir/logqueries-managed"
+	fi
+	uci -q set 'dhcp.@dnsmasq[0].logqueries=1' || return 1
+	uci -q commit dhcp || return 1
+	[ -x "$dnsmasq" ] && "$dnsmasq" reload >/dev/null 2>&1 || "$dnsmasq" restart >/dev/null 2>&1 || return 1
+	"$TN_INIT/tidynet-stats" enable >/dev/null 2>&1 && "$TN_INIT/tidynet-stats" restart >/dev/null 2>&1 || { error_message='过滤已配置，但 TidyNet 请求统计服务启动失败。'; return 1; }
+	rm -f "$tmp_allow" "$tmp_block"
+}
+
+apply_dns() {
+	local state_dir="$TN_HOME/state" current original changed=0 dnsmasq='/etc/init.d/dnsmasq' server='/#/127.0.0.1#10535'
+	[ -z "$(uci -q changes dhcp 2>/dev/null)" ] || { error_message='dnsmasq 有尚未提交的设置，请先保存或撤销后重试。'; return 1; }
+	rollback_dns_enable() {
+		set_config main.dns_enabled 0 >/dev/null 2>&1
+		uci -q del_list "dhcp.@dnsmasq[0].server=$server"
+		current=$(uci -q get 'dhcp.@dnsmasq[0].noresolv' 2>/dev/null)
+		original=$(cat "$state_dir/dns-noresolv-original" 2>/dev/null)
+		if [ "$current" = 1 ]; then
+			if [ -n "$original" ]; then uci -q set "dhcp.@dnsmasq[0].noresolv=$original"
+			else uci -q delete 'dhcp.@dnsmasq[0].noresolv'; fi
+		fi
+		uci -q commit dhcp
+		rm -f "$state_dir/dns-noresolv-managed" "$state_dir/dns-noresolv-original"
+		if [ "$(get tidynet.main.enabled)" = 1 ]; then "$TN_INIT/tidynet" restart >/dev/null 2>&1
+		else "$TN_INIT/tidynet" disable >/dev/null 2>&1; "$TN_INIT/tidynet" stop >/dev/null 2>&1; fi
+		"$dnsmasq" restart >/dev/null 2>&1 || :
+	}
+	if [ "$(get tidynet.main.dns_enabled)" = 1 ]; then
+		[ -x "$TN_CORE" ] || { error_message='请先下载 Mihomo 核心，再启用 TidyNet DNS。'; return 1; }
+		render_dns_config || { error_message='DNS 上游或配置格式无效，未应用。'; return 1; }
+		mkdir -p "$state_dir"; chmod 700 "$state_dir"
+		if [ ! -f "$state_dir/dns-noresolv-managed" ]; then
+			uci -q get 'dhcp.@dnsmasq[0].noresolv' > "$state_dir/dns-noresolv-original" 2>/dev/null || :
+			touch "$state_dir/dns-noresolv-managed"
+		fi
+		"$TN_INIT/tidynet" enable >/dev/null 2>&1 && "$TN_INIT/tidynet" restart >/dev/null 2>&1 || { rollback_dns_enable; error_message='TidyNet DNS 核心启动失败，已撤销 DNS 接入。'; return 1; }
+		current=$(uci -q get 'dhcp.@dnsmasq[0].server' 2>/dev/null)
+		case "$current" in *"$server"*) ;; *) uci -q add_list "dhcp.@dnsmasq[0].server=$server" || { rollback_dns_enable; error_message='写入 dnsmasq 上游配置失败，已撤销 DNS 接入。'; return 1; };; esac
+		uci -q set 'dhcp.@dnsmasq[0].noresolv=1' && uci -q commit dhcp || { rollback_dns_enable; error_message='写入 dnsmasq 上游配置失败，已撤销 DNS 接入。'; return 1; }
+		"$dnsmasq" restart >/dev/null 2>&1 || { rollback_dns_enable; error_message='dnsmasq 重载失败，已撤销 TidyNet DNS 接入。'; return 1; }
+		message='TidyNet DNS 已接入 dnsmasq，LAN 客户端的上游解析将经过 Mihomo DNS。'
+	else
+		current=$(uci -q get 'dhcp.@dnsmasq[0].server' 2>/dev/null)
+		case "$current" in *"$server"*) uci -q del_list "dhcp.@dnsmasq[0].server=$server" || return 1; changed=1;; esac
+		if [ -f "$state_dir/dns-noresolv-managed" ]; then
+			current=$(uci -q get 'dhcp.@dnsmasq[0].noresolv' 2>/dev/null)
+			original=$(cat "$state_dir/dns-noresolv-original" 2>/dev/null)
+			if [ "$current" = 1 ]; then
+				if [ -n "$original" ]; then uci -q set "dhcp.@dnsmasq[0].noresolv=$original"
+				else uci -q delete 'dhcp.@dnsmasq[0].noresolv'; fi
+				changed=1
+			fi
+			rm -f "$state_dir/dns-noresolv-managed" "$state_dir/dns-noresolv-original"
+		fi
+		if [ "$changed" = 1 ]; then
+			uci -q commit dhcp || { error_message='恢复 dnsmasq DNS 配置失败。'; return 1; }
+			if [ "$(get tidynet.main.enabled)" = 1 ]; then
+				"$TN_INIT/tidynet" restart >/dev/null 2>&1 || { error_message='DNS 已从 dnsmasq 移除，但代理服务重载失败。'; return 1; }
+			else
+				"$TN_INIT/tidynet" disable >/dev/null 2>&1
+				"$TN_INIT/tidynet" stop >/dev/null 2>&1
+			fi
+			"$dnsmasq" restart >/dev/null 2>&1 || { error_message='DNS 上游已恢复，但 dnsmasq 重启失败。'; return 1; }
+		fi
+		message='TidyNet DNS 已关闭，并已撤销自身添加的 dnsmasq 上游配置。'
+	fi
+}
+
+import_subscription() {
+	local temp="$TN_HOME/download/import.yaml" target="$TN_HOME/profiles/$section.yaml"
+	mv /tmp/tidynet-upload.yaml "$temp" || return 1
+	if ! "$TN_CORE" -t -d "$TN_HOME/runtime" -f "$temp" >/dev/null 2>&1 || ! controller_is_local "$temp" || ! ensure_local_controller "$temp" || ! "$TN_CORE" -t -d "$TN_HOME/runtime" -f "$temp" >/dev/null 2>&1; then
+		rm -f "$temp"; uci -q delete "tidynet.$section"; uci -q commit tidynet
+		error_message='上传文件不是可用的 Mihomo 配置，或控制器地址不属于本机。'; return 1
+	fi
+	chmod 600 "$temp"; mv "$temp" "$target" || return 1
+	set_config "$section.updated" "$(date '+%Y-%m-%d %H:%M:%S')"
+	message='本地配置已导入，可点击应用启用。'
+}
+
+schedule_rules() {
+	local interval=$(get tidynet.main.rule_update_interval) cronfile="$TN_RUN/rules.cron"
+	(crontab -l 2>/dev/null || :) | sed '/# tidynet-rule-update$/d' > "$cronfile"
+	case "$interval" in
+		1|6|12) printf '0 */%s * * * /usr/libexec/tidynet-rule-update # tidynet-rule-update\n' "$interval" >> "$cronfile";;
+		24) printf '0 4 * * * /usr/libexec/tidynet-rule-update # tidynet-rule-update\n' >> "$cronfile";;
+		0|'') ;; *) return 1;;
+	esac
+	crontab "$cronfile" || return 1
+	rm -f "$cronfile"; /etc/init.d/cron enable; /etc/init.d/cron restart
+	message='规则自动更新周期已保存。'
+}
+
+schedule_subscription() {
+	local id=$section interval cronfile="$TN_RUN/subscription.cron" tag
+	case "$id" in *[!A-Za-z0-9_]*) return 1;; esac
+	is_section tidynet "$id" subscription || return 1
+	[ "$(get tidynet.$id.source)" != local ] || return 1
+	interval=$(get "tidynet.$id.update_interval"); tag="# tidynet-subscription-$id"
+	(crontab -l 2>/dev/null || :) | sed "/$tag\$/d" > "$cronfile"
+	case "$interval" in
+		6|12) printf '0 */%s * * * /usr/libexec/tidynet-subscription-update %s %s\n' "$interval" "$id" "$tag" >> "$cronfile";;
+		24) printf '0 4 * * * /usr/libexec/tidynet-subscription-update %s %s\n' "$id" "$tag" >> "$cronfile";;
+		48) printf '0 4 */2 * * /usr/libexec/tidynet-subscription-update %s %s\n' "$id" "$tag" >> "$cronfile";;
+		168) printf '0 4 * * 0 /usr/libexec/tidynet-subscription-update %s %s\n' "$id" "$tag" >> "$cronfile";;
+		0|'') ;;
+		*) rm -f "$cronfile"; return 1;;
+	esac
+	crontab "$cronfile" || { rm -f "$cronfile"; return 1; }
+	rm -f "$cronfile"; /etc/init.d/cron enable; /etc/init.d/cron restart
+	message='订阅自动更新周期已保存。'
+}
+
+case "$operation" in
+	subscription-import) import_subscription || rc=1;;
+	rules-schedule) schedule_rules || rc=1;;
+	subscription-schedule) schedule_subscription || { rc=1; error_message='订阅自动更新周期保存失败。'; };;
+	geo-update)
+		if api_request POST /configs/geo '{}' "$TN_RUN/geo-update-result" 180; then
+			mkdir -p "$TN_HOME/state"; date '+%Y-%m-%d %H:%M:%S' > "$TN_HOME/state/geo-updated"; message='GEO 文件已更新。'
+		else rc=1; error_message='GEO 更新失败，请检查核心运行和下载地址。'; fi;;
+	traffic-reload)
+		if ! "$TN_INIT/tidynet" restart; then rc=1; fi
+		if [ "$(get tidynet.main.traffic_enabled)" = 1 ]; then
+			waited=0
+			while ! ip link show tidynet-tun >/dev/null 2>&1 && [ "$waited" -lt 15 ]; do sleep 1; waited=$((waited+1)); done
+			if ! ip link show tidynet-tun >/dev/null 2>&1; then
+				set_config main.traffic_enabled 0; "$TN_INIT/tidynet" restart; rc=1
+				error_message='流量接管未能启动，已自动恢复未接管状态。'
+			fi
+		fi
+		message='流量接管设置已应用。';;
+	mihomo-core-update) download_core || rc=1;;
+	mihomo-start) "$TN_INIT/tidynet" enable && "$TN_INIT/tidynet" restart || rc=1; message='TidyNet Mihomo 服务已启动。';;
+	mihomo-stop)
+		if [ "$(get tidynet.main.dns_enabled)" = 1 ]; then "$TN_INIT/tidynet" restart || rc=1
+		else "$TN_INIT/tidynet" disable >/dev/null 2>&1; "$TN_INIT/tidynet" stop || rc=1; fi
+		message='TidyNet Mihomo 代理服务已停止。';;
+	mihomo-reload) "$TN_INIT/tidynet" reload || rc=1; message='TidyNet Mihomo 配置已重载。';;
+	dns-reload) apply_dns || rc=1;;
+	subscription-update|subscription-use) update_subscription || rc=1;;
+	adblock-update)
+		if [ -n "$section" ]; then update_rule_source || rc=1
+		else for section in $(sections tidynet rule_source); do
+			[ "$(get "tidynet.$section.enabled")" = 1 ] || continue
+			update_rule_source || rc=1
+		done; fi
+		if [ "$rc" = 0 ]; then
+			apply_adblock || rc=1
+		elif [ "$(get tidynet.main.adblock_enabled)" = 1 ] && [ ! -s "$TN_HOME/rules/blocked.hosts" ]; then
+			set_config main.adblock_enabled 0 >/dev/null 2>&1
+			"$TN_INIT/tidynet-stats" stop >/dev/null 2>&1 || :
+			"$TN_INIT/tidynet-stats" disable >/dev/null 2>&1 || :
+			error_message='广告规则下载失败，尚无可用的旧规则；已自动关闭过滤，避免显示为已启用但实际没有规则。'
+		fi
+		[ "$rc" = 0 ] && date '+%Y-%m-%d %H:%M:%S' > "$TN_RUN/rules-updated"
+		message='TidyNet 广告规则已更新。';;
+	adblock-start|adblock-stop|adblock-reload|rules-reload)
+		apply_adblock || rc=1
+		message='广告规则状态已更新。';;
+	*) rc=1; error_message='不支持的后台操作。';;
+esac
+
+if [ "$rc" = 0 ]; then job_record "$operation" success "$message"
+else job_record "$operation" error "$error_message"; fi
+exit "$rc"

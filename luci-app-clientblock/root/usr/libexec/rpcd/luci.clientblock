@@ -21,6 +21,7 @@ local FEEDS_FILE = STATE_DIR .. "/feeds.json"
 local PENDING_FILE = STATE_DIR .. "/pending.json"
 local OUI_CACHE = STATE_DIR .. "/oui_cache.json"
 local KNOWN_FILE = STATE_DIR .. "/known_devices.json"
+local PROXY_FILE = STATE_DIR .. "/trusted_proxies.json"
 local NOTIFY_TMP = "/tmp/clientblock-notify.json"
 local LOG_FILE = STATE_DIR .. "/login.log"
 local LOG_MAX = 500
@@ -35,6 +36,7 @@ local methods = {}
 local _known_cache
 local ok, err, read_all, shq
 local parse_leases, parse_neigh, parse_static_hosts
+local is_trusted_proxy, extract_forwarded
 local render_rules, reload_firewall, load_json_map, save_json_map
 local split_macs, load_ports
 
@@ -720,7 +722,9 @@ function methods.feedrefresh(id)
 		line = line:gsub("#.*$", ""):gsub("//.*$", "")
 		for tok in line:gmatch("[^%s,;\t]+") do
 			local norm = normalize_ip(tok)
-			if norm and not feed_skip(norm) then wanted[norm] = true end
+			if norm and not feed_skip(norm) and not is_trusted_proxy(norm) then
+				wanted[norm] = true
+			end
 		end
 	end
 
@@ -755,7 +759,7 @@ local CONFIG_FILES = {
 	blocked_ips = IPSTATE_FILE, blocked = STATE_FILE, names = NAME_FILE,
 	schedule = SCHED_FILE, notify = NOTIFY_FILE, groups = GROUPS_FILE,
 	ports = PORTS_FILE, whitelist = WL_FILE, feeds = FEEDS_FILE,
-	auto = AUTOCFG_FILE,
+	auto = AUTOCFG_FILE, trusted_proxies = PROXY_FILE,
 }
 
 function methods.exportconfig()
@@ -1448,6 +1452,10 @@ local notify_event, notify_send
 function methods.ipadd(ip, note, source, fast, evidence)
 	local norm = normalize_ip(ip)
 	if not norm then return err("invalid IP address or CIDR") end
+	if is_trusted_proxy(norm) then
+		return err("refusing to block a trusted proxy: it would cut every " ..
+		           "service behind it")
+	end
 	local st = load_ipstate()
 	if st[norm] ~= nil then return ok({ ip = norm, duplicate = true }) end
 	st[norm] = {
@@ -1491,6 +1499,48 @@ function methods.ipdel(ip)
 		if k:sub(1, #norm + 1) == norm .. "@" then sc.counted[k] = nil end
 	end
 	save_scan(sc)
+	return ok({})
+end
+
+-- Trusted proxies: addresses whose log lines carry the real client in a
+-- forwarding header. They are never blocked and never counted as an attacker.
+function methods.proxylist()
+	local p = load_json_map(PROXY_FILE, function() return {} end)
+	local keys = {}
+	for ip in pairs(p) do keys[#keys + 1] = ip end
+	table.sort(keys)
+	local list = {}
+	for _, ip in ipairs(keys) do list[#list + 1] = { ip = ip } end
+	return ok({ proxies = list })
+end
+
+function methods.proxyadd(ip)
+	local norm = normalize_ip(ip)
+	if not norm then return err("invalid IP address") end
+	local p = load_json_map(PROXY_FILE, function() return {} end)
+	if p[norm] then return ok({ ip = norm, duplicate = true }) end
+	p[norm] = true
+	if not save_json_map(PROXY_FILE, p) then return err("cannot write state") end
+	_proxy_cache = nil
+	-- an address that just became a proxy must not stay blocked
+	local st = load_ipstate()
+	if st[norm] then
+		st[norm] = nil
+		save_ipstate(st)
+		render_rules(load_state())
+		if not set_element_live(norm, false) then reload_firewall() end
+	end
+	return ok({ ip = norm })
+end
+
+function methods.proxydel(ip)
+	local norm = normalize_ip(ip)
+	if not norm then return err("invalid IP address") end
+	local p = load_json_map(PROXY_FILE, function() return {} end)
+	if not p[norm] then return err("not a trusted proxy") end
+	p[norm] = nil
+	save_json_map(PROXY_FILE, p)
+	_proxy_cache = nil
 	return ok({})
 end
 
@@ -1580,7 +1630,12 @@ local function scan_failures(cfg)
 					or line:match("from%s+([%d%.]+):%d+")
 				if ip then
 					local norm = normalize_ip(ip)
-					if norm then
+					-- the line may have been written by a proxy that put the
+					-- real client in X-Forwarded-For / X-Real-IP
+					if norm and is_trusted_proxy(norm) then
+						norm = extract_forwarded(line) or norm
+					end
+					if norm and not is_trusted_proxy(norm) then
 						-- identify the exact line: same second can carry several
 						-- attempts, so hash the whole record instead of the stamp
 						local key = norm .. "@" .. tostring(#line) .. "@" .. line
@@ -1604,7 +1659,8 @@ local function scan_failures(cfg)
 	local banned = {}
 	local st = load_ipstate()
 	for ip, h in pairs(sc.hits) do
-		if (tonumber(h.count) or 0) >= cfg.threshold and st[ip] == nil then
+		if (tonumber(h.count) or 0) >= cfg.threshold and st[ip] == nil
+			and not is_trusted_proxy(ip) then
 			st[ip] = {
 				since = now,
 				note = string.format("auto: %d failed logins", h.count),
@@ -2144,6 +2200,33 @@ function load_json_map(file, shape)
 	return p
 end
 
+-- Addresses that sit in front of the LAN and therefore never appear as the
+-- real source in a backend log: lucky, nginx, HAProxy, a WAF. Blocking one of
+-- these would cut every proxied service at once, so they are excluded from
+-- every blocking path, automatic or not.
+local _proxy_cache
+
+is_trusted_proxy = function(ip)
+	if not ip or ip == "" then return false end
+	if not _proxy_cache then
+		_proxy_cache = load_json_map(PROXY_FILE, function() return {} end)
+	end
+	return _proxy_cache[ip] == true or _proxy_cache[ip] == "true"
+end
+
+-- Pull the client address out of a log line that a proxy wrote. Accepts the
+-- usual header spellings; a list is read from the end because that is the
+-- entry the nearest proxy appended.
+extract_forwarded = function(line)
+	if not line then return nil end
+	local v = line:match("[Xx]%-[Ff]orwarded%-[Ff]or[%s:]+([^%s\"']+)")
+		or line:match("[Xx]%-[Rr]eal%-[Ii][Pp][%s:]+([^%s\"']+)")
+	if not v then return nil end
+	local last = v:match("([^,]+)$") or v
+	last = last:gsub("^%s+", ""):gsub("%s+$", ""):gsub("[,;]+$", "")
+	return normalize_ip(last)
+end
+
 function save_json_map(file, v)
 	fs.mkdirr(STATE_DIR)
 	local f = io.open(file, "w")
@@ -2528,6 +2611,15 @@ function methods.selfcheck()
 		alive and ("running (pid " .. pid .. ")") or "not running",
 		alive and "" or "/etc/init.d/clientblock restart")
 
+	-- 1b) LuCI log patch: without it every proxied login is recorded as the
+	--     proxy. A LuCI upgrade replaces the file, so this check matters.
+	local disp = read_all("/usr/share/ucode/luci/dispatcher.uc") or ""
+	local patched = disp:find("clientblock: real client address", 1, true) ~= nil
+	local has_proxy = next(load_json_map(PROXY_FILE, function() return {} end)) ~= nil
+	add("luci_realip", patched or not has_proxy,
+		patched and "patched" or (has_proxy and "not applied" or "no trusted proxy"),
+		patched and "" or "lua /usr/libexec/clientblock-luci-realip && /etc/init.d/uhttpd restart")
+
 	-- 2) the logread child that actually feeds it. A bare `logread -f` may be
 	--    an orphan from an earlier run, so require it to belong to our watcher.
 	local logreads = 0
@@ -2744,6 +2836,9 @@ if arg[1] == "list" then
 		rename      = { mac = "", name = "" },
 		sync        = {},
 		iplist      = { limit = "", cat = "" },
+		proxylist   = {},
+		proxyadd    = { ip = "" },
+		proxydel    = { ip = "" },
 		ipadd       = { ip = "", note = "", source = "", fast = "", evidence = "" },
 		ipdel       = { ip = "" },
 		ipflush     = {},
@@ -2828,6 +2923,14 @@ elseif arg[1] == "call" then
 		res = methods.ipdel(req.ip)
 	elseif name == "ipflush" then
 		res = methods.ipflush()
+	elseif name == "proxylist" then
+		res = methods.proxylist()
+		reply_list(res, { "proxies" })
+		return
+	elseif name == "proxyadd" then
+		res = methods.proxyadd(req.ip)
+	elseif name == "proxydel" then
+		res = methods.proxydel(req.ip)
 	elseif name == "logevent" then
 		res = methods.logevent(req.epoch, req.kind, req.result,
 		                       req.ip, req.user, req.detail)
