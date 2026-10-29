@@ -5,6 +5,7 @@
     }
 
     HF.should_use_thumbnail = function should_use_thumbnail(item, kind) {
+        if (item.device_id) return false;
         return kind === 'file' &&
             HF.state.preferences.enable_thumbnails === 1 &&
             HF.thumbnails_enabled_for_view() &&
@@ -1093,7 +1094,7 @@
         if (!entry) {
             return '';
         }
-        return entry.kind === 'directory' ? 'directory:' + entry.path : entry.kind;
+        return entry.kind === 'directory' ? 'directory:' + (entry.device_id || '') + ':' + entry.path : entry.kind;
     }
 
     HF.push_history = function push_history(entry) {
@@ -1102,14 +1103,14 @@
             return;
         }
         HF.state.history = HF.state.history.slice(0, HF.state.history_index + 1);
-        HF.state.history.push({ kind: entry.kind, path: entry.path || '' });
+        HF.state.history.push({ kind: entry.kind, path: entry.path || '', device_id: entry.device_id || '' });
         HF.state.history_index = HF.state.history.length - 1;
         HF.update_toolbar();
     }
 
     HF.navigate = function navigate(entry, add_history) {
         if (entry.kind === 'directory') {
-            HF.open_path(entry.path, add_history);
+            HF.open_path(entry.path, add_history, null, entry.device_id || '');
         } else {
             HF.show_virtual(entry.kind, add_history);
         }
@@ -1655,6 +1656,7 @@
     }
 
     HF.render_sha256 = function render_sha256(host, item, full, on_update) {
+        if (item && item.device_id) { if (host) { host._fmHashToken = {}; host.textContent = '-'; } return; }
         if (!host) {
             return;
         }
@@ -2844,21 +2846,40 @@
         node.addEventListener('touchcancel', cancel, { passive: true });
     }
 
+    HF.create_sidebar_section = function(sidebar, key, heading) {
+        var section = HF.Util.createElement('div', 'fm-nav-section fm-nav-section-' + key);
+        var list = HF.Util.createElement('div', 'fm-nav-list');
+        list.dataset.navList = key; list.tabIndex = 0;
+        list.setAttribute('role', 'group'); list.setAttribute('aria-label', heading.textContent);
+        heading.title = heading.textContent;
+        section.appendChild(heading); section.appendChild(list); sidebar.appendChild(section);
+        return list;
+    };
+    HF.add_sidebar_meta = function(button, text) {
+        var label = button.querySelector('.fm-nav-label');
+        var copy = HF.Util.createElement('div', 'fm-nav-drive-copy');
+        var meta = HF.Util.createElement('div', 'fm-nav-drive-meta', text);
+        button.replaceChild(copy, label); copy.appendChild(label); copy.appendChild(meta);
+        return meta;
+    };
+
     HF.render_sidebar = function render_sidebar() {
         var sidebar = document.getElementById('fm_sidebar');
+        var scrolls = Object.create(null), scrollLeft = sidebar.scrollLeft;
+        sidebar.querySelectorAll('.fm-nav-list').forEach(function(list) { scrolls[list.dataset.navList] = list.scrollTop; });
         HF.clear_node(sidebar);
         var quick_active = HF.state.current && HF.state.current.kind === 'quick_access';
         var quick_heading = HF.create_sidebar_button(HF.labels.quick_access, 'quick_access', 'fm-nav-heading' + (quick_active ? ' active' : ''), function() {
             HF.show_virtual('quick_access', true);
         });
-        sidebar.appendChild(quick_heading);
+        var quick_list = HF.create_sidebar_section(sidebar, 'quick', quick_heading);
 
         HF.state.navigation.quick_access.forEach(function(item) {
-            var active = HF.state.current && HF.state.current.kind === 'directory' && HF.state.current.path === item.path;
+            var active = HF.state.current && HF.state.current.kind === 'directory' && !HF.state.current.device_id && HF.state.current.path === item.path;
             var class_name = 'fm-nav-item' + (active ? ' active' : '') + (!item.exists ? ' disabled' : '');
             var button = HF.create_sidebar_button(item.name, item.icon || 'folder', class_name, function() {
                 if (item.exists) {
-                    HF.open_path(item.path, true);
+                    HF.open_path(item.path, true, null, '');
                 } else {
                     HF.set_warning_status(HF.labels.unavailable + ': ' + item.path);
                 }
@@ -2866,38 +2887,31 @@
             if (item.exists) {
                 HF.bind_drop_target(button, item.path, item.name);
             }
-            sidebar.appendChild(button);
+            quick_list.appendChild(button);
         });
 
-        var divider = document.createElement('div');
-        divider.className = 'fm-nav-divider';
-        sidebar.appendChild(divider);
         var pc_active = HF.state.current && HF.state.current.kind === 'this_pc';
         var pc_heading = HF.create_sidebar_button(HF.labels.this_pc, 'this_pc', 'fm-nav-heading' + (pc_active ? ' active' : ''), function() {
             HF.show_virtual('this_pc', true);
         });
-        sidebar.appendChild(pc_heading);
+        var drive_list = HF.create_sidebar_section(sidebar, 'local', pc_heading);
 
         HF.state.navigation.drives.forEach(function(drive) {
-            var active = HF.state.current && HF.state.current.kind === 'directory' && HF.state.current.path === drive.path;
+            var active = HF.state.current && HF.state.current.kind === 'directory' && !HF.state.current.device_id && HF.state.current.path === drive.path;
             var name = drive.path === '/' ? HF.labels.system_disk : drive.name;
             var button = HF.create_sidebar_button(name, 'drive', 'fm-nav-item fm-nav-drive' + (active ? ' active' : ''), function() {
-                HF.open_path(drive.path, true);
+                HF.open_path(drive.path, true, null, '');
             });
-            var image = button.querySelector('.fm-nav-icon');
-            var label = button.querySelector('.fm-nav-label');
-            var copy = document.createElement('div');
-            copy.className = 'fm-nav-drive-copy';
-            button.replaceChild(copy, label);
-            copy.appendChild(label);
-            var meta = document.createElement('div');
-            meta.className = 'fm-nav-drive-meta';
-            meta.textContent = HF.format_kb(drive.used_kb) + ' / ' + HF.format_kb(drive.total_kb);
-            copy.appendChild(meta);
+            HF.add_sidebar_meta(button, HF.format_kb(drive.used_kb) + ' / ' + HF.format_kb(drive.total_kb));
             button.title = drive.path;
             HF.bind_drop_target(button, drive.path, name);
-            sidebar.appendChild(button);
+            drive_list.appendChild(button);
         });
+        if (HF.append_remote_navigation) HF.append_remote_navigation(sidebar);
+        sidebar.querySelectorAll('.fm-nav-list').forEach(function(list) {
+            list.scrollTop = scrolls[list.dataset.navList] || 0;
+        });
+        sidebar.scrollLeft = scrollLeft;
     }
 
     
@@ -3016,7 +3030,7 @@
         });
         HF.sync_item_checkbox(checkbox, HF.is_item_selected(item));
         node.appendChild(checkbox);
-        var cached_type = HF.state.detected_types[item.path];
+        var cached_type = !item.device_id && HF.state.detected_types[item.path];
         if (cached_type) {
             item.preview = cached_type === 'text' ? 'text' : 'binary';
             if (cached_type === 'text') {
@@ -3196,7 +3210,7 @@
                 ''
             );
             HF.set_button_state('fm_menu_move_to', !can_modify, modify_reason || system_reason);
-            if (modify_reason || system_reason) {
+            if (!item.device_id && (modify_reason || system_reason)) {
                 HF.set_write_block_status(modify_reason || system_reason);
             }
             HF.show_context_menu('fm_item_menu', event.clientX, event.clientY);
@@ -3206,7 +3220,7 @@
                 HF.open_item(item);
             }
         });
-        if (HF.state.current && HF.state.current.kind === 'directory' && HF.can_modify_item(item)) {
+        if (HF.state.current && HF.state.current.kind === 'directory' && !item.device_id && HF.can_modify_item(item)) {
             if (!('ontouchstart' in window)) {
                 node.draggable = true;
             } else {
@@ -3294,6 +3308,7 @@
                         }
 
                         if (longPressTriggered) {
+                            if (item.device_id) return;
                             ev.preventDefault();
                             if (!isDragging) {
                                 isDragging = true;
@@ -3483,6 +3498,8 @@
     }
 
     HF.show_virtual = function show_virtual(kind, add_history) {
+        if (kind === 'remote_devices' && HF.show_remote_devices) return HF.show_remote_devices(add_history);
+        HF.navigation_request = (HF.navigation_request || 0) + 1;
         HF.clear_marquee();
         HF.hide_details();
         HF.state.current = { kind: kind };
@@ -3533,6 +3550,7 @@
         var is_package = !is_directory && item.preview === 'package';
         var package_label = is_package ? HF.package_type_label(item.ext) : '';
         return {
+            device_id: item.device_id || '',
             name: item.name,
             path: item.path,
             type: item.type,
@@ -3685,7 +3703,7 @@
         header.appendChild(title);
         var items = HF.sorted_directory_items((data.items || []).map(HF.prepare_file_item), data.path);
         var image_count = items.filter(function(item) { return item.preview === 'image'; }).length;
-        if (HF.state.preferences.enable_thumbnails === 1 && image_count > 0) {
+        if (!data.device_id && HF.state.preferences.enable_thumbnails === 1 && image_count > 0) {
             var actions = document.createElement('div');
             actions.className = 'fm-directory-actions';
             var thumb_button = document.createElement('button');
@@ -4369,10 +4387,12 @@
     }
 
     HF.refresh_after_write = function refresh_after_write(select_path) {
-        var current = HF.state.current ? { kind: HF.state.current.kind, path: HF.state.current.path } : null;
+        var current = HF.state.current ? { kind: HF.state.current.kind, path: HF.state.current.path, device_id: HF.state.current.device_id || '' } : null;
+        var request = HF.navigation_request;
         HF.refresh_navigation(function() {
+            if (request !== HF.navigation_request) return;
             if (current && current.kind === 'directory') {
-                HF.open_path(current.path, false, select_path);
+                HF.open_path(current.path, false, select_path, current.device_id);
             } else {
                 HF.show_virtual(current ? current.kind : 'quick_access', false);
             }
@@ -4476,12 +4496,15 @@
         document.getElementById('fm_target_path').setAttribute('aria-busy', 'true');
         HF.target_address_error('');
         function active() { return HF.state.target_picker === picker && HF.target_request === request; }
-        HF.request_json(HF.api.list, { path: path }, function(data) {
+        var load = picker.load || function(path, okay, failed) { HF.request_json(HF.api.list, { path: path }, okay, failed); };
+        load(path, function(data) {
             if (!active()) return;
             if (!data.path || !Array.isArray(data.items)) { failed(HF.labels.unavailable); return; }
             HF.state.target_path = data.path;
             HF.state.target_parent = data.parent;
             HF.state.target_has_operation_space = data.has_operation_space !== false;
+            picker.device_revision = data.device_revision || '';
+            if (picker.device_paths) picker.device_paths[picker.device_id || ''] = data.path;
             HF.render_target_address();
             finish();
             var list = document.getElementById('fm_target_list');
@@ -4498,7 +4521,7 @@
                 button.addEventListener('click', function() { HF.load_target_directory(item.path); });
                 list.appendChild(button);
             });
-        }, failed);
+        }, failed, active);
         function finish() {
             var current = HF.state.target_path;
             var reason = current ? HF.get_system_block_reason(current) ||
@@ -4507,9 +4530,9 @@
             document.getElementById('fm_target_up').disabled = !current || current === '/';
             document.getElementById('fm_target_path').setAttribute('aria-busy', 'false');
         }
-        function failed(message) {
+        function failed(message, stopFallback) {
             if (!active()) return;
-            if (fallback && !HF.state.target_path && path !== '/') { HF.load_target_directory(HF.parent_directory(path), true); return; }
+            if (fallback && !stopFallback && !HF.state.target_path && path !== '/') { HF.load_target_directory(HF.parent_directory(path), true); return; }
             finish();
             HF.target_address_error((message || HF.labels.request_failed) + ': ' + path);
         }
@@ -4532,6 +4555,7 @@
         HF.state.target_path = null;
         HF.state.target_parent = null;
         HF.state.target_has_operation_space = false;
+        if (HF.configure_target_devices) HF.configure_target_devices(options);
         HF.clear_node(document.getElementById('fm_target_list'));
         var address = document.getElementById('fm_target_path')._fmPathAddress;
         if (address) address.exit();
@@ -4637,7 +4661,7 @@
         if (!picker || !path || document.getElementById('fm_target_confirm').disabled) return;
         if (!HF.can_modify_system_path(path) || HF.state.target_has_operation_space === false) return;
         HF.close_target_dialog();
-        picker.accept(path);
+        picker.accept(path, picker.device_id || '', picker.device_revision || '');
     }
 
     HF.trigger_upload = function trigger_upload(target_dir, target_label, directory) {
@@ -4676,12 +4700,15 @@
             return;
         }
         HF.state.clipboard = {
+            device_id: HF.state.current && HF.state.current.device_id || '',
+            device_revision: HF.state.current && HF.state.current.device_revision || '',
             mode: mode,
             items: items.map(function(item) {
                 return {
                     path: item.path,
                     name: item.name,
-                    type: item.type
+                    type: item.type,
+                    is_symlink: !!item.is_symlink
                 };
             })
         };
@@ -4724,6 +4751,7 @@
     }
 
     HF.run_paste = function run_paste(target_path) {
+        if (HF.run_remote_paste && ((HF.state.current && HF.state.current.device_id) || (HF.state.clipboard && HF.state.clipboard.device_id))) return HF.run_remote_paste(target_path);
         if (!HF.has_clipboard()) {
             HF.set_warning_status(HF.labels.clipboard_empty);
             return;
@@ -4763,7 +4791,9 @@
         });
     }
 
-    HF.showPasteConflictDialog = function showPasteConflictDialog(conflicts, action, items, target_path) {
+    HF.showPasteConflictDialog = function showPasteConflictDialog(conflicts, action, items, target_path, adapter) {
+        var check = adapter ? adapter.check : HF.check_paste_transfer;
+        var execute = adapter ? adapter.execute : HF.executePaste;
         var counts = new Map();
         conflicts.forEach(function(item) { counts.set(item.name, (counts.get(item.name) || 0) + 1); });
         HF.render_conflict_choices(conflicts.map(function(item) {
@@ -4772,8 +4802,8 @@
                 title: item.path || item.name, directory: (item.type || (source && source.type)) === 'directory' && !(source && source.is_symlink) };
         }), function(entry, done, failed) {
             var source = items.find(function(item) { return item.path === entry.key || item.name === entry.key; });
-            HF.check_paste_transfer({ tree_path: source ? source.path : entry.key }, function(data) {
-                done((data.children || []).map(function(item) { return { key: item.path, label: item.name, title: item.path, directory: item.type === 'directory' }; }));
+            check({ tree_path: source ? source.path : entry.key }, function(data) {
+                done((data.children || []).map(function(item) { return { key: item.path, label: item.name, title: item.path, directory: item.type === 'directory' && !item.is_symlink }; }));
             }, failed);
         });
         var list = document.getElementById('fm_conflict_list');
@@ -4804,7 +4834,7 @@
             selected = selected || selection(conflict_action);
             var preserve = document.getElementById('fm_preserve_permissions').checked;
             HF.close_modal();
-            HF.executePaste(action, selected.included, target_path, conflict_action, names, preserve, selected.skipped, selected.excluded);
+            execute(action, selected.included, target_path, conflict_action, names, preserve, selected.skipped, selected.excluded);
         }
         function set_mode(value) {
             renaming = value;
@@ -4829,7 +4859,7 @@
             set_mode(true);
             renameBtn.disabled = true;
             error('');
-            HF.check_paste_transfer({
+            check({
                 sources: JSON.stringify(items.map(function(item) { return item.path; })),
                 target_dir: target_path, suggest_rename: '1'
             }, function(data) {
@@ -4881,7 +4911,7 @@
             renameBtn.disabled = true;
             HF.set_conflict_busy(true);
             error('');
-            HF.check_paste_transfer({
+            check({
                 sources: JSON.stringify(selected.included.map(function(item) { return item.path; })),
                 target_dir: target_path, rename_map: JSON.stringify(names)
             }, function() {
@@ -4968,22 +4998,24 @@
         }
     }
 
+    HF.package_install_fields = function(task, item) {
+        return {
+            title: task.done ? (HF.task_unconfirmed(task) ? HF.labels.task_status_unknown : (task.success ? HF.labels.install_success : HF.labels.install_failed)) : HF.labels.installing_package,
+            status: task.message || (task.done ? (task.success ? HF.labels.install_success : HF.labels.install_failed) : HF.labels.install_running),
+            name: item ? item.name : (task.package_name || (task.path || '-').split('/').pop()),
+            path: task.path || task.package_name || '-',
+            type: HF.package_type_label(task.package_type),
+            installer: task.installer || '-',
+            exit: task.exit_code === undefined || task.exit_code === null ? '-' : String(task.exit_code),
+            log: task.log || HF.labels.no_log_yet
+        };
+    }
+
     HF.update_package_install_view = function update_package_install_view(data) {
         var task = data || {};
         HF.state.install_task = task;
-        document.getElementById('fm_package_install_title').textContent = task.done ?
-            (HF.task_unconfirmed(task) ? HF.labels.task_status_unknown :
-                (task.success ? HF.labels.install_success : HF.labels.install_failed)) :
-            HF.labels.installing_package;
-        document.getElementById('fm_package_install_status').textContent = task.message || HF.labels.install_running;
-        document.getElementById('fm_package_install_name').textContent =
-            HF.state.install_item ? HF.state.install_item.name : (task.package_name || (task.path || '-').split('/').pop());
-        document.getElementById('fm_package_install_path').textContent = task.path || task.package_name || '-';
-        document.getElementById('fm_package_install_type').textContent = HF.package_type_label(task.package_type);
-        document.getElementById('fm_package_install_installer').textContent = task.installer || '-';
-        document.getElementById('fm_package_install_exit').textContent =
-            task.exit_code === undefined || task.exit_code === null ? '-' : String(task.exit_code);
-        document.getElementById('fm_package_install_log').textContent = task.log || HF.labels.no_log_yet;
+        var fields = HF.package_install_fields(task, HF.state.install_item);
+        Object.keys(fields).forEach(function(key) { document.getElementById('fm_package_install_' + key).textContent = fields[key]; });
         document.getElementById('fm_package_install_close').disabled = !task.done;
         document.getElementById('fm_package_install_done').disabled = !task.done;
     }
@@ -5223,12 +5255,16 @@
     };
 
     HF.open_item = function open_item(item, force_preview) {
+        if (item && item.device_id) {
+            HF.hide_context_menus();
+            return item.type === 'directory' ? HF.open_remote_path(item.device_id, item.path, true) : HF.remote_unavailable();
+        }
         HF.hide_details();
         HF.hide_context_menus();
         if (!item) return;
 
         if (item.type === 'directory') {
-            HF.open_path(item.path, true);
+            HF.open_path(item.path, true, null, item.device_id || '');
             return;
         }
 
@@ -5303,14 +5339,17 @@
     }
 
     HF.refresh_current = function refresh_current() {
-        if (HF.state.current && HF.state.current.kind === 'directory') {
+        if (HF.state.current && HF.state.current.device_id) return HF.open_remote_path(HF.state.current.device_id, HF.state.current.path, false);
+        if (HF.state.current && HF.state.current.kind === 'remote_devices') return HF.show_remote_devices(false);
+        var current = HF.state.current, request = HF.navigation_request;
+        if (current && current.kind === 'directory') {
             HF.refresh_navigation(function() {
-                HF.open_path(HF.state.current.path, false);
+                if (request === HF.navigation_request) HF.open_path(current.path, false, null, '');
             });
             return;
         }
         HF.refresh_navigation(function() {
-            HF.show_virtual(HF.state.current ? HF.state.current.kind : 'quick_access', false);
+            if (request === HF.navigation_request) HF.show_virtual(current ? current.kind : 'quick_access', false);
         });
     }
 
@@ -5345,11 +5384,15 @@
         });
     };
 
-    HF.open_path = function open_path(path, add_history, select_path) {
+    HF.open_path = function open_path(path, add_history, select_path, device_id) {
+        device_id = device_id === undefined ? (HF.state.current && HF.state.current.device_id || '') : device_id;
+        if (device_id && HF.open_remote_path) return HF.open_remote_path(device_id, path, add_history, select_path);
+        var request = HF.navigation_request = (HF.navigation_request || 0) + 1;
         HF.clear_marquee();
         HF.hide_details();
         HF.request_json(HF.api.list, { path: path }, function(data) {
-            if (HF.state.sort_path && HF.state.sort_path !== data.path) {
+            if (request !== HF.navigation_request) return;
+            if ((HF.state.current && HF.state.current.device_id) || (HF.state.sort_path && HF.state.sort_path !== data.path)) {
                 HF.state.sort_path = '';
                 HF.state.sort_field = 'name';
                 HF.state.sort_order = 'asc';
@@ -5400,6 +5443,7 @@
     }
 
     HF.path_segments = function path_segments() {
+        if (HF.remote_path_segments) { var remote = HF.remote_path_segments(); if (remote) return remote; }
         if (!HF.state.current) return [];
         if (HF.state.current.kind === 'quick_access') return [{ label: HF.labels.quick_access, kind: 'quick_access' }];
         var crumbs = [{ label: HF.labels.this_pc, kind: 'this_pc' }];
@@ -5409,6 +5453,8 @@
     }
 
     HF.open_crumb = function open_crumb(crumb) {
+        if (crumb.kind === 'remote_devices') return HF.show_remote_devices(true);
+        if (crumb.device_id) return HF.open_remote_path(crumb.device_id, crumb.path, true);
         HF.close_anchor_menus();
         if (crumb.kind === 'this_pc') {
             HF.show_virtual('this_pc', true);
@@ -5552,7 +5598,7 @@
             input_id: 'fm_target_input',
             value: function() { return HF.state.target_path || '/'; },
             editable: function() { return !!HF.state.target_picker; },
-            segments: function() { return HF.directory_segments(HF.state.target_path || '/', true); },
+            segments: function() { return HF.directory_segments(HF.state.target_path || '/', !(HF.state.target_picker && HF.state.target_picker.device_id)); },
             open_crumb: function(crumb) { HF.load_target_directory(crumb.path); },
             navigate: HF.load_target_directory,
             error: HF.target_address_error

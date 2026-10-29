@@ -495,6 +495,7 @@
         }
         var xhr = new XMLHttpRequest();
         xhr.open(type, url, true);
+        if (Number(options.timeout) > 0) xhr.timeout = Number(options.timeout);
         if (type === 'POST') {
             xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded; charset=UTF-8');
         }
@@ -513,6 +514,7 @@
         xhr.onerror = function () {
             if (options.error) { options.error(xhr); }
         };
+        xhr.ontimeout = xhr.onerror;
         xhr.send(type === 'POST' ? query : null);
     };
     HF.Util.trim = function (value) { return String(value == null ? '' : value).trim(); };

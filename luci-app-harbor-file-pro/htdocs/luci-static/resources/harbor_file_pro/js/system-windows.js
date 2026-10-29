@@ -54,7 +54,7 @@
     };
 
     HF.set_settings_tab = function set_settings_tab(tab) {
-        var next_tab = tab === 'nginx' ? 'nginx' : 'basic';
+        var next_tab = ['basic', 'nginx', 'remote'].indexOf(tab) >= 0 ? tab : 'basic';
         var tabs = document.querySelectorAll('[data-settings-tab]');
         for (var i = 0; i < tabs.length; i++) {
             var active = tabs[i].getAttribute('data-settings-tab') === next_tab;
@@ -63,6 +63,8 @@
         }
         document.getElementById('fm_settings_panel_basic').classList.toggle('active', next_tab === 'basic');
         document.getElementById('fm_settings_panel_nginx').classList.toggle('active', next_tab === 'nginx');
+        document.getElementById('fm_settings_panel_remote').classList.toggle('active', next_tab === 'remote');
+        if (next_tab === 'remote' && HF.render_remote_settings) HF.render_remote_settings();
     }
 
     HF.render_nginx_settings = function render_nginx_settings() {
@@ -589,7 +591,21 @@
         window.open(url, '_blank', 'noopener');
     }
 
+    HF.close_package_install = function close_package_install() {
+        if (HF.state.install_task && !HF.state.install_task.done) return;
+        var dialog = document.getElementById('fm_package_install_dialog');
+        if (dialog._fmWindow && HF.window_manager) HF.window_manager.close(dialog._fmWindow);
+        else dialog.style.display = 'none';
+        HF.stop_install_poll();
+        HF.state.install_item = null;
+        HF.state.install_task = null;
+    }
+
     HF.close_modal = function close_modal() {
+        if (getComputedStyle(document.getElementById('fm_package_install_dialog')).display !== 'none') {
+            HF.close_package_install();
+            return;
+        }
         if (HF.state.nginx_installing &&
                 document.getElementById('fm_nginx_install_dialog').style.display !== 'none') {
             return;

@@ -297,16 +297,47 @@
 .fm-layout{
     display: grid;
     grid-template-columns: 236px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
     min-height: 0;
     flex: 1 1 auto;
 }
 
 .fm-sidebar{
+    display: grid;
+    grid-template-rows: repeat(3, minmax(0, max-content));
+    align-content: start;
+    gap: 8px;
     padding: 14px 10px;
-    overflow: auto;
+    overflow: hidden;
     min-height: 0;
     border-right: 1px solid var(--fm-border);
     background: var(--fm-sidebar);
+}
+
+.fm-nav-section{
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.fm-nav-section > .fm-nav-heading{
+    flex: 0 0 auto;
+}
+
+.fm-nav-list{
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior-y: contain;
+    touch-action: pan-y pinch-zoom;
+    -webkit-overflow-scrolling: touch;
+}
+
+.fm-nav-list:empty{
+    display: none;
 }
 
 .fm-nav-heading,
@@ -413,12 +444,6 @@
 .fm-nav-drive.active .fm-nav-drive-meta{
     color: currentColor;
     opacity: 0.85;
-}
-
-.fm-nav-divider{
-    height: 1px;
-    margin: 10px 8px;
-    background: var(--fm-border);
 }
 
 .fm-main{
@@ -2195,24 +2220,24 @@
 .fm-settings-path-control{
     width: 260px;
     min-width: 260px;
-    padding-right: 12px;
-    background-image: none;
-    line-height: normal;
-}
-
-[data-harbor-theme="dark"] .fm-settings-path-control{
-    background-image: none;
 }
 
 .fm-settings-number-control{
     width: 120px;
     min-width: 120px;
+}
+
+.fm-settings-path-control,
+.fm-settings-number-control,
+.fm-settings-text-control{
     padding-right: 12px;
     background-image: none;
     line-height: normal;
 }
 
-[data-harbor-theme="dark"] .fm-settings-number-control{
+[data-harbor-theme="dark"] .fm-settings-path-control,
+[data-harbor-theme="dark"] .fm-settings-number-control,
+[data-harbor-theme="dark"] .fm-settings-text-control{
     background-image: none;
 }
 
@@ -2710,26 +2735,40 @@
 
     .fm-sidebar{
         display: flex;
+        flex-direction: row;
         gap: 4px;
         padding: 8px;
         overflow-x: auto;
+        overflow-y: hidden;
+        overscroll-behavior-x: contain;
+        touch-action: pan-x pinch-zoom;
+        -webkit-overflow-scrolling: touch;
         border-right: 0;
         border-bottom: 1px solid var(--fm-border);
         flex: 0 0 auto;
     }
 
-    .fm-nav-heading,
-.fm-nav-item{
-        width: auto;
-        flex: 0 0 auto;
-        padding: 8px 10px;
+    .fm-nav-section,
+    .fm-nav-list{
+        display: contents;
+        touch-action: auto;
     }
 
-    .fm-nav-divider{
+    .fm-nav-section + .fm-nav-section::before{
+        content: "";
         width: 1px;
         height: 32px;
         margin: 0 4px;
+        align-self: center;
         flex: 0 0 auto;
+        background: var(--fm-border);
+    }
+
+    .fm-nav-heading,
+    .fm-nav-item{
+        width: auto;
+        flex: 0 0 auto;
+        padding: 8px 10px;
     }
 
     .fm-main{
@@ -3336,4 +3375,113 @@ html[data-harbor-file-manager] #view.fm-fluid-host{
 .fm-context-menu{
     max-height: var(--fm-overlay-height, calc(100vh - 16px));
     overflow-y: auto;
+}
+
+.file-manager .fm-remote-grid {
+    margin-top: 16px;
+}
+.file-manager .fm-remote-card {
+    font: inherit;
+    color: var(--fm-text);
+    text-align: left;
+    cursor: pointer;
+}
+.fm-remote-settings .fm-remote-editor .fm-settings-label {
+    flex: 0 0 auto;
+    min-width: 110px;
+}
+.fm-remote-settings .fm-remote-editor .fm-settings-control {
+    flex: 1;
+    min-width: 0;
+    width: 100%;
+}
+.fm-remote-settings .fm-settings-row {
+    flex-wrap: wrap;
+}
+.fm-remote-settings .fm-settings-copy {
+    flex: 1;
+    min-width: 120px;
+    overflow-wrap: anywhere;
+}
+.fm-remote-status {
+    padding: 12px 16px;
+    color: var(--fm-muted);
+    overflow-wrap: anywhere;
+}
+.fm-remote-transfer .fm-upload-detail,
+.fm-remote-transfer .fm-upload-speed {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+.fm-remote-running .fm-upload-progress span {
+    animation: fm-remote-progress 1.6s ease-in-out infinite alternate;
+}
+@keyframes fm-remote-progress {
+    from { transform: translateX(0); }
+    to { transform: translateX(230%); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .fm-remote-running .fm-upload-progress span {
+        animation: none;
+    }
+}
+
+@media (max-width: 760px) {
+    .fm-remote-settings .fm-remote-editor .fm-settings-control {
+        flex: 0 0 auto;
+    }
+}
+
+@media (max-width: 640px) {
+    .fm-remote-settings .fm-remote-tools .fm-settings-row,
+    .fm-remote-settings .fm-remote-devices .fm-settings-row {
+        flex-direction: row;
+        align-items: center;
+    }
+    .fm-remote-settings .fm-remote-devices .fm-settings-copy {
+        flex-basis: 100%;
+    }
+}
+
+.fm-upload-window.fm-remote-window .fm-window-body {
+    overflow: auto;
+}
+
+.fm-remote-loading {
+    margin-left: auto;
+    color: var(--fm-muted);
+    font-size: 12px;
+    pointer-events: none;
+}
+
+.fm-remote-dependency .fm-nginx-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    min-width: 0;
+}
+.fm-remote-install-window .fm-window-body {
+    overflow: auto;
+}
+.fm-remote-install-panel {
+    min-width: 0;
+    width: 100%;
+}
+
+.fm-remote-dependency .fm-settings-intro-desc {
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+}
+
+.fm-target-device{
+    width: 10rem;
+    max-width: min(10rem, 38%);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    flex: 0 1 auto;
+}
+
+.fm-target-device[hidden]{
+    display: none;
 }

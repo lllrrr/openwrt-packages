@@ -1,0 +1,5 @@
+#!/bin/sh
+# Remove user state only when the payload is really gone.
+[ -f /usr/libexec/rpcd/luci.languard ] && exit 0
+rm -rf /etc/languard
+exit 0

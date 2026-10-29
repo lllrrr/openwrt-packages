@@ -1,6 +1,15 @@
-# luci-app-clientblock
+# luci-app-languard
 
-OpenWrt 客户端访问控制插件（LuCI）。一个页面管两件事：**拉黑设备**、**拉黑外部 IP**，外加**登录爆破的实时自动封禁**。
+局域网守卫（LAN Guard）——OpenWrt 的访问控制插件（LuCI）。
+
+它回答三个问题：**谁在我的网里**、**谁在敲我的门**、**该放谁进来**。
+
+| 层面 | 做什么 |
+|---|---|
+| 设备 | 首次出现时间、MAC 厂商、类型推断、新设备待审 |
+| 地址 | 手动 / 自动 / 订阅三种来源的 IP 黑名单，带分类筛选 |
+| 登录 | SSH 与 LuCI 爆破检测，达阈值自动封禁 |
+| 反代 | 信任代理列表，还原 lucky 等反代背后的真实 IP |
 
 > 取代 `luci-app-watchdog` 的黑名单功能。原实现因 `login_ip_black_timeout=0` 且规则在 `fw4 reload` 后不会重建，实际从未生效。
 
@@ -43,11 +52,11 @@ OpenWrt 客户端访问控制插件（LuCI）。一个页面管两件事：**拉
 
 ```sh
 # 1. 下载并解压
-wget https://github.com/rheatin/luci-app-clientblock/releases/latest/download/luci-app-clientblock-1.1.0.tar.gz
-tar -xzf luci-app-clientblock-1.1.0.tar.gz
+wget https://github.com/rheatin/luci-app-languard/releases/latest/download/luci-app-languard-1.1.0.tar.gz
+tar -xzf luci-app-languard-1.1.0.tar.gz
 
 # 2. 安装
-cd luci-app-clientblock
+cd luci-app-languard
 sh install.sh
 ```
 
@@ -55,9 +64,9 @@ sh install.sh
 
 1. 复制文件到 `/`
 2. 修正权限
-3. 创建 `/etc/clientblock/` 状态目录
+3. 创建 `/etc/languard/` 状态目录
 4. 重启 `rpcd` 注册 ubus 插件
-5. 启用并启动 `clientblock` 服务
+5. 启用并启动 `languard` 服务
 6. 重载防火墙
 
 可选参数：
@@ -72,19 +81,19 @@ sh install.sh --no-start    # 只装文件，不启动服务
 
 ```sh
 # 下载对应架构的 .apk 后
-apk add --allow-untrusted ./luci-app-clientblock-1.1.0-r1.apk
+apk add --allow-untrusted ./luci-app-languard-1.1.0-r1.apk
 ```
 
-> 实际文件名带架构与版本后缀，例如 `luci-app-clientblock-1.1.0-r1.apk`。
-> 用 `apk add --allow-untrusted ./luci-app-clientblock*.apk` 也可以。
+> 实际文件名带架构与版本后缀，例如 `luci-app-languard-1.1.0-r1.apk`。
+> 用 `apk add --allow-untrusted ./luci-app-languard*.apk` 也可以。
 
 `.apk` 由 GitHub Actions 用官方 OpenWrt SDK 构建，在 [Releases](../../releases) 页面按架构下载。
 
 ### 方式三：无人值守
 
 ```sh
-wget -qO- https://github.com/rheatin/luci-app-clientblock/releases/latest/download/luci-app-clientblock-1.1.0.tar.gz \
-  | tar -xz -C /tmp && sh /tmp/luci-app-clientblock/install.sh
+wget -qO- https://github.com/rheatin/luci-app-languard/releases/latest/download/luci-app-languard-1.1.0.tar.gz \
+  | tar -xz -C /tmp && sh /tmp/luci-app-languard/install.sh
 ```
 
 安装完成后打开 LuCI → **网络 → Access Control**。
@@ -97,7 +106,7 @@ wget -qO- https://github.com/rheatin/luci-app-clientblock/releases/latest/downlo
 sh uninstall.sh
 ```
 
-会停止服务、移除全部文件、删除 `/etc/clientblock/` 状态目录、重载防火墙。
+会停止服务、移除全部文件、删除 `/etc/languard/` 状态目录、重载防火墙。
 
 ---
 
@@ -179,44 +188,44 @@ sh uninstall.sh
 
 支持按来源和结果筛选，也可按 IP / 用户名 / 详情搜索。**Clear log** 清空。
 
-> 日志存储在 `/etc/clientblock/login.log`，格式为 `epoch|kind|result|ip|user|detail`。
+> 日志存储在 `/etc/languard/login.log`，格式为 `epoch|kind|result|ip|user|detail`。
 > 服务重启不会重复记录历史事件。
 
 ## 命令行
 
 ```sh
 # 查询
-ubus call luci.clientblock iplist
-ubus call luci.clientblock list '{"probe":"1"}'
-ubus call luci.clientblock geoinfo '{"ip":"8.8.8.8"}'
+ubus call luci.languard iplist
+ubus call luci.languard list '{"probe":"1"}'
+ubus call luci.languard geoinfo '{"ip":"8.8.8.8"}'
 
 # 外部 IP
-ubus call luci.clientblock ipadd '{"ip":"1.2.3.0/24","note":"垃圾流量"}'
-ubus call luci.clientblock ipdel '{"ip":"1.2.3.0/24"}'
-ubus call luci.clientblock ipflush
+ubus call luci.languard ipadd '{"ip":"1.2.3.0/24","note":"垃圾流量"}'
+ubus call luci.languard ipdel '{"ip":"1.2.3.0/24"}'
+ubus call luci.languard ipflush
 
 # 设备
-ubus call luci.clientblock block   '{"mac":"aa:bb:cc:dd:ee:ff","host":"我的设备"}'
-ubus call luci.clientblock unblock '{"mac":"aa:bb:cc:dd:ee:ff"}'
-ubus call luci.clientblock unblock_all
-ubus call luci.clientblock rename  '{"mac":"aa:bb:cc:dd:ee:ff","name":"新名字"}'
+ubus call luci.languard block   '{"mac":"aa:bb:cc:dd:ee:ff","host":"我的设备"}'
+ubus call luci.languard unblock '{"mac":"aa:bb:cc:dd:ee:ff"}'
+ubus call luci.languard unblock_all
+ubus call luci.languard rename  '{"mac":"aa:bb:cc:dd:ee:ff","name":"新名字"}'
 
 # 自动防护
-ubus call luci.clientblock autoget
-ubus call luci.clientblock autoset '{"enabled":"1","threshold":"5","window":"600","ttl":"86400"}'
-ubus call luci.clientblock scan
-ubus call luci.clientblock tick          # 每分钟由服务调用：调度 + 到期
-ubus call luci.clientblock block '{"mac":"aa:bb:cc:dd:ee:ff","minutes":"60"}'
-ubus call luci.clientblock curfew '{"id":"1"}'
-ubus call luci.clientblock portadd '{"mac":"aa:bb:cc:dd:ee:ff","proto":"tcp","port":"445"}'
-ubus call luci.clientblock grouplist
-ubus call luci.clientblock notifyget
-ubus call luci.clientblock selfcheck
-ubus call luci.clientblock probe
+ubus call luci.languard autoget
+ubus call luci.languard autoset '{"enabled":"1","threshold":"5","window":"600","ttl":"86400"}'
+ubus call luci.languard scan
+ubus call luci.languard tick          # 每分钟由服务调用：调度 + 到期
+ubus call luci.languard block '{"mac":"aa:bb:cc:dd:ee:ff","minutes":"60"}'
+ubus call luci.languard curfew '{"id":"1"}'
+ubus call luci.languard portadd '{"mac":"aa:bb:cc:dd:ee:ff","proto":"tcp","port":"445"}'
+ubus call luci.languard grouplist
+ubus call luci.languard notifyget
+ubus call luci.languard selfcheck
+ubus call luci.languard probe
 
 # 登录日志
-ubus call luci.clientblock loglist '{"limit":"100"}'
-ubus call luci.clientblock logclear
+ubus call luci.languard loglist '{"limit":"100"}'
+ubus call luci.languard logclear
 ```
 
 ---
@@ -224,17 +233,17 @@ ubus call luci.clientblock logclear
 ## 文件结构
 
 ```
-/usr/libexec/rpcd/luci.clientblock              rpcd 后端（Lua）
-/usr/sbin/clientblock-watch                     登录失败实时监听
-/etc/init.d/clientblock                         服务（开机自愈 + 启动监听）
-/www/luci-static/resources/view/clientblock.js  LuCI 前端
-/usr/share/luci/menu.d/luci-app-clientblock.json
-/usr/share/rpcd/acl.d/luci-app-clientblock.json
-/etc/clientblock/blocked.json                   设备黑名单
-/etc/clientblock/blocked_ips.json               外部 IP 黑名单
-/etc/clientblock/names.json                     设备名称
-/etc/clientblock/auto.json                      自动防护参数
-/etc/nftables.d/90-clientblock.nft              生成的 nftables 规则
+/usr/libexec/rpcd/luci.languard              rpcd 后端（Lua）
+/usr/sbin/languard-watch                     登录失败实时监听
+/etc/init.d/languard                         服务（开机自愈 + 启动监听）
+/www/luci-static/resources/view/languard.js  LuCI 前端
+/usr/share/luci/menu.d/luci-app-languard.json
+/usr/share/rpcd/acl.d/luci-app-languard.json
+/etc/languard/blocked.json                   设备黑名单
+/etc/languard/blocked_ips.json               外部 IP 黑名单
+/etc/languard/names.json                     设备名称
+/etc/languard/auto.json                      自动防护参数
+/etc/nftables.d/90-languard.nft              生成的 nftables 规则
 ```
 
 ---
@@ -286,6 +295,46 @@ ubus call luci.clientblock logclear
 
 本地管理地址（Docker `02:42:xx`、虚拟机、手机私有 Wi-Fi 地址）不参与厂商查询，因为它们在规范上就没有厂商。
 
+## 订阅定期刷新
+
+每个订阅带一个刷新频率（手动 / 每小时 / 每 6 小时 / 每天 / 每周，默认每天）。
+`tick` 每分钟检查一次，**一次只刷新一个到期订阅**，避免拖慢那一分钟的巡检。
+
+刷新走**增量更新**：只对变化的地址执行 `nft add/delete element`（按 2000 条一批），
+**不重载防火墙**——重建规则集会打断整机连接，定时任务不该有这个副作用。
+只有集合整个不存在时才回退到一次完整重载。
+
+单个订阅最多导入 **20000 条**（按文件顺序取前面的，多数黑名单是问题最严重的在前）。
+超过会在列表里标「已截断至 20000 / 144575」。上限来自实测：14 万条会把状态文件撑到
+12MB，`tick` 从 11ms 涨到 5.4 秒。
+
+## 域名拦截（DNS 层）
+
+IP 规则管不到域名列表，而多数公共黑名单其实是域名。域名由 dnsmasq 应答为
+`0.0.0.0` 与 `::`，生成在 `/etc/languard/domainblock.hosts`，通过 UCI 的
+`addnhosts` 挂给 dnsmasq。
+
+- 订阅里的主机名自动进这张表，和 IP 分开存
+- 删除订阅时它贡献的域名一并移除
+- 上限 20000 条
+
+**不影响局域网**：只有在**首次**挂上 `addnhosts` 时需要重启一次 dnsmasq
+（配置文件的解析靠启动）。此后增删域名只重写 hosts 文件并 `SIGHUP`，
+dnsmasq 重读 hosts、清缓存，DHCP 租约和已建立的连接都不受影响。
+
+一个容易踩的坑：rpcd 的 umask 会让文件变成 `600`，dnsmasq 以非特权用户运行，
+读不到就会静默失效。生成后固定 `chmod 644`。
+
+## ARP / MAC 异常告警
+
+`tick` 每次比对当前邻居表与上次记录，发现同一个 IP 换了 MAC 就告警：
+
+- **网关 MAC 变化** —— 最高优先级，典型的 ARP 欺骗
+- **地址冲突** —— 某台设备突然应答别人的 IP
+
+手机随机 MAC（本地管理地址）不告警，否则会天天响。同一对 IP/MAC 一小时内只报一次，
+最近 50 条在概览页可见。
+
 ## 信任代理
 
 反向代理（lucky / nginx / HAProxy / WAF）会让后端日志里的来源地址变成代理自己，
@@ -310,9 +359,9 @@ uhttpd 把 **socket 对端**当作客户端地址，而且只向处理程序导�
 （`ACCEPT` / `AUTHORIZATION` / `COOKIE` / `HOST` / `REFERER` / `USER_AGENT` 等），
 **没有** `X-Forwarded-For` 或 `X-Real-IP`。所以反代之后的 LuCI 只能看到代理自己。
 
-本包安装时会执行 `clientblock-luci-realip`，只修改 `dispatcher.uc` 里**两行登录日志**，
+本包安装时会执行 `languard-luci-realip`，只修改 `dispatcher.uc` 里**两行登录日志**，
 把来源地址换成代理转发的地址；认证、路由、界面都不动。原文件备份在同目录
-`dispatcher.uc.clientblock-orig`。
+`dispatcher.uc.languard-orig`。
 
 由于 uhttpd 拿不到转发头，代理需要把客户端地址写进它**确实会导出**的
 `X-HTTP-Method-Override`（LuCI 不用这个头）：
@@ -330,8 +379,23 @@ lucky → Web服务 → openwrt 规则 → 高级设置
 `luci_realip: not applied`，执行一次即可恢复：
 
 ```sh
-lua /usr/libexec/clientblock-luci-realip && /etc/init.d/uhttpd restart
+lua /usr/libexec/languard-luci-realip && /etc/init.d/uhttpd restart
 ```
+
+## 加载与移动端
+
+页面**不再等待全部数据**：外壳约 50ms 就绘制出来，概览指标卡在 450ms 左右填充，
+其余标签页在第一次点开时才拉取。之前首屏要等 5 个接口一起返回（约 1.4 秒，
+其中地址列表 100KB+），现在地址列表和日志都不阻塞首屏。设备列表会在概览渲染完后
+后台预取，切过去是即时的。
+
+手机端（≤768px）：
+
+- 标签栏横向滚动，指标卡改两列
+- 设备表保留 状态 / 名称 / IP / 操作，隐藏厂商行、MAC、首次出现、丢弃流量
+- 地址表隐藏归属地和丢弃流量
+- 日志表隐藏认证方式与用户，时间只显示时分，整表可横向滚动
+- 健康检查改两行布局，操作按钮换行
 
 ## 封禁分类
 
@@ -423,10 +487,10 @@ ether saddr <MAC> tcp dport 445 counter drop
 
 ## 中文界面
 
-界面已提供完整中文翻译（154 条），随 `luci-i18n-clientblock-zh_Hans` 包发布：
+界面已提供完整中文翻译（154 条），随 `luci-i18n-languard-zh_Hans` 包发布：
 
 ```sh
-apk add --allow-untrusted ./luci-i18n-clientblock-*_zh_Hans.apk
+apk add --allow-untrusted ./luci-i18n-languard-*_zh_Hans.apk
 ```
 
 未安装时界面回退到英文，不影响功能。
@@ -448,11 +512,11 @@ CI 使用官方 OpenWrt SDK，`CONFIG_USE_APK=y` 生成 `.apk`。本地构建：
 ```sh
 # 下载对应版本的 SDK，解压后
 cd sdk
-mkdir -p package/clientblock
-cp -r /path/to/luci-app-clientblock/{Makefile,root,htdocs,postinst,prerm,postrm} package/clientblock/
+mkdir -p package/languard
+cp -r /path/to/luci-app-languard/{Makefile,root,htdocs,postinst,prerm,postrm} package/languard/
 echo 'CONFIG_USE_APK=y' >> .config
 make defconfig
-make package/clientblock/compile V=s
+make package/languard/compile V=s
 ```
 
 产物位于 `sdk/bin/packages/*/base/`。

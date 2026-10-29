@@ -633,6 +633,17 @@ function stat_to_item(name, path, st, lst) {
 	};
 }
 
+function sort_directory_items(items) {
+	sort(items, (a, b) => {
+		let ad = (a.type == 'directory') ? 0 : 1;
+		let bd = (b.type == 'directory') ? 0 : 1;
+		if (ad != bd)
+			return ad - bd;
+		let al = lc(a.name), bl = lc(b.name);
+		return (al < bl) ? -1 : ((al > bl) ? 1 : 0);
+	});
+}
+
 function list_directory(path, prefs) {
 	let n = normalize_path(path);
 	if (!n)
@@ -670,14 +681,7 @@ function list_directory(path, prefs) {
 		push(items, item);
 	}
 
-	sort(items, (a, b) => {
-		let ad = (a.type == 'directory') ? 0 : 1;
-		let bd = (b.type == 'directory') ? 0 : 1;
-		if (ad != bd)
-			return ad - bd;
-		let al = lc(a.name), bl = lc(b.name);
-		return (al < bl) ? -1 : ((al > bl) ? 1 : 0);
-	});
+	sort_directory_items(items);
 
 	return { items, error: null };
 }
@@ -2761,6 +2765,10 @@ function directory_size_page(path) {
 }
 
 function api_list() {
+	if (http.formvalue('remote_action')) return require('harborpro.remote').dispatch(http, {
+		ensure_runtime_dir, normalize_path, valid_component, join_path, parent_path, file_extension,
+		read_preferences, is_system_path, is_descendant, process_alive, remove_recursive, sort_directory_items, ok, fail, tr, command_exists: have_tool
+	});
 	let path = normalize_path(http.formvalue('path'));
 
 	if (!path)

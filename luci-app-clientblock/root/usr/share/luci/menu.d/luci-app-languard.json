@@ -1,0 +1,13 @@
+{
+	"admin/network/languard": {
+		"title": "LAN Guard",
+		"order": 95,
+		"action": {
+			"type": "view",
+			"path": "languard"
+		},
+		"depends": {
+			"acl": [ "luci-app-languard" ]
+		}
+	}
+}

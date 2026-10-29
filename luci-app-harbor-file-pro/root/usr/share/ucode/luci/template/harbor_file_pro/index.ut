@@ -78,6 +78,60 @@ HarborFile.init({
         bookmark_folder_move: '{{ dispatcher.build_url('admin', 'harbor_pro', 'bookmark_folder_move') }}'
     },
     labels: {
+        remote_source_partial: '{{ _('Source partially retained') }}',
+        remote_target_device: '{{ _('Destination device') }}',
+        remote_move_unconfirmed: '{{ _('Verified move was not confirmed; source deletion must be checked') }}',
+        remote_hashing: '{{ _('Computing source SHA256') }}',
+        remote_verifying: '{{ _('Verifying the entire batch') }}',
+        remote_deleting: '{{ _('Verification passed; deleting source files') }}',
+        remote_source_deleted: '{{ _('Source deleted') }}',
+        remote_source_retained: '{{ _('Source retained') }}',
+        remote_source_unknown: '{{ _('Source deletion status unknown; check before retrying') }}',
+
+        remote_sshpass_description: '{{ _('Authenticates SSH with the saved password.') }}',
+        remote_pv_description: '{{ _('Measures transfer bytes, speed and elapsed time.') }}',
+        remote_stat_description: '{{ _('Reads file size, modification time and permissions. Required on both endpoints.') }}',
+        remote_ssh_description: '{{ _('Connects to remote devices securely. Use the existing SSH client when available.') }}',
+        remote_remote_stat_description: '{{ _('Checks coreutils-stat on this remote device and installs it if missing.') }}',
+        remote_remote_side: '{{ _('Remote device') }}',
+        remote_unchecked: '{{ _('Not checked') }}',
+        remote_check_tools: '{{ _('Check dependencies') }}',
+        remote_install_log: '{{ _('Installation log') }}',
+        remote_root_required: '{{ _('Remote installation requires a root SSH account') }}',
+        remote_pm_missing: '{{ _('Remote device has neither opkg nor apk') }}',
+        remote_install_remote: '{{ _('Install on remote device') }}',
+        remote_install_confirm: '{{ _('Update package indexes and install coreutils-stat on this remote device? Dependencies may also be installed.') }}',
+        remote_install_uncertain: '{{ _('Installation status is uncertain. Check the remote device before starting another installation.') }}',
+        remote_devices: '{{ _('Remote devices') }}',
+        remote_unavailable: '{{ _('Copy this item to the local device to use this operation') }}',
+        remote_unknown: '{{ _('Not available') }}',
+        remote_transfer: '{{ _('Transfer') }}',
+        remote_transferred: '{{ _('Transferred') }}',
+        remote_elapsed: '{{ _('Elapsed') }}',
+        remote_failed: '{{ _('Transfer failed; some files may have been copied') }}',
+        remote_host_key: '{{ _('Confirm SSH host key') }}',
+        remote_verify: '{{ _('Verify this fingerprint with the device before trusting it') }}',
+        remote_add: '{{ _('Add device') }}',
+        remote_edit: '{{ _('Edit device') }}',
+        remote_delete: '{{ _('Delete this device?') }}',
+        remote_name_placeholder: '{{ _('e.g. Living room router') }}',
+        remote_password_placeholder: '{{ _('Enter password') }}',
+        remote_required: '{{ _('Complete all device fields') }}',
+        remote_name: '{{ _('Device name') }}',
+        remote_host: '{{ _('IP / domain') }}',
+        remote_port: '{{ _('Port') }}',
+        remote_username: '{{ _('Username') }}',
+        remote_password: '{{ _('Password') }}',
+        remote_installed: '{{ _('Installed') }}',
+        remote_missing: '{{ _('Not installed') }}',
+        remote_install: '{{ _('Install') }}',
+        remote_save: '{{ _('Save') }}',
+        remote_cancel: '{{ _('Cancel') }}',
+        remote_remove: '{{ _('Delete') }}',
+        remote_loading: '{{ _('Connecting') }}',
+        remote_waiting: '{{ _('Waiting for task status') }}',
+        remote_copy_only: '{{ _('Use Copy instead of Cut for remote transfers') }}',
+        remote_failed_connection: '{{ _('Cannot connect') }}',
         upload_replace_title: '{{ _('Replace existing files') }}',
         upload_replace_prompt: '{{ _('The following files already exist. Replace them with the uploaded files?') }}',
         folder_size_loading: '{{ _('Read size') }}…',
@@ -441,6 +495,7 @@ window.HarborFile.tr = function (msgid) {
 <script src="{{ harbor_asset_url('js/document-windows.js') }}"></script>
 <script src="{{ harbor_asset_url('js/system-windows.js') }}"></script>
 <script src="{{ harbor_asset_url('js/file-operations.js') }}"></script>
+<script src="{{ harbor_asset_url('js/remote.js') }}"></script>
 
 <div id="fm_workspace">
 <div class="file-manager">
@@ -782,6 +837,7 @@ window.HarborFile.tr = function (msgid) {
             <div class="fm-settings-menu" role="tablist" aria-label="{{ _('Settings categories') }}">
                 <button id="fm_settings_tab_basic" class="fm-settings-menu-item active" type="button" role="tab" aria-selected="true" aria-controls="fm_settings_panel_basic" data-settings-tab="basic">{{ _('Basic settings') }}</button>
                 <button id="fm_settings_tab_nginx" class="fm-settings-menu-item" type="button" role="tab" aria-selected="false" aria-controls="fm_settings_panel_nginx" data-settings-tab="nginx">{{ _('Web service') }}</button>
+                <button id="fm_settings_tab_remote" class="fm-settings-menu-item" type="button" role="tab" aria-selected="false" aria-controls="fm_settings_panel_remote" data-settings-tab="remote">{{ _('Remote devices') }}</button>
             </div>
             <div class="fm-settings-content">
                 <div id="fm_settings_panel_basic" class="fm-settings-panel active" role="tabpanel" aria-labelledby="fm_settings_tab_basic">
@@ -1038,6 +1094,9 @@ window.HarborFile.tr = function (msgid) {
                         <button id="fm_settings_nginx_cancel" class="fm-dialog-action" type="button">{{ _('Cancel') }}</button>
                         <button id="fm_settings_nginx_save" class="fm-dialog-action primary" type="button">{{ _('Save') }}</button>
                     </div>
+                </div>
+                <div id="fm_settings_panel_remote" class="fm-settings-panel" role="tabpanel" aria-labelledby="fm_settings_tab_remote">
+                    <div id="fm_remote_settings" class="fm-settings-page"></div>
                 </div>
             </div>
         </div>
@@ -1392,7 +1451,7 @@ window.HarborFile.tr = function (msgid) {
             return;
         }
         if (HF.state.current.path === '/') {
-            HF.show_virtual('this_pc', true);
+            HF.show_virtual(HF.state.current.device_id ? 'remote_devices' : 'this_pc', true);
         } else {
             HF.open_path(HF.state.current.parent || '/', true);
         }
@@ -1497,7 +1556,7 @@ window.HarborFile.tr = function (msgid) {
     document.getElementById('fm_nginx_confirm_cancel').addEventListener('click', HF.close_modal);
     document.getElementById('fm_nginx_install_done').addEventListener('click', HF.close_modal);
     document.getElementById('fm_package_confirm_cancel').addEventListener('click', HF.close_modal);
-    document.getElementById('fm_package_install_done').addEventListener('click', HF.close_modal);
+    document.getElementById('fm_package_install_done').addEventListener('click', HF.close_package_install);
     document.getElementById('fm_archive_cancel').addEventListener('click', HF.close_modal);
     document.getElementById('fm_archive_task_done').addEventListener('click', HF.close_modal);
     document.getElementById('fm_archive_install_tool').addEventListener('click', HF.start_archive_tool_install);
@@ -1742,7 +1801,7 @@ window.HarborFile.tr = function (msgid) {
                 system_reason);
         });
         HF.set_button_state('fm_menu_terminal_here', false, '');
-        if (system_reason) {
+        if (system_reason && !(HF.state.current && HF.state.current.device_id)) {
             HF.set_write_block_status(system_reason);
         }
         HF.show_context_menu('fm_blank_menu', event.clientX, event.clientY);
@@ -1788,7 +1847,7 @@ window.HarborFile.tr = function (msgid) {
         var item = HF.state.bookmark_menu_item;
         if (!item) { return; }
         if (item.is_folder) { HF.open_bookmark_folder(item); return; }
-        HF.close_anchor_menus(); HF.close_modal(); HF.open_path(item.path, true);
+        HF.close_anchor_menus(); HF.close_modal(); HF.open_path(item.path, true, null, '');
     });
     document.getElementById('fm_menu_bookmark_edit').addEventListener('click', function() {
         HF.hide_context_menus(HF.fav_panel());
@@ -1822,6 +1881,7 @@ window.HarborFile.tr = function (msgid) {
     for (var close_index = 0; close_index < close_buttons.length; close_index++) {
         close_buttons[close_index].addEventListener('click', function() {
             if (this.closest('#fm_target_dialog')) HF.close_target_dialog();
+            else if (this.closest('#fm_package_install_dialog')) HF.close_package_install();
             else HF.close_modal();
         });
     }

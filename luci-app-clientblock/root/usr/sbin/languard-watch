@@ -1,0 +1,204 @@
+#!/bin/sh
+# Login-attack watcher: streams the syslog and blocks repeat offenders as they
+# appear, instead of polling once a minute. Replaces cron-based scanning.
+
+CONFIG=/etc/languard/auto.json
+LOG_TAG=languard-watch
+LOCK=/var/run/languard-watch.lock
+
+enabled() {
+	[ -f "$CONFIG" ] || return 0
+	# auto.json is flat JSON; a missing "enabled" or "enabled":true means on
+	grep -q '"enabled":false' "$CONFIG" && return 1
+	return 0
+}
+
+# enabled_kind <key>  -> 0 when the user switched this trigger off
+enabled_kind() {
+	[ -f "$CONFIG" ] || return 0
+	# the backend writes real JSON booleans; accept the string form too
+	grep -q "\"$1\": *false" "$CONFIG" && return 1
+	grep -q "\"$1\": *\"0\"" "$CONFIG" && return 1
+	return 0
+}
+
+threshold() {
+	local t=5
+	[ -f "$CONFIG" ] && t=$(sed -n 's/.*"threshold":\([0-9]*\).*/\1/p' "$CONFIG" 2>/dev/null)
+	[ -n "$t" ] || t=5
+	echo "$t"
+}
+
+# log_event <kind> <result> <ip> <user> <detail>
+log_event() {
+	local now
+	now=$(date +%s)
+	ubus -S call luci.languard logevent \
+		"{\"epoch\":\"$now\",\"kind\":\"$1\",\"result\":\"$2\",\"ip\":\"$3\",\"user\":\"$4\",\"detail\":\"$5\"}" \
+		>/dev/null 2>&1
+}
+
+# extract the "user" field from a dropbear/luci line
+pick_user() {
+	printf '%s\n' "$1" | sed -n "s/.*for '\([^']*\)'.*/\1/p"
+}
+
+count_ip() {
+	# $1 = ip, $2 = threshold, $3 = failure kind
+	local ip=$1 th=$2 kind=${3:-unknown} now cnt
+	now=$(date +%s)
+	local buf=/tmp/languard-hits
+	touch "$buf"
+
+	# drop entries older than the counting window (default 600s)
+	local window=600
+	[ -f "$CONFIG" ] && window=$(sed -n 's/.*"window":\([0-9]*\).*/\1/p' "$CONFIG" 2>/dev/null)
+	[ -n "$window" ] || window=600
+	local cutoff=$((now - window))
+	awk -v c="$cutoff" '$1 >= c' "$buf" > "$buf.tmp" 2>/dev/null && mv "$buf.tmp" "$buf"
+
+	echo "$now $ip" >> "$buf"
+	cnt=$(grep -c " $ip\$" "$buf" 2>/dev/null)
+	[ -n "$cnt" ] || cnt=0
+
+	if [ "$cnt" -ge "$th" ]; then
+		# keep the offending log line as evidence, with quotes stripped so it
+		# stays valid inside the JSON payload
+		ev=$(printf '%s' "$line" | tr -d '"\\' | cut -c1-200)
+		if ubus call luci.languard ipadd \
+			"{\"ip\":\"$ip\",\"note\":\"auto: $cnt $kind failures\",\"source\":\"auto\",\"fast\":\"1\",\"evidence\":\"$ev\"}" \
+			>/dev/null 2>&1; then
+			logger -t "$LOG_TAG" "blocked $ip after $cnt $kind failures"
+			# reset the counter so the same burst does not re-trigger
+			grep -v " $ip\$" "$buf" > "$buf.tmp" 2>/dev/null && mv "$buf.tmp" "$buf"
+		fi
+	fi
+}
+
+main() {
+	# Single instance. procd keeps fd 9 across respawn, so flock alone reports a
+	# phantom holder; a pidfile with a liveness check is reliable here.
+	PIDFILE=/var/run/languard-watch.pid
+
+	# A live instance wins: never kill a working watcher just because we started.
+	if [ -f "$PIDFILE" ]; then
+		OLD=$(cat "$PIDFILE" 2>/dev/null)
+		if [ -n "$OLD" ] && [ "$OLD" != "$$" ] && kill -0 "$OLD" 2>/dev/null; then
+			logger -t "$LOG_TAG" "already running (pid $OLD), exiting"
+			exit 0
+		fi
+	fi
+
+	# No live instance: clear leftovers from a previous run. These are shells
+	# whose `logread -f` child died, so they hold the pidfile but do nothing.
+	MYPPID=$(awk '{print $4}' "/proc/$$/stat" 2>/dev/null)
+	for _p in $(ps w 2>/dev/null | grep "[c]lientblock-watch" | awk '{print $1}'); do
+		[ "$_p" = "$$" ] && continue
+		[ "$_p" = "$MYPPID" ] && continue
+		grep -q "languard-watch" "/proc/$_p/cmdline" 2>/dev/null && kill -9 "$_p" 2>/dev/null
+	done
+
+	echo $$ > "$PIDFILE"
+
+	# Reap `logread -f` children orphaned by previously killed watchers. They
+	# are reparented to init and would otherwise accumulate forever.
+	for _p in $(ps w 2>/dev/null | grep "[l]ogread -f" | awk '{print $1}'); do
+		_pp=$(awk '{print $4}' "/proc/$_p/stat" 2>/dev/null)
+		[ "$_pp" = "1" ] && kill -9 "$_p" 2>/dev/null
+	done
+
+	enabled || { logger -t "$LOG_TAG" "disabled, exiting"; exit 0; }
+	local th
+	th=$(threshold)
+	logger -t "$LOG_TAG" "started (threshold=$th)"
+
+	# logread -f emits only lines that arrive after it starts (verified: it
+	# does not replay the ring buffer), so no replay guard is needed.
+
+	# -f follows the ubus log stream. Each line is matched for auth failures;
+	# the match is deliberately narrow so normal traffic costs nothing.
+	# A plain `logread -f | while` runs the loop in a subshell, so a TERM to the
+	# script leaves it orphaned and still recording. Read from a FIFO instead:
+	# the loop stays in the main shell and logread is a child we can kill.
+	PIPE=/tmp/languard-log.fifo
+	rm -f "$PIPE"
+	mkfifo "$PIPE" 2>/dev/null || { logger -t "$LOG_TAG" "cannot create fifo"; exit 1; }
+	logread -f > "$PIPE" 2>/dev/null &
+	LRPID=$!
+
+	# Reconcile scheduled blocks once a minute. Runs in a child so it cannot
+	# block the log reader; the trap below takes it down with us.
+	(
+		while :; do
+			ubus -S call luci.languard tick >/dev/null 2>&1
+			sleep 55
+		done
+	) &
+	SCHEDPID=$!
+
+	# shellcheck disable=SC2064
+	trap 'kill $LRPID $SCHEDPID 2>/dev/null; rm -f "$PIPE" "$PIDFILE"' EXIT INT TERM
+	exec 3< "$PIPE"
+
+	while IFS= read -r line <&3; do
+		ts=$(date +%s)
+
+		# ---- SSH: success ----
+		if printf '%s' "$line" | grep -q "auth succeeded for"; then
+			ip=$(printf '%s\n' "$line" | sed -n 's/.* from \([0-9.]*\):[0-9]*$/\1/p')
+			user=$(pick_user "$line")
+			method=password
+			printf '%s' "$line" | grep -q "Pubkey auth" && method=pubkey
+			[ -n "$ip" ] && log_event ssh success "$ip" "$user" "auth=$method"
+			continue
+		fi
+
+		# ---- SSH: session end ----
+		if printf '%s' "$line" | grep -q "Exit ("; then
+			user=$(printf '%s\n' "$line" | sed -n 's/.*Exit (\([^)]*\)).*/\1/p')
+			ip=$(printf '%s\n' "$line" | sed -n 's/.*from <\([0-9.]*\):[0-9]*>.*/\1/p')
+			[ -n "$ip" ] && log_event ssh disconnect "$ip" "$user" "session closed"
+			continue
+		fi
+
+		# ---- LuCI: success ----
+		if printf '%s' "$line" | grep -q "accepted login"; then
+			ip=$(printf '%s\n' "$line" | sed -n 's/.* from \([0-9.]*\)$/\1/p')
+			user=$(printf '%s\n' "$line" | sed -n 's/.* for \([^ ]*\) from .*/\1/p')
+			[ -n "$ip" ] && log_event web success "$ip" "$user" "luci session"
+			continue
+		fi
+
+		# ---- failures ----
+		kind=""
+		detail=""
+		case "$line" in
+			*"Bad password attempt"*)
+				kind=ssh_password; detail="wrong password" ;;
+			*"Max auth tries reached"*)
+				kind=ssh_password; detail="too many attempts" ;;
+			*"Login attempt for nonexistent user"*)
+				kind=ssh_user; detail="unknown user" ;;
+			*"failed login"*)
+				kind=web_auth; detail="bad credentials" ;;
+			*) continue ;;
+		esac
+
+		ip=$(printf '%s\n' "$line" | sed -n 's/.*from <\([0-9.]*\):[0-9]*>.*/\1/p')
+		[ -n "$ip" ] || ip=$(printf '%s\n' "$line" | sed -n 's/.*from \([0-9.]*\):.*/\1/p')
+		[ -n "$ip" ] || ip=$(printf '%s\n' "$line" | sed -n 's/.* from \([0-9.]*\)$/\1/p')
+		[ -z "$ip" ] && continue
+
+		user=$(pick_user "$line")
+		[ -n "$user" ] || user=$(printf '%s\n' "$line" | sed -n 's/.*for \([^ ]*\) from .*/\1/p')
+		# dropbear omits the name for unknown users; make that explicit
+		[ -n "$user" ] || user="(unknown)"
+
+		log_event "$kind" failure "$ip" "$user" "$detail"
+		enabled_kind "$kind" || continue
+		# re-read on every event: the panel can change it without a restart
+		count_ip "$ip" "$(threshold)" "$kind"
+	done
+}
+
+main
