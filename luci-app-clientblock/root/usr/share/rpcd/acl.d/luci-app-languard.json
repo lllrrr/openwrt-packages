@@ -3,12 +3,12 @@
 		"description": "Grant access to LAN client block management",
 		"read": {
 			"ubus": {
-				"luci.languard": [ "list", "status", "iplist", "autoget", "loglist", "selfcheck", "schedlist", "notifyget", "grouplist", "portlist", "dashboard", "wllist", "panicstate", "trend", "portpresets", "feedlist", "exportconfig", "knownlist", "proxylist", "domainlist", "applist", "appstats", "qoslist" ]
+				"luci.languard": [ "list", "status", "iplist", "autoget", "loglist", "selfcheck", "schedlist", "notifyget", "grouplist", "portlist", "dashboard", "wllist", "panicstate", "trend", "portpresets", "feedlist", "exportconfig", "knownlist", "proxylist", "domainlist", "applist", "appstats", "qoslist", "sample_result", "siglist", "domainhits", "tickcfg" ]
 			}
 		},
 		"write": {
 			"ubus": {
-				"luci.languard": [ "block", "unblock", "unblock_all", "rename", "ipadd", "ipdel", "ipflush", "sync", "scan", "autoset", "logevent", "logclear", "schedadd", "scheddel", "schedtoggle", "schedeval", "notifyadd", "notifydel", "notifytoggle", "notifyevents", "notifytest", "tick", "expire", "groupadd", "groupdel", "groupset", "curfew", "portadd", "portdel", "porttoggle", "wladd", "wldel", "panic", "porttemplate", "feedadd", "feeddel", "feedrefresh", "feedset", "importconfig", "knownadd", "proxyadd", "proxydel", "domainadd", "domaindel", "domaintoggle", "devmerge", "devunmerge", "appimport", "appdel", "appreset", "qosadd", "qosdel" ]
+				"luci.languard": [ "block", "unblock", "unblock_all", "rename", "ipadd", "ipdel", "ipflush", "sync", "scan", "autoset", "logevent", "logclear", "schedadd", "scheddel", "schedtoggle", "schedeval", "notifyadd", "notifydel", "notifytoggle", "notifyevents", "notifytest", "tick", "expire", "groupadd", "groupdel", "groupset", "curfew", "portadd", "portdel", "porttoggle", "wladd", "wldel", "panic", "porttemplate", "feedadd", "feeddel", "feedrefresh", "feedset", "importconfig", "knownadd", "proxyadd", "proxydel", "domainadd", "domaindel", "domaintoggle", "devmerge", "devunmerge", "appimport", "appdel", "appreset", "qosadd", "qosdel", "sample_start", "sample_stop", "sample_save", "sigadd", "sigdel", "domaintogglelog", "tickset" ]
 			},
 			"file": {
 				"/etc/nftables.d/*": [ "write" ],

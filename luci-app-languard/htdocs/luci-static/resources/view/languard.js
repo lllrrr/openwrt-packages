@@ -38,7 +38,16 @@ var callAppList = rpc.declare({ object: 'luci.languard', method: 'applist' });
 var callAppStats = rpc.declare({ object: 'luci.languard', method: 'appstats' });
 var callAppImport = rpc.declare({ object: 'luci.languard', method: 'appimport', params: ['text'] });
 var callAppDel = rpc.declare({ object: 'luci.languard', method: 'appdel', params: ['id'] });
+var callSigList = rpc.declare({ object: 'luci.languard', method: 'siglist', params: ['name'] });
+var callDomainHits = rpc.declare({ object: 'luci.languard', method: 'domainhits', params: ['limit'] });
+var callDomainLog = rpc.declare({ object: 'luci.languard', method: 'domaintogglelog', params: ['on_'] });
+var callSigAdd = rpc.declare({ object: 'luci.languard', method: 'sigadd', params: ['name', 'proto', 'dport', 'host'] });
+var callSigDel = rpc.declare({ object: 'luci.languard', method: 'sigdel', params: ['name', 'idx'] });
 var callAppReset = rpc.declare({ object: 'luci.languard', method: 'appreset' });
+var callSampleStart = rpc.declare({ object: 'luci.languard', method: 'sample_start', params: ['duration'] });
+var callSampleStop = rpc.declare({ object: 'luci.languard', method: 'sample_stop' });
+var callSampleResult = rpc.declare({ object: 'luci.languard', method: 'sample_result' });
+var callSampleSave = rpc.declare({ object: 'luci.languard', method: 'sample_save', params: ['name', 'proto', 'dport', 'prefix', 'cls'] });
 var callQosList = rpc.declare({ object: 'luci.languard', method: 'qoslist' });
 var callQosAdd = rpc.declare({ object: 'luci.languard', method: 'qosadd', params: ['ip', 'app', 'dscp'] });
 var callQosDel = rpc.declare({ object: 'luci.languard', method: 'qosdel', params: ['id'] });
@@ -75,7 +84,7 @@ var callWlList = rpc.declare({ object: 'luci.languard', method: 'wllist' });
 var callWlAdd = rpc.declare({ object: 'luci.languard', method: 'wladd', params: ['mac'] });
 var callWlDel = rpc.declare({ object: 'luci.languard', method: 'wldel', params: ['mac'] });
 var callFeedList = rpc.declare({ object: 'luci.languard', method: 'feedlist' });
-var callFeedAdd = rpc.declare({ object: 'luci.languard', method: 'feedadd', params: ['name', 'url', 'interval'] });
+var callFeedAdd = rpc.declare({ object: 'luci.languard', method: 'feedadd', params: ['name', 'url', 'interval', 'kind', 'cls'] });
 var callFeedSet = rpc.declare({ object: 'luci.languard', method: 'feedset', params: ['id', 'interval'] });
 var callFeedDel = rpc.declare({ object: 'luci.languard', method: 'feeddel', params: ['id'] });
 var callFeedRefresh = rpc.declare({ object: 'luci.languard', method: 'feedrefresh', params: ['id'] });
@@ -914,13 +923,40 @@ return view.extend({
 		}).catch(function () { self.renderFeeds(); });
 	},
 
+	// The browser sends the file straight to a small CGI, which writes it to
+	// /tmp; the feed then points at that path with file://, so nothing has to
+	// be served over the network or typed by hand.
+	handleFeedUpload: function (ev) {
+		var self = this;
+		var input = document.getElementById('cb-feed-file');
+		var f = input && input.files && input.files[0];
+		if (!f) { ui.addNotification(null, E('p', {}, _('Pick a file first')), 'warning'); return; }
+		var kind = (document.getElementById('cb-feed-kind') || {}).value || 'ip';
+		var name = (document.getElementById('cb-feed-name') || {}).value || f.name;
+		var btn = ev.currentTarget;
+		btn.disabled = true;
+		return fetch('/cgi-bin/lg-upload?name=' + encodeURIComponent(f.name), {
+			method: 'POST', body: f, credentials: 'same-origin'
+		}).then(function (r) { return r.json(); }).then(function (res) {
+			if (!res || !res.path) throw new Error(_('Upload failed'));
+			return callFeedAdd(name, 'file://' + res.path, '', kind, '');
+		}).then(function (res) {
+			if (res && res.success === false) throw new Error(res.error || _('Failed'));
+			input.value = '';
+			return self.refreshFeeds();
+		}).catch(function (e) {
+			ui.addNotification(null, E('p', {}, e.message || _('Failed')), 'error');
+		}).finally(function () { btn.disabled = false; });
+	},
+
 	handleFeedAdd: function (ev) {
 		var self = this;
 		var n = (document.getElementById('cb-feed-name') || {}).value || '';
 		var u = (document.getElementById('cb-feed-url') || {}).value || '';
+		var k = (document.getElementById('cb-feed-kind') || {}).value || 'ip';
 		if (!u) { ui.addNotification(null, E('p', {}, _('List URL is required')), 'warning'); return; }
 		var btn = ev.currentTarget; btn.disabled = true;
-		return callFeedAdd(n, u).then(function (res) {
+		return callFeedAdd(n, u, '', k, '').then(function (res) {
 			if (res && res.success === false) throw new Error(res.error || _('Failed'));
 			document.getElementById('cb-feed-url').value = '';
 			return self.refreshFeeds();
@@ -956,7 +992,7 @@ return view.extend({
 		var self = this;
 		var list = this.feeds || [];
 		if (!list.length) {
-			tbody.appendChild(E('tr', {}, E('td', { 'colspan': 5, 'class': 'cb-empty' },
+			tbody.appendChild(E('tr', {}, E('td', { 'colspan': 7, 'class': 'cb-empty' },
 				_('No subscriptions yet'))));
 			return;
 		}
@@ -996,6 +1032,9 @@ return view.extend({
 							_('truncated to') + ' ' + (f.imported || 0) + ' / ' + (f.total || 0))
 						: ''
 				]),
+				E('td', { 'class': 'cb-hide-sm' }, f.kind || 'ip'),
+				E('td', { 'class': 'cb-hide-sm' }, (f.kind === 'domain') ? _('domain blocking')
+					: (f.kind === 'app') ? _('app recognition') : _('address blocking')),
 				E('td', { 'class': 'cb-t' }, String(f.imported || 0)),
 				E('td', {}, sel),
 				E('td', { 'style': 'font-size:.78rem;color:var(--text-muted)' },
@@ -1084,6 +1123,8 @@ return view.extend({
 			self.apps = (res && res.apps) || [];
 			var cnt = document.getElementById('cb-app-count');
 			if (cnt) cnt.textContent = self.apps.length + ' ' + _('apps');
+			var sel = document.getElementById('cb-sig-app');
+			if (sel) delete sel.dataset.filled;
 		}).catch(function () {});
 	},
 
@@ -1095,6 +1136,8 @@ return view.extend({
 			self.renderAppStats();
 			var cnt = document.getElementById('cb-app-count');
 			if (cnt) cnt.textContent = self.apps.length + ' ' + _('apps');
+			var sel = document.getElementById('cb-sig-app');
+			if (sel) delete sel.dataset.filled;
 			var day = document.getElementById('cb-app-day');
 			if (day) day.textContent = self.appStats.day || '';
 		}).catch(function () {});
@@ -1126,6 +1169,10 @@ return view.extend({
 			}, [
 				E('td', { 'class': 'cb-u' }, [
 					a.name,
+					(meta && meta.generic)
+						? E('span', { 'class': 'cb-src cb-src-manual', 'style': 'margin-left:.35rem',
+							'title': _('a broad vendor category, not a single app') }, _('broad'))
+						: '',
 					a.low > 0
 						? E('span', { 'class': 'cb-src cb-src-panic', 'style': 'margin-left:.35rem',
 							'title': _('part of this was matched by port only, without checking the packet') },
@@ -1193,6 +1240,103 @@ return view.extend({
 		});
 	},
 
+	refreshSample: function () {
+		var self = this;
+		return callSampleResult().then(function (res) {
+			self.sample = res || {};
+			self.renderSample();
+			if (res && res.running) {
+				if (!self.sampleTimer) {
+					self.sampleTimer = window.setInterval(function () { self.refreshSample(); }, 3000);
+				}
+			} else if (self.sampleTimer) {
+				window.clearInterval(self.sampleTimer);
+				self.sampleTimer = null;
+			}
+		}).catch(function () {});
+	},
+
+	renderSample: function () {
+		var tbody = document.getElementById('cb-sample-tbody');
+		if (!tbody) return;
+		var self = this;
+		while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
+
+		var running = !!(this.sample && this.sample.running);
+		var pkts = (this.sample && this.sample.packets) || 0;
+		var started = (this.sample && this.sample.started) || 0;
+		var dur = (this.sample && this.sample.duration) || 0;
+		var left = running && started && dur ? Math.max(0, dur - (Math.floor(Date.now() / 1000) - started)) : 0;
+
+		var st = document.getElementById('cb-sample-state');
+		if (st) st.textContent = running ? _('capturing') : (pkts ? _('stopped') : '');
+
+		// the state has to be unmistakable: a dot, the remaining time, and the
+		// button that would do nothing is disabled
+		var live = document.getElementById('cb-sample-live');
+		if (live) {
+			while (live.firstChild) live.removeChild(live.firstChild);
+			if (running) {
+				live.appendChild(E('span', {
+					'class': 'cb-res cb-health-ok', 'style': 'margin-right:.35rem' },
+					'● ' + _('capturing') + ' · ' + pkts + ' ' + _('packets') +
+					(left ? ' · ' + left + 's' : '')));
+			} else if (pkts) {
+				live.appendChild(E('span', { 'class': 'cb-drop' },
+					'○ ' + _('stopped') + ' · ' + pkts + ' ' + _('packets')));
+			} else {
+				live.appendChild(E('span', { 'class': 'cb-drop' }, '○ ' + _('not sampling')));
+			}
+		}
+		var sb = document.getElementById('cb-sample-start');
+		if (sb) sb.disabled = running;
+		var tb = document.getElementById('cb-sample-stop');
+		if (tb) tb.disabled = !running;
+
+		var groups = (this.sample && this.sample.groups) || [];
+		if (!groups.length) {
+			tbody.appendChild(E('tr', {}, E('td', { 'colspan': 7, 'class': 'cb-empty' },
+				_('No capture yet'))));
+			return;
+		}
+		groups.forEach(function (g) {
+			tbody.appendChild(E('tr', {}, [
+				E('td', { 'class': 'cb-mono' }, g.proto),
+				E('td', { 'class': 'cb-mono' }, String(g.dport)),
+				E('td', { 'class': 'cb-mono', 'style': 'font-size:.75rem' }, g.prefix),
+				E('td', { 'class': 'cb-hide-sm cb-t' }, String(g.count)),
+				E('td', { 'class': 'cb-hide-sm', 'style': 'font-size:.75rem' }, (g.dsts || []).slice(0, 2).join(' ')),
+				E('td', { 'style': 'text-align:right' },
+					E('button', { 'class': 'cb-btn',
+						'click': function () {
+							var name = prompt(_('Name this app'), '');
+							if (!name) return;
+							callSampleSave(name, g.proto, String(g.dport), g.prefix, 'game')
+								.then(function () { return self.refreshAppStats(); })
+								.catch(function (e) {
+									ui.addNotification(null, E('p', {}, e.message || _('Failed')), 'error');
+								});
+						} }, _('Save as signature')))
+			]));
+		});
+	},
+
+	handleSampleStart: function (ev) {
+		var self = this;
+		var dur = (document.getElementById('cb-sample-dur') || {}).value || '60';
+		return callSampleStart(dur).then(function () {
+			return self.refreshSample();
+		}).catch(function (e) {
+			ui.addNotification(null, E('p', {}, e.message || _('Failed')), 'error');
+		});
+	},
+
+	handleSampleStop: function (ev) {
+		var self = this;
+		return callSampleStop().then(function () { return self.refreshSample(); })
+			.catch(function () {});
+	},
+
 	refreshQos: function () {
 		var self = this;
 		return callQosList().then(function (res) {
@@ -1229,7 +1373,7 @@ return view.extend({
 
 		var list = this.qos || [];
 		if (!list.length) {
-			tbody.appendChild(E('tr', {}, E('td', { 'colspan': 5, 'class': 'cb-empty' },
+			tbody.appendChild(E('tr', {}, E('td', { 'colspan': 7, 'class': 'cb-empty' },
 				_('No rate rules yet'))));
 			return;
 		}
@@ -1237,7 +1381,10 @@ return view.extend({
 			tbody.appendChild(E('tr', {}, [
 				E('td', {}, r.ip || _('All devices')),
 				E('td', { 'class': 'cb-u' }, r.app || _('All apps')),
-				E('td', { 'class': 'cb-mono' }, r.dscp),
+				E('td', { 'class': 'cb-mono' },
+					r.action === 'block'
+						? E('span', { 'class': 'cb-src cb-src-panic' }, _('blocked'))
+						: r.dscp),
 				E('td', { 'class': 'cb-hide-sm cb-t' }, String(r.ips || 0)),
 				E('td', { 'style': 'text-align:right' },
 					E('button', { 'class': 'cb-btn cb-btn-danger',
@@ -1264,6 +1411,110 @@ return view.extend({
 		}).catch(function (e) {
 			ui.addNotification(null, E('p', {}, e.message || _('Failed')), 'error');
 		}).finally(function () { btn.disabled = false; });
+	},
+
+	refreshDomainHits: function () {
+		var self = this;
+		return callDomainHits(40).then(function (res) {
+			self.dh = res || {};
+			var st = document.getElementById('cb-dh-state');
+			if (st) st.textContent = self.dh.enabled
+				? (self.dh.count || 0) + ' ' + _('hits')
+				: _('logging off');
+			var tb = document.getElementById('cb-dh-tbody');
+			if (!tb) return;
+			while (tb.firstChild) tb.removeChild(tb.firstChild);
+			var hits = (self.dh.hits || []);
+			if (!hits.length) {
+				tb.appendChild(E('tr', {}, E('td', { 'colspan': 2, 'class': 'cb-empty' },
+					self.dh.enabled ? _('No blocked domain was queried yet') : _('Enable DNS logging to see hits'))));
+				return;
+			}
+			hits.forEach(function (h) {
+				tb.appendChild(E('tr', {}, [
+					E('td', { 'class': 'cb-mono' }, h.domain),
+					E('td', { 'class': 'cb-mono' }, h.ip)
+				]));
+			});
+		}).catch(function () {});
+	},
+
+	handleDomainLog: function (ev) {
+		var self = this;
+		var on = !(this.dh && this.dh.enabled);
+		return callDomainLog(on ? '1' : '0').then(function () {
+			return self.refreshDomainHits();
+		}).catch(function (e) {
+			ui.addNotification(null, E('p', {}, e.message || _('Failed')), 'error');
+		});
+	},
+
+	handleAppUrlImport: function (ev) {
+		var self = this;
+		var url = (document.getElementById('cb-app-url') || {}).value || '';
+		var name = (document.getElementById('cb-app-urlname') || {}).value || '';
+		if (!url.trim()) return;
+		if (!name.trim()) {
+			ui.addNotification(null, E('p', {}, _('Give the app a name first')), 'warning');
+			return;
+		}
+		var btn = ev.currentTarget;
+		btn.disabled = true;
+		return callFeedAdd(name.trim(), url.trim(), '', 'app', 'other').then(function (res) {
+			if (res && res.success === false) throw new Error(res.error || _('Failed'));
+			document.getElementById('cb-app-url').value = '';
+			document.getElementById('cb-app-urlname').value = '';
+			return self.refreshAppStats();
+		}).catch(function (e) {
+			ui.addNotification(null, E('p', {}, e.message || _('Failed')), 'error');
+		}).finally(function () { btn.disabled = false; });
+	},
+
+	loadSigs: function (name) {
+		var self = this;
+		var sel = document.getElementById('cb-sig-app');
+		if (sel && !sel.dataset.filled) {
+			sel.appendChild(E('option', { 'value': '' }, _('Pick an app')));
+			(this.apps || []).forEach(function (a) {
+				sel.appendChild(E('option', { 'value': a.name }, a.name));
+			});
+			sel.dataset.filled = '1';
+			if (name) sel.value = name;
+		}
+		if (!name) return;
+		return callSigList(name).then(function (res) {
+			self.sigs = (res && res.sigs) || [];
+			self.sigApp = name;
+			self.renderSigs();
+		}).catch(function () {});
+	},
+
+	renderSigs: function () {
+		var tbody = document.getElementById('cb-sig-tbody');
+		if (!tbody) return;
+		var self = this;
+		while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
+		var cnt = document.getElementById('cb-sig-count');
+		if (cnt) cnt.textContent = (this.sigs || []).length + ' ' + _('signatures');
+		if (!(this.sigs || []).length) {
+			tbody.appendChild(E('tr', {}, E('td', { 'colspan': 5, 'class': 'cb-empty' }, _('None'))));
+			return;
+		}
+		this.sigs.forEach(function (sg) {
+			tbody.appendChild(E('tr', {}, [
+				E('td', { 'class': 'cb-mono' }, sg.proto || '-'),
+				E('td', { 'class': 'cb-mono' }, sg.dport || '-'),
+				E('td', { 'class': 'cb-mono' }, sg.host || '-'),
+				E('td', { 'class': 'cb-mono', 'style': 'font-size:.72rem' }, sg.dict || '-'),
+				E('td', { 'style': 'text-align:right' },
+					E('button', { 'class': 'cb-btn cb-btn-danger', 'style': 'padding:.05rem .5rem',
+						'click': function () {
+							callSigDel(self.sigApp, sg.idx).then(function () {
+								return self.loadSigs(self.sigApp);
+							});
+						} }, _('Delete')))
+			]));
+		});
 	},
 
 	handleAppImport: function (ev) {
@@ -1632,7 +1883,7 @@ return view.extend({
 		}
 
 		if (!list.length) {
-			tbody.appendChild(E('tr', {}, E('td', { 'colspan': 5, 'class': 'cb-empty' },
+			tbody.appendChild(E('tr', {}, E('td', { 'colspan': 7, 'class': 'cb-empty' },
 				_('No schedule rules yet'))));
 			return;
 		}
@@ -2286,11 +2537,10 @@ return view.extend({
 	tabPanes: {
 		overview: [ 'dash' ],
 		devices: [ 'devices' ],
-		ips: [ 'ips' ],
 		apps: [ 'apps' ],
-		logs: [ 'logs' ],
-		policy: [ 'sched' ],
-		settings: [ 'auto', 'notify', 'health', 'backup' ]
+		ips: [ 'ips', 'sched' ],
+		feeds: [ 'feeds' ],
+		settings: [ 'auto', 'notify', 'health', 'backup', 'logs' ]
 	},
 
 	switchTab: function (name) {
@@ -2303,22 +2553,29 @@ return view.extend({
 			var el = document.getElementById('cb-pane-' + p);
 			if (el) el.classList.toggle('active', mine.indexOf(p) !== -1);
 		});
-		['overview', 'devices', 'ips', 'apps', 'logs', 'policy', 'settings'].forEach(function (t) {
+		['overview', 'devices', 'apps', 'ips', 'feeds', 'settings'].forEach(function (t) {
 			var btn = document.getElementById('cb-tab-' + t);
 			if (btn) btn.classList.toggle('active', t === name);
 		});
 		if (name === 'overview') return this.refreshDash();
-		if (name === 'ips') return Promise.all([ this.refreshIps(), this.refreshFeeds(), this.refreshDomains() ]);
+		if (name === 'devices') {
+			var selfD = this;
+			return Promise.all([ this.refresh(), callList('0') ]).then(function (r) {
+				selfD.devices = (r[1] && r[1].devices) || selfD.devices || [];
+				return Promise.all([ selfD.refreshApps(), selfD.refreshQos() ]);
+			});
+		}
+		if (name === 'ips') return Promise.all([ this.refreshIps(), this.refreshDomains(),
+			this.refreshSched(), this.refreshGroups(), this.refreshPorts() ]);
 		if (name === 'apps') {
 			var selfA = this;
-			return Promise.all([ this.refreshApps(), this.refreshAppStats(), callList('0') ])
+			return Promise.all([ this.refreshApps(), this.refreshAppStats(), callList('0'), this.refreshSample(), this.refreshDomainHits() ])
 				.then(function (r) {
 					selfA.devices = (r[2] && r[2].devices) || selfA.devices || [];
 					return selfA.refreshQos();
 				});
 		}
-		if (name === 'logs') return this.refreshLogs();
-		if (name === 'policy') return Promise.all([ this.refreshSched(), this.refreshGroups(), this.refreshPorts() ]);
+		if (name === 'feeds') return this.refreshFeeds();
 		if (name === 'settings') {
 			var self2 = this;
 			return Promise.all([ this.refreshAuto(), this.refreshNotify(), this.refreshHealth() ])
@@ -2571,6 +2828,41 @@ return view.extend({
 			'class': 'cb-pane',
 			'id': 'cb-pane-devices'
 		}, [
+E('div', { 'class': 'cb-card' }, [
+				E('div', { 'class': 'cb-card-head' }, [
+					E('span', { 'class': 'cb-dot' }), E('span', {}, _('Rate rules'))
+				]),
+				E('div', { 'class': 'cb-card-body' }, [
+					E('p', { 'class': 'cb-note' },
+						_('Sets a DSCP class on matching traffic; qosmate turns that into an hfsc class. Choosing block drops the traffic outright, which also works for proxied apps because the drop happens before Clash can pick the packet up. Leave the device empty to cover every device.')),
+					E('div', { 'class': 'cb-actions', 'style': 'margin-bottom:.6rem' }, [
+						E('select', { 'id': 'cb-qos-dev', 'class': 'cb-sel' }, []),
+						E('select', { 'id': 'cb-qos-app', 'class': 'cb-sel' }, []),
+						E('select', { 'id': 'cb-qos-dscp', 'class': 'cb-sel' }, [
+							E('option', { 'value': 'cs1' }, _('lowest (cs1)')),
+							E('option', { 'value': 'af11' }, _('low (af11)')),
+							E('option', { 'value': 'cs0' }, _('normal (cs0)')),
+							E('option', { 'value': 'cs4' }, _('high (cs4)')),
+							E('option', { 'value': 'ef' }, _('highest (ef)')),
+							E('option', { 'value': 'block' }, _('block entirely'))
+						]),
+						E('button', { 'class': 'cb-btn cb-btn-primary',
+							'click': function (ev) { self.handleQosAdd(ev); } }, _('Add rule'))
+					]),
+					E('div', { 'class': 'cb-tablewrap' }, [
+						E('table', { 'class': 'cb-table' }, [
+							E('thead', {}, E('tr', {}, [
+								E('th', {}, _('Device')),
+								E('th', {}, _('App')),
+								E('th', {}, _('Class')),
+								E('th', { 'class': 'cb-hide-sm' }, _('Addresses')),
+								E('th', { 'style': 'text-align:right' }, _('Action'))
+							])),
+							E('tbody', { 'id': 'cb-qos-tbody' })
+						])
+					])
+				])
+			]),
 			E('p', { 'style': 'opacity:.75;margin:.25rem 0 1rem' },
 				_('Blocked devices lose all traffic through this router: Internet, DNS, DHCP and gateway services. Their packets are dropped at every interface.')),
 			E('div', { 'class': 'cb-toolbar' }, [
@@ -2640,36 +2932,7 @@ return view.extend({
 		}, [
 			E('p', { 'style': 'opacity:.75;margin:.25rem 0 1rem' },
 				_('Blocked addresses cannot be reached from your LAN, and cannot reach it. Both directions are dropped. CIDR ranges are supported.')),
-			E('div', { 'class': 'cb-card' }, [
-				E('div', { 'class': 'cb-card-head' }, [
-					E('span', { 'class': 'cb-dot' }),
-					E('span', {}, _('Blocklist subscriptions'))
-				]),
-				E('div', { 'class': 'cb-card-body' }, [
-					E('div', { 'class': 'cb-card-hint', 'style': 'margin-bottom:.7rem' },
-						_('Pull public blocklists on demand and merge them here. Entries are tagged with their feed so removing the feed also removes them.')),
-					E('div', { 'class': 'cb-sched-form', 'style': 'padding:0;border:none;background:none;margin-bottom:.6rem' }, [
-						E('label', {}, [ E('span', {}, _('Name')),
-							E('input', { 'type': 'text', 'id': 'cb-feed-name', 'placeholder': _('optional'),
-								'style': 'width:9rem;padding:.35rem .5rem;border-radius:.3rem;border:1px solid var(--hairline);background:var(--surface-sunken);color:inherit' }) ]),
-						E('label', {}, [ E('span', {}, _('List URL')),
-							E('input', { 'type': 'text', 'id': 'cb-feed-url', 'placeholder': 'https://host/list.netset',
-								'style': 'width:18rem;padding:.35rem .5rem;border-radius:.3rem;border:1px solid var(--hairline);background:var(--surface-sunken);color:inherit' }) ]),
-						E('button', { 'class': 'cb-btn',
-							'click': function (ev) { self.handleFeedAdd(ev); } }, _('Add feed'))
-					]),
-					E('div', { 'class': 'cb-tablewrap' }, [
-						E('table', { 'class': 'cb-table' }, [
-							E('thead', {}, E('tr', {}, [
-								E('th', {}, _('Name')), E('th', {}, _('Imported')),
-								E('th', {}, _('Refresh')), E('th', {}, _('Last fetch')),
-								E('th', { 'style': 'text-align:right' }, _('Action'))
-							])),
-							E('tbody', { 'id': 'cb-feed-tbody' })
-						])
-					])
-				])
-			]),
+			,
 			E('div', { 'style': 'display:flex;gap:.35rem;flex-wrap:wrap;margin-bottom:.6rem' }, [
 				E('span', { 'style': 'font-size:.8rem;opacity:.6;align-self:center' }, _('Quick fill:')),
 				E('button', {
@@ -2732,6 +2995,61 @@ return view.extend({
 			])
 		]);
 
+		var feedsPane = E('div', {
+			'class': 'cb-pane',
+			'id': 'cb-pane-feeds'
+		}, [
+			E('p', { 'style': 'opacity:.75;margin:.25rem 0 1rem' },
+				_('Lists pulled from the internet. Each one declares what it feeds: an IP list becomes blocked addresses, a domain list becomes DNS blocks, an app list becomes the signatures used to recognise an app.')),
+			E('div', { 'class': 'cb-note', 'style': 'margin:0 0 1rem;line-height:1.7' }, [
+				E('div', {}, _('IP list') + ' — ' + _('one address or CIDR per line; # comments, CSV columns and Spamhaus ; tails are tolerated')),
+				E('div', {}, _('Domain list') + ' — ' + _('one hostname per line; # comments ignored')),
+				E('div', {}, _('App signatures') + ' — ' + _('OAF format v3.0: id name:[proto;sport;dport;host;request;dict]')),
+				E('div', {}, _('Geosite bundle') + ' — ' + _('a v2ray .dat file holding every category at once; routing categories are skipped'))
+			]),
+E('div', { 'class': 'cb-card' }, [
+				E('div', { 'class': 'cb-card-head' }, [
+					E('span', { 'class': 'cb-dot' }),
+					E('span', {}, _('Blocklist subscriptions'))
+				]),
+				E('div', { 'class': 'cb-card-body' }, [
+					E('div', { 'class': 'cb-card-hint', 'style': 'margin-bottom:.7rem' },
+						_('Pull public blocklists on demand and merge them here. Entries are tagged with their feed so removing the feed also removes them.')),
+					E('div', { 'class': 'cb-sched-form', 'style': 'padding:0;border:none;background:none;margin-bottom:.6rem' }, [
+						E('label', {}, [ E('span', {}, _('Name')),
+							E('input', { 'type': 'text', 'id': 'cb-feed-name', 'placeholder': _('optional'),
+								'style': 'width:9rem;padding:.35rem .5rem;border-radius:.3rem;border:1px solid var(--hairline);background:var(--surface-sunken);color:inherit' }) ]),
+						E('label', {}, [ E('span', {}, _('Type')),
+							E('select', { 'id': 'cb-feed-kind', 'class': 'cb-sel' }, [
+								E('option', { 'value': 'ip' }, _('IP list')),
+								E('option', { 'value': 'domain' }, _('Domain list')),
+								E('option', { 'value': 'app' }, _('App signatures')),
+								E('option', { 'value': 'geosite' }, _('Geosite bundle'))
+							]) ]),
+						E('label', {}, [ E('span', {}, _('List URL')),
+							E('input', { 'type': 'text', 'id': 'cb-feed-url', 'placeholder': 'https://host/list.netset',
+								'style': 'width:18rem;padding:.35rem .5rem;border-radius:.3rem;border:1px solid var(--hairline);background:var(--surface-sunken);color:inherit' }) ]),
+						E('button', { 'class': 'cb-btn',
+							'click': function (ev) { self.handleFeedAdd(ev); } }, _('Add feed')),
+						E('input', { 'type': 'file', 'id': 'cb-feed-file', 'style': 'max-width:14rem' }),
+						E('button', { 'class': 'cb-btn',
+							'click': function (ev) { self.handleFeedUpload(ev); } }, _('Upload file'))
+					]),
+					E('div', { 'class': 'cb-tablewrap' }, [
+						E('table', { 'class': 'cb-table' }, [
+							E('thead', {}, E('tr', {}, [
+								E('th', {}, _('Name')), E('th', { 'class': 'cb-hide-sm' }, _('Type')),
+							E('th', { 'class': 'cb-hide-sm' }, _('Feeds into')), E('th', {}, _('Imported')),
+								E('th', {}, _('Refresh')), E('th', {}, _('Last fetch')),
+								E('th', { 'style': 'text-align:right' }, _('Action'))
+							])),
+							E('tbody', { 'id': 'cb-feed-tbody' })
+						])
+					])
+				])
+			])
+		]);
+
 		var appsPane = E('div', {
 			'class': 'cb-pane',
 			'id': 'cb-pane-apps'
@@ -2764,6 +3082,29 @@ return view.extend({
 			]),
 			E('div', { 'class': 'cb-card' }, [
 				E('div', { 'class': 'cb-card-head' }, [
+					E('span', { 'class': 'cb-dot' }), E('span', {}, _('Blocked domains')),
+					E('span', { 'class': 'cb-count', 'id': 'cb-dh-state', 'style': 'margin-left:auto' }, '')
+				]),
+				E('div', { 'class': 'cb-card-body' }, [
+					E('div', { 'class': 'cb-actions', 'style': 'margin-bottom:.5rem' }, [
+						E('button', { 'class': 'cb-btn',
+							'click': function (ev) { self.handleDomainLog(ev); } }, _('Enable DNS logging')),
+						E('span', { 'class': 'cb-note' },
+							_('Hits are only visible in dnsmasq\'s query log, which records one line per query.'))
+					]),
+					E('div', { 'class': 'cb-tablewrap' }, [
+						E('table', { 'class': 'cb-table' }, [
+							E('thead', {}, E('tr', {}, [
+								E('th', {}, _('Domain')),
+								E('th', {}, _('Device'))
+							])),
+							E('tbody', { 'id': 'cb-dh-tbody' })
+						])
+					])
+				])
+			]),
+			E('div', { 'class': 'cb-card' }, [
+				E('div', { 'class': 'cb-card-head' }, [
 					E('span', { 'class': 'cb-dot' }), E('span', {}, _('By device'))
 				]),
 				E('div', { 'class': 'cb-card-body' }, E('div', { 'id': 'cb-app-dev', 'class': 'cb-dash-rows' }))
@@ -2783,39 +3124,67 @@ return view.extend({
 						E('button', { 'class': 'cb-btn cb-btn-primary',
 							'click': function (ev) { self.handleAppImport(ev); } }, _('Import')),
 						E('span', { 'class': 'cb-count', 'id': 'cb-app-count' }, '')
-					])
-				])
-			]),
-			E('div', { 'class': 'cb-card' }, [
-				E('div', { 'class': 'cb-card-head' }, [
-					E('span', { 'class': 'cb-dot' }), E('span', {}, _('Rate rules'))
-				]),
-				E('div', { 'class': 'cb-card-body' }, [
-					E('p', { 'class': 'cb-note' },
-						_('Sets a DSCP class on matching traffic; qosmate turns that into an hfsc class. Leave the device empty to cover every device.')),
-					E('div', { 'class': 'cb-actions', 'style': 'margin-bottom:.6rem' }, [
-						E('select', { 'id': 'cb-qos-dev', 'class': 'cb-sel' }, []),
-						E('select', { 'id': 'cb-qos-app', 'class': 'cb-sel' }, []),
-						E('select', { 'id': 'cb-qos-dscp', 'class': 'cb-sel' }, [
-							E('option', { 'value': 'cs1' }, _('lowest (cs1)')),
-							E('option', { 'value': 'af11' }, _('low (af11)')),
-							E('option', { 'value': 'cs0' }, _('normal (cs0)')),
-							E('option', { 'value': 'cs4' }, _('high (cs4)')),
-							E('option', { 'value': 'ef' }, _('highest (ef)'))
-						]),
+					]),
+					E('div', { 'class': 'cb-actions', 'style': 'margin:.6rem 0' }, [
+						E('input', { 'type': 'text', 'id': 'cb-app-url', 'class': 'cb-input',
+							'placeholder': 'https://raw.githubusercontent.com/v2fly/domain-list-community/master/data/bilibili',
+							'style': 'flex:1 1 18rem' }),
+						E('input', { 'type': 'text', 'id': 'cb-app-urlname', 'class': 'cb-input',
+							'placeholder': _('app name'), 'style': 'max-width:10rem' }),
 						E('button', { 'class': 'cb-btn cb-btn-primary',
-							'click': function (ev) { self.handleQosAdd(ev); } }, _('Add rule'))
+							'click': function (ev) { self.handleAppUrlImport(ev); } }, _('Add from URL'))
+					]),
+					E('div', { 'class': 'cb-actions', 'style': 'margin-bottom:.5rem' }, [
+						E('select', { 'id': 'cb-sig-app', 'class': 'cb-sel',
+							'change': function (ev) { self.loadSigs(ev.target.value); } }, []),
+						E('span', { 'class': 'cb-count', 'id': 'cb-sig-count' }, '')
 					]),
 					E('div', { 'class': 'cb-tablewrap' }, [
 						E('table', { 'class': 'cb-table' }, [
 							E('thead', {}, E('tr', {}, [
-								E('th', {}, _('Device')),
-								E('th', {}, _('App')),
-								E('th', {}, _('Class')),
-								E('th', { 'class': 'cb-hide-sm' }, _('Addresses')),
+								E('th', {}, _('Proto')),
+								E('th', {}, _('Port')),
+								E('th', {}, _('Host')),
+								E('th', {}, _('Fingerprint')),
 								E('th', { 'style': 'text-align:right' }, _('Action'))
 							])),
-							E('tbody', { 'id': 'cb-qos-tbody' })
+							E('tbody', { 'id': 'cb-sig-tbody' })
+						])
+					])
+				])
+			]),
+			
+			E('div', { 'class': 'cb-card' }, [
+				E('div', { 'class': 'cb-card-head' }, [
+					E('span', { 'class': 'cb-dot' }), E('span', {}, _('Sample traffic')),
+					E('span', { 'class': 'cb-count', 'id': 'cb-sample-state', 'style': 'margin-left:auto' }, '')
+				]),
+				E('div', { 'class': 'cb-card-body' }, [
+					E('p', { 'class': 'cb-note' },
+						_('Game signatures are not published anywhere, so record them: start a capture, play, then save the flow that appears. Flows are grouped by port and by the first four bytes of the payload.')),
+					E('div', { 'class': 'cb-actions', 'style': 'margin-bottom:.6rem' }, [
+						E('select', { 'id': 'cb-sample-dur', 'class': 'cb-sel' }, [
+							E('option', { 'value': '30' }, '30 s'),
+							E('option', { 'value': '60', 'selected': 'selected' }, '60 s'),
+							E('option', { 'value': '120' }, '120 s')
+						]),
+						E('button', { 'class': 'cb-btn cb-btn-primary', 'id': 'cb-sample-start',
+							'click': function (ev) { self.handleSampleStart(ev); } }, _('Start sampling')),
+						E('button', { 'class': 'cb-btn', 'id': 'cb-sample-stop',
+							'click': function (ev) { self.handleSampleStop(ev); } }, _('Stop')),
+						E('span', { 'id': 'cb-sample-live', 'style': 'align-self:center;font-size:.8rem' }, '')
+					]),
+					E('div', { 'class': 'cb-tablewrap' }, [
+						E('table', { 'class': 'cb-table' }, [
+							E('thead', {}, E('tr', {}, [
+								E('th', {}, _('Proto')),
+								E('th', {}, _('Port')),
+								E('th', {}, _('First bytes')),
+								E('th', { 'class': 'cb-hide-sm' }, _('Hits')),
+								E('th', { 'class': 'cb-hide-sm' }, _('Peer')),
+								E('th', { 'style': 'text-align:right' }, _('Action'))
+							])),
+							E('tbody', { 'id': 'cb-sample-tbody' })
 						])
 					])
 				])
@@ -2991,16 +3360,16 @@ return view.extend({
 			E('div', { 'class': 'cb-tabs' }, [
 				tabBtn('overview', _('Overview')),
 				tabBtn('devices', _('Devices')),
-				tabBtn('ips', _('Addresses')),
-				tabBtn('apps', _('Apps')),
-				tabBtn('logs', _('Log')),
-				tabBtn('policy', _('Policy')),
+				tabBtn('apps', _('Traffic')),
+				tabBtn('ips', _('Policy')),
+				tabBtn('feeds', _('Feeds')),
 				tabBtn('settings', _('Settings'))
 			]),
 			dashPane,
 			devicesPane,
 			ipsPane,
 			appsPane,
+			feedsPane,
 			autoPane,
 			backupPane,
 			logsPane,

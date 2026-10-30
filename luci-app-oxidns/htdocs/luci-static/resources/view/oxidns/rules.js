@@ -233,6 +233,42 @@ function runRuleCall(button, busyText, call, args, containerId) {
 	});
 }
 
+/*
+ * 分块上传要跑好几轮 RPC，给个百分比让用户知道还在动（与配置页同款）。
+ * 只有三块以上才值得显示 —— 小块内容一闪而过反而像卡顿。
+ */
+function uploadProgress(busyText, containerId) {
+	var shown = '';
+
+	return function(done, total) {
+		var suffix = chunkedUpload.progressSuffix(done, total);
+
+		if (!suffix || suffix === shown)
+			return;
+
+		shown = suffix;
+		renderResult('notice', busyText + suffix, '', containerId);
+	};
+}
+
+function runRuleUpload(button, busyText, run, containerId) {
+	setBusy(button, true);
+	renderResult('notice', busyText, '', containerId);
+
+	return Promise.resolve().then(function() {
+		return run(uploadProgress(busyText, containerId));
+	}).catch(function(err) {
+		return {
+			ok: false,
+			code: 'rpc_error',
+			message: (err && err.message) || String(err)
+		};
+	}).then(function(result) {
+		setBusy(button, false);
+		return result;
+	});
+}
+
 function setTextValue(id, value) {
 	var node = document.getElementById(id);
 
@@ -295,9 +331,19 @@ function saveRuleFile(button, restart) {
 		return Promise.resolve();
 
 	var content = textareaValue();
+	var busyText = restart ? _('Saving and restarting service...') : _('Saving rule file...');
 
-	return runRuleCall(button, restart ? _('Saving and restarting service...') : _('Saving rule file...'),
-		callRulesSave, [ name, content, String(rulesState.mtime || ''), restart ]).then(function(result) {
+	/* 走与配置页相同的分块路径。单次请求体必须远低于 8 KB：uhttpd 的 ubus
+	   通道是 64 KB 硬上限，nginx 的 ubus 模块在请求体超过 client_body_buffer_size
+	   时 memcpy 一个 NULL 源指针，直接把 worker 打崩。
+	   旧代码把 4 个位置参数塞进 9 个字段的 params 声明里，参数整体错位
+	   （name 被当成 content_chunk 发走），后端只回 "rule file name is not allowed"。 */
+	return runRuleUpload(button, busyText, function(progress) {
+		return chunkedUpload.uploadText(content, function(chunk, last, uploadId) {
+			return callRulesSave(chunk.text, uploadId, chunk.offset, chunk.newlines, chunk.bytes, last,
+				name, String(rulesState.mtime || ''), restart);
+		}, progress);
+	}).then(function(result) {
 		var code = result && result.code;
 		var message = result && (result.message || result.error);
 

@@ -935,3 +935,156 @@ msgstr "最高 (ef)"
 
 msgid "Sets a DSCP class on matching traffic; qosmate turns that into an hfsc class. Leave the device empty to cover every device."
 msgstr "给匹配的流量打 DSCP 标记，qosmate 会把它映射成 hfsc 队列。设备留空表示对所有设备生效。"
+
+msgid "block entirely"
+msgstr "完全封禁"
+
+msgid "Sets a DSCP class on matching traffic; qosmate turns that into an hfsc class. Choosing block drops the traffic outright, which also works for proxied apps because the drop happens before Clash can pick the packet up. Leave the device empty to cover every device."
+msgstr "给匹配的流量打 DSCP 标记，qosmate 映射成 hfsc 队列；选「完全封禁」则直接丢弃。封禁对代理应用同样有效，因为丢弃发生在 Clash 接管之前。设备留空表示对所有设备生效。"
+
+msgid "Sample traffic"
+msgstr "流量采样"
+
+msgid "Start sampling"
+msgstr "开始采样"
+
+msgid "Stop"
+msgstr "停止"
+
+msgid "Proto"
+msgstr "协议"
+
+msgid "First bytes"
+msgstr "前几个字节"
+
+msgid "Hits"
+msgstr "命中"
+
+msgid "Peer"
+msgstr "对端"
+
+msgid "No capture yet"
+msgstr "还没有采样"
+
+msgid "capturing…"
+msgstr "采集中…"
+
+msgid "packets"
+msgstr "个包"
+
+msgid "Save as signature"
+msgstr "存为签名"
+
+msgid "Name this app"
+msgstr "给这个应用起个名字"
+
+msgid "Game signatures are not published anywhere, so record them: start a capture, play, then save the flow that appears. Flows are grouped by port and by the first four bytes of the payload."
+msgstr "游戏特征库没有公开来源，只能自己录：开始采样，玩一局，把出现的流存成签名。流按端口和载荷前四个字节分组。"
+
+msgid "capturing"
+msgstr "采集中"
+
+msgid "stopped"
+msgstr "已停止"
+
+msgid "not sampling"
+msgstr "未开始"
+
+msgid "Feeds"
+msgstr "订阅"
+
+msgid "Lists pulled from the internet. Each one declares what it feeds: an IP list becomes blocked addresses, a domain list becomes DNS blocks, an app list becomes the signatures used to recognise an app."
+msgstr "从互联网拉取的名单。每条都声明它流向哪里：IP 列表变成封禁地址，域名列表变成 DNS 拦截，应用列表变成识别用的特征签名。"
+
+msgid "Feeds into"
+msgstr "流向"
+
+msgid "address blocking"
+msgstr "地址封禁"
+
+msgid "domain blocking"
+msgstr "域名拦截"
+
+msgid "app recognition"
+msgstr "应用识别"
+
+msgid "IP list"
+msgstr "IP 列表"
+
+msgid "Domain list"
+msgstr "域名列表"
+
+msgid "App signatures"
+msgstr "应用特征"
+
+msgid "one address or CIDR per line; # comments, CSV columns and Spamhaus ; tails are tolerated"
+msgstr "每行一个 IP 或 CIDR；支持 # 注释、CSV 列、Spamhaus 的 ; 尾注"
+
+msgid "one hostname per line; # comments ignored"
+msgstr "每行一个主机名；忽略 # 注释"
+
+msgid "OAF format v3.0: id name:[proto;sport;dport;host;request;dict]"
+msgstr "OAF 格式 v3.0：id 名称:[proto;sport;dport;host;request;dict]"
+
+msgid "Add from URL"
+msgstr "从链接添加"
+
+msgid "app name"
+msgstr "应用名"
+
+msgid "Pick an app"
+msgstr "选择应用"
+
+msgid "signatures"
+msgstr "条签名"
+
+msgid "Host"
+msgstr "主机名"
+
+msgid "Fingerprint"
+msgstr "指纹"
+
+msgid "Give the app a name first"
+msgstr "先给应用起个名字"
+
+msgid "Blocked domains"
+msgstr "被拦截的域名"
+
+msgid "Enable DNS logging"
+msgstr "开启 DNS 日志"
+
+msgid "logging off"
+msgstr "日志未开启"
+
+msgid "hits"
+msgstr "次命中"
+
+msgid "No blocked domain was queried yet"
+msgstr "还没有被拦截的域名查询"
+
+msgid "Enable DNS logging to see hits"
+msgstr "开启 DNS 日志后才能看到命中"
+
+msgid "Hits are only visible in dnsmasq's query log, which records one line per query."
+msgstr "命中只能从 dnsmasq 的查询日志里看到，该日志会为每次查询记一行。"
+
+msgid "Geosite bundle"
+msgstr "Geosite 合集"
+
+msgid "a v2ray .dat file holding every category at once; routing categories are skipped"
+msgstr "一个 v2ray .dat 文件，包含全部分类；路由类分类会被跳过"
+
+msgid "broad"
+msgstr "泛分类"
+
+msgid "a broad vendor category, not a single app"
+msgstr "厂商大类，不是单一应用"
+
+msgid "Upload file"
+msgstr "上传文件"
+
+msgid "Pick a file first"
+msgstr "先选一个文件"
+
+msgid "Upload failed"
+msgstr "上传失败"

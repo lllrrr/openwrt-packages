@@ -1,0 +1,41 @@
+#!/bin/sh
+# Upload endpoint for languard feed files.
+#
+# uhttpd runs this with the request body on stdin, so the file is written
+# verbatim - no multipart parsing. Only the LAN may use it: LuCI itself
+# authenticates through its own dispatcher, which a bare CGI cannot do, and an
+# open upload path would let any host on the wire fill the disk.
+
+case "${REMOTE_ADDR:-}" in
+	192.168.*|10.*|172.1[6-9].*|172.2[0-9].*|172.3[01].*|127.0.0.1|::1) ;;
+	*)
+		printf 'Status: 403 Forbidden\r\n'
+		printf 'Content-Type: application/json\r\n\r\n'
+		printf '{"error":"lan only"}'
+		exit 0
+		;;
+esac
+
+name=$(printf '%s' "${QUERY_STRING:-}" | sed -n 's/.*name=\([A-Za-z0-9._-]\{1,64\}\).*/\1/p')
+if [ -z "$name" ]; then
+	printf 'Status: 400 Bad Request\r\n'
+	printf 'Content-Type: application/json\r\n\r\n'
+	printf '{"error":"name required"}'
+	exit 0
+fi
+
+# /tmp is a ramdisk and disappears on reboot, which would leave the feed
+# pointing at nothing; the state directory survives.
+dir=/etc/languard/uploads
+mkdir -p "$dir"
+out="$dir/$name"
+cat > "$out" || {
+	printf 'Status: 500 Internal Server Error\r\n'
+	printf 'Content-Type: application/json\r\n\r\n'
+	printf '{"error":"write failed"}'
+	exit 0
+}
+
+size=$(wc -c < "$out" | tr -d ' ')
+printf 'Content-Type: application/json\r\n\r\n'
+printf '{"path":"%s","size":%s}' "$out" "$size"

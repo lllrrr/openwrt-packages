@@ -319,7 +319,7 @@
             var max_left = Math.max(min_left, area.width - width - margin);
             var min_top = area.top + margin;
             var max_top = Math.max(min_top, area.bottom - height - margin);
-            if (!record.maximized && !record.modal) {
+            if (!record.maximized && !record.modal && !record.options.keepInViewport) {
                 var visible_width = Math.min(width, Math.max(width / 2, 160));
                 var titlebar = record.element.querySelector('.fm-window-titlebar, .fm-dialog-header');
                 var title_height = Math.min(height, titlebar && titlebar.offsetHeight || 42);
@@ -526,6 +526,7 @@
             if (record.modal) {
                 return;
             }
+            this.stop_record_interaction(record);
             record.rect = this.get_rect(record);
             record.minimized_rect = {
                 left: record.rect.left,
@@ -572,7 +573,7 @@
                 if (record.on_close) {
                     record.on_close(record);
                 }
-                if (manager.interaction_record === record && manager.stop_interaction) manager.stop_interaction();
+                manager.stop_record_interaction(record);
                 record.closed = true;
                 record.minimized = false;
                 record.element.style.display = 'none';
@@ -652,8 +653,84 @@
             this.set_maximize_button(record);
         };
 
+        DesktopWindowManager.prototype.stop_record_interaction = function(record) {
+            if (!record) return;
+            if (this.interaction_record === record && this.stop_interaction) this.stop_interaction();
+            if (record.title_node && record.title_node._fmHorizontalScroll) record.title_node._fmHorizontalScroll.cancel();
+        };
+
+        DesktopWindowManager.prototype.begin_title_hold = function(record, header, event) {
+            if (!record || record.closed || record.minimized) return;
+            if (this.stop_interaction) this.stop_interaction();
+            if (HF.cancel_touch_operations) HF.cancel_touch_operations();
+            var manager = this;
+            var title = record.title_node;
+            var point = point_from_event(event);
+            var start = { type: event.type, pointerType: event.pointerType, pointerId: event.pointerId,
+                currentTarget: header, clientX: point.x, clientY: point.y, cancelable: false };
+            var move_event = this.supports_pointer ? 'pointermove' : (event.type.indexOf('touch') === 0 ? 'touchmove' : 'mousemove');
+            var end_event = this.supports_pointer ? 'pointerup' : (event.type.indexOf('touch') === 0 ? 'touchend' : 'mouseup');
+            var cancel_event = this.supports_pointer ? 'pointercancel' : (event.type.indexOf('touch') === 0 ? 'touchcancel' : null);
+            var stopped = false, timer;
+            function matches(input) {
+                return !input || input.pointerId === undefined || start.pointerId === undefined || input.pointerId === start.pointerId;
+            }
+            function clear() {
+                if (stopped) return false;
+                stopped = true;
+                clearTimeout(timer);
+                if (manager.stop_interaction === stop) {
+                    manager.stop_interaction = null;
+                    manager.interaction_record = null;
+                }
+                if (HF.state && HF.state.cancel_window_touch === stop) HF.state.cancel_window_touch = null;
+                document.removeEventListener(move_event, move, true);
+                document.removeEventListener(end_event, stop, false);
+                if (cancel_event) document.removeEventListener(cancel_event, stop, false);
+                header.removeEventListener('lostpointercapture', stop);
+                window.removeEventListener('blur', stop);
+                return true;
+            }
+            function stop(input) {
+                if (!matches(input)) return;
+                if (clear()) title._fmHorizontalScroll.cancel();
+            }
+            function begin_drag(input) {
+                if (!clear()) return;
+                title._fmHorizontalScroll.cancel();
+                if (record.element.isConnected && !record.closed && !record.minimized) manager.begin_interaction(record, start, 'drag', '', input);
+            }
+            function move(input) {
+                if (!matches(input)) return;
+                if (input.touches && input.touches.length > 1 || !record.element.isConnected || record.closed || record.minimized) {
+                    stop();
+                    return;
+                }
+                var current = point_from_event(input);
+                var dx = current.x - point.x, dy = current.y - point.y;
+                if (Math.hypot(dx, dy) < 6) return;
+                if (Math.abs(dy) >= Math.abs(dx) * 0.6) begin_drag(input);
+                else clear();
+            }
+            manager.stop_interaction = stop;
+            manager.interaction_record = record;
+            if (HF.state) HF.state.cancel_window_touch = stop;
+            document.addEventListener(move_event, move, { capture: true, passive: false });
+            document.addEventListener(end_event, stop, false);
+            if (cancel_event) document.addEventListener(cancel_event, stop, false);
+            header.addEventListener('lostpointercapture', stop);
+            window.addEventListener('blur', stop);
+            timer = setTimeout(begin_drag, 300);
+        };
+
         DesktopWindowManager.prototype.bind_drag = function(record, header) {
             var manager = this;
+            function long_title(event) {
+                var title = record.title_node;
+                if (!title || !title.contains(event.target) || title.scrollWidth <= title.clientWidth) return false;
+                var point = point_from_event(event), rect = title.getBoundingClientRect();
+                return point.x >= rect.left && point.x < rect.right && point.y >= rect.top && point.y < rect.bottom;
+            }
             function can_start(event) {
                 if (!is_primary_event(event)) {
                     return false;
@@ -667,7 +744,8 @@
                 if (!can_start(event)) {
                     return;
                 }
-                manager.begin_interaction(record, event, 'drag', '');
+                if (long_title(event)) manager.begin_title_hold(record, header, event);
+                else manager.begin_interaction(record, event, 'drag', '');
             }
             if (this.supports_pointer) {
                 header.addEventListener('pointerdown', start);
@@ -679,7 +757,7 @@
                 header.addEventListener(type, function(event) { event.preventDefault(); });
             });
             header.addEventListener('dblclick', function(event) {
-                if (manager.is_compact() || (event.target && event.target.closest && event.target.closest('button, input, textarea, select, a, label'))) {
+                if (manager.is_compact() || long_title(event) || (event.target && event.target.closest && event.target.closest('button, input, textarea, select, a, label'))) {
                     return;
                 }
                 event.preventDefault();
@@ -714,7 +792,7 @@
             }
         };
 
-        DesktopWindowManager.prototype.begin_interaction = function(record, event, kind, edge) {
+        DesktopWindowManager.prototype.begin_interaction = function(record, event, kind, edge, initial_move) {
             if (!record || record.closed || record.minimized) {
                 return;
             }
@@ -759,7 +837,7 @@
                 return !input || input.pointerId === undefined || event.pointerId === undefined || input.pointerId === event.pointerId;
             }
             function stop(input) {
-                if (stopped || !matches(input)) return;
+                if (stopped || !matches(input) || input && input.type === 'lostpointercapture' && input.target !== interaction_target) return;
                 stopped = true;
                 manager.stop_interaction = null;
                 manager.interaction_record = null;
@@ -777,7 +855,7 @@
                         event.pointerId !== undefined) {
                     try { interaction_target.releasePointerCapture(event.pointerId); } catch (error) {}
                 }
-                record.rect = manager.get_rect(record);
+                if (record.element.isConnected && record.element.style.display !== 'none') record.rect = manager.get_rect(record);
                 if (kind === 'drag' && !interaction_moved) {
                     manager.reveal_for_page_operation();
                 }
@@ -850,6 +928,7 @@
             if (cancel_event) {
                 document.addEventListener(cancel_event, stop, false);
             }
+            if (initial_move) move(initial_move);
         };
 
         DesktopWindowManager.prototype.install_record = function(element, options) {
@@ -873,6 +952,10 @@
                 icon: options.icon || 'file',
                 title_node: options.titleNode || null
             };
+            if (record.title_node) {
+                HF.bind_horizontal_scroll(record.title_node);
+                record.title_node.tabIndex = 0;
+            }
             element._fmWindow = record;
             element.setAttribute('data-window-id', record.id);
             element.setAttribute('aria-modal', 'false');
@@ -1008,12 +1091,14 @@
         };
 
         DesktopWindowManager.prototype.sync_legacy_windows = function() {
+            var manager = this;
             var changed = false;
             this.records.forEach(function(record) {
                 if (!record.legacy || record.closed || record.minimized) {
                     return;
                 }
                 if (record.element.style.display === 'none') {
+                    manager.stop_record_interaction(record);
                     record.closed = true;
                     changed = true;
                 }
@@ -1027,9 +1112,11 @@
         };
 
         DesktopWindowManager.prototype.close_all_legacy = function() {
+            var manager = this;
             var changed = false;
             this.records.forEach(function(record) {
                 if (record.legacy && !record.closed) {
+                    manager.stop_record_interaction(record);
                     record.closed = true;
                     record.minimized = false;
                     record.element.style.display = 'none';

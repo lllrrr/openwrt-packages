@@ -1765,3 +1765,45 @@ msgstr "向该远端设备安装 ttyd？软件包脚本可能启动网页终端�
 
 msgid "Reading current file pages…"
 msgstr "正在读取当前文件分页…"
+
+msgid "Glass appearance"
+msgstr "磨砂外观"
+
+msgid "Adjust glass"
+msgstr "调节磨砂效果"
+
+msgid "White in light mode, black in dark mode. Adjust each profile independently."
+msgstr "浅色使用白色、深色使用黑色背景，两种模式可分别调节。"
+
+msgid "Transparency"
+msgstr "透明度"
+
+msgid "Blur"
+msgstr "模糊"
+
+msgid "Current profile"
+msgstr "当前调节"
+
+msgid "Reset current"
+msgstr "重置当前"
+
+msgid "Reset all appearance"
+msgstr "重置全部外观"
+
+msgid "Changes are previewed only. Save to keep them."
+msgstr "当前仅预览效果，点击保存后才会写入配置。"
+
+msgid "Save appearance failed"
+msgstr "外观保存失败"
+
+msgid "Invalid appearance value"
+msgstr "外观参数无效"
+
+msgid "Save failed. Your draft is kept; retry or cancel."
+msgstr "保存失败，已保留当前调节，可重试或取消。"
+
+msgid "Move panel with arrow keys"
+msgstr "使用方向键移动面板"
+
+msgid "Drag to scroll; Shift-drag to select text"
+msgstr "拖动可横向浏览；按住 Shift 拖动可选择文字"

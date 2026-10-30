@@ -30,7 +30,10 @@ local CT_SEEN_FILE = STATE_DIR .. "/ct_seen.json"
 local APPIPS_FILE = STATE_DIR .. "/app_ips.json"
 local QOS_FILE = STATE_DIR .. "/app_qos.json"
 local FINGERPRINT_FILE = STATE_DIR .. "/fingerprint.json"
-local QOS_RULE_FILE = "/etc/nftables.d/91-languard-appqos.nft"
+-- never under /etc/nftables.d: fw4 includes that directory *inside* its own
+-- table, so a table declaration there is a syntax error and takes the whole
+-- firewall down with it
+local QOS_RULE_FILE = STATE_DIR .. "/appqos.nft"
 local DOMAIN_FILE = STATE_DIR .. "/domains.json"
 local DOMAIN_HOSTS = STATE_DIR .. "/domainblock.hosts"
 local NOTIFY_TMP = "/tmp/languard-notify.json"
@@ -54,6 +57,7 @@ local notify_event
 local load_domains, save_domains, is_domain_token, apply_domains
 local collect_devices
 local learn_app_ip
+local load_apps, save_apps
 
 
 local function trim(s)
@@ -666,20 +670,24 @@ function methods.feedlist()
 		                  enabled = fd.enabled ~= false, imported = counts[tostring(fd.id)] or 0,
 		                  last = fd.last, last_count = fd.last_count,
 		                  interval = tonumber(fd.interval) or 0,
+		                  kind = fd.kind or "ip", cls = fd.cls,
 		                  last_error = fd.last_error,
 		                  total = fd.last_total, truncated = fd.last_truncated }
 	end
 	return { success = true, running = true, feeds = out }
 end
 
-function methods.feedadd(name, url, interval)
+function methods.feedadd(name, url, interval, kind, cls)
 	if tostring(url or "") == "" then return err("url required") end
 	local f = load_feeds()
 	f.seq = (tonumber(f.seq) or 0) + 1
 	local iv = tonumber(interval)
 	if iv == nil then iv = 86400 end
+	kind = tostring(kind or "ip")
+	if kind ~= "ip" and kind ~= "domain" and kind ~= "app" and kind ~= "geosite" then kind = "ip" end
 	f.feeds[#f.feeds + 1] = { id = f.seq, name = (name ~= "" and name) or tostring(url),
-	                          url = url, enabled = true, interval = iv }
+	                          url = url, enabled = true, interval = iv,
+	                          kind = kind, cls = (cls ~= "" and cls) or nil }
 	save_json_map(FEEDS_FILE, f)
 	return ok({ id = f.seq })
 end
@@ -687,11 +695,20 @@ end
 function methods.feeddel(id)
 	local f = load_feeds()
 	local keep, removed = {}, false
+	local gone
 	for _, fd in ipairs(f.feeds) do
-		if tostring(fd.id) == tostring(id) then removed = true else keep[#keep + 1] = fd end
+		if tostring(fd.id) == tostring(id) then removed = true; gone = fd
+		else keep[#keep + 1] = fd end
 	end
 	if not removed then return err("no such feed") end
 	f.feeds = keep
+	-- an uploaded feed owns its file; removing the feed must not leave it behind
+	if gone and gone.url then
+		local path = gone.url:match("^file://(.+)$")
+		if path and path:find("/uploads/", 1, true) and not path:find("..", 1, true) then
+			fs.unlink(path)
+		end
+	end
 	save_json_map(FEEDS_FILE, f)
 	-- drop everything this feed contributed, addresses and domains alike
 	local ips = load_ipstate()
@@ -734,6 +751,169 @@ local function feed_skip(ip)
 		return true
 	end
 	return false
+end
+
+-- A v2fly style list: one domain per line, "include:" and "regexp:" lines
+-- are not addresses, and "@cn" is a routing hint rather than part of the name.
+local function parse_domain_list(raw)
+	local out, seen = {}, {}
+	for line in raw:gmatch("[^\r\n]+") do
+		line = line:gsub("#.*$", ""):gsub("%s+$", "")
+		if line ~= "" and not line:find("^include:") and not line:find("^regexp:") then
+			line = line:gsub("^full:", ""):gsub("%s*@!?[%w-]+$", "")
+			if is_domain_token(line) and not seen[line] then
+				seen[line] = true
+				out[#out + 1] = line
+			end
+		end
+	end
+	return out
+end
+
+-- An app feed replaces that app's signatures outright: the upstream file is
+-- the authority for it. Hand-written extras belong under another name.
+local function merge_app_feed(fd, domains)
+	if #domains == 0 then return nil, "no domains in list" end
+	local d = load_apps()
+	local sigs = {}
+	for _, dom in ipairs(domains) do
+		sigs[#sigs + 1] = { proto = "tcp", dport = "", host = dom, dict = "" }
+	end
+	for _, a in ipairs(d.apps) do
+		if a.name == fd.name then
+			a.sigs = sigs
+			a.class = fd.cls or a.class
+			save_apps(d)
+			return #sigs
+		end
+	end
+	d.seq = d.seq + 1
+	d.apps[#d.apps + 1] = { id = d.seq, name = fd.name, class = fd.cls or "other",
+	                        sigs = sigs, feed = tostring(fd.id) }
+	save_apps(d)
+	return #sigs
+end
+
+
+-- ---- v2ray geosite bundles --------------------------------------------
+-- One file holds every category: v2fly ships dlc.dat, Loyalsoldier ships
+-- geosite.dat, both in the same protobuf shape. Parsing it here means one
+-- subscription instead of one per app.
+local function pb_varint(s, i)
+	local v, shift = 0, 0
+	while true do
+		local b = s:byte(i)
+		if not b then return nil end
+		i = i + 1
+		v = v + (b % 128) * 2 ^ shift
+		if b < 128 then return v, i end
+		shift = shift + 7
+		if shift > 63 then return nil end
+	end
+end
+
+-- returns tag, wiretype, value/offset
+local function pb_field(s, i)
+	local key
+	key, i = pb_varint(s, i)
+	if not key then return nil end
+	local wire = key % 8
+	local tag = math.floor(key / 8)
+	if wire == 0 then
+		local v
+		v, i = pb_varint(s, i)
+		return tag, wire, v, i
+	elseif wire == 2 then
+		local len
+		len, i = pb_varint(s, i)
+		if not len then return nil end
+		return tag, wire, s:sub(i, i + len - 1), i + len
+	elseif wire == 5 then
+		return tag, wire, s:sub(i, i + 3), i + 4
+	elseif wire == 1 then
+		return tag, wire, s:sub(i, i + 7), i + 8
+	end
+	return nil
+end
+
+-- Domain types: 0 plain, 1 regex, 2 root domain, 3 full
+local function geosite_categories(data)
+	local out = {}
+	local i = 1
+	while i <= #data do
+		local tag, wire, val, nxt = pb_field(data, i)
+		if not tag then break end
+		i = nxt
+		if tag == 1 and wire == 2 then
+			local code, domains = nil, {}
+			local j = 1
+			while j <= #val do
+				local t2, w2, v2, n2 = pb_field(val, j)
+				if not t2 then break end
+				j = n2
+				if t2 == 1 and w2 == 2 then
+					code = v2
+				elseif t2 == 2 and w2 == 2 then
+					local dtype, dval = 0, nil
+					local k = 1
+					while k <= #v2 do
+						local t3, w3, v3, n3 = pb_field(v2, k)
+						if not t3 then break end
+						k = n3
+						if t3 == 1 and w3 == 0 then dtype = v3
+						elseif t3 == 2 and w3 == 2 then dval = v3 end
+					end
+					-- regex entries cannot be expressed as a hostname match
+					if dval and dtype ~= 1 then domains[#domains + 1] = dval end
+				end
+			end
+			if code and #domains > 0 then out[code] = domains end
+		end
+	end
+	return out
+end
+
+
+local function merge_geosite(fd, cats)
+	local d = load_apps()
+	local by_name = {}
+	for _, a in ipairs(d.apps) do by_name[a.name] = a end
+	local made, updated, skipped = 0, 0, 0
+	for code, domains in pairs(cats) do
+		-- the file spells these in upper case, so match on the lower form and
+		-- skip whole families rather than a fixed list
+		local lc = code:lower()
+		local routing = lc:match("^geolocation") ~= nil
+			or lc:match("^category") ~= nil
+			or lc:match("^tld") ~= nil
+			or lc == "cn" or lc == "direct" or lc == "proxy" or lc == "private"
+			or lc == "gfw" or lc == "greatfire"
+		if routing then
+			skipped = skipped + 1
+		else
+			local sigs = {}
+			for _, dom in ipairs(domains) do
+				sigs[#sigs + 1] = { proto = "tcp", dport = "", host = dom, dict = "" }
+			end
+			-- an all-uppercase name or a very large set is a vendor umbrella,
+			-- not an app: it still matches, but is labelled as coarse
+			local generic = (code == code:upper() and #domains > 50) or #domains > 300
+			local ex = by_name[code]
+			if ex then
+				ex.sigs = sigs
+				ex.feed = tostring(fd.id)
+				ex.generic = generic
+				updated = updated + 1
+			else
+				d.seq = d.seq + 1
+				d.apps[#d.apps + 1] = { id = d.seq, name = code, class = fd.cls or "other",
+				                        sigs = sigs, feed = tostring(fd.id), generic = generic }
+				made = made + 1
+			end
+		end
+	end
+	save_apps(d)
+	return made, updated, skipped
 end
 
 -- Fetch one feed into `ips` without touching the firewall. Returns the set of
@@ -819,6 +999,46 @@ apply_domains = function()
 		-- clears the cache, leaving DHCP and existing flows alone
 		sys.call("kill -HUP $(pidof dnsmasq) 2>/dev/null")
 	end
+end
+
+-- dnsmasq answers blocked names with 0.0.0.0, so a hit is only visible in its
+-- query log. Reading it is opt-in: the setting costs one line per DNS query.
+local function dns_logging()
+	return (trim(sys.exec("uci -q get dhcp.@dnsmasq[0].logqueries 2>/dev/null") or "") == "1")
+end
+
+function methods.domainhits(limit)
+	limit = tonumber(limit) or 50
+	local enabled = dns_logging()
+	if not enabled then
+		return { success = true, running = true, enabled = false, hits = {}, count = 0 }
+	end
+	local blocked = load_domains().names
+	local hits, seen = {}, 0
+	local fh = io.popen("logread 2>/dev/null | grep -F 'query[' | tail -n 4000", "r")
+	if fh then
+		for line in fh:lines() do
+			local dom, ip = line:match("query%[%w+%]%s+(%S+)%s+from%s+(%d+%.%d+%.%d+%.%d+)")
+			if dom and blocked[dom] then
+				hits[#hits + 1] = { domain = dom, ip = ip }
+			end
+		end
+		fh:close()
+	end
+	-- newest first, and only the page that is shown
+	local out = {}
+	for i = #hits, math.max(1, #hits - limit + 1), -1 do
+		out[#out + 1] = hits[i]
+	end
+	return { success = true, running = true, enabled = true, hits = out, count = #hits }
+end
+
+function methods.domaintogglelog(on_)
+	local on = (on_ ~= false and on_ ~= "0" and on_ ~= "false")
+	sys.call(string.format("uci set dhcp.@dnsmasq[0].logqueries=%s; uci commit dhcp",
+		on and "1" or "0"))
+	sys.call("/etc/init.d/dnsmasq reload >/dev/null 2>&1")
+	return ok({ enabled = on })
 end
 
 function methods.domainlist()
@@ -1032,6 +1252,35 @@ function methods.feedrefresh(id)
 	end
 	if not fd then return err("no such feed") end
 
+	if (fd.kind or "ip") == "geosite" then
+		local tmp = "/tmp/languard-feed.dat"
+		local rc = sys.call(string.format("curl -fsSL -m 120 -o %s %s", tmp, shq(fd.url)))
+		local raw = read_all(tmp)
+		fs.unlink(tmp)
+		if rc ~= 0 or not raw or #raw < 32 then return err("download failed") end
+		local cats = geosite_categories(raw)
+		local n = 0
+		for _ in pairs(cats) do n = n + 1 end
+		if n == 0 then return err("no categories in file") end
+		local made, updated, skipped = merge_geosite(fd, cats)
+		fd.last, fd.last_count, fd.last_error = os.time(), made + updated, nil
+		save_json_map(FEEDS_FILE, f)
+		return ok({ added = made, merged = updated, skipped = skipped, total = made + updated })
+	end
+
+	if (fd.kind or "ip") == "app" then
+		local tmp = "/tmp/languard-feed.txt"
+		local rc = sys.call(string.format("curl -fsSL -m 60 -o %s %s", tmp, shq(fd.url)))
+		local raw = read_all(tmp)
+		fs.unlink(tmp)
+		if rc ~= 0 or not raw then return err("download failed") end
+		local n, why = merge_app_feed(fd, parse_domain_list(raw))
+		if not n then return err(why) end
+		fd.last, fd.last_count, fd.last_error = os.time(), n, nil
+		save_json_map(FEEDS_FILE, f)
+		return ok({ added = n, merged = n, total = n })
+	end
+
 	local ips = load_ipstate()
 	local delta, why = fetch_feed(fd, ips, os.time())
 	if not delta then
@@ -1146,14 +1395,22 @@ end
 -- Only the fields this engine understands are used (proto, dport, host, and
 -- an optional CIDR list). Payload fingerprints need packet capture and are
 -- left to a later stage.
-local function load_apps()
+-- The library is read several times per tick; with a large bundle that parse
+-- dominated everything. It is only ever written by this process, so a copy
+-- cached until the next save is always correct.
+local _apps_cache
+
+load_apps = function()
+	if _apps_cache then return _apps_cache end
 	local d = load_json_map(APPS_FILE, function() return { seq = 0, apps = {} } end)
 	d.seq = tonumber(d.seq) or 0
 	d.apps = type(d.apps) == "table" and d.apps or {}
+	_apps_cache = d
 	return d
 end
 
-local function save_apps(d)
+save_apps = function(d)
+	_apps_cache = d
 	return save_json_map(APPS_FILE, d)
 end
 
@@ -1217,17 +1474,79 @@ local function sig_matches(sig, proto, port, ip, host)
 	return true
 end
 
--- Returns the app and how it was recognised. A match on the hostname or an
--- address range is trustworthy; a bare port is a guess, because nothing in
--- the packet was checked.
-local function classify_flow(apps, proto, port, ip, host)
-	for _, app in ipairs(apps.apps) do
-		for _, sig in ipairs(app.sigs or {}) do
-			if sig_matches(sig, proto, port, ip, host) then
-				local conf = ((sig.host and sig.host ~= "") or (sig.ip and sig.ip ~= ""))
-					and "high" or "low"
-				return app, conf
+-- Walking every signature for every flow does not scale: a geosite bundle
+-- brings 1400 apps and tens of thousands of domains, and a tick has a few
+-- thousand flows. Domains are therefore indexed by suffix, so a hostname is
+-- answered in a handful of lookups instead of a full scan. Signatures that
+-- are not plain domains (substrings, wildcards, ports) stay in short lists.
+-- Lua 5.1 allows 200 locals per chunk, so the index lives in one table
+local IDX = {}
+
+function IDX.build(apps)
+	local idx = { suffix = {}, substr = {}, port = {} }
+	-- A category like APPLE or LE holds thousands of domains and would
+	-- otherwise claim everything a specific app also claims. Sorting by
+	-- domain count means the narrowest app owns a suffix.
+	local order = {}
+	for i, a in ipairs(apps.apps) do order[i] = a end
+	table.sort(order, function(x, y)
+		return #(x.sigs or {}) < #(y.sigs or {})
+	end)
+	for _, a in ipairs(order) do
+		for _, sig in ipairs(a.sigs or {}) do
+			local h = sig.host and sig.host:lower() or ""
+			if h ~= "" then
+				if h:find(".", 1, true) and not h:find("*", 1, true) then
+					idx.suffix[h] = idx.suffix[h] or a
+				else
+					idx.substr[#idx.substr + 1] = { host = h, app = a, proto = sig.proto }
+				end
+			elseif sig.dport and sig.dport ~= "" then
+				idx.port[#idx.port + 1] = { dport = sig.dport, proto = sig.proto, app = a }
 			end
+		end
+	end
+	return idx
+end
+
+function IDX.get(apps)
+	if IDX.cache == nil or IDX.src ~= apps then
+		IDX.cache = IDX.build(apps)
+		IDX.src = apps
+	end
+	return IDX.cache
+end
+
+function IDX.suffix_match(idx, host)
+	local h = host:lower()
+	local pos = 1
+	while true do
+		local a = idx.suffix[h:sub(pos)]
+		if a then return a end
+		local dot = h:find(".", pos, true)
+		if not dot then return nil end
+		pos = dot + 1
+	end
+end
+
+-- Returns the app and how it was recognised. A match on the hostname or an
+-- address range is trustworthy; a bare port is a guess.
+local function classify_flow(apps, proto, port, ip, host)
+	local idx = IDX.get(apps)
+	if host and host ~= "" then
+		local a = IDX.suffix_match(idx, host)
+		if a then return a, "high" end
+		for _, s in ipairs(idx.substr) do
+			if s.host ~= "" and host:lower():find(s.host, 1, true) then
+				if not s.proto or s.proto == "" or s.proto == proto then
+					return s.app, "high"
+				end
+			end
+		end
+	end
+	for _, s in ipairs(idx.port) do
+		if (not s.proto or s.proto == "" or s.proto == proto) and port_in(s.dport, port) then
+			return s.app, "low"
 		end
 	end
 	return nil
@@ -1412,6 +1731,7 @@ function methods.applist()
 	local out = {}
 	for _, a in ipairs(d.apps) do
 		out[#out + 1] = { id = a.id, name = a.name, class = a.class,
+		                  generic = a.generic or false,
 		                  sigs = #(a.sigs or {}),
 		                  bytes = (st.apps or {})[a.name] or 0 }
 	end
@@ -1515,6 +1835,52 @@ function methods.appimport(text)
 	if added + merged == 0 then return err("nothing recognised") end
 	save_apps(d)
 	return ok({ added = added, merged = merged, total = #d.apps })
+end
+
+-- Manual editing: a sampled or imported app always needs a touch-up.
+function methods.siglist(name)
+	local d = load_apps()
+	for _, a in ipairs(d.apps) do
+		if a.name == name then
+			local out = {}
+			for i, sig in ipairs(a.sigs or {}) do
+				out[#out + 1] = { idx = i, proto = sig.proto, dport = sig.dport,
+				                  host = sig.host, dict = sig.dict }
+			end
+			return ok({ name = a.name, class = a.class, sigs = out })
+		end
+	end
+	return err("no such app")
+end
+
+function methods.sigadd(name, proto, dport, host)
+	local d = load_apps()
+	for _, a in ipairs(d.apps) do
+		if a.name == name then
+			local sig = { proto = proto or "", dport = dport or "", host = host or "", dict = "" }
+			if not sig_usable(sig, a.class) then
+				return err("that would match everything: give a hostname, or a game port")
+			end
+			a.sigs[#a.sigs + 1] = sig
+			save_apps(d)
+			return ok({ count = #a.sigs })
+		end
+	end
+	return err("no such app")
+end
+
+function methods.sigdel(name, idx)
+	local d = load_apps()
+	for _, a in ipairs(d.apps) do
+		if a.name == name then
+			idx = tonumber(idx)
+			if not idx or not a.sigs[idx] then return err("no such signature") end
+			table.remove(a.sigs, idx)
+			save_apps(d)
+			return ok({ count = #a.sigs })
+		end
+	end
+	return err("no such app")
 end
 
 function methods.appdel(id)
@@ -1622,10 +1988,22 @@ local function render_qos_rules()
 				conds[#conds + 1] = "ip daddr 0.0.0.0/32"   -- nothing learned yet
 			end
 		end
-		if #conds > 0 then
+		local label = (r.app or "device") .. (r.ip and ("@" .. r.ip) or "")
+		if #conds > 0 and r.action == "block" then
+			-- drop is terminal across tables, so it also stops the client's
+			-- packet before Clash can redirect it
+			lines[#lines + 1] = string.format(
+				"\t\t%s counter drop comment \"block:%s\"", table.concat(conds, " "), label)
+			if r.ip and r.ip ~= "" and r.app and r.app ~= "" then
+				local name = set_name_for(r.app)
+				lines[#lines + 1] = string.format(
+					"\t\tip saddr @%s ip daddr %s counter drop comment \"block:%s\"",
+					name, r.ip, label)
+			end
+		elseif #conds > 0 then
 			lines[#lines + 1] = string.format(
 				"\t\t%s ip dscp set %s counter comment \"qos:%s\"",
-				table.concat(conds, " "), dscp, (r.app or "device") .. (r.ip and ("@" .. r.ip) or ""))
+				table.concat(conds, " "), dscp, label)
 		end
 	end
 	lines[#lines + 1] = "\t}"
@@ -1650,7 +2028,7 @@ local function bypass_addresses()
 	local ips = load_appips()
 	local want, seen = {}, {}
 	for _, r in ipairs(d.rules) do
-		if r.app and r.app ~= "" and not seen[r.app] then
+		if r.app and r.app ~= "" and r.action ~= "block" and not seen[r.app] then
 			seen[r.app] = true
 			for _, ip in ipairs(ips[r.app] or {}) do
 				-- a fake address only means something inside Clash; routing
@@ -1700,6 +2078,7 @@ function methods.qoslist()
 	local out = {}
 	for _, r in ipairs(d.rules) do
 		out[#out + 1] = { id = r.id, ip = r.ip, app = r.app, dscp = r.dscp,
+		                  action = r.action or "dscp",
 		                  ips = (load_appips()[r.app] or {}) and #(load_appips()[r.app] or {}) or 0 }
 	end
 	return { success = true, running = true, rules = out, levels = QOS_LEVELS }
@@ -1709,7 +2088,9 @@ function methods.qosadd(ip, app, dscp)
 	if (not ip or ip == "") and (not app or app == "") then
 		return err("pick a device, an app, or both")
 	end
-	if dscp and QOS_LEVELS[dscp] == nil then return err("unknown class") end
+	if dscp and dscp ~= "block" and QOS_LEVELS[dscp] == nil then
+		return err("unknown class")
+	end
 	local d = load_qos()
 	for _, r in ipairs(d.rules) do
 		if (r.ip or "") == (ip or "") and (r.app or "") == (app or "") then
@@ -1718,7 +2099,8 @@ function methods.qosadd(ip, app, dscp)
 	end
 	d.seq = d.seq + 1
 	d.rules[#d.rules + 1] = { id = d.seq, ip = ip or "", app = app or "",
-	                          dscp = dscp or "cs1" }
+	                          dscp = (dscp ~= "block") and (dscp or "cs1") or nil,
+	                          action = (dscp == "block") and "block" or "dscp" }
 	save_json_map(QOS_FILE, d)
 	local okk = apply_qos()
 	return ok({ id = d.seq, applied = okk })
@@ -1837,6 +2219,7 @@ local function parse_pcap(data)
 				if vihl then
 					local ihl = (vihl % 16) * 4
 					local proto = pkt:byte(ipoff + 9)
+					local src = table.concat({ pkt:byte(ipoff + 12, ipoff + 15) }, ".")
 					local dst = table.concat({ pkt:byte(ipoff + 16, ipoff + 19) }, ".")
 					local l4 = ipoff + ihl
 					local sport, dport, pl
@@ -1853,7 +2236,7 @@ local function parse_pcap(data)
 					if dport then
 						out[#out + 1] = {
 							proto = (proto == 17) and "udp" or "tcp",
-							dst = dst, dport = dport, payload = pl or "",
+							src = src, dst = dst, dport = dport, payload = pl or "",
 						}
 					end
 				end
@@ -1863,48 +2246,167 @@ local function parse_pcap(data)
 	return out
 end
 
+
+-- Parsing a capture blocks for as long as tcpdump runs. The work is split
+-- across two ticks instead: this round reads what the previous one recorded
+-- and immediately starts the next capture in the background, so tick stays
+-- in the millisecond range and nothing waits on a timeout.
 local function fingerprint_scan(apps, now)
-	local filter = fingerprint_ports(apps)
-	if not filter then return nil end
-	local cap = "/tmp/lg_fingerprint.pcap"
-	os.remove(cap)
-	sys.call(string.format(
-		"timeout 4 tcpdump -i br-lan -s 96 -c 250 -w %s %s 2>/dev/null", cap, shq(filter)))
-	local f = io.open(cap, "rb")
-	if not f then return nil end
-	local data = f:read("*a")
-	f:close()
-	os.remove(cap)
-	if not data or #data < 24 then return nil end
+	local counted, learned = 0, 0
 
-	local packets = parse_pcap(data)
-	local hit, learned = 0, 0
-	local st = load_json_map(FINGERPRINT_FILE, function() return {} end)
-
-	for _, p in ipairs(packets) do
-		if #p.payload >= 6 then
-			for _, a in ipairs(apps.apps) do
-				local matched = false
-				for _, sig in ipairs(a.sigs or {}) do
-					if sig.dict and sig.dict ~= "" and sig.proto == p.proto
-					   and port_in(sig.dport, p.dport)
-					   and dict_match(sig.dict, p.payload) then
-						matched = true
-						break
+	local f = io.open("/tmp/lg_fp_next.pcap", "rb")
+	if f then
+		local data = f:read("*a")
+		f:close()
+		os.remove("/tmp/lg_fp_next.pcap")
+		if data and #data > 24 then
+			local st = load_json_map(FINGERPRINT_FILE, function() return {} end)
+			for _, p in ipairs(parse_pcap(data)) do
+				if #p.payload >= 6 then
+					for _, a in ipairs(apps.apps) do
+						local matched = false
+						for _, sig in ipairs(a.sigs or {}) do
+							if sig.dict and sig.dict ~= "" and sig.proto == p.proto
+							   and port_in(sig.dport, p.dport)
+							   and dict_match(sig.dict, p.payload) then
+								matched = true
+								break
+							end
+						end
+						if matched then
+							counted = counted + 1
+							st[a.name] = { ts = now, hits = ((st[a.name] or {}).hits or 0) + 1 }
+							learn_app_ip(a.name, p.dst)
+							learned = learned + 1
+							break
+						end
 					end
 				end
-				if matched then
-					hit = hit + 1
-					st[a.name] = { ts = now, hits = ((st[a.name] or {}).hits or 0) + 1 }
-					learn_app_ip(a.name, p.dst)
-					learned = learned + 1
-					break
-				end
 			end
+			if counted > 0 then save_json_map(FINGERPRINT_FILE, st) end
 		end
 	end
-	if hit > 0 then save_json_map(FINGERPRINT_FILE, st) end
-	return { packets = #packets, hits = hit, learned = learned }
+
+	local filter = fingerprint_ports(apps)
+	if filter then
+		sys.call(string.format(
+			"sh -c 'timeout 25 tcpdump -i br-lan -U -s 96 -c 400 -w %s %s >/dev/null 2>&1 &'",
+			"/tmp/lg_fp_next.pcap", shq(filter)))
+	end
+	return { hits = counted, learned = learned }
+end
+
+-- ---- manual sampling ---------------------------------------------------
+-- Game signatures cannot be downloaded from anywhere, so the only way to get
+-- one is to watch the game run. A capture is started on demand, the first
+-- bytes of every new flow are grouped by port and payload prefix, and a group
+-- the user recognises can be saved as a signature in one click.
+local SAMPLE_PCAP = "/tmp/lg_sample.pcap"
+local SAMPLE_STATE = STATE_DIR .. "/sample.json"
+
+local function sample_running()
+	return sys.call("pgrep -f 'tcpdump.*lg_sample' >/dev/null 2>&1") == 0
+end
+
+function methods.sample_start(duration)
+	duration = tonumber(duration) or 60
+	if duration < 10 then duration = 10 end
+	if duration > 300 then duration = 300 end
+	sys.call("pkill -f 'tcpdump.*lg_sample' 2>/dev/null")
+	os.remove(SAMPLE_PCAP)
+	sys.call(string.format(
+		"sh -c 'timeout %d tcpdump -i br-lan -U -s 96 -c 4000 -w %s " ..
+		"\"udp or tcp[tcpflags] & tcp-push != 0\" >/dev/null 2>&1 &'",
+		duration, SAMPLE_PCAP))
+	save_json_map(SAMPLE_STATE, { started = os.time(), duration = duration })
+	return ok({ started = os.time(), duration = duration })
+end
+
+function methods.sample_stop()
+	sys.call("pkill -f 'tcpdump.*lg_sample' 2>/dev/null")
+	return ok({})
+end
+
+function methods.sample_result()
+	local st = load_json_map(SAMPLE_STATE, function() return {} end)
+	local running = sample_running()
+	local f = io.open(SAMPLE_PCAP, "rb")
+	if not f then
+		return { success = true, running = running, groups = {},
+		         started = st.started, duration = st.duration, packets = 0 }
+	end
+	local data = f:read("*a")
+	f:close()
+	if not data or #data < 24 then
+		return { success = true, running = running, groups = {},
+		         started = st.started, duration = st.duration, packets = 0 }
+	end
+
+	local pkts = parse_pcap(data)
+	local groups = {}
+	local total = 0
+	for _, p in ipairs(pkts) do
+		if #p.payload >= 4 then
+			total = total + 1
+			-- the first four bytes are what a signature records
+			local hex = {}
+			for i = 1, 4 do hex[i] = string.format("%02x", p.payload:byte(i)) end
+			local prefix = table.concat(hex, ":")
+			local key = p.proto .. "|" .. p.dport .. "|" .. prefix
+			local g = groups[key]
+			if not g then
+				g = { proto = p.proto, dport = p.dport, prefix = prefix,
+				      count = 0, dsts = {}, srcs = {} }
+				groups[key] = g
+			end
+			g.count = g.count + 1
+			g.dsts[p.dst] = true
+			g.srcs[p.src] = true
+		end
+	end
+
+	local out = {}
+	for _, g in pairs(groups) do
+		local dsts, srcs = {}, {}
+		for ip in pairs(g.dsts) do dsts[#dsts + 1] = ip end
+		for ip in pairs(g.srcs) do srcs[#srcs + 1] = ip end
+		out[#out + 1] = { proto = g.proto, dport = g.dport, prefix = g.prefix,
+		                  count = g.count, dsts = dsts, srcs = srcs }
+	end
+	table.sort(out, function(a, b) return a.count > b.count end)
+	local top = {}
+	for i = 1, math.min(#out, 25) do top[i] = out[i] end
+
+	return { success = true, running = running, groups = top, packets = total,
+	         started = st.started, duration = st.duration }
+end
+
+-- Turn a sampled group into a signature: "00:33|1:66|2:00|3:0a" from the
+-- prefix, with the observed port kept as the match condition.
+function methods.sample_save(name, proto, dport, prefix, cls)
+	if not name or trim(name) == "" then return err("name required") end
+	if not prefix or prefix == "" then return err("no fingerprint") end
+	local parts = {}
+	local i = 0
+	for byte in prefix:gmatch("%x%x") do
+		parts[#parts + 1] = i .. ":" .. byte
+		i = i + 1
+	end
+	local dict = table.concat(parts, "|")
+
+	local d = load_apps()
+	for _, a in ipairs(d.apps) do
+		if a.name == trim(name) then
+			a.sigs[#a.sigs + 1] = { proto = proto or "", dport = dport or "", host = "", dict = dict }
+			save_apps(d)
+			return ok({ name = a.name, dict = dict, appended = true })
+		end
+	end
+	d.seq = d.seq + 1
+	d.apps[#d.apps + 1] = { id = d.seq, name = trim(name), class = cls or "game",
+	                        sigs = { { proto = proto or "", dport = dport or "", host = "", dict = dict } } }
+	save_apps(d)
+	return ok({ name = trim(name), dict = dict, appended = false })
 end
 
 -- Called from tick: refresh at most one due subscription per run so a slow
@@ -1921,6 +2423,12 @@ local function refresh_due_feeds(now)
 		end
 	end
 	if not due then return nil end
+
+	-- an app feed replaces a signature set, so reuse the manual path
+	if (due.kind or "ip") == "app" or (due.kind or "ip") == "geosite" then
+		local r = methods.feedrefresh(due.id)
+		return { id = due.id, name = due.name, app = true, ok = r and r.success or false }
+	end
 
 	local ips = load_ipstate()
 	local delta, why = fetch_feed(due, ips, now)
@@ -3103,6 +3611,9 @@ function methods.sync()
 		reload_firewall()
 	end
 
+	-- the QoS table lives outside fw4 and is not restored by a reload
+	apply_qos()
+
 	local n = 0
 	for _ in pairs(state) do n = n + 1 end
 	return ok({ blocked_count = n })
@@ -3703,8 +4214,24 @@ function methods.expire()
 end
 
 -- Called once a minute by the watcher: schedules first, then expiry.
+function methods.tickcfg()
+	local d = load_json_map(STATE_DIR .. "/tick.json", function() return { enabled = true } end)
+	if d.enabled == nil then d.enabled = true end
+	return { success = true, running = true, enabled = d.enabled }
+end
+
+function methods.tickset(on_)
+	local on = (on_ ~= false and on_ ~= "0" and on_ ~= "false")
+	save_json_map(STATE_DIR .. "/tick.json", { enabled = on })
+	return ok({ enabled = on })
+end
+
 function methods.tick()
 	local now = os.time()
+	local cfg = load_json_map(STATE_DIR .. "/tick.json", function() return { enabled = true } end)
+	if cfg.enabled == false then
+		return { success = true, running = true, skipped = true }
+	end
 	local e = methods.expire()
 	local sc = methods.schedeval()
 	local nd = check_new_devices()
@@ -4151,21 +4678,30 @@ if arg[1] == "list" then
 		portpresets = {},
 		porttemplate = { macs = "", preset = "" },
 		feedlist    = {},
-		feedadd     = { name = "", url = "" },
+		feedadd     = { name = "", url = "", interval = "", kind = "", cls = "" },
 		feeddel     = { id = "" },
 		feedrefresh = { id = "" },
 		feedset     = { id = "", interval = "" },
 		applist     = {},
 		qoslist     = {},
+		sample_start = { duration = "" },
+		sample_stop  = {},
+		sample_result = {},
+		sample_save  = { name = "", proto = "", dport = "", prefix = "", cls = "" },
 		qosadd      = { ip = "", app = "", dscp = "" },
 		qosdel      = { id = "" },
 		appstats    = {},
 		appimport   = { text = "" },
 		appdel      = { id = "" },
+		siglist     = { name = "" },
+		sigadd      = { name = "", proto = "", dport = "", host = "" },
+		sigdel      = { name = "", idx = "" },
 		appreset    = {},
 		devmerge    = { mac = "", into = "" },
 		devunmerge  = { mac = "" },
 		domainlist  = {},
+		domainhits  = { limit = "" },
+		domaintogglelog = { on_ = "" },
 		domainadd   = { name = "" },
 		domaindel   = { name = "" },
 		domaintoggle = { on_ = "" },
@@ -4189,6 +4725,8 @@ if arg[1] == "list" then
 		notifytest   = { id = "" },
 		expire      = {},
 		tick        = {},
+		tickcfg     = {},
+		tickset     = { on_ = "" },
 		schedlist   = {},
 		schedadd    = { mac = "", days = "", start = "", stop = "", name = "" },
 		scheddel    = { id = "" },
@@ -4289,6 +4827,10 @@ elseif arg[1] == "call" then
 		res = methods.expire()
 		reply_list(res, { "expired" })
 		return
+	elseif name == "tickcfg" then
+		res = methods.tickcfg()
+	elseif name == "tickset" then
+		res = methods.tickset(req.on_)
 	elseif name == "tick" then
 		res = methods.tick()
 		reply_list(res, { "expired" })
@@ -4340,7 +4882,7 @@ elseif arg[1] == "call" then
 		reply_list(res, { "feeds" })
 		return
 	elseif name == "feedadd" then
-		res = methods.feedadd(req.name, req.url)
+		res = methods.feedadd(req.name, req.url, req.interval, req.kind, req.cls)
 	elseif name == "feeddel" then
 		res = methods.feeddel(req.id)
 	elseif name == "feedrefresh" then
@@ -4355,6 +4897,16 @@ elseif arg[1] == "call" then
 		res = methods.appstats()
 		reply_list(res, { "apps", "dev" })
 		return
+	elseif name == "sample_start" then
+		res = methods.sample_start(req.duration)
+	elseif name == "sample_stop" then
+		res = methods.sample_stop()
+	elseif name == "sample_result" then
+		res = methods.sample_result()
+		reply_list(res, { "groups" })
+		return
+	elseif name == "sample_save" then
+		res = methods.sample_save(req.name, req.proto, req.dport, req.prefix, req.cls)
 	elseif name == "qoslist" then
 		res = methods.qoslist()
 		reply_list(res, { "rules" })
@@ -4365,6 +4917,14 @@ elseif arg[1] == "call" then
 		res = methods.qosdel(req.id)
 	elseif name == "appimport" then
 		res = methods.appimport(req.text)
+	elseif name == "siglist" then
+		res = methods.siglist(req.name)
+		reply_list(res, { "sigs" })
+		return
+	elseif name == "sigadd" then
+		res = methods.sigadd(req.name, req.proto, req.dport, req.host)
+	elseif name == "sigdel" then
+		res = methods.sigdel(req.name, req.idx)
 	elseif name == "appdel" then
 		res = methods.appdel(req.id)
 	elseif name == "appreset" then
@@ -4377,6 +4937,12 @@ elseif arg[1] == "call" then
 		res = methods.domainlist()
 		reply_list(res, { "domains" })
 		return
+	elseif name == "domainhits" then
+		res = methods.domainhits(req.limit)
+		reply_list(res, { "hits" })
+		return
+	elseif name == "domaintogglelog" then
+		res = methods.domaintogglelog(req.on_)
 	elseif name == "domainadd" then
 		res = methods.domainadd(req.name)
 	elseif name == "domaindel" then

@@ -56,6 +56,7 @@ State lives in `/etc/languard/*.json`. Deploy by copying files and restarting
 | rpcd runs with a restrictive umask | files it writes are `600`, dnsmasq silently ignores them | `chmod 644` anything dnsmasq must read |
 | Python on Windows writes CRLF | `#!/usr/bin/env lua\r` breaks the rpcd plugin | normalise every file to LF after editing |
 | `git reset --hard` moves the working tree | the next scp deployed the *old* code over the router | check `git status` before deploying |
+| `/etc/nftables.d/*.nft` is included **inside** the fw4 table | a `table` declaration there is a syntax error and the whole firewall fails to reload - every rule silently disappears | only bare chains/sets there; put standalone tables elsewhere |
 | local functions must be declared before use | a call binds to a nil global and the method dies with "No response" | forward-declare at the top of the file |
 
 ## How the pieces fit

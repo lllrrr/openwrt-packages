@@ -42,6 +42,10 @@
         preferences: {
             view_mode: 1,
             theme: 'auto',
+            glass_light_transparency: 20,
+            glass_light_blur: 16,
+            glass_dark_transparency: 28,
+            glass_dark_blur: 20,
             full_width: 1,
             allow_system_operations: 0,
             show_hidden_files: 0,
@@ -300,15 +304,16 @@
         HF.set_status(message, String(message || '').indexOf('5%') >= 0 ? 'error' : 'warning');
     }
 
-    HF.request_write = function request_write(url, data, success_message, on_ok, on_error) {
+    HF.request_write = function request_write(url, data, success_message, on_ok, on_error, request_options) {
         HF.Util.ajax({
             url: url,
             type: 'POST',
             data: data,
             dataType: 'json',
+            timeout: request_options && request_options.timeout || 0,
             success: function(res) {
                 if (!res || res.code !== 0) {
-                    HF.set_error_status((res && res.message) || HF.labels.operation_failed);
+                    if (!request_options || !request_options.quietError) HF.set_error_status((res && res.message) || HF.labels.operation_failed);
                     if (on_error) {
                         on_error((res && res.message) || HF.labels.operation_failed);
                     }
@@ -321,7 +326,7 @@
             },
             error: function(xhr) {
                 var message = HF.upload_error_message(xhr, HF.labels.operation_failed);
-                HF.set_error_status(message);
+                if (!request_options || !request_options.quietError) HF.set_error_status(message);
                 if (on_error) {
                     on_error(message);
                 }
@@ -571,6 +576,135 @@
             reset: function () { undoStack.length = 0; redoStack.length = 0; lastCapture = 0; }
         };
     };
+    HF.bind_horizontal_scroll = function bind_horizontal_scroll(node, options) {
+        if (node._fmHorizontalScroll) return node._fmHorizontalScroll;
+        options = options || {};
+        node.classList.add('fm-horizontal-scroll');
+        var drag = null, suppress_click = false;
+        function scrollable() {
+            return node.scrollWidth > node.clientWidth && (!options.enabled || options.enabled());
+        }
+        node.addEventListener('wheel', function(event) {
+            if (event.ctrlKey || !scrollable()) return;
+            var delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+            if (event.deltaMode === 1) delta *= 16;
+            else if (event.deltaMode === 2) delta *= node.clientWidth;
+            var previous = node.scrollLeft;
+            node.scrollLeft += delta;
+            if (node.scrollLeft !== previous) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+        }, { passive: false });
+        function text_point(event) {
+            var rect = node.getBoundingClientRect();
+            var walker = document.createTreeWalker(node, 4), first = walker.nextNode(), last = first, next;
+            if (!first) return null;
+            while ((next = walker.nextNode())) last = next;
+            if (event.clientY < rect.top || event.clientX < rect.left) return { node: first, offset: 0 };
+            if (event.clientY > rect.bottom || event.clientX > rect.right) return { node: last, offset: last.length };
+            var point, range;
+            if (document.caretPositionFromPoint) {
+                point = document.caretPositionFromPoint(event.clientX, event.clientY);
+                if (point && node.contains(point.offsetNode)) return { node: point.offsetNode, offset: point.offset };
+            } else if (document.caretRangeFromPoint) {
+                range = document.caretRangeFromPoint(event.clientX, event.clientY);
+                if (range && node.contains(range.startContainer)) return { node: range.startContainer, offset: range.startOffset };
+            }
+            return { node: last, offset: last.length };
+        }
+        function select_to(event) {
+            var point = text_point(event), selection = window.getSelection();
+            if (!point || !selection || !drag || !drag.anchor || !node.contains(drag.anchor.node)) return;
+            selection.setBaseAndExtent(drag.anchor.node, drag.anchor.offset, point.node, point.offset);
+        }
+        function end_drag(event) {
+            if (!drag || event && event.pointerId != null && event.pointerId !== drag.id) return;
+            var previous = drag;
+            drag = null;
+            if (previous.active || previous.selecting) suppress_click = true;
+            node.style.cursor = previous.cursor;
+            node.style.userSelect = previous.select;
+            if (node.hasPointerCapture(previous.id)) node.releasePointerCapture(previous.id);
+            document.removeEventListener('pointermove', move_drag);
+            document.removeEventListener('pointerup', end_drag);
+            document.removeEventListener('pointercancel', end_drag);
+            node.removeEventListener('lostpointercapture', end_drag);
+            window.removeEventListener('blur', end_drag);
+        }
+        function move_drag(event) {
+            if (!drag || event.pointerId !== drag.id) return;
+            if (!node.isConnected || !(event.buttons & 1)) { end_drag(event); return; }
+            var delta = event.clientX - drag.x;
+            if (drag.selecting) {
+                event.preventDefault();
+                select_to(event);
+                return;
+            }
+            if (!drag.active) {
+                var distance = options.dragAnywhere ? Math.hypot(delta, event.clientY - drag.y) : Math.abs(delta);
+                if (distance < 6) return;
+                drag.active = true;
+                node.setPointerCapture(drag.id);
+                node.style.cursor = 'grabbing';
+            }
+            event.preventDefault();
+            node.scrollLeft = drag.left - delta;
+        }
+        node.addEventListener('pointerdown', function(event) {
+            if (event.defaultPrevented) return;
+            suppress_click = false;
+            if (options.mouseDrag === false || event.pointerType !== 'mouse' || event.button !== 0 ||
+                    options.dragEnabled && !options.dragEnabled() || !scrollable() && !options.dragAnywhere) return;
+            end_drag();
+            var selecting = !!(options.selectText && event.shiftKey);
+            if (options.selectText) {
+                event.preventDefault();
+                node.focus({ preventScroll: true });
+                var selection = window.getSelection();
+                if (!selecting && selection && (node.contains(selection.anchorNode) || node.contains(selection.focusNode))) selection.removeAllRanges();
+            }
+            drag = { id: event.pointerId, x: event.clientX, y: event.clientY, left: node.scrollLeft,
+                active: false, cursor: node.style.cursor, select: node.style.userSelect, selecting: selecting,
+                anchor: selecting ? text_point(event) : null };
+            node.style.userSelect = selecting ? 'text' : 'none';
+            if (selecting) {
+                node.setPointerCapture(drag.id);
+                select_to(event);
+            }
+            document.addEventListener('pointermove', move_drag, { passive: false });
+            document.addEventListener('pointerup', end_drag);
+            document.addEventListener('pointercancel', end_drag);
+            node.addEventListener('lostpointercapture', end_drag);
+            window.addEventListener('blur', end_drag);
+        });
+        if (options.selectText) {
+            node.title = HF.tr('Drag to scroll; Shift-drag to select text');
+            node.addEventListener('dragstart', function(event) {
+                event.preventDefault();
+                event.stopPropagation();
+            });
+        }
+        node.addEventListener('click', function(event) {
+            if (!suppress_click || !event.detail) return;
+            suppress_click = false;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+        }, true);
+        node.addEventListener('keydown', function(event) {
+            if (event.target !== node || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || !scrollable()) return;
+            if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+            var previous = node.scrollLeft;
+            node.scrollLeft += event.key === 'ArrowLeft' ? -40 : 40;
+            if (node.scrollLeft !== previous) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+        });
+        node._fmHorizontalScroll = { cancel: end_drag };
+        return node._fmHorizontalScroll;
+    };
+
     HF.Util.createElement = function (tag, class_name, text) {
         var node = document.createElement(tag);
         if (class_name) { node.className = class_name; }

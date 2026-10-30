@@ -102,6 +102,10 @@ const PREFERENCE_DEFAULTS = {
 	mobile_window_height: 560,
 	view_mode: 1,
 	theme: 'auto',
+	glass_light_transparency: 20,
+	glass_light_blur: 16,
+	glass_dark_transparency: 28,
+	glass_dark_blur: 20,
 	full_width: 1,
 	allow_system_operations: 0,
 	show_hidden_files: 0,
@@ -304,6 +308,21 @@ function normalize_number(value, fallback, allowed) {
 	return allowed[`${n}`] ? n : fallback;
 }
 
+function glass_number(value, maximum) {
+	if ((type(value) != 'string' && type(value) != 'int' && type(value) != 'double') ||
+	    !match('' + value, /^(0|[1-9][0-9]*)$/))
+		return null;
+	let number = +value;
+	return number >= 0 && number <= maximum && ('' + number) == ('' + value) ? number : null;
+}
+
+const GLASS_LIMITS = {
+	glass_light_transparency: 60,
+	glass_light_blur: 32,
+	glass_dark_transparency: 60,
+	glass_dark_blur: 32
+};
+
 function normalize_dimension(value, fallback) {
 	let n = +value;
 	if (value == null || value == '' || n != n)
@@ -391,6 +410,9 @@ function read_preferences() {
 		mobile_window_width:  normalize_dimension(g('mobile_window_width'),  PREFERENCE_DEFAULTS.mobile_window_width),
 		mobile_window_height: normalize_dimension(g('mobile_window_height'), PREFERENCE_DEFAULTS.mobile_window_height)
 	};
+
+	for (let key, maximum in GLASS_LIMITS)
+		p[key] = glass_number(g(key), maximum) ?? PREFERENCE_DEFAULTS[key];
 
 	uci.unload(CONFIG);
 	return p;
@@ -1163,6 +1185,33 @@ function api_save_preferences() {
 
 	if (section == 'nginx')
 		section = 'web_server';
+
+	if (section == 'appearance') {
+		if (http.getenv('REQUEST_METHOD') != 'POST')
+			return write_json_status(http, 405, 'Method Not Allowed', { code: 1, message: 'POST required' });
+		let values = {};
+		let theme = http.formvalue('theme');
+		if (theme != null) {
+			if (type(theme) != 'string' || !THEME_VALUES[theme])
+				return write_json_status(http, 400, 'Bad Request', { code: 1, message: tr('Invalid appearance value') });
+			values.theme = theme;
+		}
+		for (let key, maximum in GLASS_LIMITS) {
+			let value = http.formvalue(key);
+			if (value == null)
+				continue;
+			let number = glass_number(value, maximum);
+			if (number == null)
+				return write_json_status(http, 400, 'Bad Request', { code: 1, message: tr('Invalid appearance value') });
+			values[key] = number;
+		}
+		if (length(values)) {
+			let err = save_preference_values(values);
+			if (err)
+				return write_json_status(http, 500, 'Save Failed', { code: 1, message: tr('Save appearance failed') });
+		}
+		return ok(http, read_preferences());
+	}
 
 	if (section == 'window') {
 		let current = read_preferences();

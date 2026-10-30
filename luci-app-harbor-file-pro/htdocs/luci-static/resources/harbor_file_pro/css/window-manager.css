@@ -1,27 +1,7 @@
 
 .fm-desktop-window,
 .fm-window-taskbar{
-    --fm-accent: #2878d4;
-    --fm-accent-soft: #e8f2fd;
-    --fm-panel: #ffffff;
-    --fm-border: #d8e0e9;
-    --fm-text: #17212b;
-    --fm-muted: #667483;
-    --fm-hover: #e4edf7;
-    --fm-danger: #c33b3b;
     font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
-}
-
-[data-harbor-theme="dark"] .fm-desktop-window,
-[data-harbor-theme="dark"] .fm-window-taskbar{
-    --fm-accent: #62a9f3;
-    --fm-accent-soft: #183b60;
-    --fm-panel: #18212b;
-    --fm-border: #344353;
-    --fm-text: #edf4fb;
-    --fm-muted: #9eb0c1;
-    --fm-hover: #243242;
-    --fm-danger: #dc6565;
 }
 
 .fm-window-managed{

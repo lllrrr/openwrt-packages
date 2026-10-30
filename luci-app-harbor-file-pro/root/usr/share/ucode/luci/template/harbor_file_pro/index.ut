@@ -357,6 +357,25 @@ HarborFile.init({
         invalid_path: '{{ _('Enter a valid absolute path') }}',
         disabled: '{{ _('Disabled') }}',
         enabled: '{{ _('Enabled') }}',
+        glass_appearance: '{{ _('Glass appearance') }}',
+        adjust_glass: '{{ _('Adjust glass') }}',
+        white_in_light_mode_black_in_dark_mode_adjust_each_profile_independently: '{{ _('White in light mode, black in dark mode. Adjust each profile independently.') }}',
+        light: '{{ _('Light') }}',
+        dark: '{{ _('Dark') }}',
+        theme: '{{ _('Theme') }}',
+        auto: '{{ _('Auto') }}',
+        transparency: '{{ _('Transparency') }}',
+        blur: '{{ _('Blur') }}',
+        current_profile: '{{ _('Current profile') }}',
+        reset_current: '{{ _('Reset current') }}',
+        reset_all_appearance: '{{ _('Reset all appearance') }}',
+        cancel: '{{ _('Cancel') }}',
+        changes_are_previewed_only_save_to_keep_them: '{{ _('Changes are previewed only. Save to keep them.') }}',
+        save_appearance_failed: '{{ _('Save appearance failed') }}',
+        invalid_appearance_value: '{{ _('Invalid appearance value') }}',
+        save_failed_your_draft_is_kept_retry_or_cancel: '{{ _('Save failed. Your draft is kept; retry or cancel.') }}',
+        move_panel_with_arrow_keys: '{{ _('Move panel with arrow keys') }}',
+        drag_to_scroll_shift_drag_to_select_text: '{{ _('Drag to scroll; Shift-drag to select text') }}',
         settings_saved: '{{ _('Settings saved') }}',
         checking: '{{ _('Checking') }}',
         installed: '{{ _('Installed') }}',
@@ -864,6 +883,13 @@ window.HarborFile.tr = function (msgid) {
                                     <option value="light">{{ _('Light') }}</option>
                                 </select>
                             </div>
+                        </div>
+                        <div class="fm-settings-row">
+                            <div class="fm-settings-copy">
+                                <span class="fm-settings-label">{{ _('Glass appearance') }}</span>
+                                <div class="fm-settings-desc">{{ _('White in light mode, black in dark mode. Adjust each profile independently.') }}</div>
+                            </div>
+                            <button id="fm_settings_glass_adjust" class="fm-dialog-action" type="button">{{ _('Adjust glass') }}</button>
                         </div>
                         <div class="fm-settings-row">
                             <div class="fm-settings-copy">
@@ -1598,6 +1624,7 @@ window.HarborFile.tr = function (msgid) {
             HF.start_package_install(HF.state.install_item);
         }
     });
+    document.getElementById('fm_settings_glass_adjust').addEventListener('click', HF.open_glass_tuner);
     document.getElementById('fm_settings_basic_save').addEventListener('click', HF.save_basic_settings_dialog);
     document.getElementById('fm_settings_nginx_save').addEventListener('click', HF.save_web_server_settings_dialog);
     document.getElementById('fm_nginx_recommend').addEventListener('click', HF.use_recommended_nginx_settings);

@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-oxidns
 PKG_VERSION:=1.2
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 
 PKG_LICENSE:=GPL-3.0-or-later
 PKG_MAINTAINER:=Sven Shi <isvenshi@gmail.com>

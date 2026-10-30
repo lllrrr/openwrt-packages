@@ -917,6 +917,7 @@
         var body_size_value = Number(data && data.client_max_body_size);
         HF.state.preferences.view_mode = isNaN(view_value) ? 1 : view_value;
         HF.state.preferences.theme = data && ['auto', 'dark', 'light'].indexOf(data.theme) >= 0 ? data.theme : 'auto';
+        Object.assign(HF.state.preferences, HF.glass_values(data));
         HF.state.preferences.full_width = data && data.full_width != null && Number(data.full_width) === 0 ? 0 : 1;
         HF.state.preferences.allow_system_operations = allow_value === 1 ? 1 : 0;
         HF.state.preferences.show_hidden_files = hidden_value === 1 ? 1 : 0;
@@ -1003,10 +1004,15 @@
     }
 
     HF.save_preferences = function save_preferences(options, success_message, on_ok, on_error) {
-        var section = options && options.section === 'window' ? 'window' :
+        var section = options && options.section === 'appearance' ? 'appearance' :
+            options && options.section === 'window' ? 'window' :
             (options && (options.section === 'nginx' || options.section === 'web_server') ? 'web_server' : 'basic');
         var payload = { section: section };
-        if (section === 'window') {
+        if (section === 'appearance') {
+            ['theme'].concat(Object.keys(HF.glass_defaults)).forEach(function(key) {
+                if (options[key] !== undefined) payload[key] = options[key];
+            });
+        } else if (section === 'window') {
             payload.window_width = options && options.window_width !== undefined ?
                 options.window_width : HF.state.preferences.window_width;
             payload.window_height = options && options.window_height !== undefined ?
@@ -1065,13 +1071,18 @@
                     HF.normalize_integer_setting(data && data[width_key], Number(payload.window_width))));
                 HF.state.preferences[height_key] = Math.max(130, Math.min(4096,
                     HF.normalize_integer_setting(data && data[height_key], Number(payload.window_height))));
+            } else if (section === 'appearance') {
+                var appearance = Object.assign({}, HF.state.preferences, data || payload);
+                HF.state.preferences.theme = ['auto', 'light', 'dark'].indexOf(appearance.theme) >= 0 ? appearance.theme : 'auto';
+                Object.assign(HF.state.preferences, HF.glass_values(appearance));
+                HF.apply_theme();
             } else {
                 HF.apply_preferences(data || payload);
             }
             if (on_ok) {
                 on_ok(data || payload);
             }
-        }, on_error);
+        }, on_error, section === 'appearance' ? { quietError: true, timeout: 15000 } : null);
     }
 
     HF.load_preferences = function load_preferences(on_done) {
@@ -1446,10 +1457,19 @@
         var selectors = '#fm_details .fm-detail-value, #fm_property_name, #fm_property_path, #fm_property_type, ' +
             '#fm_property_size, #fm_property_mtime, #fm_property_mode_text, #fm_property_sha256';
         document.querySelectorAll(selectors).forEach(function(node) {
+            if (node.closest('#fm_details')) HF.bind_horizontal_scroll(node, { selectText: true, dragAnywhere: true });
             node.setAttribute('data-fm-copy', '');
             node.setAttribute('role', 'button');
             node.setAttribute('tabindex', '0');
             node.setAttribute('aria-label', HF.labels.copy || HF.tr('Copy'));
+        });
+        var panel = document.getElementById('fm_details');
+        panel.addEventListener('pointerdown', function(event) {
+            if (event.pointerType === 'mouse' && event.button === 0 && !event.target.closest('[data-fm-copy]')) event.preventDefault();
+        });
+        panel.addEventListener('dragstart', function(event) {
+            event.preventDefault();
+            event.stopPropagation();
         });
         var gesture = null;
         var lastTouch = 0;
@@ -1670,6 +1690,7 @@
         HF.clear_node(host);
         var value = document.createElement('span');
         value.className = 'fm-hash-text';
+        if (host.closest('#fm_details')) HF.bind_horizontal_scroll(value, { selectText: true, dragAnywhere: true });
         var box = document.createElement('span');
         box.className = 'fm-hash' + (full ? ' expanded' : '');
         box.appendChild(value);
@@ -2316,12 +2337,38 @@
         HF.state.page_still = state;
     }
 
+    HF.glass_defaults = {
+        glass_light_transparency: 20,
+        glass_light_blur: 16,
+        glass_dark_transparency: 28,
+        glass_dark_blur: 20
+    };
+
+    HF.glass_values = function glass_values(values) {
+        var result = {};
+        Object.keys(HF.glass_defaults).forEach(function(key) {
+            var value = values && values[key];
+            var number = Number(value);
+            var maximum = key.indexOf('transparency') >= 0 ? 60 : 32;
+            result[key] = (typeof value === 'number' || typeof value === 'string') &&
+                String(number) === String(value) && number >= 0 && number % 1 === 0 && number <= maximum ? number : HF.glass_defaults[key];
+        });
+        return result;
+    };
+
     HF.theme_media = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
 
     HF.apply_theme = function apply_theme() {
-        var mode = HF.state.preferences.theme;
+        var values = HF.glass_draft || HF.state.preferences;
+        var mode = values.theme;
         var dark = mode === 'dark' || (mode !== 'light' && HF.theme_media && HF.theme_media.matches);
-        document.documentElement.setAttribute('data-harbor-theme', dark ? 'dark' : 'light');
+        var profile = dark ? 'dark' : 'light';
+        var glass = HF.glass_values(values);
+        var root = document.documentElement;
+        root.setAttribute('data-harbor-theme', profile);
+        root.style.setProperty('--fm-glass-alpha', String(1 - glass['glass_' + profile + '_transparency'] / 100));
+        root.style.setProperty('--fm-glass-blur', glass['glass_' + profile + '_blur'] + 'px');
+        if (HF.refresh_glass_tuner) HF.refresh_glass_tuner(profile);
     }
 
     if (HF.theme_media) {
@@ -5509,6 +5556,10 @@
     HF.create_path_address = function create_path_address(body, options) {
         HF.clear_node(body);
         var crumbs = HF.Util.createElement('span', 'fm-breadcrumb-container');
+        var blank = HF.Util.createElement('span', 'fm-address-blank');
+        blank.tabIndex = 0;
+        blank.setAttribute('role', 'button');
+        blank.setAttribute('aria-label', HF.labels.target_path);
         var input = HF.Util.createElement('input', 'fm-address-input');
         input.type = 'text';
         input.id = options.input_id;
@@ -5518,65 +5569,17 @@
         body.tabIndex = 0;
         body.setAttribute('aria-label', HF.labels.target_path);
         body.appendChild(crumbs);
+        body.appendChild(blank);
         body.appendChild(input);
-        var editing = false, blur_timer, drag = null, suppress_click = false;
-        crumbs.addEventListener('wheel', function(event) {
-            if (editing || event.ctrlKey || crumbs.scrollWidth <= crumbs.clientWidth) return;
-            var delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
-            if (event.deltaMode === 1) delta *= 16;
-            else if (event.deltaMode === 2) delta *= crumbs.clientWidth;
-            var previous = crumbs.scrollLeft;
-            crumbs.scrollLeft += delta;
-            if (crumbs.scrollLeft !== previous) event.preventDefault();
-        }, { passive: false });
-        function end_drag(event) {
-            if (!drag || event && event.pointerId != null && event.pointerId !== drag.id) return;
-            var previous = drag;
-            drag = null;
-            if (previous.active) suppress_click = true;
-            crumbs.style.cursor = previous.cursor;
-            crumbs.style.userSelect = previous.select;
-            if (crumbs.hasPointerCapture(previous.id)) crumbs.releasePointerCapture(previous.id);
-            document.removeEventListener('pointermove', move_drag);
-            document.removeEventListener('pointerup', end_drag);
-            document.removeEventListener('pointercancel', end_drag);
-            window.removeEventListener('blur', end_drag);
-        }
-        function move_drag(event) {
-            if (!drag || event.pointerId !== drag.id) return;
-            if (!crumbs.isConnected || !(event.buttons & 1)) { end_drag(event); return; }
-            var delta = event.clientX - drag.x;
-            if (!drag.active) {
-                if (Math.abs(delta) < 6) return;
-                drag.active = true;
-                crumbs.setPointerCapture(drag.id);
-                crumbs.style.cursor = 'grabbing';
-            }
-            event.preventDefault();
-            crumbs.scrollLeft = drag.left - delta;
-        }
-        crumbs.addEventListener('pointerdown', function(event) {
-            suppress_click = false;
-            if (event.pointerType !== 'mouse' || event.button !== 0 || editing || crumbs.scrollWidth <= crumbs.clientWidth) return;
-            end_drag();
-            drag = { id: event.pointerId, x: event.clientX, left: crumbs.scrollLeft, active: false, cursor: crumbs.style.cursor, select: crumbs.style.userSelect };
-            crumbs.style.userSelect = 'none';
-            document.addEventListener('pointermove', move_drag, { passive: false });
-            document.addEventListener('pointerup', end_drag);
-            document.addEventListener('pointercancel', end_drag);
-            window.addEventListener('blur', end_drag);
-        });
-        crumbs.addEventListener('click', function(event) {
-            if (!suppress_click || !event.detail) return;
-            suppress_click = false;
-            event.preventDefault();
-            event.stopImmediatePropagation();
-        }, true);
+        var editing = false, blur_timer;
+        var horizontal = HF.bind_horizontal_scroll(crumbs, { enabled: function() { return !editing; } });
+        function end_drag() { horizontal.cancel(); }
         function state(value) {
             end_drag();
             editing = value;
             if (options.on_edit) options.on_edit(value);
             crumbs.style.display = value ? 'none' : 'inline-flex';
+            blank.style.display = value ? 'none' : 'block';
             input.style.display = value ? 'block' : 'none';
         }
         function exit(focus) {
@@ -5605,15 +5608,16 @@
             if (!editing || input.readOnly) exit();
         }
         body.addEventListener('click', function(event) {
-            if (!event.target.closest('.fm-crumb, .fm-address-input')) enter();
+            if (event.target === body || event.target === crumbs || event.target === blank) enter();
         });
         body.addEventListener('keydown', function(event) {
-            if (event.target === body && (event.key === 'Enter' || event.key === 'F2')) {
+            if ((event.target === body || event.target === blank) &&
+                    (event.key === 'Enter' || event.key === 'F2' || event.target === blank && event.key === ' ')) {
                 event.preventDefault(); event.stopPropagation(); enter();
             }
         });
         input.addEventListener('focus', enter);
-        input.addEventListener('blur', function() { blur_timer = setTimeout(function() { exit(); }, 100); });
+        input.addEventListener('blur', function() { if (editing) blur_timer = setTimeout(function() { exit(); }, 100); });
         input.addEventListener('keydown', function(event) {
             if (event.isComposing || event.keyCode === 229) return;
             if (event.key === 'Enter') {
@@ -5682,15 +5686,7 @@
     }
 
     document.addEventListener('click', function(event) {
-        if (!event.target.closest) {
-            return;
-        }
-        if (event.target.closest('#fm_address .fm-crumb, #fm_address .fm-address-star, #fm_address .fm-address-input, #fm_address #fm_refresh')) {
-            return;
-        }
-        if (event.target.closest('#fm_address')) {
-            HF.enter_address_edit();
-        }
+        if (event.target && event.target.id === 'fm_address') HF.enter_address_edit();
     });
 
     HF.refresh_navigation = function refresh_navigation(on_done) {

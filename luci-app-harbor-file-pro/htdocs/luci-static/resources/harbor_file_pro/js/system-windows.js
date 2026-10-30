@@ -183,6 +183,10 @@
     }
 
     HF.open_settings_dialog = function open_settings_dialog() {
+        if (HF.glass_record && !HF.glass_record.closed) {
+            HF.window_manager.restore(HF.glass_record);
+            return;
+        }
         HF.load_preferences(function() {
             HF.populate_settings_dialog();
             HF.set_settings_tab('basic');
@@ -817,6 +821,174 @@
         HF.open_modal('fm_property_dialog');
         if (item.type === 'directory' && !item.is_symlink) HF.measure_property_directory(item, size_token);
     }
+
+    HF.open_glass_tuner = function open_glass_tuner() {
+        var manager = HF.window_manager;
+        if (HF.glass_record && !HF.glass_record.closed) {
+            manager.restore(HF.glass_record);
+            return;
+        }
+        var settings = document.getElementById('fm_settings_dialog');
+        var settings_record = settings && settings._fmWindow;
+        var theme_input = document.getElementById('fm_settings_theme');
+        var baseline = HF.glass_values(HF.state.preferences);
+        var draft = Object.assign({ theme: theme_input.value || HF.state.preferences.theme }, baseline);
+        var busy = false;
+        var saved = false;
+        var profile = '';
+        var inputs = {};
+        var outputs = {};
+        var content = document.createElement('div');
+        content.className = 'fm-glass-tuner-content';
+        function element(tag, parent, text, className) {
+            var node = HF.Util.createElement(tag, className, text ? HF.tr(text) : '');
+            parent.appendChild(node);
+            return node;
+        }
+        var theme_label = element('label', content, 'Theme', 'fm-glass-field');
+        var theme = element('select', theme_label, '', 'fm-form-select');
+        theme.id = 'fm_glass_theme';
+        ['auto', 'light', 'dark'].forEach(function(mode) {
+            var option = element('option', theme, mode === 'auto' ? 'Auto' : mode === 'light' ? 'Light' : 'Dark');
+            option.value = mode;
+        });
+        var current = element('div', content, '', 'fm-glass-current');
+        current.setAttribute('aria-live', 'polite');
+        ['transparency', 'blur'].forEach(function(kind) {
+            var label = element('label', content, '', 'fm-glass-field');
+            var heading = element('span', label, '', 'fm-glass-slider-heading');
+            element('span', heading, kind === 'transparency' ? 'Transparency' : 'Blur');
+            outputs[kind] = element('output', heading);
+            var input = element('input', label);
+            input.id = 'fm_glass_' + kind;
+            outputs[kind].htmlFor = input.id;
+            input.type = 'range';
+            input.min = '0';
+            input.max = kind === 'transparency' ? '60' : '32';
+            input.step = '1';
+            input.addEventListener('input', function() {
+                if (busy) return;
+                draft['glass_' + profile + '_' + kind] = Number(input.value);
+                HF.apply_theme();
+            });
+            inputs[kind] = input;
+        });
+        element('p', content, 'Changes are previewed only. Save to keep them.', 'fm-glass-hint');
+        var error = element('div', content, '', 'fm-glass-error');
+        error.setAttribute('role', 'alert');
+        var resets = element('div', content, '', 'fm-glass-actions');
+        var actions = element('div', content, '', 'fm-glass-actions');
+        function button(parent, text, action, primary) {
+            var node = element('button', parent, text, 'fm-dialog-action' + (primary ? ' primary' : ''));
+            node.type = 'button';
+            node.addEventListener('click', action);
+            return node;
+        }
+        button(resets, 'Reset current', function() {
+            if (busy) return;
+            ['transparency', 'blur'].forEach(function(kind) {
+                var key = 'glass_' + profile + '_' + kind;
+                draft[key] = HF.glass_defaults[key];
+            });
+            HF.apply_theme();
+        });
+        button(resets, 'Reset all appearance', function() {
+            if (busy) return;
+            Object.assign(draft, HF.glass_defaults, { theme: 'auto' });
+            HF.apply_theme();
+        });
+        button(actions, 'Cancel', function() { manager.close(record); });
+        function set_busy(value) {
+            busy = value;
+            record.element.setAttribute('aria-busy', value ? 'true' : 'false');
+            content.querySelectorAll('input, select, button').forEach(function(node) { node.disabled = value; });
+            record.close_button.disabled = value;
+        }
+        button(actions, 'Save', function() {
+            if (busy) return;
+            var values = { section: 'appearance', theme: draft.theme };
+            Object.keys(baseline).forEach(function(key) {
+                if (baseline[key] !== draft[key]) values[key] = draft[key];
+            });
+            error.textContent = '';
+            set_busy(true);
+            HF.save_preferences(values, HF.labels.settings_saved, function() {
+                saved = true;
+                set_busy(false);
+                manager.close(record);
+            }, function() {
+                set_busy(false);
+                error.textContent = HF.tr('Save failed. Your draft is kept; retry or cancel.');
+            });
+        }, true);
+        HF.glass_draft = draft;
+        HF.refresh_glass_tuner = function(active) {
+            profile = active;
+            theme.value = draft.theme;
+            current.textContent = HF.tr('Current profile') + ': ' + HF.tr(active === 'dark' ? 'Dark' : 'Light');
+            ['transparency', 'blur'].forEach(function(kind) {
+                var value = draft['glass_' + active + '_' + kind];
+                inputs[kind].value = String(value);
+                outputs[kind].value = value + (kind === 'transparency' ? '%' : ' px');
+                inputs[kind].setAttribute('aria-valuetext', outputs[kind].value);
+            });
+        };
+        theme.addEventListener('change', function() {
+            if (busy) return;
+            draft.theme = theme.value;
+            HF.apply_theme();
+        });
+        if (settings_record) manager.minimize(settings_record);
+        var record = manager.create({
+            title: HF.tr('Glass appearance'),
+            className: 'fm-glass-tuner',
+            content: content,
+            width: 370,
+            height: 430,
+            minWidth: 280,
+            minHeight: 200,
+            keepInViewport: true,
+            persistSize: false,
+            beforeClose: function() { return !busy; },
+            onClose: function() {
+                document.removeEventListener('keydown', escape, true);
+                HF.glass_draft = null;
+                HF.glass_record = null;
+                HF.refresh_glass_tuner = null;
+                if (saved) theme_input.value = HF.state.preferences.theme;
+                HF.apply_theme();
+                if (settings_record && !settings_record.closed) {
+                    manager.restore(settings_record);
+                    document.getElementById('fm_settings_glass_adjust').focus({ preventScroll: true });
+                }
+            }
+        });
+        function escape(event) {
+            if (event.key !== 'Escape' || manager.active !== record && !(record.minimized && !manager.active)) return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            manager.close(record);
+        }
+        document.addEventListener('keydown', escape, true);
+        HF.glass_record = record;
+        var header = record.element.querySelector('.fm-window-titlebar');
+        header.tabIndex = 0;
+        header.setAttribute('aria-label', HF.tr('Move panel with arrow keys'));
+        header.addEventListener('keydown', function(event) {
+            if (event.target !== header || !/^Arrow(Left|Right|Up|Down)$/.test(event.key)) return;
+            event.preventDefault();
+            event.stopPropagation();
+            var rect = Object.assign({}, record.rect);
+            var step = event.shiftKey ? 10 : 2;
+            if (event.key === 'ArrowLeft') rect.left -= step;
+            if (event.key === 'ArrowRight') rect.left += step;
+            if (event.key === 'ArrowUp') rect.top -= step;
+            if (event.key === 'ArrowDown') rect.top += step;
+            manager.apply_rect(record, rect);
+        });
+        HF.apply_theme();
+        inputs.transparency.focus({ preventScroll: true });
+    };
 
     HF.SystemWindows = {
         open_modal: HF.open_modal,

@@ -143,7 +143,10 @@ if (failures.length) {
 	process.exit(1);
 }
 NODE
-for script in scripts/po2lmo.mjs scripts/strip-tar-eof.mjs scripts/write-apk-data-tar.mjs scripts/write-ar-archive.mjs; do
+# 顺序参数必须给满（rules_save 的 params 声明与实际调用）
+node scripts/check-rule-args.mjs
+
+for script in scripts/po2lmo.mjs scripts/strip-tar-eof.mjs scripts/write-apk-data-tar.mjs scripts/write-ar-archive.mjs scripts/check-rule-args.mjs; do
 	node --check "$script"
 done
 node scripts/po2lmo.mjs po/zh_Hans/oxidns.po "${TMPDIR:-/tmp}/oxidns.zh-cn.lmo"
