@@ -5,7 +5,7 @@
 
 [中文说明](README.CN.md)
 
-**luci-app-cloudflarespeedtest** is a LuCI application for OpenWrt, based on the [CloudflareSpeedTest](https://github.com/XIU2/CloudflareSpeedTest) core tool. It automatically tests the latency and download speed of Cloudflare IPs, selects the best ones for your network, and updates them to proxy plugins like SSR+ and Passwall.
+**luci-app-cloudflarespeedtest** is a LuCI application for OpenWrt, based on the [CloudflareSpeedTest](https://github.com/XIU2/CloudflareSpeedTest) core tool. It automatically tests the latency and download speed of Cloudflare IPs, selects the best ones for your network, and updates them to proxy and DNS plugins such as SSR+, Passwall, SmartDNS, and AstraDNS.
 
 This project is a fork of [mingxiaoyu/luci-app-cloudflarespeedtest](https://github.com/mingxiaoyu/luci-app-cloudflarespeedtest) with significant refactoring and improvements.
 
@@ -14,11 +14,11 @@ This project is a fork of [mingxiaoyu/luci-app-cloudflarespeedtest](https://gith
 ## Features
 
 *   **Auto Speed Test**: Periodically or manually test Cloudflare IPs to find the best one.
-*   **Proxy Integration**: Automatically update the best IP to SSR+, Passwall, MosDNS, astra-dns, and other proxy or DNS tools.
+*   **Proxy and DNS Integration**: Automatically update the best IP to SSR+, Passwall, MosDNS, SmartDNS, astra-dns, and other proxy or DNS tools. SmartDNS uses the IPv4 list from the speed test to match source addresses and filter target addresses. Custom lists may include special-purpose or restricted addresses; choose them carefully.
 *   **Visual Charts**: View history charts for latency and download speed trends.
 *   **Auto Core Download**: The package does not contain the core binary; it downloads automatically on the first run, reducing the package size.
 *   **Improved UI & Logs**: Redesigned status display and log format for better readability.
-*   **Curated IPv4 List**: The bundled list is based on [Cloudflare's public IPv4 ranges](https://www.cloudflare.com/ips-v4) and excludes ranges found to be restricted or unsuitable in validation: `108.162.192.0/18`, `162.158.0.0/16`, `162.159.0.0/18`, `172.64.228.0/24`, `172.68.0.0/14`, and `198.41.192.0/19`.
+*   **Curated IPv4 List**: The bundled list is based on [Cloudflare's public IPv4 ranges](https://www.cloudflare.com/ips-v4), conservatively excluding known or suspected special-purpose and restricted ranges. Besides `108.162.192.0/18`, `162.158.0.0/16`, `162.159.0.0/18`, `172.68.0.0/14`, and `198.41.192.0/19`, excluded `/24` ranges have third octets `137`, `138`, `192`, `193`, `197`, `200`, `213`, `234`, and `239` under `162.159`; `32`, `33`, `34`, `35`, `38`, `40`, `41`, `42`, `43`, `48`, `49`, `50`, `52`, `53`, `98`, `100`, `101`, `228`, and `234` under `172.64`; plus `173.245.58.0/24` and `173.245.59.0/24`. Whole-range exclusions include conservative inferences, not tests of every address.
 
 ## Installation
 

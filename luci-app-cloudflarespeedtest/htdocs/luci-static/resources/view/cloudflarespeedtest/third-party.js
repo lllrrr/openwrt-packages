@@ -169,6 +169,23 @@ return view.extend({
 		o.rmempty = true;
 		o.depends('AstraDNS_enabled', '1');
 
+		s.tab('smartdns', _('SmartDNS'));
+		o = s.taboption('smartdns', form.Flag, 'SmartDNS_enabled', _('SmartDNS Enabled'),
+			_('After a successful IPv4 speed test, map the tested IP ranges to the fastest IPs using SmartDNS IP aliases.'));
+		o.rmempty = true;
+
+		o = s.taboption('smartdns', form.Value, 'SmartDNS_ip_count', _('SmartDNS IP Count'),
+			_('Number of fastest IPv4 addresses written to the SmartDNS alias list.'));
+		o.datatype = 'range(1,10)';
+		o.default = '3';
+		o.rmempty = false;
+		o.depends('SmartDNS_enabled', '1');
+
+		o = s.taboption('smartdns', form.DummyValue, '_SmartDNS_scope', _('Rewrite scope'));
+		o.rawhtml = true;
+		o.default = _('Uses the IPv4 speed test list for both matching and target addresses. Custom lists may include special-purpose or restricted IP ranges. Remove overlapping manual SmartDNS IP alias rules before enabling this integration.');
+		o.depends('SmartDNS_enabled', '1');
+
 		return m.render();
 	}
 });

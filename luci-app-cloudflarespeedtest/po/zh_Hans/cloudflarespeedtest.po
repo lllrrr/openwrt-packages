@@ -333,3 +333,24 @@ msgstr "astra-dns 配置文件路径"
 
 msgid "astra-dns Binary Path"
 msgstr "astra-dns 二进制路径"
+
+msgid "SmartDNS"
+msgstr "SmartDNS"
+
+msgid "SmartDNS Enabled"
+msgstr "写入 SmartDNS"
+
+msgid "After a successful IPv4 speed test, map the tested IP ranges to the fastest IPs using SmartDNS IP aliases."
+msgstr "IPv4 测速成功后，通过 SmartDNS IP 别名将测速地址范围映射到优选 IP。"
+
+msgid "SmartDNS IP Count"
+msgstr "SmartDNS IP 数量"
+
+msgid "Number of fastest IPv4 addresses written to the SmartDNS alias list."
+msgstr "写入 SmartDNS IP 别名列表的最快 IPv4 地址数量。"
+
+msgid "Rewrite scope"
+msgstr "重写范围"
+
+msgid "Uses the IPv4 speed test list for both matching and target addresses. Custom lists may include special-purpose or restricted IP ranges. Remove overlapping manual SmartDNS IP alias rules before enabling this integration."
+msgstr "使用 IPv4 测速列表匹配原始地址并筛选目标地址。自定义列表可能包含特殊用途或受限网段。启用此集成前，请移除重叠的 SmartDNS 手动 IP 别名规则。"

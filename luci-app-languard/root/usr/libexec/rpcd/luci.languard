@@ -1483,7 +1483,7 @@ end
 local IDX = {}
 
 function IDX.build(apps)
-	local idx = { suffix = {}, substr = {}, port = {} }
+	local idx = { suffix = {}, label = {}, substr = {}, port = {} }
 	-- A category like APPLE or LE holds thousands of domains and would
 	-- otherwise claim everything a specific app also claims. Sorting by
 	-- domain count means the narrowest app owns a suffix.
@@ -1496,8 +1496,12 @@ function IDX.build(apps)
 		for _, sig in ipairs(a.sigs or {}) do
 			local h = sig.host and sig.host:lower() or ""
 			if h ~= "" then
-				if h:find(".", 1, true) and not h:find("*", 1, true) then
+				if not h:find("*", 1, true) and h:find(".", 1, true) then
 					idx.suffix[h] = idx.suffix[h] or a
+				elseif not h:find(".", 1, true) then
+					-- a bare label like "xiaohongshu" matches any host that
+					-- carries it as one of its labels
+					idx.label[h] = idx.label[h] or a
 				else
 					idx.substr[#idx.substr + 1] = { host = h, app = a, proto = sig.proto }
 				end
@@ -1534,6 +1538,18 @@ end
 local function classify_flow(apps, proto, port, ip, host)
 	local idx = IDX.get(apps)
 	if host and host ~= "" then
+		-- a bare label is the most specific thing there is: the curated
+		-- library names apps that way and must not lose to a bundle category
+		-- that happens to own the same domain
+		local h = host:lower()
+		local pos = 1
+		while true do
+			local a = idx.label[h:sub(pos, (h:find(".", pos, true) or (#h + 1)) - 1)]
+			if a then return a, "high" end
+			local dot = h:find(".", pos, true)
+			if not dot then break end
+			pos = dot + 1
+		end
 		local a = IDX.suffix_match(idx, host)
 		if a then return a, "high" end
 		for _, s in ipairs(idx.substr) do
@@ -1582,22 +1598,38 @@ end
 -- Clash reports sourceIP and sourcePort for every connection, and the router
 -- keeps the corresponding flow. Joining on that pair yields the address the
 -- client actually sent to, which for fake-ip mode is the only handle nft has.
+-- The flow table is read twice per tick (once for the fake-address index,
+-- once for the byte accounting). Reads are cheap but the popen is not, so
+-- the text is fetched once and reused.
+-- Parsing 5000 conntrack lines with Lua patterns cost more than everything
+-- else in a tick. awk reduces each line to "proto src sport dst dport bytes",
+-- so Lua does one match per line instead of six.
+local function conntrack_text()
+	if IDX.ct then return IDX.ct end
+	local out = sys.exec([[awk '/^ipv4/ { n=split($0,a," "); p=a[3]; s=""; d=""; sp=""; dp=""; b=0; c=0;
+	for(i=1;i<=n;i++){
+		if(a[i] ~ /^src=/){ c++; if(c==1) s=substr(a[i],5) }
+		else if(a[i] ~ /^dst=/){ if(c==1) d=substr(a[i],5) }
+		else if(a[i] ~ /^sport=/){ if(c==1) sp=substr(a[i],7) }
+		else if(a[i] ~ /^dport=/){ if(c==1) dp=substr(a[i],7) }
+		else if(a[i] ~ /^bytes=/){ b += substr(a[i],7) }
+	}
+	if(s != "") print p, s, sp, d, dp, b }' /proc/net/nf_conntrack 2>/dev/null]])
+	return out or ""
+end
+
 local function fake_ip_index(prefix)
 	local map = {}
-	local fh = io.popen("cat /proc/net/nf_conntrack 2>/dev/null", "r")
-	if not fh then return map end
-	for line in fh:lines() do
-		local src, dst, sport =
-			line:match("src=(%d+%.%d+%.%d+%.%d+)%s+dst=(%d+%.%d+%.%d+%.%d+)%s+sport=(%d+)%s+dport=")
+	for line in conntrack_text():gmatch("[^\n]+") do
+		local _, src, sport, dst = line:match("^(%S+) (%S+) (%S+) (%S+) ")
 		if src and sport and src:sub(1, #prefix) == prefix and dst:sub(1, #prefix) ~= prefix then
 			map[src .. "|" .. sport] = dst
 		end
 	end
-	fh:close()
 	return map
 end
 
-local function collect_clash_stats(now, apps, st)
+local function collect_clash_stats(now, apps, st, seen)
 	local secret = clash_secret()
 	if not secret then return 0 end
 	local prefix = lan_prefix() or "192.168."
@@ -1609,34 +1641,31 @@ local function collect_clash_stats(now, apps, st)
 	local ok_, doc = pcall(jsonc.parse, raw)
 	if not ok_ or type(doc) ~= "table" then return 0 end
 
-	local seen = load_json_map(CT_SEEN_FILE, function() return {} end)
-	local counted = 0
+	-- `seen` belongs to the caller: both passes must write the same map, or
+	-- each save wipes the other's keys and every tick recounts whole flows
+	-- Clash is the only place a fake address is tied to a name. Keep that
+	-- mapping across ticks: the flow lingers in the conntrack table after it
+	-- closes, and that is where its bytes are counted - counting them here as
+	-- well would double every proxied byte.
+	local cache = load_json_map(STATE_DIR .. "/fakeip.json", function() return {} end)
+	local fakeip = fake_ip_index(prefix)
+	local fresh, n = {}, 0
 	for _, c in ipairs(doc.connections or {}) do
 		local m = c.metadata or {}
-		local host = m.host or m.destinationIP
-		local dev = m.sourceIP
-		if host and dev and dev:find("^192%.168%.") then
-			local total = (tonumber(c.upload) or 0) + (tonumber(c.download) or 0)
-			local key = "clash|" .. tostring(c.id)
-			local prev = tonumber((seen[key] or {}).b) or 0
-			local delta = total - prev
-			if delta > 0 then
-				local app, conf = classify_flow(apps, (m.network or ""):lower(),
-					tonumber(m.destinationPort) or 0, m.destinationIP, host)
-				if app and conf == "high" then
-					if conf == "high" then
-						learn_app_ip(app.name,
-							fakeip[(m.sourceIP or "") .. "|" .. (m.sourcePort or "")] or m.destinationIP)
-					end
-					record(st, app.name, dev, delta, conf)
-					counted = counted + delta
-				end
-			end
-			seen[key] = { b = total }
+		-- a Redir connection reports no destinationIP; the address the client
+		-- actually dialled is the far end of its own flow, found by source port
+		local host = m.host
+		local dip = fakeip[(m.sourceIP or "") .. "|" .. (m.sourcePort or "")]
+		if host and dip and host ~= dip then
+			fresh[dip] = { h = host }
+			n = n + 1
 		end
 	end
-	save_json_map(CT_SEEN_FILE, seen)
-	return counted
+	for k, v in pairs(cache) do
+		if fresh[k] == nil and n < 60000 then fresh[k] = v; n = n + 1 end
+	end
+	save_json_map(STATE_DIR .. "/fakeip.json", fresh)
+	return fresh
 end
 
 local function collect_app_stats(now)
@@ -1651,29 +1680,30 @@ local function collect_app_stats(now)
 	end)
 	local today = os.date("%Y-%m-%d", now)
 	if st.day ~= today then
-		st.day, st.apps, st.dev = today, {}, {}
+		-- midnight is not a reset: the finished day is filed away so the
+		-- window can still be read, and only a week of it is worth keeping
+		st.hist = st.hist or {}
+		if st.day and st.day ~= "" and st.apps then
+			st.hist[st.day] = { apps = st.apps, dev = st.dev, low = st.low }
+		end
+		local days = {}
+		for d in pairs(st.hist) do days[#days + 1] = d end
+		table.sort(days)
+		for i = 1, #days - 7 do st.hist[days[i]] = nil end
+		st.day, st.apps, st.dev, st.low = today, {}, {}, nil
 	end
 
 	local seen = load_json_map(CT_SEEN_FILE, function() return {} end)
 	local fresh = {}
-	local counted = collect_clash_stats(now, apps, st)
+	local fake_cache = collect_clash_stats(now, apps, st, seen) or {}
+	local counted = 0
 
-	local fh = io.popen("cat /proc/net/nf_conntrack 2>/dev/null", "r")
-	if not fh then return nil end
-	for line in fh:lines() do
-		local proto = line:match("^ipv4%s+%d+%s+(%a+)")
+	for line in conntrack_text():gmatch("[^\n]+") do
+		local proto, src, sport, dst, dport, total =
+			line:match("^(%S+) (%S+) (%S+) (%S+) (%S+) (%d+)")
 		if proto then
-			local src, dst, sport, dport =
-				line:match("src=(%d+%.%d+%.%d+%.%d+)%s+dst=(%d+%.%d+%.%d+%.%d+)%s+sport=(%d+)%s+dport=(%d+)")
-			if src then
-				-- both directions carry bytes; sum them
-				local b1, b2 = 0, 0
-				local n = 0
-				for b in line:gmatch("bytes=(%d+)") do
-					n = n + 1
-					if n == 1 then b1 = tonumber(b) else b2 = tonumber(b) end
-				end
-				local total = b1 + b2
+			do
+				total = tonumber(total)
 				local key = proto .. "|" .. src .. "|" .. sport .. "|" .. dst .. "|" .. dport
 				local prev = seen[key]
 				local delta = total - (prev and tonumber(prev.b) or 0)
@@ -1696,7 +1726,8 @@ local function collect_app_stats(now)
 				-- were all being reported as a game. Only a hostname, an
 				-- address we learned, or a verified fingerprint counts.
 				if delta > 0 and dev_ip then
-					local app, conf = classify_flow(apps, proto, remote_port, remote_ip, nil)
+					local host = fake_cache[remote_ip] and fake_cache[remote_ip].h
+					local app, conf = classify_flow(apps, proto, remote_port, remote_ip, host)
 					if app and conf == "high" then
 						learn_app_ip(app.name, remote_ip)
 						record(st, app.name, dev_ip, delta, conf)
@@ -1707,13 +1738,16 @@ local function collect_app_stats(now)
 			end
 		end
 	end
-	fh:close()
 
-	-- keep the table bounded: flows that are gone contribute nothing
+	-- keep only the keys touched in this tick; a flow that is gone
+	-- contributes nothing, and a dropped key would be recounted in full
 	local kept, n = {}, 0
 	for k, v in pairs(fresh) do
 		n = n + 1
 		if n <= 8000 then kept[k] = v end
+	end
+	for k, v in pairs(seen) do
+		if k:sub(1, 6) == "clash|" and kept[k] == nil then kept[k] = v end
 	end
 
 	save_json_map(CT_SEEN_FILE, kept)
@@ -1739,12 +1773,30 @@ function methods.applist()
 	return { success = true, running = true, apps = out, day = st.day or "" }
 end
 
-function methods.appstats()
+function methods.appstats(range)
 	local st = load_json_map(APPSTAT_FILE, function() return { day = "", apps = {}, dev = {} } end)
+	local buckets = {}
+	if range == "week" then
+		buckets[#buckets + 1] = st
+		for _, h in pairs(st.hist or {}) do buckets[#buckets + 1] = h end
+	elseif range == "yesterday" then
+		local h = (st.hist or {})[os.date("%Y-%m-%d", os.time() - 86400)]
+		if h then buckets[#buckets + 1] = h end
+	else
+		buckets[#buckets + 1] = st
+	end
+	local apps, dev, low = {}, {}, {}
+	for _, b in ipairs(buckets) do
+		for k, v in pairs(b.apps or {}) do apps[k] = (apps[k] or 0) + v end
+		for k, v in pairs(b.low or {}) do low[k] = (low[k] or 0) + v end
+		for ip, m in pairs(b.dev or {}) do
+			dev[ip] = dev[ip] or {}
+			for k, v in pairs(m) do dev[ip][k] = (dev[ip][k] or 0) + v end
+		end
+	end
 	local names = {}
-	for name, bytes in pairs(st.apps or {}) do
-		names[#names + 1] = { name = name, bytes = bytes,
-		                      low = (st.low or {})[name] or 0 }
+	for name, bytes in pairs(apps) do
+		names[#names + 1] = { name = name, bytes = bytes, low = low[name] or 0 }
 	end
 	table.sort(names, function(a, b) return a.bytes > b.bytes end)
 	-- an address is only useful once it has a device behind it
@@ -1754,7 +1806,7 @@ function methods.appstats()
 	end
 
 	local devs, per_app = {}, {}
-	for ip, m in pairs(st.dev or {}) do
+	for ip, m in pairs(dev) do
 		local d = by_ip[ip]
 		local row = { ip = ip, bytes = 0, apps = {},
 		              mac = d and d.mac or nil,
@@ -1778,8 +1830,8 @@ function methods.appstats()
 		table.sort(list, function(a, b) return a.bytes > b.bytes end)
 	end
 
-	return { success = true, running = true, day = st.day or "", apps = names,
-	         dev = devs, per_app = per_app }
+	return { success = true, running = true, day = st.day or "", range = range or "today",
+	         apps = names, dev = devs, per_app = per_app }
 end
 
 function methods.appreset()
@@ -2056,10 +2108,26 @@ local function apply_bypass()
 		BYPASS_SET, BYPASS_SET))
 	sys.call("nft flush set inet fw4 " .. BYPASS_SET .. " 2>/dev/null")
 	if #list > 0 then nft_chunk(BYPASS_SET, "add", list) end
-	if not bypass_rule_present() then
-		-- fw4 reloads and OpenClash restarts rebuild this chain, so the rule
-		-- is re-inserted at the top whenever it is missing
-		sys.call("nft insert rule inet fw4 openclash ip daddr @" .. BYPASS_SET .. " return 2>/dev/null")
+	if #list > 0 then
+		if not bypass_rule_present() then
+			-- fw4 reloads and OpenClash restarts rebuild this chain, so the
+			-- rule is re-inserted whenever it is missing
+			sys.call("nft insert rule inet fw4 openclash ip daddr @" .. BYPASS_SET .. " return 2>/dev/null")
+		end
+	elseif bypass_rule_present() then
+		-- nothing to bypass: do not leave a lookup in front of every packet
+		for _, h in ipairs((function()
+			local out = {}
+			for line in (sys.exec("nft -a list chain inet fw4 openclash 2>/dev/null") or ""):gmatch("[^\n]+") do
+				if line:find("@" .. BYPASS_SET, 1, true) then
+					local hh = line:match("handle (%d+)")
+					if hh then out[#out + 1] = hh end
+				end
+			end
+			return out
+		end)()) do
+			sys.call("nft delete rule inet fw4 openclash handle " .. h .. " 2>/dev/null")
+		end
 	end
 	return #list
 end
@@ -4005,12 +4073,17 @@ end
 
 function save_json_map(file, v)
 	fs.mkdirr(STATE_DIR)
-	local f = io.open(file, "w")
-	if not f then return false end
 	local o = jsonc.stringify(v)
 	if o == "[]" then o = "{}" end
+	-- write beside the target and rename: a reader that opens the file while
+	-- it is being rewritten gets a truncated document, fails to parse it and
+	-- then saves the empty result back, wiping everything the file held
+	local tmp = file .. ".tmp"
+	local f = io.open(tmp, "w")
+	if not f then return false end
 	f:write(o)
 	f:close()
+	os.rename(tmp, file)
 	return true
 end
 
@@ -4248,10 +4321,15 @@ function methods.tick()
 		save_json_map(FINGERPRINT_FILE, fst)
 	end
 	_qos_dirty = false
+	-- clear the shared copy so this tick rebuilds it from the current table
+	IDX.ct = nil
 	local apps = collect_app_stats(now)
+	IDX.ct = nil
 	if _qos_dirty then apply_qos() end
-	-- cheap self-heal: the redirect chain is rebuilt by fw4 and OpenClash
-	if not bypass_rule_present() then apply_bypass() end
+	-- keep the redirect chain in step with the rules: add the bypass return
+	-- when something needs it, remove it when nothing does
+	local want_bypass = bypass_addresses()
+	if (#want_bypass > 0) ~= bypass_rule_present() then apply_bypass() end
 	return { success = true, running = true,
 	         expired = e.expired, schedule_changed = sc.changed,
 	         active = sc.active, new_devices = nd, oui_lookups = oui,
@@ -4894,7 +4972,7 @@ elseif arg[1] == "call" then
 		reply_list(res, { "apps" })
 		return
 	elseif name == "appstats" then
-		res = methods.appstats()
+		res = methods.appstats(req.range)
 		reply_list(res, { "apps", "dev" })
 		return
 	elseif name == "sample_start" then

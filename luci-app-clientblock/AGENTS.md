@@ -57,6 +57,7 @@ State lives in `/etc/languard/*.json`. Deploy by copying files and restarting
 | Python on Windows writes CRLF | `#!/usr/bin/env lua\r` breaks the rpcd plugin | normalise every file to LF after editing |
 | `git reset --hard` moves the working tree | the next scp deployed the *old* code over the router | check `git status` before deploying |
 | `/etc/nftables.d/*.nft` is included **inside** the fw4 table | a `table` declaration there is a syntax error and the whole firewall fails to reload - every rule silently disappears | only bare chains/sets there; put standalone tables elsewhere |
+| Lua 5.1 allows 200 locals per chunk | `main function has more than 200 local variables` - the plugin fails to load and the whole app disappears | hang new state off an existing table (`IDX.*`) instead of adding a local |
 | local functions must be declared before use | a call binds to a nil global and the method dies with "No response" | forward-declare at the top of the file |
 
 ## How the pieces fit

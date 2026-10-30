@@ -3,6 +3,7 @@
 LOG_FILE='/tmp/cloudflarespeedtest.log'
 RESULT_DIR='/tmp/CloudflareSpeedTest'
 IP_FILE="$RESULT_DIR/result.csv"
+RESULT_SOURCE_FILE="$RESULT_DIR/result-source.txt"
 IPV4_TXT='/usr/share/CloudflareSpeedTest/ip.txt'
 IPV6_TXT='/usr/share/CloudflareSpeedTest/ipv6.txt'
 
@@ -28,7 +29,7 @@ echolog() {
 
 function read_config(){
     get_global_config "enabled" "speed_limit" "custom_url" "threads" "custom_cron_enabled" "custom_cron" "t" "tp" "dt" "dn" "dd" "tl" "tll" "ipv6_enabled" "ip_source" "custom_ip_file" "custom_allip" "advanced" "proxy_mode" "github_proxy" "github_proxy_custom" "httping" "cfcolo"
-    get_servers_config "ssr_services" "ssr_enabled" "passwall_enabled" "passwall_services" "passwall2_enabled" "passwall2_services" "bypass_enabled" "bypass_services" "vssr_enabled" "vssr_services" "DNS_enabled" "AliDNS_ip_count" "HOST_enabled" "MosDNS_enabled" "MosDNS_ip_count" "openclash_restart" "AstraDNS_enabled" "AstraDNS_config" "AstraDNS_bin"
+    get_servers_config "ssr_services" "ssr_enabled" "passwall_enabled" "passwall_services" "passwall2_enabled" "passwall2_services" "bypass_enabled" "bypass_services" "vssr_enabled" "vssr_services" "DNS_enabled" "AliDNS_ip_count" "HOST_enabled" "MosDNS_enabled" "MosDNS_ip_count" "openclash_restart" "AstraDNS_enabled" "AstraDNS_config" "AstraDNS_bin" "SmartDNS_enabled" "SmartDNS_ip_count"
 }
 
 function appinit(){
@@ -314,10 +315,19 @@ function speed_test(){
         }
     fi
 
-    command="/usr/bin/cdnspeedtest -sl ${speed_limit} -url ${custom_url} -o ${result_tmp}"
-
     selected_ip_file="$(select_ip_file)"
-    command="${command} -f ${selected_ip_file}"
+    source_tmp="$(mktemp "${RESULT_DIR}/source.tmp.XXXXXX")" || {
+        echolog "创建临时测速 IP 列表失败"
+        rm -f "$result_tmp"
+        return 1
+    }
+    if ! cp "$selected_ip_file" "$source_tmp"; then
+        echolog "无法读取测速 IP 列表: $selected_ip_file"
+        rm -f "$result_tmp" "$source_tmp"
+        return 1
+    fi
+
+    command="/usr/bin/cdnspeedtest -sl ${speed_limit} -url ${custom_url} -o ${result_tmp} -f ${source_tmp}"
 
     if [ "${ip_source:-}" = "custom_file" ] && [ "${custom_allip:-0}" = "1" ] ; then
         command="${command} -allip"
@@ -434,20 +444,26 @@ function speed_test(){
 
     if [ "$command_rc" -ne 0 ]; then
         echolog "CloudflareST 测速失败，保留上一次结果"
-        rm -f "$result_tmp"
+        rm -f "$result_tmp" "$source_tmp"
         return $command_rc
     fi
 
     if [ -z "$(first_result_ip "$result_tmp")" ]; then
         echolog "CloudflareST 测速结果 IP 数量为 0，保留上一次结果"
-        rm -f "$result_tmp"
+        rm -f "$result_tmp" "$source_tmp"
         return 1
     fi
 
     # Append current time to the validated result, then rotate old results.
     echo "# Speed test time: $(date +'%Y-%m-%d %H:%M:%S')" >> "$result_tmp"
+    # Invalidate the old source before replacing either part of the pair.
+    rm -f "$RESULT_SOURCE_FILE"
     rotate_result_files
-    mv -f "$result_tmp" "$IP_FILE"
+    if ! mv -f "$result_tmp" "$IP_FILE" || ! mv -f "$source_tmp" "$RESULT_SOURCE_FILE"; then
+        echolog "保存测速结果或 IP 列表快照失败"
+        rm -f "$result_tmp" "$source_tmp" "$RESULT_SOURCE_FILE"
+        return 1
+    fi
 }
 
 function ip_replace(){
@@ -460,6 +476,7 @@ function ip_replace(){
         host_ip
         mosdns_ip
         astra_dns_ip
+        smartdns_ip
         alidns_ip
         ssr_best_ip
         vssr_best_ip
@@ -550,6 +567,42 @@ function astra_dns_ip() {
             echolog "astra-dns 写入失败，请检查配置文件路径、二进制路径和 YAML 格式"
             return 1
         fi
+    fi
+}
+
+function smartdns_ip() {
+    smartdns_helper='/usr/bin/cloudflarespeedtest/smartdns.sh'
+
+    if [ ! -x "$smartdns_helper" ]; then
+        if [ "x${SmartDNS_enabled}" == "x1" ] ;then
+            echolog "SmartDNS 写入失败: $smartdns_helper 不存在"
+            return 1
+        fi
+        return 0
+    fi
+
+    if [ "x${SmartDNS_enabled}" != "x1" ] ;then
+        "$smartdns_helper" --disable >>$LOG_FILE 2>&1
+        return $?
+    fi
+
+    case "$bestip" in
+        *:*)
+            echolog "SmartDNS 写入跳过: 安全重写范围目前仅支持 IPv4"
+            return 0
+            ;;
+    esac
+
+    smartdns_count="${SmartDNS_ip_count:-3}"
+    if [ ! -r "$RESULT_SOURCE_FILE" ]; then
+        echolog "SmartDNS 写入跳过: 测速结果缺少对应的 IP 列表快照，请重新测速"
+        return 1
+    fi
+    if "$smartdns_helper" --result-csv "$IP_FILE" --source-file "$RESULT_SOURCE_FILE" --ip-count "$smartdns_count" >>$LOG_FILE 2>&1; then
+        echolog "SmartDNS 写入完成"
+    else
+        echolog "SmartDNS 写入失败，请检查 SmartDNS 是否已安装、启用且配置有效"
+        return 1
     fi
 }
 

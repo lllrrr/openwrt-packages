@@ -5,7 +5,7 @@
 
 [English](README.md)
 
-**luci-app-cloudflarespeedtest** 是一个用于 OpenWrt 的 LuCI 插件，基于 [CloudflareSpeedTest](https://github.com/XIU2/CloudflareSpeedTest) 核心工具开发。它可以自动测试 Cloudflare IP 的延迟和下载速度，筛选出最适合当前网络环境的优选 IP，并自动更新到 SSR+、Passwall 等代理插件中，从而实现对 Cloudflare 托管网站的访问加速。
+**luci-app-cloudflarespeedtest** 是一个用于 OpenWrt 的 LuCI 插件，基于 [CloudflareSpeedTest](https://github.com/XIU2/CloudflareSpeedTest) 核心工具开发。它可以自动测试 Cloudflare IP 的延迟和下载速度，筛选出最适合当前网络环境的优选 IP，并自动更新到 SSR+、Passwall、SmartDNS、AstraDNS 等代理或 DNS 插件中，从而实现对 Cloudflare 托管网站的访问加速。
 
 本项目 fork 自 [mingxiaoyu/luci-app-cloudflarespeedtest](https://github.com/mingxiaoyu/luci-app-cloudflarespeedtest)，并在原版基础上进行了大量的重构与改进。
 
@@ -14,11 +14,11 @@
 ## 主要特性
 
 *   **自动测速与优选**：定期或手动运行 CloudflareSpeedTest，筛选最佳 IP。
-*   **应用到代理插件**：支持自动将优选 IP 应用到 SSR+、Passwall 等常见 OpenWrt 代理工具。
+*   **应用到代理和 DNS 插件**：支持自动将优选 IP 应用到 SSR+、Passwall、MosDNS、SmartDNS、AstraDNS 等常见 OpenWrt 工具。SmartDNS 使用测速时的 IPv4 列表匹配源地址并筛选目标地址；自定义列表中的特殊用途或受限地址也会被使用，请谨慎选择。
 *   **可视化图表**：新增历史数据图表，直观展示延迟与下载速度的波动趋势。
 *   **自动下载核心**：插件包不包含核心二进制文件，首次运行时会自动下载，减小安装包体积，降低部署门槛。
 *   **优化的界面与日志**：重新设计的状态展示与日志格式，进度与报错更清晰。
-*   **筛选后的 IPv4 列表**：内置列表基于 [Cloudflare 公开的 IPv4 地址段](https://www.cloudflare.com/ips-v4)，并根据连通性验证主动排除受限或不适用的网段：`108.162.192.0/18`、`162.158.0.0/16`、`162.159.0.0/18`、`172.64.228.0/24`、`172.68.0.0/14`、`198.41.192.0/19`。
+*   **筛选后的 IPv4 列表**：内置列表基于 [Cloudflare 公开的 IPv4 地址段](https://www.cloudflare.com/ips-v4)，保守排除已知或疑似特殊用途及受限网段。除 `108.162.192.0/18`、`162.158.0.0/16`、`162.159.0.0/18`、`172.68.0.0/14` 和 `198.41.192.0/19` 外，还排除以下 `/24`：`162.159` 下的 `137`、`138`、`192`、`193`、`197`、`200`、`213`、`234`、`239`，`172.64` 下的 `32`、`33`、`34`、`35`、`38`、`40`、`41`、`42`、`43`、`48`、`49`、`50`、`52`、`53`、`98`、`100`、`101`、`228`、`234`，以及 `173.245.58.0/24` 和 `173.245.59.0/24`。整段排除包含保守推断，不表示每个地址都已测试。
 
 ## 安装与使用
 

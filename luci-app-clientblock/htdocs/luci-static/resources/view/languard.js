@@ -211,6 +211,8 @@ var STYLE = `
 .cb-btn:hover { background: var(--hover-faint); }
 .cb-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 .cb-btn[disabled] { opacity: .45; cursor: default; }
+.cb-range { padding: .15rem .45rem; font-size: .72rem; }
+.cb-range-on { background: var(--hover-faint); border-color: var(--focus-ring); }
 .cb-btn-danger { border-color: var(--danger); color: var(--danger); }
 .cb-btn-danger:hover { background: var(--danger-surface); }
 .cb-btn-ok { border-color: var(--success); color: var(--success); }
@@ -418,6 +420,8 @@ var STYLE = `
 .cb-import { width: 100%; box-sizing: border-box; font-family: var(--font-mono);
 	font-size: .78rem; padding: .5rem; border-radius: .3rem; resize: vertical;
 	border: 1px solid var(--hairline); background: var(--surface-sunken); color: inherit; }
+.cb-appchip { display: inline-block; padding: .04rem .45rem; border-radius: .6rem;
+	border: 1px solid; font-size: .74rem; margin: 0 .25rem .2rem 0; white-space: nowrap; }
 .cb-sel { padding: .25rem .4rem; border-radius: .3rem; border: 1px solid var(--hairline);
 	background: var(--surface-sunken); color: inherit; font-size: .8rem;
 	/* without this the native popup is drawn in the OS light palette */
@@ -503,6 +507,37 @@ var IP_CATS = [
 	{ key: 'import',   label: _('Imported'),      cls: 'cb-src-watchdog' },
 	{ key: 'other',    label: _('Other'),         cls: 'cb-src-manual' }
 ];
+
+// an app rendered as a coloured chip; the same name always gets the same hue.
+// Clicking one filters the view: the others fade so the selection reads at a
+// glance even in a dense list.
+var APP_FILTER = null;
+var APP_CHIP_CLICK = null;
+
+function appChip(name, text) {
+	var h = appHue(name);
+	var dim = APP_FILTER && APP_FILTER !== name;
+	return E('span', {
+		'class': 'cb-appchip',
+		'title': name,
+		'style': 'color:hsl(' + h + ',75%,72%);border-color:hsl(' + h + ',55%,45%);' +
+			'background:hsl(' + h + ',50%,22%);cursor:pointer' +
+			(dim ? ';opacity:.22;filter:grayscale(1)' : '')
+		+ (APP_FILTER === name ? ';box-shadow:0 0 0 2px hsl(' + h + ',70%,55%)' : ''),
+		'click': function (ev) {
+			ev.stopPropagation();
+			if (APP_CHIP_CLICK) APP_CHIP_CLICK(name);
+		}
+	}, text || name);
+}
+
+// a stable colour per app name, so the eye can follow one app down the list
+function appHue(name) {
+	var h = 0;
+	for (var i = 0; i < name.length; i++)
+		h = (h * 31 + name.charCodeAt(i)) % 360;
+	return h;
+}
 
 function catMeta(key) {
 	for (var i = 0; i < IP_CATS.length; i++)
@@ -1128,9 +1163,11 @@ return view.extend({
 		}).catch(function () {});
 	},
 
-	refreshAppStats: function () {
+	refreshAppStats: function (range) {
 		var self = this;
-		return Promise.all([ callAppList(), callAppStats() ]).then(function (r) {
+		if (typeof range !== 'string') range = self.appRange || 'today';
+		self.appRange = range;
+		return Promise.all([ callAppList(), callAppStats({ range: range }) ]).then(function (r) {
 			self.apps = (r[0] && r[0].apps) || [];
 			self.appStats = r[1] || {};
 			self.renderAppStats();
@@ -1144,6 +1181,12 @@ return view.extend({
 	},
 
 	renderAppStats: function () {
+		var selfC = this;
+		APP_FILTER = this.appFilter || null;
+		APP_CHIP_CLICK = function (name) {
+			selfC.appFilter = (selfC.appFilter === name) ? null : name;
+			selfC.renderAppStats();
+		};
 		var tbody = document.getElementById('cb-app-tbody');
 		if (!tbody) return;
 		while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
@@ -1161,13 +1204,19 @@ return view.extend({
 			(self.apps || []).forEach(function (x) { if (x.name === a.name) meta = x; });
 			var active = self.appFilter === a.name;
 			tbody.appendChild(E('tr', {
-				'style': 'cursor:pointer' + (active ? ';background:var(--brand-subtle)' : ''),
+				'style': 'cursor:pointer' +
+					(active ? ';background:var(--brand-subtle)' : '') +
+					((self.appFilter && !active) ? ';opacity:.32' : ''),
 				'click': function () {
 					self.appFilter = active ? null : a.name;
 					self.renderAppStats();
 				}
 			}, [
 				E('td', { 'class': 'cb-u' }, [
+					E('span', {
+						'style': 'display:inline-block;width:.55rem;height:.55rem;border-radius:50%;' +
+							'margin-right:.45rem;background:hsl(' + appHue(a.name) + ',62%,52%)'
+					}),
 					a.name,
 					(meta && meta.generic)
 						? E('span', { 'class': 'cb-src cb-src-manual', 'style': 'margin-left:.35rem',
@@ -1196,33 +1245,6 @@ return view.extend({
 		var devs = (this.appStats && this.appStats.dev) || [];
 		var filter = this.appFilter;
 
-		if (filter) {
-			box.appendChild(E('div', { 'class': 'cb-dash-row' }, [
-				E('span', { 'class': 'cb-k' }, _('Devices using') + ' ' + filter),
-				E('button', { 'class': 'cb-btn', 'style': 'margin-left:auto',
-					'click': function () { self.appFilter = null; self.renderAppStats(); } },
-					_('Show all'))
-			]));
-			var users = [];
-			devs.forEach(function (d) {
-				(d.apps || []).forEach(function (x) {
-					if (x.name === filter) users.push({ dev: d, bytes: x.bytes });
-				});
-			});
-			users.sort(function (a, b) { return b.bytes - a.bytes; });
-			if (!users.length) {
-				box.appendChild(E('span', { 'class': 'cb-note' }, _('None')));
-				return;
-			}
-			users.forEach(function (u) {
-				box.appendChild(E('div', { 'class': 'cb-dash-row' }, [
-					E('span', { 'class': 'cb-k' }, (u.dev.name || u.dev.ip) + ' · ' + u.dev.ip),
-					E('span', { 'class': 'cb-v' }, fmtBytes(u.bytes))
-				]));
-			});
-			return;
-		}
-
 		if (!devs.length) {
 			box.appendChild(E('span', { 'class': 'cb-note' }, _('None')));
 			return;
@@ -1233,9 +1255,9 @@ return view.extend({
 					(d.name || d.ip),
 					E('span', { 'class': 'cb-drop' }, '  ' + d.ip)
 				]),
-				E('span', { 'class': 'cb-v' }, d.apps.slice(0, 3).map(function (x) {
-					return x.name + ' ' + fmtBytes(x.bytes);
-				}).join(' · '))
+				E('span', { 'class': 'cb-v' }, d.apps.slice(0, 4).map(function (x) {
+					return appChip(x.name, x.name + ' ' + fmtBytes(x.bytes));
+				}))
 			]));
 		});
 	},
@@ -3060,7 +3082,19 @@ E('div', { 'class': 'cb-card' }, [
 				E('div', { 'class': 'cb-card-head' }, [
 					E('span', { 'class': 'cb-dot' }),
 					E('span', {}, _('Traffic by app')),
-					E('span', { 'class': 'cb-count', 'id': 'cb-app-day', 'style': 'margin-left:auto' }, '')
+					E('span', { 'style': 'margin-left:auto;display:flex;gap:.3rem' },
+						[ [ 'today', _('Today') ], [ 'yesterday', _('Yesterday') ],
+						  [ 'week', _('Last 7 days') ] ].map(function (p) {
+							return E('button', {
+								'class': 'cb-btn cb-range' + (p[0] === 'today' ? ' cb-range-on' : ''),
+								'click': function (ev) {
+									ev.currentTarget.parentNode.querySelectorAll('.cb-range')
+										.forEach(function (b) { b.classList.remove('cb-range-on'); });
+									ev.currentTarget.classList.add('cb-range-on');
+									self.refreshAppStats(p[0]);
+								}
+							}, p[1]);
+						}))
 				]),
 				E('div', { 'class': 'cb-card-body' }, [
 					E('div', { 'class': 'cb-tablewrap' }, [
