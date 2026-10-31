@@ -2562,7 +2562,8 @@ return view.extend({
 		apps: [ 'apps' ],
 		ips: [ 'ips', 'sched' ],
 		feeds: [ 'feeds' ],
-		settings: [ 'auto', 'notify', 'health', 'backup', 'logs' ]
+		logs: [ 'logs' ],
+		settings: [ 'auto', 'notify', 'health', 'backup' ]
 	},
 
 	switchTab: function (name) {
@@ -2575,7 +2576,7 @@ return view.extend({
 			var el = document.getElementById('cb-pane-' + p);
 			if (el) el.classList.toggle('active', mine.indexOf(p) !== -1);
 		});
-		['overview', 'devices', 'apps', 'ips', 'feeds', 'settings'].forEach(function (t) {
+		['overview', 'devices', 'apps', 'ips', 'feeds', 'logs', 'settings'].forEach(function (t) {
 			var btn = document.getElementById('cb-tab-' + t);
 			if (btn) btn.classList.toggle('active', t === name);
 		});
@@ -2598,6 +2599,7 @@ return view.extend({
 				});
 		}
 		if (name === 'feeds') return this.refreshFeeds();
+		if (name === 'logs') return this.refreshLogs();
 		if (name === 'settings') {
 			var self2 = this;
 			return Promise.all([ this.refreshAuto(), this.refreshNotify(), this.refreshHealth() ])
@@ -3397,6 +3399,7 @@ E('div', { 'class': 'cb-card' }, [
 				tabBtn('apps', _('Traffic')),
 				tabBtn('ips', _('Policy')),
 				tabBtn('feeds', _('Feeds')),
+				tabBtn('logs', _('Log')),
 				tabBtn('settings', _('Settings'))
 			]),
 			dashPane,
