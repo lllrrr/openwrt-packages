@@ -675,7 +675,7 @@ node_test_cleanup() {
     rm -f "${NT_SNAP_FILE}" "${NT_ORIG_FILE}" 2>/dev/null
     # 清理首完成即停用的完成标记、迭代轮次临时结果、轮次 meta 与停止标志（含中断退出残留）；
     # .nt_committing 是「提交阶段勿强杀」标记，正常路径收尾已删，这里兜底中途退出的残留
-    rm -f "${RUN_DIR}"/result.csv.tmp.*.done "${RUN_DIR}"/result.csv.tmp.*.end "${RUN_DIR}"/result.csv.tmp.*.pass "${RUN_DIR}"/result.csv.tmp.*.probed "${RUN_DIR}"/result.csv.tmp.*.carry "${RUN_DIR}"/result.csv.tmp.*.union "${RUN_DIR}"/result.csv.tmp.*.meta "${RUN_DIR}/.nt_stop" "${RUN_DIR}/.nt_committing" "${RUN_DIR}/.auto_stop" "${RUN_DIR}/.user_stop" 2>/dev/null
+    rm -f "${RUN_DIR}"/result.csv.tmp.*.done "${RUN_DIR}"/result.csv.tmp.*.end "${RUN_DIR}"/result.csv.tmp.*.pass "${RUN_DIR}"/result.csv.tmp.*.probed "${RUN_DIR}"/result.csv.tmp.*.carry "${RUN_DIR}"/result.csv.tmp.*.union "${RUN_DIR}"/result.csv.tmp.*.meta "${RUN_DIR}/.nt_stop" "${RUN_DIR}/.nt_committing" "${RUN_DIR}/.user_stop" 2>/dev/null
 }
 
 # 锁目录在会话目录内，随会话创建/销毁；原实现是死循环等待，一旦残留就把整个会话卡死。
@@ -696,37 +696,8 @@ nt_lock_acquire() {
 }
 nt_lock_release() { rmdir "${NT_LOCKDIR}" 2>/dev/null; }
 
-# 下载实测串行锁：同一时刻只允许一个 IP 处于下载测试中，否则多个 worker 并发下载会
-# 互抢路由器 WAN 带宽，每个 IP 测出的“速度”都只是被瓜分后的一部分，无法横向比较。
-# token 用每个下载唯一的 flag（worker+序号），释放时只删自己的锁，避免超时接管后
-# 旧持有者醒来误删新持有者的锁。等待超过 120s 视为持有者僵死（单次下载上限 60s +
-# SOCKS 启动），强制接管——正常情况下 worker 不会持锁这么久。
-nt_dl_lock_acquire() {
-    local _token="$1" _i=0
-    [ -n "${DL_LOCK_DIR:-}" ] || return 0
-    while ! mkdir "$DL_LOCK_DIR" 2>/dev/null; do
-        # 等锁期间只有「其它 worker 已先完成」的自动提前停止才放弃排队；用户中途停止
-        # 一轮测速时仍要排队把下载实测做完（见 .user_stop / .auto_stop 的区分）。
-        if [ -n "${RUN_DIR:-}" ] && [ -f "${RUN_DIR}/.auto_stop" ]; then
-            return 1
-        fi
-        _i=$((_i + 1))
-        if [ "$_i" -ge 120 ]; then
-            echolog "下载测速串行锁等待超过 120s，强制接管（疑有 worker 僵死）"
-            rm -rf "$DL_LOCK_DIR" 2>/dev/null
-            continue
-        fi
-        # 同上：整数秒以兼容不支持浮点 sleep 的 busybox；120 次 × 1s = 120s
-        sleep 1
-    done
-    echo "$_token" > "$DL_LOCK_DIR/token" 2>/dev/null
-    return 0
-}
-nt_dl_lock_release() {
-    [ -n "${DL_LOCK_DIR:-}" ] || return 0
-    [ "$(cat "$DL_LOCK_DIR/token" 2>/dev/null)" = "$1" ] && rm -rf "$DL_LOCK_DIR" 2>/dev/null
-    return 0
-}
+# 下载实测的串行性由结构保证：所有 worker 停止后，主进程按 worker 顺序逐个执行
+# nt_download_stage，不存在跨进程并发下载，故不再需要下载串行锁。
 
 # 测速前把 passwall 全局主节点切到稳定节点；还原由 node_test_cleanup 兜底。
 # 节点变更需 /etc/init.d/passwall restart 才能实时生效；切换在拉起 worker 之前、
@@ -950,11 +921,12 @@ nt_download_one_ip() {
 # 下载实测阶段：把 worker 结果文件里延迟最优的前 N 行逐 IP 实测下载速度，写入第 6 列
 # （下载速度 MB/s）；成功测速时按速度降序重排（速度相同再按延迟升序），下载失败的行剔除。
 # 若一个都没测成功（如测试 URL 经该节点不可达），保留原延迟排序结果，不丢延迟阶段的成果。
+# 只在所有 worker 停止探测后由 nt_download_stage 调用；主进程顺序执行，天然串行。
 # 参数: $1=node $2=result_file $3=node_name $4=count $5=url $6=timeout $7=socks_port $8=flag
 nt_download_phase() {
     local _W=$1 _rfile=$2 _Wn=$3 _cnt=$4 _durl=$5 _tmo=$6 _port=$7 _flag=$8
     local _rows="${_rfile}.rows" _out="${_rfile}.dl" _line _ip _spd _hdr
-    local _i=0 _n _tested=0 _failed=0 _best_ip='' _best_spd=0 _stopped=0
+    local _i=0 _n _tested=0 _failed=0 _best_ip='' _best_spd=0
     [ -f "$_rfile" ] || return 0
     _n=$(awk 'END{print NR+0}' "$_rfile" 2>/dev/null)
     [ "$_n" -gt 1 ] || return 0
@@ -979,50 +951,27 @@ nt_download_phase() {
     echo "$_hdr" > "$_out"
 
     echolog "下载测速 [${_Wn}] 开始：对延迟最优的 ${_cnt} 个 IP 实测下载（${_durl}，单 IP 上限 ${_tmo}s，${DL_FAST_FAIL_TIME}s 内不足 $((DL_FAST_FAIL_BYTES / 1048576))MB 即判失败）"
-    # 用户中途停止「第一轮」时仍要完成下载实测：写 .nt_committing 让 rpcd 的停止逻辑
-    # 给足收尾时间（最长 1200s），不要按 120s 强杀在下载/写回中间。
-    if [ -f "${RUN_DIR}/.user_stop" ]; then
-        : > "${RUN_DIR}/.nt_committing" 2>/dev/null
-        echolog "下载测速 [${_Wn}] 用户已停止一轮测速，仍继续完成下载实测后再写回退出"
-    fi
     while IFS= read -r _line; do
         [ -n "$_line" ] || continue
         _i=$((_i + 1))
-        if [ "$_i" -le "$_cnt" ] && [ "$_stopped" = "0" ]; then
-            # 只有「其它 worker 已先完成」的自动提前停止才跳过下载；用户停止一轮时
-            # .auto_stop 不存在，下载实测继续（这正是二轮测速的意义）。
-            if [ -f "${RUN_DIR}/.auto_stop" ]; then
-                _stopped=1
-                echolog "下载测速 [${_Wn}] 其它 worker 已先完成，余下 IP 不再下载测速"
-            fi
-        fi
-        if [ "$_i" -le "$_cnt" ] && [ "$_stopped" = "0" ]; then
+        if [ "$_i" -le "$_cnt" ]; then
             _ip="${_line%%,*}"
             # 每个 IP 一个独立 flag/config 文件，杜绝复用上一个 IP 的 SOCKS 配置。
-            # 全局串行锁保证同一时刻只有一个 worker 在下载，否则 WAN 带宽被瓜分，
-            # 各 IP 的速度没有可比性。结果走全局 NT_DL_SPEED（函数内部会 echolog，
-            # 不能用 $(...) 抓 stdout）。
-            if nt_dl_lock_acquire "${_flag}_${_i}"; then
-                nt_download_one_ip "$_W" "$_ip" "$_durl" "$_tmo" "$_port" "${_flag}_${_i}"
-                _spd="$NT_DL_SPEED"
-                nt_dl_lock_release "${_flag}_${_i}"
-                log_size_guard
-                if [ "$(awk -v s="$_spd" 'BEGIN{print ((s+0)>0)?1:0}')" = "1" ]; then
-                    _tested=$((_tested + 1))
-                    if [ "$(awk -v a="$_spd" -v b="$_best_spd" 'BEGIN{print ((a+0)>(b+0))?1:0}')" = "1" ]; then
-                        _best_spd="$_spd"; _best_ip="$_ip"
-                    fi
-                    echo "$_line" | awk -F, -v OFS=, -v s="$_spd" '{$6=s; print}' >> "$_out"
-                    echolog "下载测速 [${_Wn}] ${_i}/${_cnt} - ${_ip} 速度 ${_spd} MB/s [保留]"
-                else
-                    _failed=$((_failed + 1))
-                    echolog "下载测速 [${_Wn}] ${_i}/${_cnt} - ${_ip} 下载失败 [丢弃]"
+            # 本函数只在所有 worker 停止后由主进程顺序调用，不存在并发下载，速度可比。
+            # 结果走全局 NT_DL_SPEED（函数内部会 echolog，不能用 $(...) 抓 stdout）。
+            nt_download_one_ip "$_W" "$_ip" "$_durl" "$_tmo" "$_port" "${_flag}_${_i}"
+            _spd="$NT_DL_SPEED"
+            log_size_guard
+            if [ "$(awk -v s="$_spd" 'BEGIN{print ((s+0)>0)?1:0}')" = "1" ]; then
+                _tested=$((_tested + 1))
+                if [ "$(awk -v a="$_spd" -v b="$_best_spd" 'BEGIN{print ((a+0)>(b+0))?1:0}')" = "1" ]; then
+                    _best_spd="$_spd"; _best_ip="$_ip"
                 fi
+                echo "$_line" | awk -F, -v OFS=, -v s="$_spd" '{$6=s; print}' >> "$_out"
+                echolog "下载测速 [${_Wn}] ${_i}/${_cnt} - ${_ip} 速度 ${_spd} MB/s [保留]"
             else
-                # 等锁时收到停止信号：余下 IP 保留延迟结果，不再下载
-                _stopped=1
-                echolog "下载测速 [${_Wn}] 收到停止信号，余下 IP 不再下载测速"
-                echo "$_line" >> "$_out"
+                _failed=$((_failed + 1))
+                echolog "下载测速 [${_Wn}] ${_i}/${_cnt} - ${_ip} 下载失败 [丢弃]"
             fi
         else
             echo "$_line" >> "$_out"
@@ -1042,8 +991,47 @@ nt_download_phase() {
     return 0
 }
 
+# 对单个 worker 的结果文件做下载实测。调用方必须保证此刻所有 worker 都已停止探测/下载，
+# 否则其它 worker 的 SOCKS 与探测流量会和本次下载争抢 WAN 带宽，速度数字不可比。
+# 参数: $1=node $2=result_file $3=socks_port $4=flag
+nt_download_worker() {
+    local _W=$1 _rfile=$2 _port=$3 _flag=$4 _Wn
+    [ -f "$_rfile" ] || return 0
+    [ -n "$(first_result_ip "$_rfile")" ] || return 0
+    _Wn="$(uci -q get "passwall.${_W}.remarks" 2>/dev/null)"; _Wn="${_Wn:-${_W}}"
+    nt_download_phase "$_W" "$_rfile" "$_Wn" "${DL_TEST_COUNT:-5}" \
+        "${DL_TEST_URL:-https://speed.cloudflare.com/__down?bytes=10000000}" \
+        "${DL_TEST_TIME:-10}" "$_port" "$_flag"
+}
+
+# 下载实测阶段（所有 worker 停止后统一执行）：按映射文件逐 worker 串行实测。
+# 与延迟测速分离的原因：worker 还在跑时，其 SOCKS、uci 改写和探测流量都会和下载
+# 争抢路由器 WAN 带宽与 CPU，边测边下载会让各 IP 的速度互相污染、无法横向比较。
+# 串行由主进程的顺序循环保证，不依赖跨进程锁。
+# 参数: $1=worker 映射文件（idx \t node \t origaddr，与 NT_ORIG_FILE 同格式）
+nt_download_stage() {
+    local _map=$1 _i _W _orig _rfile
+    [ "${DL_TEST_ENABLED:-1}" = "1" ] || return 0
+    [ -f "$_map" ] || return 0
+    # 下载结果决定各节点写回的最优 IP，与写回同属不可中断的收尾：提前打 .nt_committing，
+    # 让 rpcd 的停止逻辑给足宽限（1200s），不要强杀在下载/写回中间。
+    : > "${RUN_DIR}/.nt_committing" 2>/dev/null
+    if [ -f "${RUN_DIR}/.user_stop" ]; then
+        echolog "用户已停止一轮测速，仍继续完成下载实测后再写回退出"
+    fi
+    echolog "下载实测阶段开始：所有 worker 已停止探测，逐节点串行实测下载速度"
+    # 不区分停止来源：自动提前停止时其余 worker 也已被协作式停止，它们已通过的 IP
+    # 同样实测下载（无有效结果的 worker 由 nt_download_worker 直接跳过）。
+    while read -r _i _W _orig; do
+        [ -n "$_W" ] || continue
+        _rfile="${RUN_DIR}/result.csv.tmp.$_W"
+        nt_download_worker "$_W" "$_rfile" "$((48900 + _i - 1))" "${NODE_TEST_FLAG_BASE}_${_i}_dl"
+    done < "$_map"
+    return 0
+}
+
 # 普通 worker（非迭代模式）：通过节点 $2 的链路测全部候选 IP（$5），保留行写入结果文件 $4。
-# ash 子 shell 里 local 可用（已验证）。
+# ash 子 shell 里 local 可用（已验证）。下载实测不在这里做，见 nt_download_stage。
 # 参数: $1=idx $2=node $3=origaddr $4=result_file $5=ip_list $6=probe_url $7=timeout $8=probes $9=socks_port $10=flag
 node_test_worker() {
     local _idx=$1 _W=$2 _orig=$3 _rfile=$4 _ips=$5 _purl=$6 _tmo=$7 _probes=$8 _port=$9 _flag=${10}
@@ -1072,14 +1060,10 @@ node_test_worker() {
         _st=$([ "$_keep" = "1" ] && echo "保留" || echo "丢弃")
         echolog "进度: 走节点测速 [${_Wn}] ${_idx2}/${_total} ($((_idx2*100/_total))%) - ${_ip} 延迟 ${_avg}ms 丢包 ${_loss} [${_st}]"
     done
-    # 本 worker 结果按延迟升序排（首行即延迟初筛的最优），再对前 N 个做真实下载实测；
-    # 下载阶段成功后结果按实测速度重排（首行即该节点下载最快 IP）
+    # 本 worker 结果按延迟升序排（首行即延迟初筛的最优）。下载实测不在这里做：
+    # 所有 worker 停止后由主进程统一串行执行（nt_download_stage），避免与仍在
+    # 探测的其它 worker 争抢 WAN 带宽。
     sort_result "$_rfile" latency
-    if [ "${DL_TEST_ENABLED:-1}" = "1" ]; then
-        nt_download_phase "$_W" "$_rfile" "$_Wn" "${DL_TEST_COUNT:-5}" \
-            "${DL_TEST_URL:-https://speed.cloudflare.com/__down?bytes=10000000}" \
-            "${DL_TEST_TIME:-10}" "$_port" "${_flag}_dl"
-    fi
     # 完成标记：有有效结果写 .done（触发首个有效结果即停），否则写 .end（仅释放并发槽）
     if [ -n "$(first_result_ip "$_rfile")" ]; then
         : > "${_rfile}.done"
@@ -1249,12 +1233,8 @@ node_iterate_worker() {
         mv -f "${_rfile}.prev" "$_rfile"
         echolog "迭代 [${_Wn}] 本会话无通过 IP，沿用上一会话结果"
     fi
-    # 迭代收敛后的下载实测：只测最终通过集中延迟最优的 N 个，按实测吞吐重排（首行即该节点最快 IP）
-    if [ "${DL_TEST_ENABLED:-1}" = "1" ] && [ -n "$(first_result_ip "$_rfile")" ]; then
-        nt_download_phase "$_W" "$_rfile" "$_Wn" "${DL_TEST_COUNT:-5}" \
-            "${DL_TEST_URL:-https://speed.cloudflare.com/__down?bytes=10000000}" \
-            "${DL_TEST_TIME:-10}" "$_port" "${_flag}_dl"
-    fi
+    # 迭代收敛后的下载实测不在这里做：等所有节点都收敛/到点退出后，由主进程
+    # 统一串行执行（nt_download_stage），避免与仍在迭代探测的节点争抢 WAN 带宽。
     # 结束摘要：轮次号落盘（最终轮完整测速结果由合并段统一打出，保证收尾日志逐节点齐全；
     # 不在 worker 退出点打印——提前收敛的节点其结果会被淹没在收尾段之前的进度行里）
     [ "${_lastpass:-0}" -ge 1 ] && echo "${_lastpass}" > "${_rfile}.meta"
@@ -1296,8 +1276,9 @@ node_speed_test() {
     case "$threads" in ''|*[!0-9]*) threads=5 ;; esac
     [ "$threads" -ge 0 ] 2>/dev/null || threads=5
 
-    # ── 下载实测（第二阶段）：延迟初筛后，对每个 worker 延迟最优的 N 个 IP 走同一节点
-    # 链路真实下载固定大小文件，按实测吞吐（MB/s）重排并选最优。开关缺省为开（老配置
+    # ── 下载实测（第二阶段）：延迟初筛后，等所有 worker 停止探测，再由主进程按 worker
+    # 顺序逐 IP 串行实测：对每个 worker 延迟最优的 N 个 IP 走同一节点链路真实下载固定
+    # 大小文件，按实测吞吐（MB/s）重排并选最优。开关缺省为开（老配置
     # 未写入该项时也启用），显式写 0/off 才关闭。
     DL_TEST_ENABLED=1
     case "${download_test_enabled:-1}" in
@@ -1314,8 +1295,8 @@ node_speed_test() {
     case "$DL_TEST_TIME" in ''|*[!0-9]*) DL_TEST_TIME=10 ;; esac
     [ "$DL_TEST_TIME" -ge 1 ] 2>/dev/null || DL_TEST_TIME=10
     [ "$DL_TEST_TIME" -le 60 ] 2>/dev/null || DL_TEST_TIME=60
-    # 下载实测串行锁目录：多个 worker 同时下载会互抢 WAN 带宽，速度数字不可信
-    DL_LOCK_DIR="${RUN_DIR}/.download_test_lock"
+    # 下载实测不在各 worker 内执行：等所有 worker 停止探测后，由主进程按 worker 顺序
+    # 逐 IP 串行实测（nt_download_stage），避免下载与仍在探测的 worker 争抢 WAN 带宽。
 
     # 迭代收敛阈值复用下载实测候选数：收敛到 ≤ N 后，只有延迟最优的 N 个会进入下载实测，
     # 再往下迭代既不会改变下载名单，也不会改变写回的最优 IP，纯耗时不产出。
@@ -1420,7 +1401,7 @@ node_speed_test() {
         else
             echolog "开始走节点测速（多节点并行: ${widx} 个 worker, 每IP探测 ${probes} 次, 超时 ${timeout}s, 并发上限 ${threads}）"
             if [ "$DL_TEST_ENABLED" = "1" ]; then
-                echolog "下载实测已启用：每个 worker 延迟最优的 ${DL_TEST_COUNT} 个 IP 逐 IP 实测下载（${DL_TEST_URL}，单 IP 上限 ${DL_TEST_TIME}s），按实测吞吐选最优"
+                echolog "下载实测已启用：所有 worker 延迟测速结束后，逐节点串行实测每个 worker 延迟最优的 ${DL_TEST_COUNT} 个 IP（${DL_TEST_URL}，单 IP 上限 ${DL_TEST_TIME}s），按实测吞吐选最优"
             fi
             echolog "提示：测速期间所有 worker 节点的 address 会被反复改写，这些节点会短暂抖动，测完各写各的最优 IP"
             # 记录实测过的 worker 集合，供 ip_replace/passwall_best_ip 跳过（保留各节点自己的最优 IP）
@@ -1487,18 +1468,14 @@ node_speed_test() {
                     if nt_scan_running; then _stop=1; break; fi
                     [ -n "$NT_RUNNING" ] && [ "$_stop" != "1" ] && sleep 1
                 done
-                # 提前停止：写停止标志，其余 worker 跑完当前 IP 自行 break 退出，wait 收尸（不 kill）
+                # 提前停止：写停止标志，其余 worker 跑完当前 IP 自行 break 退出，wait 收尸（不 kill）。
+                # 无论用户手动停止还是「首个 worker 完成」的自动提前停止，停止后都不再开启新的
+                # 延迟探测；已通过的 IP 由随后的下载阶段逐节点串行完成实测。
                 if [ "$_stop" = "1" ]; then
-                    # 用户手动停止时（.user_stop 已存在）不能写 .auto_stop：否则其它 worker
-                    # 会跳过二轮下载实测。用户停止的语义是「停第一轮，但把已通过 IP 的下载
-                    # 做完再写回」，所以此处只阻止新一轮延迟探测（.nt_stop），不阻止下载。
                     if [ -f "${RUN_DIR}/.user_stop" ]; then
-                        echolog "用户已停止一轮测速，其余 worker 继续完成各自下载实测"
+                        echolog "用户已停止一轮测速，停止探测后仍会完成各节点已通过 IP 的下载实测"
                     else
-                        echolog "首个有效结果 worker 完成，其余 worker 跑完当前 IP 即停，按已有结果排序"
-                        # .auto_stop 只标记「首个 worker 已完成」的自动提前停止：其余 worker
-                        # 不再排队做下载实测，避免首个 worker 出结果后还串行下载很久。
-                        : > "${RUN_DIR}/.auto_stop"
+                        echolog "首个有效结果 worker 完成，其余 worker 跑完当前 IP 即停，随后串行完成各节点下载实测"
                     fi
                     : > "${RUN_DIR}/.nt_stop"
                     wait  # 各 worker 自行 break → 写 .done/.end → 正常退出，wait 收尸
@@ -1508,6 +1485,9 @@ node_speed_test() {
             # 注意：这里不能删 result.csv.tmp.*.meta——合并段还要读它打逐节点最终结果；
             # .meta 由合并循环逐个删除（随 mwfile），中断残留由 node_test_cleanup 兜底
             rm -f "${RUN_DIR}"/result.csv.tmp.*.done "${RUN_DIR}"/result.csv.tmp.*.end "${RUN_DIR}"/result.csv.tmp.*.pass "${RUN_DIR}"/result.csv.tmp.*.probed "${RUN_DIR}/.nt_stop" 2>/dev/null
+            # 所有 worker 已停止探测 → 进入下载实测阶段（主进程串行，逐 worker 逐 IP）。
+            # 必须放在合并/写回之前：下载结果决定各节点写回哪个最优 IP。
+            nt_download_stage "$NT_ORIG_FILE"
             # ── 提交阶段开始：不可中断 ──
             # 从这里到写回完成是本次运行的「提交点」：此刻若被 SIGINT 打断，EXIT/INT trap 会走
             # nt_rollback 把刚算出的最优 IP 整份回滚掉（历史事故：用户点停止 → 20s 后强杀，
@@ -1629,12 +1609,22 @@ node_speed_test() {
         # 限时迭代：该节点跑独立收敛循环到时限，结果文件同路径，末尾统一合并写回（仅一次）
         echolog "迭代模式：节点 ${NODE_TEST_NODE} 独立收敛循环至时限（${NT_ITER_DEADLINE} 截止）"
         node_iterate_worker 1 "${NODE_TEST_NODE}" "$result_tmp" "$ip_list" "$probe_url" "$timeout" "$probes" 48900 "${NODE_TEST_FLAG_BASE}" "$NT_ITER_DEADLINE"
+    else
+        node_test_worker 1 "${NODE_TEST_NODE}" "${NODE_TEST_ORIG_ADDR}" "$result_tmp" "$ip_list" "$probe_url" "$timeout" "$probes" 48900 "${NODE_TEST_FLAG_BASE}"
+    fi
+
+    # 延迟测速已结束（单节点没有并发 worker），进入下载实测阶段：主进程串行逐 IP 实测。
+    # 放在写回/摘要之前——下载结果决定写回哪个最优 IP，迭代摘要也要带上实测速度。
+    local _dmap="${RUN_DIR}/download_map"
+    printf '1\t%s\t\n' "$NODE_TEST_NODE" > "$_dmap" 2>/dev/null
+    [ -s "$_dmap" ] && nt_download_stage "$_dmap"
+    rm -f "$_dmap"
+
+    if [ "${ITERATE_MODE:-0}" = "1" ]; then
         # 单节点迭代路径无合并段，最终轮完整测速结果在此打出（多 worker 路径在合并段打）
         local _nm
         _nm="$(uci -q get "passwall.${NODE_TEST_NODE}.remarks" 2>/dev/null)"; _nm="${_nm:-${NODE_TEST_NODE}}"
         iterate_log_final_summary "$_nm" "$result_tmp"
-    else
-        node_test_worker 1 "${NODE_TEST_NODE}" "${NODE_TEST_ORIG_ADDR}" "$result_tmp" "$ip_list" "$probe_url" "$timeout" "$probes" 48900 "${NODE_TEST_FLAG_BASE}"
     fi
 
     # ── 提交阶段开始：不可中断（同多 worker 路径：此刻被 INT 打断会触发 nt_rollback 抹掉结果）──

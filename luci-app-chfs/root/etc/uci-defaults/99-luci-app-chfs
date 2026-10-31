@@ -1,0 +1,22 @@
+#!/bin/sh
+# luci-app-chfs 首次安装初始化脚本
+# 仅在包首次安装时执行一次。
+
+[ -f /etc/config/chfs ] || exit 0
+
+# 创建默认日志目录
+mkdir -p /var/log/chfs 2>/dev/null
+
+# 首次安装时若共享目录不存在, 创建一个占位目录, 避免服务启动即失败
+if [ ! -d /mnt/shares ]; then
+	mkdir -p /mnt/shares 2>/dev/null
+fi
+
+# chfs 账户密码所在配置文件权限收紧, 避免明文口令被普通用户读取
+chmod 600 /etc/config/chfs 2>/dev/null
+
+# 清理 LuCI 缓存, 使菜单与视图立即生效
+rm -f /tmp/luci-indexcache 2>/dev/null
+rm -rf /tmp/luci-modulecache 2>/dev/null
+
+exit 0

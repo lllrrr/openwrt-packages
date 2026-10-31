@@ -1,0 +1,335 @@
+#!/bin/sh /etc/rc.common
+# chfs 服务控制脚本
+# 职责: 将 /etc/config/chfs 渲染为 chfs.ini, 并以 procd 托管 chfs 进程.
+
+START=95
+STOP=10
+USE_PROCD=1
+
+PROG=/usr/bin/chfs
+GEN_INI=/var/etc/chfs.ini
+TRASH_MAX_AGE=30
+
+# ---------------------------------------------------------------------------
+# 工具函数
+# ---------------------------------------------------------------------------
+
+# 布尔归一化: UCI 的 1/0 与 chfs 需要的 true/false 之间转换
+bool_yn() {
+	case "$1" in
+		1|on|true|yes|enabled) echo "true" ;;
+		*) echo "false" ;;
+	esac
+}
+
+# ---------------------------------------------------------------------------
+# 校验
+# ---------------------------------------------------------------------------
+
+# 校验端口合法性, 通过返回 0
+validate_port() {
+	local port="$1"
+
+	case "$port" in
+		''|*[!0-9]*) return 1 ;;
+	esac
+	[ "$port" -ge 1 ] 2>/dev/null && [ "$port" -le 65535 ] 2>/dev/null
+}
+
+# 校验共享路径列表, 不存在的目录仅告警不阻断 (可能尚未挂载)
+validate_paths() {
+	local paths="$1"
+	local oldifs="$IFS"
+	local p
+	local rc=0
+
+	IFS='|'
+	for p in $paths; do
+		[ -z "$p" ] && continue
+		if [ ! -d "$p" ]; then
+			logger -t chfs "警告: 共享目录 '$p' 不存在或不是目录"
+			rc=1
+		fi
+	done
+	IFS="$oldifs"
+
+	return $rc
+}
+
+# ---------------------------------------------------------------------------
+# 渲染 chfs.ini
+# ---------------------------------------------------------------------------
+
+render_accounts() {
+	config_foreach _render_one_account account
+}
+
+_render_one_account() {
+	local cfgsec="$1"
+	local name password rule_default rule_none rule_r rule_w rule_d
+
+	config_get name "$cfgsec" name ''
+	config_get password "$cfgsec" password ''
+	config_get rule_default "$cfgsec" rule_default 'r'
+	config_get rule_none "$cfgsec" rule_none ''
+	config_get rule_r "$cfgsec" rule_r ''
+	config_get rule_w "$cfgsec" rule_w ''
+	config_get rule_d "$cfgsec" rule_d ''
+
+	[ -z "$name" ] && return 0
+
+	# 权限值白名单校验, 防止非法值写进 ini 导致 chfs 解析异常
+	case "$rule_default" in
+		none|r|w|d) ;;
+		*)
+			logger -t chfs "账户 '$name' 的默认权限 '$rule_default' 非法, 回退为 r"
+			rule_default='r'
+			;;
+	esac
+
+	echo ""
+	echo "[$name]"
+	echo "password=$password"
+	echo "rule.default=$rule_default"
+
+	[ -n "$rule_none" ] && echo "rule.none=$rule_none"
+	[ -n "$rule_r" ]    && echo "rule.r=$rule_r"
+	[ -n "$rule_w" ]    && echo "rule.w=$rule_w"
+	[ -n "$rule_d" ]    && echo "rule.d=$rule_d"
+
+	return 0
+}
+
+# 单个路径加引号: 含空格时用双引号包住, 空值原样返回
+quote_single_path() {
+	local p="$1"
+
+	[ -z "$p" ] && { printf '%s' ""; return 0; }
+
+	case "$p" in
+		\"*\") printf '%s' "$p" ;;
+		*" "*) printf '%s' "\"$p\"" ;;
+		*)     printf '%s' "$p" ;;
+	esac
+}
+
+# 处理共享路径列表: 上游要求含空格的目录必须用双引号包住,
+# 例如 path="c:\a uply name\folder"。此处逐项检查并补齐引号。
+quote_paths() {
+	local input="$1"
+	local oldifs="$IFS"
+	local p out=""
+
+	IFS='|'
+	for p in $input; do
+		[ -z "$p" ] && continue
+
+		# 含空格且尚未加引号的路径, 补上双引号
+		case "$p" in
+			\"*\") ;;
+			*" "*) p="\"$p\"" ;;
+		esac
+
+		if [ -z "$out" ]; then
+			out="$p"
+		else
+			out="$out|$p"
+		fi
+	done
+	IFS="$oldifs"
+
+	printf '%s' "$out"
+}
+
+render_ini() {
+	local enabled port path allow log_path html_title html_notice
+	local image_preview folder_download session_timeout file_remove
+	local ssl_cert ssl_key
+
+	config_get enabled      main enabled 0
+	config_get port         main port 8080
+	config_get path         main path '/mnt/sda1'
+	config_get allow        main allow ''
+	config_get log_path     main log_path ''
+	config_get html_title   main html_title 'chfs 文件共享'
+	config_get html_notice  main html_notice ''
+	config_get image_preview main image_preview 0
+	config_get folder_download main folder_download 'enable'
+	config_get session_timeout main session_timeout 30
+	config_get file_remove  main file_remove 1
+	config_get ssl_cert     main ssl_cert ''
+	config_get ssl_key      main ssl_key ''
+
+	if ! validate_port "$port"; then
+		logger -t chfs "端口 '$port' 非法, 必须为 1-65535 的整数"
+		return 1
+	fi
+
+	if [ -z "$path" ]; then
+		logger -t chfs "共享根目录为空, 拒绝渲染配置"
+		return 1
+	fi
+
+	validate_paths "$path"
+
+	# 含空格的路径按上游要求加引号
+	path="$(quote_paths "$path")"
+
+	mkdir -p "$(dirname "$GEN_INI")"
+
+	{
+		echo "# 本文件由 /etc/init.d/chfs 自动生成, 请勿手动编辑"
+		echo "# 修改配置请使用 LuCI 界面或 uci set chfs.main.*"
+		echo ""
+		echo "# 监听端口"
+		echo "port=$port"
+		echo ""
+		echo "# 共享根目录, 多个目录以 | 分隔"
+		echo "path=$path"
+		echo ""
+		echo "# IP 地址过滤"
+		echo "allow=$allow"
+		echo ""
+		echo "# 操作日志目录, 留空表示禁用"
+		echo "log=$(quote_single_path "$log_path")"
+		echo ""
+		echo "# 页面标题"
+		echo "html.title=$html_title"
+		echo ""
+		echo "# 页面公告"
+		echo "html.notice=$html_notice"
+		echo ""
+		echo "# 图片缩略图预览"
+		echo "image.preview=$(bool_yn "$image_preview")"
+		echo ""
+		echo "# 下载目录策略: disable / leaf / enable"
+		echo "folder.download=$folder_download"
+		echo ""
+		echo "# 会话超时, 单位分钟"
+		echo "session.timeout=$session_timeout"
+		echo ""
+		echo "# 文件删除模式: 1 系统回收站 / 2 chfs 专属回收站 / 3 直接删除"
+		echo "file.remove=$file_remove"
+
+		if [ -n "$ssl_cert" ] && [ -n "$ssl_key" ]; then
+			echo ""
+			echo "# HTTPS 配置"
+			echo "ssl.cert=$(quote_single_path "$ssl_cert")"
+			echo "ssl.key=$(quote_single_path "$ssl_key")"
+		fi
+
+		echo ""
+		echo "# ------------------- 账户及访问规则 -------------------"
+
+		render_accounts
+	} > "$GEN_INI"
+
+	chmod 600 "$GEN_INI"
+	return 0
+}
+
+# ---------------------------------------------------------------------------
+# procd 接口
+# ---------------------------------------------------------------------------
+
+start_service() {
+	config_load chfs
+
+	local enabled
+	config_get enabled main enabled 0
+
+	if [ "$enabled" != "1" ]; then
+		logger -t chfs "服务未启用, 跳过启动"
+		return 0
+	fi
+
+	if [ ! -x "$PROG" ]; then
+		logger -t chfs "可执行文件 $PROG 不存在或不可执行"
+		return 1
+	fi
+
+	if ! render_ini; then
+		logger -t chfs "配置渲染失败, 拒绝启动"
+		return 1
+	fi
+
+	local syslog run_as port
+	config_get syslog main syslog 1
+	config_get run_as main run_as 'root'
+	config_get port main port 8080
+
+	procd_open_instance
+	procd_set_param command "$PROG" -file "$GEN_INI"
+
+	# chfs 为前台控制台程序, 由 procd 直接托管, 崩溃自动拉起
+	# 参数: 阈值秒 重启间隔秒 重启窗口秒
+	procd_set_param respawn 3600 5 5
+
+	if [ "$syslog" = "1" ]; then
+		procd_set_param stdout 1
+		procd_set_param stderr 1
+	else
+		procd_set_param stdout 0
+		procd_set_param stderr 0
+	fi
+
+	if [ -n "$run_as" ] && [ "$run_as" != "root" ]; then
+		procd_set_param user "$run_as"
+		procd_set_param group "$run_as"
+	fi
+
+	procd_close_instance
+
+	logger -t chfs "服务已启动, 监听端口 $port"
+}
+
+stop_service() {
+	rm -f "$GEN_INI"
+	logger -t chfs "服务已停止"
+}
+
+reload_service() {
+	stop
+	start
+}
+
+service_triggers() {
+	procd_add_reload_trigger "chfs"
+}
+
+# ---------------------------------------------------------------------------
+# 扩展动作, 供 LuCI 后端与命令行调用
+# ---------------------------------------------------------------------------
+
+# 仅重新生成 ini, 不重启服务, 便于排查配置问题
+render_ini_cmd() {
+	config_load chfs
+	if render_ini; then
+		echo "配置已渲染到 $GEN_INI"
+		return 0
+	fi
+	echo "配置渲染失败" >&2
+	return 1
+}
+
+# 输出运行状态: running / stopped
+status_cmd() {
+	if pgrep -f "$PROG -file" >/dev/null 2>&1; then
+		echo "running"
+	else
+		echo "stopped"
+	fi
+}
+
+# 清理 chfs 专属回收站中的过期文件
+clean_trash() {
+	local trash="$HOME/.chfs_trashbin"
+
+	if [ ! -d "$trash" ]; then
+		echo "回收站不存在"
+		return 0
+	fi
+
+	find "$trash" -type f -mtime +"$TRASH_MAX_AGE" -delete 2>/dev/null
+	echo "已清理 $TRASH_MAX_AGE 天前的回收站文件"
+}

@@ -1,0 +1,249 @@
+/*
+ * luci-app-chfs 样式
+ *
+ * 全部颜色基于 LuCI 官方 CSS 变量, 自动适配明暗主题,
+ * 不硬编码具体色值, 以跟随用户所选主题。
+ */
+
+/* --------------------------------------------------------------------------
+ * 状态行
+ * -------------------------------------------------------------------------- */
+
+.chfs-status-line {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 12px;
+	line-height: 1.8;
+}
+
+.chfs-status-line .cbi-label {
+	font-weight: 600;
+}
+
+.chfs-meta {
+	font-size: 90%;
+	opacity: 0.72;
+	white-space: nowrap;
+}
+
+/* --------------------------------------------------------------------------
+ * 卡片容器
+ * -------------------------------------------------------------------------- */
+
+.chfs-card,
+.chfs-status-page .chfs-card {
+	background: var(--background-color-medium, #f5f5f5);
+	border: 1px solid var(--border-color-medium, rgba(0, 0, 0, 0.12));
+	border-radius: 4px;
+	padding: 12px 16px;
+	margin: 0 0 16px 0;
+}
+
+.chfs-card > h3 {
+	margin: 0 0 12px 0;
+	padding-bottom: 8px;
+	font-size: 105%;
+	font-weight: 600;
+	border-bottom: 1px solid var(--border-color-low, rgba(0, 0, 0, 0.08));
+	color: var(--text-color-high, inherit);
+}
+
+/* --------------------------------------------------------------------------
+ * 键值对展示
+ * -------------------------------------------------------------------------- */
+
+.chfs-kv {
+	display: flex;
+	align-items: baseline;
+	padding: 4px 0;
+	gap: 8px;
+	line-height: 1.7;
+}
+
+.chfs-kv-key {
+	flex: 0 0 9em;
+	color: var(--text-color-medium, rgba(0, 0, 0, 0.62));
+	font-size: 94%;
+}
+
+.chfs-kv-val {
+	flex: 1 1 auto;
+	word-break: break-all;
+	color: var(--text-color-high, inherit);
+}
+
+/* 等宽字体用于地址、状态码、配置内容等精确信息 */
+.chfs-mono {
+	font-family: var(--font-family-monospace,
+		Menlo, Monaco, Consolas, "Liberation Mono", monospace);
+	font-size: 92%;
+}
+
+/* --------------------------------------------------------------------------
+ * 提示与告警
+ * -------------------------------------------------------------------------- */
+
+.chfs-note {
+	margin: 10px 0 0 0;
+	padding: 8px 10px;
+	font-size: 92%;
+	line-height: 1.7;
+	color: var(--text-color-medium, rgba(0, 0, 0, 0.62));
+	background: var(--background-color-low, rgba(0, 0, 0, 0.03));
+	border-left: 3px solid var(--border-color-medium, rgba(0, 0, 0, 0.15));
+	border-radius: 2px;
+}
+
+.chfs-note-warn {
+	border-left-color: var(--warn-color-medium, #e8a33d);
+	color: var(--text-color-high, inherit);
+}
+
+.chfs-alert {
+	margin: 8px 0;
+	padding: 10px 12px;
+	border-radius: 3px;
+	font-size: 94%;
+	line-height: 1.7;
+}
+
+.chfs-alert-warn {
+	background: var(--background-color-warning, rgba(232, 163, 61, 0.12));
+	border: 1px solid var(--warn-color-low, rgba(232, 163, 61, 0.4));
+	color: var(--text-color-high, inherit);
+}
+
+/* --------------------------------------------------------------------------
+ * 配置内容展示
+ * -------------------------------------------------------------------------- */
+
+.chfs-pre {
+	margin: 10px 0 0 0;
+	padding: 12px 14px;
+	max-height: 30em;
+	overflow: auto;
+	font-family: var(--font-family-monospace,
+		Menlo, Monaco, Consolas, "Liberation Mono", monospace);
+	font-size: 90%;
+	line-height: 1.6;
+	white-space: pre;
+	tab-size: 4;
+	color: var(--text-color-high, inherit);
+	background: var(--background-color-low, rgba(0, 0, 0, 0.04));
+	border: 1px solid var(--border-color-low, rgba(0, 0, 0, 0.08));
+	border-radius: 3px;
+}
+
+/* --------------------------------------------------------------------------
+ * 按钮区
+ * -------------------------------------------------------------------------- */
+
+.chfs-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+	margin-top: 10px;
+}
+
+.chfs-actions .btn {
+	margin: 0;
+}
+
+.chfs-hint {
+	font-size: 90%;
+	color: var(--text-color-medium, rgba(0, 0, 0, 0.62));
+	margin-left: 4px;
+}
+
+/* --------------------------------------------------------------------------
+ * 账户表格
+ * -------------------------------------------------------------------------- */
+
+.cbi-section-table .chfs-rule-cell {
+	min-width: 12em;
+}
+
+/* --------------------------------------------------------------------------
+ * 数据表格 (内核管理页)
+ * -------------------------------------------------------------------------- */
+
+.chfs-table {
+	width: 100%;
+	margin-top: 10px;
+	border-collapse: collapse;
+	font-size: 94%;
+}
+
+.chfs-table th,
+.chfs-table td {
+	padding: 6px 8px;
+	text-align: left;
+	vertical-align: middle;
+	border-bottom: 1px solid var(--border-color-low, rgba(0, 0, 0, 0.08));
+	color: var(--text-color-high, inherit);
+}
+
+.chfs-table th {
+	font-size: 90%;
+	font-weight: 600;
+	color: var(--text-color-medium, rgba(0, 0, 0, 0.62));
+	white-space: nowrap;
+	border-bottom-width: 2px;
+}
+
+.chfs-table tr:last-child td {
+	border-bottom: none;
+}
+
+/* 操作列右对齐, 且按钮不换行 */
+.chfs-table .chfs-col-action {
+	text-align: right;
+	white-space: nowrap;
+}
+
+.chfs-table .chfs-col-action .chfs-actions {
+	margin-top: 0;
+	justify-content: flex-end;
+}
+
+/* URL 列允许换行, 避免长地址把表格撑破 */
+.chfs-table .chfs-url-cell {
+	max-width: 28em;
+	word-break: break-all;
+}
+
+/* --------------------------------------------------------------------------
+ * 文件选择与上传
+ * -------------------------------------------------------------------------- */
+
+.chfs-file-input {
+	max-width: 100%;
+}
+
+/* --------------------------------------------------------------------------
+ * 窄屏适配
+ * -------------------------------------------------------------------------- */
+
+@media screen and (max-width: 600px) {
+	.chfs-kv {
+		display: block;
+	}
+
+	.chfs-kv-key {
+		display: block;
+		flex: none;
+		margin-bottom: 2px;
+	}
+
+	.chfs-kv-val {
+		display: block;
+	}
+
+	/* 窄屏下表格允许横向滚动, 保证按钮仍可点到 */
+	.chfs-table {
+		display: block;
+		overflow-x: auto;
+	}
+}

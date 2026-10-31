@@ -1,0 +1,617 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: luci-app-chfs 1.0.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-09-19 10:20+0800\n"
+"PO-Revision-Date: 2026-09-19 10:20+0800\n"
+"Last-Translator: LianXia233\n"
+"Language-Team: Chinese (Simplified)\n"
+"Language: zh_Hans\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+
+msgid "Deny access"
+msgstr "禁止访问"
+
+msgid "Read-only"
+msgstr "只读"
+
+msgid "Read-write"
+msgstr "读写"
+
+msgid "Full control (including delete)"
+msgstr "完全控制 (含删除)"
+
+msgid "Accounts and permissions"
+msgstr "账户与权限"
+
+msgid "Each account corresponds to one [account-name] section in the chfs configuration file. guest is the visitor account used for anonymous access and cannot be removed. Permission rules apply per directory; separate multiple directories with a vertical bar |."
+msgstr "每个账户对应 chfs 配置文件中的一个 [账户名] 段。guest 为访客账户, 用于匿名访问, 不可删除。权限规则按目录生效, 多个目录用竖线 | 分隔。"
+
+msgid "Account list"
+msgstr "账户列表"
+
+msgid "The default permission applies to all directories. Per-directory rules may be set to override it."
+msgstr "默认权限作用于所有目录, 可再针对特定子目录单独设定权限以覆盖默认值。"
+
+msgid "Account name"
+msgstr "账户名"
+
+msgid "Account name must not be empty"
+msgstr "账户名不能为空"
+
+msgid "Account name must not contain spaces, brackets or similar characters"
+msgstr "账户名不能包含空格、方括号等字符"
+
+msgid "Account name already exists"
+msgstr "账户名已存在"
+
+msgid "Password"
+msgstr "密码"
+
+msgid "Leave empty for no password"
+msgstr "留空表示无密码"
+
+msgid "Default permission"
+msgstr "默认权限"
+
+msgid "Denied directories"
+msgstr "禁止访问目录"
+
+msgid "Read-only directories"
+msgstr "只读目录"
+
+msgid "Read-write directories"
+msgstr "读写目录"
+
+msgid "Full control directories"
+msgstr "完全控制目录"
+
+msgid "guest is the visitor account used for anonymous access and cannot be removed."
+msgstr "guest 为访客账户, 用于匿名访问, 不可删除。"
+
+msgid "chfs binary not installed"
+msgstr "未安装 chfs 程序"
+
+msgid "Running"
+msgstr "运行中"
+
+msgid "Enabled but not running"
+msgstr "已启用但未运行"
+
+msgid "Stopped"
+msgstr "已停止"
+
+msgid "chfs File Sharing"
+msgstr "chfs 文件共享"
+
+msgid "CuteHttpFileServer is an HTTP-based file sharing server. Use this page to configure the service; changes take effect after a restart."
+msgstr "CuteHttpFileServer 是一个基于 HTTP 协议的文件共享服务器。本页面用于配置服务参数, 保存后需重启服务方可生效。"
+
+msgid "Running status"
+msgstr "运行状态"
+
+msgid "PID"
+msgstr "进程号"
+
+msgid "Memory usage"
+msgstr "内存占用"
+
+msgid "Port"
+msgstr "端口"
+
+msgid "The port setting has changed but the service has not been restarted; the old configuration is still active. Restart the service to apply it."
+msgstr "端口配置已修改但服务尚未重启, 当前运行的是旧配置, 请点击重启服务使其生效。"
+
+msgid "Service control"
+msgstr "服务控制"
+
+msgid "Service action"
+msgstr "服务操作"
+
+msgid "Success"
+msgstr "成功"
+
+msgid "Start"
+msgstr "启动"
+
+msgid "Stop"
+msgstr "停止"
+
+msgid "Restart"
+msgstr "重启"
+
+msgid "Note: the service is currently disabled. Save the configuration and tick \"Enable service\" first."
+msgstr "提示: 服务当前处于未启用状态, 请先保存配置并勾选\"启用服务\"。"
+
+msgid "Enable service"
+msgstr "启用服务"
+
+msgid "When disabled the service will not start at boot and cannot be started from this page."
+msgstr "关闭后服务不会随系统启动, 且无法在界面中启动。"
+
+msgid "Listening port"
+msgstr "监听端口"
+
+msgid "HTTP listening port, range 1-65535. Ports below 1024 require root privileges."
+msgstr "HTTP 服务监听端口, 取值 1-65535。小于 1024 的端口需要 root 身份运行。"
+
+msgid "Port must be an integer between 1 and 65535"
+msgstr "端口必须是 1-65535 之间的整数"
+
+msgid "Shared root directory"
+msgstr "共享根目录"
+
+msgid "Directories to share. Separate multiple directories with a vertical bar |, e.g. /mnt/sda1|/tmp/share. Leaving this empty prevents the service from starting."
+msgstr "需要共享的目录。多个目录之间用竖线 | 分隔, 例如 /mnt/sda1|/tmp/share。留空将导致服务无法启动。"
+
+msgid "Shared root directory must not be empty"
+msgstr "共享根目录不能为空"
+
+msgid "Run as user"
+msgstr "运行身份"
+
+msgid "Running as a non-root user is recommended to reduce risk. Ensure that user has proper read/write permissions on the shared directories."
+msgstr "建议使用非 root 身份运行以降低风险。需确保该用户对共享目录有相应读写权限。"
+
+msgid "root (full privileges)"
+msgstr "root (最高权限)"
+
+msgid "nobody (restricted privileges)"
+msgstr "nobody (受限权限)"
+
+msgid "Allow anonymous access"
+msgstr "允许匿名访问"
+
+msgid "When enabled, unauthenticated users access as the guest account with the rules configured for guest."
+msgstr "启用后未登录用户以 guest 账户身份访问, 权限由账户列表中 guest 的规则决定。"
+
+msgid "IP allowlist"
+msgstr "IP 白名单"
+
+msgid "Only allow access from the listed addresses. Leave empty for no restriction. Single addresses such as 192.168.1.10 and subnets such as 192.168.1.0/24 are supported; separate multiple entries with a vertical bar |."
+msgstr "仅允许列表中的地址访问, 留空表示不限制。支持单个地址 192.168.1.10 与网段 192.168.1.0/24, 多条用竖线 | 分隔。"
+
+msgid "Invalid IP rule format"
+msgstr "IP 规则格式非法"
+
+msgid "Directory download policy"
+msgstr "目录下载策略"
+
+msgid "Controls whether whole directories may be downloaded as archives."
+msgstr "控制是否允许将整个目录打包下载。"
+
+msgid "Allow (unrestricted)"
+msgstr "允许 (不限制)"
+
+msgid "Leaf directories only"
+msgstr "仅限叶子目录 (不含子目录时)"
+
+msgid "Disable directory download"
+msgstr "禁用目录下载"
+
+msgid "File removal method"
+msgstr "文件删除方式"
+
+msgid "Strategy applied when deleting files."
+msgstr "删除文件时采用的处理策略。"
+
+msgid "Move to system trash"
+msgstr "移入系统回收站"
+
+msgid "Move to chfs trash bin (~/.chfs_trashbin)"
+msgstr "移入 chfs 专属回收站 (~/.chfs_trashbin)"
+
+msgid "Delete permanently"
+msgstr "直接永久删除"
+
+msgid "Session timeout"
+msgstr "会话超时"
+
+msgid "Validity period of a login session in minutes, range 1-1440."
+msgstr "登录会话的有效期, 单位分钟, 取值 1-1440。"
+
+msgid "Enable image thumbnails"
+msgstr "启用图片缩略图"
+
+msgid "Show thumbnails for image files in the web UI. Enabling this increases server-side computation overhead."
+msgstr "在网页中显示图片文件的缩略图。开启后会增加服务端计算开销。"
+
+msgid "Operation log directory"
+msgstr "操作日志目录"
+
+msgid "Directory for user operation logs. Leave empty to disable logging."
+msgstr "记录用户操作日志的目录, 留空表示禁用日志。"
+
+msgid "Output to syslog"
+msgstr "输出到系统日志"
+
+msgid "Redirect service stdout to syslog, viewable via logread."
+msgstr "将服务标准输出接入系统日志, 可通过 logread 查看。"
+
+msgid "Page title"
+msgstr "页面标题"
+
+msgid "Page notice"
+msgstr "页面公告"
+
+msgid "Notice shown at the top of the page. Plain text, or an HTML fragment wrapped in backticks."
+msgstr "显示在页面顶部的公告内容。可填写纯文本, 或用反引号包裹 HTML 片段。"
+
+msgid "HTTPS certificate path"
+msgstr "HTTPS 证书路径"
+
+msgid "Path to the certificate file. Both certificate and private key must be set to enable HTTPS; the listening port is normally 443 then."
+msgstr "证书文件路径。证书与私钥必须同时填写才启用 HTTPS, 此时监听端口通常应设为 443。"
+
+msgid "HTTPS private key path"
+msgstr "HTTPS 私钥路径"
+
+msgid "Path to the private key file. Must be used together with the certificate."
+msgstr "私钥文件路径。需与证书文件配套。"
+
+msgid "Configuration saved, service restarted"
+msgstr "配置已保存, 服务已重启"
+
+msgid "Configuration saved. Changes take effect after restarting the service."
+msgstr "配置已保存。修改需重启服务后生效。"
+
+msgid "Please wait"
+msgstr "请稍候"
+
+msgid "Executing %s ..."
+msgstr "正在执行 %s ..."
+
+msgid "Operation succeeded"
+msgstr "操作成功"
+
+msgid "Operation failed"
+msgstr "操作失败"
+
+msgid "Unknown error"
+msgstr "未知错误"
+
+msgid "Request failed"
+msgstr "请求失败"
+
+msgid "chfs Service Status"
+msgstr "chfs 服务状态"
+
+msgid "Data on this page is obtained by live probing and reflects the real running state of the service."
+msgstr "本页数据通过实际探测获取, 反映服务真实运行状态。"
+
+msgid "Process information"
+msgstr "进程信息"
+
+msgid "Start on boot"
+msgstr "开机自启"
+
+msgid "Enabled"
+msgstr "已启用"
+
+msgid "Disabled"
+msgstr "未启用"
+
+msgid "Program file"
+msgstr "程序文件"
+
+msgid "Present"
+msgstr "存在"
+
+msgid "Missing (/usr/bin/chfs)"
+msgstr "缺失 (/usr/bin/chfs)"
+
+msgid "Configuration file"
+msgstr "配置文件"
+
+msgid "Generated (/var/etc/chfs.ini)"
+msgstr "已生成 (/var/etc/chfs.ini)"
+
+msgid "Not generated"
+msgstr "未生成"
+
+msgid "The configured port differs from the running instance. Please restart the service."
+msgstr "配置中的端口与运行中实例不一致, 请重启服务。"
+
+msgid "Listening"
+msgstr "监听中"
+
+msgid "Not listening"
+msgstr "未监听"
+
+msgid "Port listening"
+msgstr "端口监听"
+
+msgid "Configured port"
+msgstr "配置端口"
+
+msgid "Listen status"
+msgstr "监听状态"
+
+msgid "Available"
+msgstr "可用"
+
+msgid "Service is not running, cannot probe"
+msgstr "服务未运行, 无法探测"
+
+msgid "Unavailable"
+msgstr "不可用"
+
+msgid "WebDAV access"
+msgstr "WebDAV 访问"
+
+msgid "Probe result"
+msgstr "探测结果"
+
+msgid "HTTP status code"
+msgstr "HTTP 状态码"
+
+msgid "Access protocol"
+msgstr "访问协议"
+
+msgid "Access address"
+msgstr "访问地址"
+
+msgid "Since version 1.10 chfs supports WebDAV by default. It shares the same port, the same account rules and the same IP allowlist as HTTP, with no extra switch. Replace <host> in the address with the actual IP or domain of the router."
+msgstr "chfs 自 1.10 版本起默认支持 WebDAV, 与 HTTP 共用同一端口、同一套账户权限与 IP 白名单规则, 无需额外开启。地址中的 <主机地址> 请替换为路由器的实际 IP 或域名。"
+
+msgid "Address copied"
+msgstr "地址已复制"
+
+msgid "Please copy manually"
+msgstr "请手动复制"
+
+msgid "Copy WebDAV address"
+msgstr "复制 WebDAV 地址"
+
+msgid "Generated configuration file"
+msgstr "生成的配置文件"
+
+msgid "The following is the actual chfs.ini read by the service (located at /var/etc/chfs.ini), rendered automatically from the UCI configuration."
+msgstr "以下为服务实际读取的 chfs.ini 内容 (位于 /var/etc/chfs.ini), 由 UCI 配置自动渲染生成。"
+
+msgid "The configuration file has not been generated yet. Start the service once first."
+msgstr "配置文件尚未生成, 请先启动一次服务。"
+
+msgid "Refresh status"
+msgstr "刷新状态"
+
+msgid "NAS"
+msgstr "网络存储"
+
+msgid "Service Status"
+msgstr "服务状态"
+
+msgid "Service settings"
+msgstr "服务设置"
+
+msgid "bytes"
+msgstr "字节"
+
+msgid "Unknown"
+msgstr "未知"
+
+msgid "Matches"
+msgstr "匹配"
+
+msgid "Mismatch"
+msgstr "不匹配"
+
+msgid "chfs kernel management"
+msgstr "chfs 内核管理"
+
+msgid "Replace the chfs binary used by the service. Kernels can be downloaded from this project repository or uploaded manually; either way the file is placed in a pending area first and only written to the program path after you confirm, so a wrong or unreadable binary never silently replaces a working one."
+msgstr "替换服务使用的 chfs 可执行文件。内核既可从本仓库下载, 也可手动上传; 两种方式都会先保存到待安装区, 只有在你确认之后才会写入程序路径, 因此出错或无法运行的文件不会悄悄覆盖当前可用的内核。"
+
+msgid "Current kernel"
+msgstr "当前内核"
+
+msgid "The chfs binary was not found. Install the chfs package or use one of the options below."
+msgstr "未找到 chfs 可执行文件。请安装 chfs 包, 或使用下方的任一方式获取。"
+
+msgid "Device architecture"
+msgstr "设备架构"
+
+msgid "Kernel branch"
+msgstr "内核分支"
+
+msgid "Program path"
+msgstr "程序路径"
+
+msgid "File size"
+msgstr "文件大小"
+
+msgid "Architecture"
+msgstr "架构"
+
+msgid "SHA256"
+msgstr "SHA256"
+
+msgid "Expected version"
+msgstr "预期版本"
+
+msgid "Click \"Detect sources\" to check which download sources are reachable from this device. Detection issues a HEAD request to each candidate and does not download any payload."
+msgstr "点击「检测下载源」可检查本设备能访问哪些下载源。检测只对每个候选源发起 HEAD 请求, 不会下载任何内容。"
+
+msgid "Detect sources"
+msgstr "检测下载源"
+
+msgid "One-click download"
+msgstr "一键下载"
+
+msgid "Download a kernel built for this device from this project repository. The file is saved to the pending area and is not installed automatically."
+msgstr "从本仓库下载适配本设备的内核。文件会保存到待安装区, 不会自动安装。"
+
+msgid "No file selected"
+msgstr "未选择文件"
+
+msgid "Please choose a file first"
+msgstr "请先选择文件"
+
+msgid "Upload"
+msgstr "上传"
+
+msgid "Manual upload"
+msgstr "手动上传"
+
+msgid "Upload a chfs binary from your computer. This is the fallback when the device cannot reach any download source. The file is saved to the pending area and must be installed afterwards."
+msgstr "从本机上传 chfs 可执行文件。当设备无法访问任何下载源时可用此方式兜底。文件会保存到待安装区, 之后需手动安装。"
+
+msgid "Pending files"
+msgstr "待安装文件"
+
+msgid "Files in the pending area. Installing one will stop the service, replace the program file and start it again."
+msgstr "待安装区中的文件。安装某个文件会停止服务、替换程序文件, 然后重新启动服务。"
+
+msgid "No pending files."
+msgstr "暂无待安装文件。"
+
+msgid "Install this kernel?"
+msgstr "安装该内核?"
+
+msgid "The service will be stopped, %s will be replaced and the service will be started again. The current kernel is backed up first."
+msgstr "服务将被停止, %s 将被替换, 随后服务会重新启动。当前内核会先被备份。"
+
+msgid "Install"
+msgstr "安装"
+
+msgid "Installing kernel ..."
+msgstr "正在安装内核 ..."
+
+msgid "Kernel installed"
+msgstr "内核已安装"
+
+msgid "Delete this file?"
+msgstr "删除该文件?"
+
+msgid "The file will be removed from the pending area. This does not affect the running kernel."
+msgstr "文件将从待安装区移除, 不影响正在运行的内核。"
+
+msgid "Delete"
+msgstr "删除"
+
+msgid "Deleting file ..."
+msgstr "正在删除文件 ..."
+
+msgid "File deleted"
+msgstr "文件已删除"
+
+msgid "Not an ELF file"
+msgstr "非 ELF 文件"
+
+msgid "File name"
+msgstr "文件名"
+
+msgid "Size"
+msgstr "大小"
+
+msgid "ELF architecture"
+msgstr "ELF 架构"
+
+msgid "Actions"
+msgstr "操作"
+
+msgid "Backups"
+msgstr "备份"
+
+msgid "A backup of the program file is created automatically before every install. Rolling back replaces the running binary with the selected backup."
+msgstr "每次安装前会自动备份程序文件。回滚会用选定的备份替换正在运行的可执行文件。"
+
+msgid "No backups available."
+msgstr "暂无可用备份。"
+
+msgid "Roll back to this backup?"
+msgstr "回滚到该备份?"
+
+msgid "The running kernel will be replaced by this backup and the service will be restarted. The backup file itself is kept."
+msgstr "正在运行的内核将被该备份替换, 服务会重新启动。备份文件本身会保留。"
+
+msgid "Roll back"
+msgstr "回滚"
+
+msgid "Rolling back ..."
+msgstr "正在回滚 ..."
+
+msgid "Rolled back"
+msgstr "已回滚"
+
+msgid "Backup file"
+msgstr "备份文件"
+
+msgid "Safety notes"
+msgstr "安全提示"
+
+msgid "The kernel runs as root. Only install binaries from sources you trust; a binary that fails to start will leave the service down until it is rolled back."
+msgstr "内核以 root 身份运行。请只安装来自可信来源的可执行文件; 无法启动的文件会导致服务中断, 需回滚后才能恢复。"
+
+msgid "Refresh"
+msgstr "刷新"
+
+msgid "Detecting download sources, please wait ..."
+msgstr "正在检测下载源, 请稍候 ..."
+
+msgid "Detection failed"
+msgstr "检测失败"
+
+msgid "Download this kernel?"
+msgstr "下载该内核?"
+
+msgid "The file will be downloaded to the pending area. The running kernel is not touched until you click Install."
+msgstr "文件将下载到待安装区。在点击「安装」之前, 不会改动正在运行的内核。"
+
+msgid "Download"
+msgstr "下载"
+
+msgid "Downloading kernel, this may take a while ..."
+msgstr "正在下载内核, 可能需要一段时间 ..."
+
+msgid "Download finished"
+msgstr "下载完成"
+
+msgid "Transport used"
+msgstr "使用的传输工具"
+
+msgid "Download source"
+msgstr "下载源"
+
+msgid "URL"
+msgstr "地址"
+
+msgid "Status"
+msgstr "状态"
+
+msgid "HTTP code"
+msgstr "HTTP 状态码"
+
+msgid "Network error"
+msgstr "网络错误"
+
+msgid "Upload finished"
+msgstr "上传完成"
+
+msgid "Review the pending list below and click Install to apply it."
+msgstr "请在下方待安装列表中核对, 然后点击「安装」应用。"
+
+msgid "Upload failed"
+msgstr "上传失败"
+
+msgid "Confirm"
+msgstr "确定"
+
+msgid "Cancel"
+msgstr "取消"
+
+msgid "Kernel management"
+msgstr "内核管理"
+
+msgid "WebUI access"
+msgstr "WebUI 访问"
+
+msgid "Open WebUI"
+msgstr "打开 WebUI"
+
+msgid "The service is not running; starting it will make the WebUI reachable at this address."
+msgstr "服务未运行; 启动后即可通过该地址访问 WebUI。"

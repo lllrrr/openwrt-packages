@@ -1,0 +1,11 @@
+# chfs 3.1 prebuilt binaries
+# upstream: http://iscute.cn/tar/chfs/3.1/chfs-linux-<arch>-3.1.zip
+# regen:    python tools/fetch_chfs.py
+#
+# 说明: 上游 iscute.cn 的 TLS 证书已过期, 且下载经常中断
+#       (实测 10 个架构中有 4 个因连接提前结束而下载不完整),
+#       故将二进制预先入库, 云编译不再依赖实时下载。
+#
+# arch	original_name	size	sha256
+amd64	chfs-linux-amd64-3.1	8720384	763a557c7b6916a496639a715cd8d6ff1dbb6c15b73bed060a705797d434c6a6
+arm64	chfs-linux-arm64-3.1	8388608	78ed31c12b7f1c9679867d5cc9051cc1174740bb88b939eaf32b14436b6d3e53

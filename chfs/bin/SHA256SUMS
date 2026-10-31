@@ -1,0 +1,17 @@
+# chfs 预置二进制校验值
+#
+# 格式: <sha256>  <架构目录名>
+# 架构目录名与 chfs/bin/<arch>/chfs 对应, 与路由器 uname -m 的映射关系为:
+#   aarch64 -> arm64
+#   x86_64  -> amd64
+#
+# 用途:
+#   1. 云编译校验入库二进制未被篡改
+#   2. LuCI 插件的「一键下载内核」在下载后校验完整性
+#   3. 手工核对: sha256sum chfs/bin/arm64/chfs
+#
+# 二进制来源: 上游 http://iscute.cn/tar/chfs/3.1/chfs-linux-<arch>-3.1.zip
+# 上游未公布校验值, 本文件记录的均为本仓库实测值, 作为比对基线使用。
+
+78ed31c12b7f1c9679867d5cc9051cc1174740bb88b939eaf32b14436b6d3e53  arm64
+763a557c7b6916a496639a715cd8d6ff1dbb6c15b73bed060a705797d434c6a6  amd64

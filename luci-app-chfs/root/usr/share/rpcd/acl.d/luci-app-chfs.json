@@ -1,0 +1,60 @@
+{
+	"luci-app-chfs": {
+		"description": "Grant UCI and ubus access for luci-app-chfs",
+		"read": {
+			"uci": [ "chfs" ],
+			"ubus": {
+				"service": [ "list" ],
+				"luci.chfs": [
+					"read_config",
+					"status",
+					"read_ini",
+					"preview_ini",
+					"probe_listen",
+					"probe_webdav",
+					"kernel_info",
+					"kernel_sources",
+					"kernel_pending",
+					"kernel_backups"
+				]
+			},
+			"file": {
+				"/etc/init.d/chfs": [ "read" ],
+				"/usr/bin/chfs": [ "read" ],
+				"/var/etc/chfs.ini": [ "read" ],
+				"/etc/luci-uploads/*": [ "read" ],
+				"/etc/chfs/kernel-backup/*": [ "read" ]
+			}
+		},
+		"write": {
+			"uci": [ "chfs" ],
+			"ubus": {
+				"service": [ "list" ],
+				"luci.chfs": [
+					"read_config",
+					"write_config",
+					"init_action",
+					"status",
+					"read_ini",
+					"preview_ini",
+					"probe_listen",
+					"probe_webdav",
+					"kernel_info",
+					"kernel_sources",
+					"kernel_pending",
+					"kernel_backups",
+					"kernel_download",
+					"kernel_install",
+					"kernel_restore",
+					"kernel_discard"
+				]
+			},
+			"file": {
+				"/etc/init.d/chfs": [ "exec" ],
+				"/usr/bin/chfs": [ "exec" ],
+				"/etc/luci-uploads/*": [ "write" ],
+				"/etc/chfs/kernel-backup/*": [ "write" ]
+			}
+		}
+	}
+}
