@@ -1,0 +1,638 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: luci-app-gately-plus\n"
+"Language: zh_Hans\n"
+"Language-Team: Chinese (Simplified)\n"
+"PO-Revision-Date: 2026-10-27 00:00+0800\n"
+"Last-Translator: Gately Packager\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid "(triggers daily, interval is enforced by the script)"
+msgstr "（每天触发，实际间隔由脚本判定）"
+
+msgid "Access Info"
+msgstr "访问信息"
+
+msgid "Advanced: 5-field cron expression, overrides the two items above when valid. Leave empty to generate automatically."
+msgstr "高级用法：5 段式 cron 表达式，填写合法内容后将覆盖上面两项；留空则自动生成。"
+
+msgid "Already up to date (%s)"
+msgstr "已是最新版本（%s）"
+
+msgid "Another update is already running"
+msgstr "已有更新任务在运行"
+
+msgid "Arch"
+msgstr "架构"
+
+msgid "Architecture"
+msgstr "架构"
+
+msgid "Auto Update"
+msgstr "自动更新"
+
+msgid "Auto Update Log"
+msgstr "自动更新日志"
+
+msgid "Auto update settings saved."
+msgstr "自动更新设置已保存。"
+
+msgid "Background Decoration"
+msgstr "背景装饰"
+
+msgid "Backup restored successfully."
+msgstr "备份恢复成功。"
+
+msgid "Basic Service"
+msgstr "基本服务"
+
+msgid "Binary Path"
+msgstr "二进制路径"
+
+msgid "Binary path must be a non-empty absolute path."
+msgstr "二进制路径必须是非空的绝对路径。"
+
+msgid "Build Date"
+msgstr "构建日期"
+
+msgid "Cache cleared."
+msgstr "缓存已清理。"
+
+msgid "Cancel"
+msgstr "取消"
+
+msgid "Card Background"
+msgstr "卡片背景"
+
+msgid "Check and install the latest version right now?"
+msgstr "立即检查并安装最新版本？"
+
+msgid "Checking upstream…"
+msgstr "正在检查上游…"
+
+msgid "Check Interval (days)"
+msgstr "检查间隔（天）"
+
+msgid "Check Upstream"
+msgstr "检查上游"
+
+msgid "Clear all update cache and logs?"
+msgstr "清除所有更新缓存和日志？"
+
+msgid "Clear Cache"
+msgstr "清除缓存"
+
+msgid "Clear failed."
+msgstr "清除失败。"
+
+msgid "Click a file to restore it:"
+msgstr "点击文件进行恢复："
+
+msgid "Click to check for updates"
+msgstr "点击检查更新"
+
+msgid "Close"
+msgstr "关闭"
+
+msgid "Color Customization"
+msgstr "颜色自定义"
+
+msgid "Commit"
+msgstr "提交哈希"
+
+msgid "Complete"
+msgstr "完成"
+
+msgid "Config directory is not set"
+msgstr "未设置配置目录"
+
+msgid "Cores:"
+msgstr "核心数："
+
+msgid "CPU Usage"
+msgstr "CPU 使用率"
+
+msgid "Crash Threshold (s)"
+msgstr "崩溃阈值（秒）"
+
+msgid "Current Installation"
+msgstr "当前安装信息"
+
+msgid "Custom Cron"
+msgstr "自定义 Cron"
+
+msgid "d"
+msgstr "天"
+
+msgid "Daily Run Time"
+msgstr "执行时刻"
+
+msgid "Data Dir"
+msgstr "数据目录"
+
+msgid "Data Directory"
+msgstr "数据目录"
+
+msgid "Data directory must be a non-empty absolute path."
+msgstr "数据目录必须是非空的绝对路径。"
+
+msgid "Delay before starting after boot (only when uptime < 120s)"
+msgstr "开机后延迟启动（仅在启动时间小于 120 秒时生效）"
+
+msgid "Delayed Start (s)"
+msgstr "延迟启动（秒）"
+
+msgid "Detected:"
+msgstr "检测到："
+
+msgid "Done"
+msgstr "完成"
+
+msgid "Downloaded file is empty"
+msgstr "下载的文件为空"
+
+msgid "Download failed"
+msgstr "下载失败"
+
+msgid "Download Gately Core"
+msgstr "下载 Gately 核心"
+
+msgid "Downloading…"
+msgstr "正在下载…"
+
+msgid "Download URL not found"
+msgstr "未找到下载地址"
+
+msgid "Effective cron: %s"
+msgstr "生效的 Cron：%s"
+
+msgid "Effective Schedule"
+msgstr "生效计划"
+
+msgid "Enable Auto Update"
+msgstr "启用自动更新"
+
+msgid "Enable Gately"
+msgstr "启用 Gately"
+
+msgid "Error"
+msgstr "错误"
+
+msgid "Extract failed"
+msgstr "解压失败"
+
+msgid "Failed"
+msgstr "失败"
+
+msgid "Failed to start"
+msgstr "启动失败"
+
+msgid "Failed to start check"
+msgstr "无法启动检查"
+
+msgid "Failed to start install"
+msgstr "无法启动安装"
+
+msgid "Failed to start, please check the log."
+msgstr "启动失败，请检查日志。"
+
+msgid "File:"
+msgstr "文件："
+
+msgid "File not found"
+msgstr "文件未找到"
+
+msgid "Follow browser theme"
+msgstr "跟随浏览器主题"
+
+msgid "Found %d version(s)"
+msgstr "找到 %d 个版本"
+
+msgid "Full path to the Gately executable"
+msgstr "Gately 可执行文件的完整路径"
+
+msgid "Gately binary not found in archive"
+msgstr "压缩包中未找到 Gately 程序"
+
+msgid "Gately core binary not found"
+msgstr "未找到 Gately 核心程序"
+
+msgid "Gately core downloaded successfully. Service is starting…"
+msgstr "Gately 核心下载成功，服务正在启动…"
+
+msgid "Gately Core Update"
+msgstr "Gately 核心更新"
+
+msgid "Gately Plus — Download & Update"
+msgstr "Gately Plus — 下载与更新"
+
+msgid "Gately runtime data directory (passed via -c)"
+msgstr "Gately 运行时数据目录（通过 -c 传入）"
+
+msgid "Gately Plus — Settings"
+msgstr "Gately Plus — 基本设置"
+
+msgid "Gately Plus — Status"
+msgstr "Gately Plus — 运行状态"
+
+msgid "Gately Version"
+msgstr "Gately 版本"
+
+msgid "GitHub Gately"
+msgstr "GitHub Gately"
+
+msgid "GitHub LuCI"
+msgstr "GitHub LuCI"
+
+msgid "h"
+msgstr "小时"
+
+msgid "If checking times out, fill a GitHub proxy prefix and save. Leave empty for direct connection."
+msgstr "检查超时时，在此填写 GitHub 代理前缀后保存；留空则直连。"
+
+msgid "Include pre-release"
+msgstr "包含预发布版本"
+
+msgid "Include pre-release versions (rc) when checking"
+msgstr "检查时包含预发布版本（rc）"
+
+msgid "Installation complete: %s"
+msgstr "安装完成：%s"
+
+msgid "Installation failed"
+msgstr "安装失败"
+
+msgid "Installing…"
+msgstr "正在安装…"
+
+msgid "Installing LuCI…"
+msgstr "正在安装 LuCI…"
+
+msgid "Install Now"
+msgstr "立即安装"
+
+msgid "Invalid update request"
+msgstr "无效的更新请求"
+
+msgid "It uses the current release channel and mirror settings. If a newer version is found it will be downloaded and installed, and the service will be restarted."
+msgstr "将使用当前的发布通道与镜像设置；若发现新版本会自动下载安装，并重启服务。"
+
+msgid "Language pack installation failed"
+msgstr "语言包安装失败"
+
+msgid "Loading…"
+msgstr "加载中…"
+
+msgid "LuCI Version"
+msgstr "LuCI 版本"
+
+msgid "m"
+msgstr "分钟"
+
+msgid "Max Retries"
+msgstr "最大重试次数"
+
+msgid "Memory"
+msgstr "内存"
+
+msgid "N/A"
+msgstr "暂无"
+
+msgid "No backup files found."
+msgstr "未找到备份文件。"
+
+msgid "No Backups"
+msgstr "无备份"
+
+msgid "(No log)"
+msgstr "（无日志）"
+
+msgid "No releases found"
+msgstr "未找到版本"
+
+msgid "NOT RUNNING"
+msgstr "未运行"
+
+msgid "Not running"
+msgstr "未在运行"
+
+msgid "Official Website"
+msgstr "官方网站"
+
+msgid "OK"
+msgstr "确定"
+
+msgid "Open Gately Web UI"
+msgstr "打开 Gately Web 界面"
+
+msgid "Package manager not found"
+msgstr "未找到包管理器"
+
+msgid "Page Background"
+msgstr "页面背景"
+
+msgid "Path & Architecture"
+msgstr "路径与架构"
+
+msgid "Periodically check and install the latest version"
+msgstr "定期检查并安装最新版本"
+
+msgid "Please select version and file first"
+msgstr "请先选择版本和文件"
+
+msgid "Please wait for Gately to start…"
+msgstr "请等待 Gately 启动…"
+
+msgid "Port"
+msgstr "端口"
+
+msgid "Primary Color"
+msgstr "主色调"
+
+msgid "Process"
+msgstr "进程"
+
+msgid "Range: 1 – 365 days"
+msgstr "范围：1 – 365 天"
+
+msgid "Ready"
+msgstr "就绪"
+
+msgid "Release Channel"
+msgstr "发布通道"
+
+msgid "Release Tag"
+msgstr "发布标签"
+
+msgid "Reset"
+msgstr "重置"
+
+msgid "Respawn Delay (s)"
+msgstr "守护延迟（秒）"
+
+msgid "Respawn Policy"
+msgstr "守护策略"
+
+msgid "Restart Gately"
+msgstr "重启 Gately"
+
+msgid "Restore All Defaults"
+msgstr "恢复全部默认"
+
+msgid "Restore Backup"
+msgstr "恢复备份"
+
+msgid "Restore backup: %s ?"
+msgstr "恢复备份：%s ？"
+
+msgid "Restored"
+msgstr "已恢复"
+
+msgid "Restore failed"
+msgstr "恢复失败"
+
+msgid "Restore Gately config from a previous backup"
+msgstr "从之前的备份恢复 Gately 配置"
+
+msgid "Run Auto Update Now"
+msgstr "立即执行一次自动更新"
+
+msgid "Run Now"
+msgstr "立即执行"
+
+msgid "RUNNING"
+msgstr "运行中"
+
+msgid "Runtime Log"
+msgstr "运行日志"
+
+msgid "s"
+msgstr "秒"
+
+msgid "Saved"
+msgstr "已保存"
+
+msgid "Saved. No Gately binary at the new path yet — it will be downloaded when the service starts."
+msgstr "已保存。新路径下还没有 Gately 二进制，服务启动时会自动下载。"
+
+msgid "Save failed"
+msgstr "保存失败"
+
+msgid "Save Failed"
+msgstr "保存失败"
+
+msgid "Select Backup to Restore"
+msgstr "选择要恢复的备份"
+
+msgid "Settings saved successfully."
+msgstr "设置保存成功。"
+
+msgid "SHA256 verification failed"
+msgstr "SHA256 校验失败"
+
+msgid "Skipped: interval not reached"
+msgstr "已跳过：未到更新间隔"
+
+msgid "Stable"
+msgstr "稳定版"
+
+msgid "Starting…"
+msgstr "正在启动…"
+
+msgid "STARTING"
+msgstr "启动中"
+
+msgid "Starting download…"
+msgstr "开始下载…"
+
+msgid "Still starting. Check the log if this takes much longer."
+msgstr "仍在启动中。如果耗时过长请检查日志。"
+
+msgid "Stop after %s restart(s), 0 No limits"
+msgstr "重启 %s 次后停止，0 为不限制"
+
+msgid "Success"
+msgstr "成功"
+
+msgid "Switch to dark theme"
+msgstr "切换到深色主题"
+
+msgid "Switch to light theme"
+msgstr "切换到浅色主题"
+
+msgid "Text Color"
+msgstr "文字颜色"
+
+msgid "The Gately executable is missing. Download it to start the service."
+msgstr "Gately 可执行文件缺失。请下载以启动服务。"
+
+msgid "Threads:"
+msgstr "线程数："
+
+msgid "Time of day for the scheduled check (HH:MM)"
+msgstr "定时检查的时刻（时:分）"
+
+msgid "Unknown"
+msgstr "未知"
+
+msgid "Unknown mirror"
+msgstr "未知镜像"
+
+msgid "Unlimited retries"
+msgstr "无限重试"
+
+msgid "Unsupported format"
+msgstr "不支持的文件格式"
+
+msgid "Update check failed"
+msgstr "更新检查失败"
+
+msgid "Updated to %s"
+msgstr "已更新到 %s"
+
+msgid "Uptime:"
+msgstr "运行时长："
+
+msgid "Uptime > 0s always resets the retry counter"
+msgstr "运行时间大于 0 秒时总是重置重试计数"
+
+msgid "Uptime exceeds %ss, retry counter resets"
+msgstr "运行时间超过 %s 秒时重置重试计数"
+
+msgid "URL"
+msgstr "网址"
+
+msgid "Version:"
+msgstr "版本："
+
+msgid "Version Info"
+msgstr "版本信息"
+
+msgid "Wait %ss before restarting after a crash"
+msgstr "崩溃后等待 %s 秒再重启"
+
+msgid "Web UI Port"
+msgstr "Web 界面端口"
+
+msgid "Admin Panel"
+msgstr "管理界面"
+
+msgid "Admin panel listen port. Takes effect after Save & restart."
+msgstr "管理界面监听端口，保存并重启后生效。"
+
+msgid "Safe Entry URL"
+msgstr "安全入口"
+
+msgid "Hidden login path, e.g. /mysecret (blank to disable)."
+msgstr "隐藏的登录路径，如 /mysecret（留空则关闭）。"
+
+msgid "Cannot start with /api or /assets."
+msgstr "不能以 /api 或 /assets 开头。"
+
+msgid "Allow Internet Access"
+msgstr "允许外网访问"
+
+msgid "Off: LAN-only access. On: also reachable from the WAN."
+msgstr "关：仅内网可访问。开：外网也可访问。"
+
+msgid "Admin Password"
+msgstr "管理员密码"
+
+msgid "Password must be at least 8 characters."
+msgstr "密码至少需要 8 个字符。"
+
+msgid "Password set failed, please check the log."
+msgstr "密码设置失败，请检查日志。"
+
+msgid "Ready to install Gately %s ?"
+msgstr "准备安装 Gately %s ？"
+
+msgid "The binary will be replaced and the service restarted."
+msgstr "将替换二进制文件并重启服务。"
+
+msgid "Gately is not initialized yet. Start it once before setting a password."
+msgstr "Gately 尚未初始化。请先启动一次再设置密码。"
+
+msgid "Leave blank to keep current password"
+msgstr "留空则保持当前密码"
+
+msgid "Leave this empty to keep your current password. To change it, type a new password of at least 8 characters."
+msgstr "留空则保持当前密码不变；如需修改，请输入至少 8 位的新密码。"
+
+msgid "Takes effect when you save; the service restarts afterwards."
+msgstr "保存后生效，随后服务自动重启。"
+
+msgid "Update Settings"
+msgstr "更新设置"
+
+msgid "GitHub Acceleration Mirror"
+msgstr "GitHub 加速镜像"
+
+msgid "Common prefix ends with /, e.g. https://ghfast.top/"
+msgstr "前缀以 / 结尾，例如 https://ghfast.top/"
+
+msgid "Update settings saved."
+msgstr "更新设置已保存。"
+
+msgid "Request failed, please try again."
+msgstr "请求失败，请重试。"
+
+msgid "Please check the input and try again."
+msgstr "请检查输入内容后重试。"
+
+msgid "Failed to write configuration, please try again."
+msgstr "写入配置失败，请重试。"
+
+msgid "Failed to save configuration, please try again."
+msgstr "保存配置失败，请重试。"
+
+msgid "Settings saved, but the service failed to restart."
+msgstr "设置已保存，但服务重启失败。"
+
+msgid "The new password must be at least 8 characters."
+msgstr "新密码至少需要 8 个字符。"
+
+msgid "Failed to set the password, please check the log."
+msgstr "密码设置失败，请查看日志。"
+
+msgid "Gately binary not found, please install it first."
+msgstr "未找到 Gately 二进制文件，请先安装。"
+
+msgid "Please start Gately once before changing the password."
+msgstr "修改密码前，请先启动一次 Gately。"
+
+msgid "Install Gately"
+msgstr "安装 Gately"
+
+msgid "Confirm Install"
+msgstr "确认安装"
+
+msgid "Version"
+msgstr "版本"
+
+msgid "Clear"
+msgstr "清空"
+
+msgid "Confirm Restore"
+msgstr "确认恢复"
+
+msgid "This only clears cached downloads and logs, it does not affect the current binary or configuration."
+msgstr "仅清除下载缓存与日志，不影响当前的二进制文件和配置。"
+
+msgid "The configuration will be overwritten with the contents of this backup and the service will restart."
+msgstr "配置将被该备份的内容覆盖，并重启服务。"
+
+msgid "Save"
+msgstr "保存"
+
+msgid "Package"
+msgstr "安装包"
+
+msgid "e.g. https://ghfast.top/"
+msgstr "例如 https://ghfast.top/"
+
+msgid "Leave \"auto\" to detect automatically"
+msgstr "填写 auto 则自动检测"

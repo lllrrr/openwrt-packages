@@ -1,0 +1,240 @@
+#!/bin/sh /etc/rc.common
+START=99
+STOP=15
+USE_PROCD=1
+
+CRON_FILE=/etc/crontabs/root
+CRON_TAG=luci-app-gately-plus-autoupdate
+UPDATE_SCRIPT=/usr/libexec/gately-plus-update.sh
+LOGFILE=/tmp/gately-plus-update/gately-start.log
+
+log_msg() { logger -t gately-plus -p daemon.info "$1"; }
+
+init_config() {
+    local v key var def kv rest
+
+    for kv in \
+        "enabled=ENABLED=0" \
+        "binpath=PROG=/usr/bin/gately" \
+        "configdir=CONFDIR=/etc/gately" \
+        "port=PORT=16680" \
+        "safe_url=SAFE_URL=" \
+        "internet_access=INTERNET_ACCESS=0" \
+        "delay=DELAY=60" \
+        "respawn_threshold=RESPAWN_THRESHOLD=3600" \
+        "respawn_timeout=RESPAWN_TIMEOUT=30" \
+        "respawn_retry=RESPAWN_RETRY=5" \
+        "auto_update=AUTO_UPDATE=0" \
+        "update_interval=UPDATE_INTERVAL=7" \
+        "update_time=UPDATE_TIME=03:00" \
+        "update_cron=UPDATE_CRON="
+    do
+        key="${kv%%=*}"
+        rest="${kv#*=}"
+        var="${rest%%=*}"
+        def="${rest#*=}"
+        v="$(uci -q get gately_plus.gately.$key)"
+        eval "$var=\"\${v:-$def}\""
+    done
+
+    mkdir -p "$CONFDIR" "${LOGFILE%/*}"
+}
+
+kill_all_gately() {
+    local pids pid filtered
+    pids=$(pidof gately 2>/dev/null)
+    filtered=""
+    for pid in $pids; do
+        [ "$pid" = "$$" ] && continue
+        filtered="$filtered $pid"
+    done
+    pids="$filtered"
+    if [ -n "$pids" ]; then
+        log_msg "Stopping existing Gately processes: $pids"
+        kill $pids 2>/dev/null
+        sleep 1
+        pids=$(pidof gately 2>/dev/null)
+        filtered=""
+        for pid in $pids; do
+            [ "$pid" = "$$" ] && continue
+            filtered="$filtered $pid"
+        done
+        pids="$filtered"
+        if [ -n "$pids" ]; then
+            log_msg "Force killing Gately processes: $pids"
+            kill -9 $pids 2>/dev/null
+        fi
+    fi
+}
+
+sync_gately_json() {
+    [ -x /usr/bin/ucode ] || { log_msg "ucode not found, skip gately.json sync."; return 0; }
+    GATELY_CFG_DIR="$CONFDIR" \
+    GATELY_PORT="$PORT" \
+    GATELY_SAFE="$SAFE_URL" \
+    GATELY_INET="$INTERNET_ACCESS" \
+    /usr/bin/ucode -e '
+        import { access, readfile, writefile, chmod } from "fs";
+        let dir = getenv("GATELY_CFG_DIR") || "/etc/gately";
+        let port = trim(getenv("GATELY_PORT") || "16680");
+        let safe = trim(getenv("GATELY_SAFE") || "");
+        let inet = (getenv("GATELY_INET") === "1");
+        if (length(safe) > 0 && substr(safe, 0, 1) !== "/") safe = "/" + safe;
+        let path = dir + "/gately.json";
+        let cfg = {};
+        if (access(path, "r")) {
+            try { cfg = json(readfile(path) || "{}"); } catch (e) { cfg = {}; }
+        }
+        cfg.listen = ":" + port;
+        cfg.safePath = safe;
+        cfg.lanOnly = !inet;
+        writefile(path, sprintf("%.2J\n", cfg));
+        chmod(path, 0600);
+    ' 2>/dev/null
+}
+
+# 生成自动更新的 cron 时间部分（5 段），不包含命令。
+# 优先级：自定义 update_cron（合法 5 段时）> update_time + update_interval。
+build_cron_spec() {
+    local iv hour min custom
+    custom=$(printf '%s' "$UPDATE_CRON" | tr -d '\r\n\t' | sed 's/^ *//;s/ *$//')
+    if [ -n "$custom" ]; then
+        if [ "$(printf '%s' "$custom" | awk '{print NF}')" = "5" ] &&
+           printf '%s' "$custom" | grep -qE '^[0-9*/,_ -]+$'; then
+            printf '%s' "$custom"
+            return 0
+        fi
+        # stdout 会被 $(build_cron_spec) 捕获，提示必须走 stderr，否则会污染 crontab 行
+        log_msg "Invalid custom cron '$custom', falling back to interval + time" >&2
+    fi
+
+    # 末尾补 ":0" 保证没有冒号时 cut -f2 也能拿到 0
+    hour=$(printf '%s:0' "$UPDATE_TIME" | cut -d: -f1)
+    min=$(printf '%s:0'  "$UPDATE_TIME" | cut -d: -f2)
+    case "$hour" in
+        ''|*[!0-9]*) hour=3 ;;
+        *) hour=$(printf '%s' "$hour" | sed 's/^0*//'); hour=${hour:-0} ;;
+    esac
+    case "$min" in
+        ''|*[!0-9]*) min=0 ;;
+        *) min=$(printf '%s' "$min" | sed 's/^0*//'); min=${min:-0} ;;
+    esac
+    [ "$hour" -le 23 ] || hour=3
+    [ "$min"  -le 59 ] || min=0
+
+    case "$UPDATE_INTERVAL" in ''|*[!0-9]*) iv=7 ;; *) iv="$UPDATE_INTERVAL" ;; esac
+    [ "$iv" -ge 1 ]  || iv=7
+    [ "$iv" -gt 365 ] && iv=365
+
+    if [ "$iv" -eq 1 ]; then
+        printf '%d %d * * *' "$min" "$hour"
+    elif [ "$iv" -gt 28 ]; then
+        # 日/步长无法精确表达 >28 天，改为每天触发，由脚本按 last_auto_run 判定
+        printf '%d %d * * *' "$min" "$hour"
+    else
+        printf '%d %d */%d * *' "$min" "$hour" "$iv"
+    fi
+}
+
+sync_cron() {
+    local current want
+
+    if [ "$AUTO_UPDATE" != "1" ]; then
+        current=$(grep -F "$CRON_TAG" "$CRON_FILE" 2>/dev/null)
+        [ -z "$current" ] && return 0
+        sed -i "/${CRON_TAG}/d" "$CRON_FILE" 2>/dev/null
+        log_msg "Auto update cron removed."
+        /etc/init.d/cron restart >/dev/null 2>&1
+        return 0
+    fi
+
+    want="$(build_cron_spec) $UPDATE_SCRIPT #${CRON_TAG}"
+    current=$(grep -F "$CRON_TAG" "$CRON_FILE" 2>/dev/null)
+
+    # 已经是目标行就什么都不做：避免每次开机都重启一次 cron
+    [ "$current" = "$want" ] && return 0
+
+    mkdir -p "${CRON_FILE%/*}"
+    [ -f "$CRON_FILE" ] || : > "$CRON_FILE"
+    sed -i "/${CRON_TAG}/d" "$CRON_FILE" 2>/dev/null
+    echo "$want" >> "$CRON_FILE"
+    log_msg "Auto update cron set: $want"
+    /etc/init.d/cron restart >/dev/null 2>&1
+}
+
+start_service() {
+    init_config
+
+    # 开机/升级后自动校准 cron（幂等：与目标行一致时不重启 cron）
+    sync_cron
+
+    [ "$ENABLED" = "1" ] || { log_msg "Gately is disabled, skipping start."; return 0; }
+
+    if [ ! -x "$PROG" ]; then
+        uci -q set gately_plus.gately.installed_version='' 2>/dev/null
+        uci -q set gately_plus.gately.installed_version_path='' 2>/dev/null
+        uci -q commit gately_plus 2>/dev/null
+        [ -x "$UPDATE_SCRIPT" ] && {
+            # 走 manual 通道：这是「缺文件必须补齐」，不能受自动更新间隔约束，
+            # 否则改过 binpath / 文件丢失后要等到下一个周期才能把服务拉起来
+            log_msg "Gately binary not found, triggering download..."
+            setsid sh -c "$UPDATE_SCRIPT auto manual" >/dev/null 2>&1 &
+        }
+        return 0
+    fi
+
+    [ "$(awk -F. '{print $1}' /proc/uptime)" -lt 120 ] && {
+        log_msg "Delaying start by ${DELAY}s..."
+        sleep "$DELAY"
+    }
+
+    : > "$LOGFILE"
+
+    sync_gately_json
+
+    procd_open_instance
+    procd_set_param command /bin/sh -c \
+        "exec \"$PROG\" -c \"$CONFDIR\" >> \"$LOGFILE\" 2>&1"
+    procd_set_param respawn "$RESPAWN_THRESHOLD" "$RESPAWN_TIMEOUT" "$RESPAWN_RETRY"
+    procd_set_param limits nofile="65535 65535"
+    procd_close_instance
+
+    log_msg "Gately started (port=${PORT} configdir=${CONFDIR})"
+}
+
+stop_service() {
+    log_msg "Gately stop requested."
+}
+
+service_stopped() {
+    kill_all_gately
+    log_msg "Gately stopped."
+}
+
+reload_service() {
+    init_config
+    sync_cron
+}
+
+stop_for_restart() {
+    procd_lock
+    stop_service "$@"
+    if procd_running gately; then
+        procd_kill gately "$@" >/dev/null 2>&1
+    fi
+    service_stopped
+}
+
+restart() {
+    log_msg "Gately restart requested."
+    stop_for_restart "$@"
+    init_config
+    if [ "$ENABLED" = "1" ]; then
+        log_msg "Restarting Gately because it is enabled."
+        start "$@"
+    else
+        log_msg "Gately restart skipped because it is disabled."
+    fi
+}
+
+service_triggers() { procd_add_reload_trigger gately_plus; }

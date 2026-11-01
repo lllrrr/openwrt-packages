@@ -1,0 +1,601 @@
+#!/usr/bin/ucode
+'use strict';
+
+import { readfile, stat, open, popen } from 'fs';
+import { cursor } from 'uci';
+
+const DIR    = '/tmp/gately-plus-update';
+const SCRIPT = '/usr/libexec/gately-plus-update.sh';
+const ALOG   = DIR + '/autoupdate.log';
+const SLOG   = DIR + '/gately-start.log';
+const INIT = '/etc/init.d/gately-plus';
+
+const SETTINGS = {
+    enabled: '0', port: '16680', delay: '60',
+    configdir: '/etc/gately', binpath: '/usr/bin/gately',
+    arch: 'auto', release_type: 'stable',
+    safe_url: '', internet_access: '0',
+    respawn_threshold: '3600', respawn_timeout: '30', respawn_retry: '5',
+    auto_update: '0', update_interval: '7', installed_version: '',
+    update_time: '03:00', update_cron: '',
+    github_mirror: '',
+    theme: 'auto', bg: '1',
+    color_primary: '', color_text: '', color_card: '', color_deco: ''
+};
+
+// 这些键变化后需要重写 crontab（reload 里只做 init_config + sync_cron，很轻）
+const CRON_KEYS = ['auto_update', 'update_interval', 'update_time', 'update_cron'];
+
+const RESTART_KEYS = [
+    'enabled', 'port', 'delay',
+    'binpath', 'configdir',
+    'safe_url', 'internet_access',
+    'respawn_threshold', 'respawn_timeout', 'respawn_retry'
+];
+
+function sys(c)    { let p = popen(c, 'r'); if (!p) return -1; p.read('all'); return p.close(); }
+function exec(c)   { let p = popen(c, 'r'); let o = p ? p.read('all') : ''; if (p) p.close(); return trim(o ?? ''); }
+function read(p)   { return readfile(p) ?? ''; }
+function exists(p) { return stat(p) != null; }
+function uf(n)     { return `${DIR}/${n}`; }
+function shellQuote(s) { return "'" + replace(`${s}`, "'", "'\\''") + "'"; }
+
+// gately -version 输出小写 JSON：{"version","commit","buildDate","go"}
+function getGatelyInfo(bin) {
+    if (!bin || !exists(bin)) return {};
+
+    let command = shellQuote(bin);
+    let raw = exec(
+        `if command -v timeout >/dev/null 2>&1; then timeout 10 ${command} -version 2>&1; else ${command} -version 2>&1; fi`
+    );
+
+    try {
+        let info = json(raw);
+        if (info && info.version) return info;
+    } catch (e) {}
+
+    return {};
+}
+
+function ucv(k) {
+    let c = cursor(); c.load('gately_plus');
+    return c.get('gately_plus', 'gately', k) || SETTINGS[k] || '';
+}
+
+function readUciOption(key, fallback) {
+    return exec(`uci -q get gately_plus.gately.${key} 2>/dev/null`) || fallback;
+}
+
+function ensureUciSection() {
+    let p = popen(
+        "mkdir -p /etc/config && " +
+        "([ -f /etc/config/gately_plus ] || touch /etc/config/gately_plus) && " +
+        "(uci -q get gately_plus.gately >/dev/null 2>&1 || " +
+        "uci -q set gately_plus.gately=gately)", 'r');
+    if (!p) return false;
+    p.read('all');
+    return p.close() === 0;
+}
+
+function ensureUiOptions() {
+    let p = popen(
+        "mkdir -p /etc/config && " +
+        "([ -f /etc/config/gately_plus ] || touch /etc/config/gately_plus) && " +
+        "(uci -q get gately_plus.gately >/dev/null 2>&1 || " +
+        "uci -q set gately_plus.gately=gately) && " +
+        "(uci -q get gately_plus.gately.theme >/dev/null 2>&1 || " +
+        "uci -q set gately_plus.gately.theme='auto') && " +
+        "(uci -q get gately_plus.gately.bg >/dev/null 2>&1 || " +
+        "uci -q set gately_plus.gately.bg='1') && " +
+        "uci -q commit gately_plus", 'r');
+    if (!p) return false;
+    p.read('all');
+    return p.close() === 0;
+}
+
+function writeUciOption(key, value) {
+    if (!ensureUciSection()) return false;
+    let p = popen(
+        `uci -q set gately_plus.gately.${key}='${value}' && uci -q commit gately_plus`, 'r');
+    if (!p) return false;
+    p.read('all');
+    if (p.close() !== 0) return false;
+    return readUciOption(key, '') === value;
+}
+
+function commitUci(u, checks) {
+    if (!u.save('gately_plus')) return false;
+    if (!u.commit('gately_plus')) return false;
+    if (checks) {
+        let v = cursor();
+        if (!v || !v.load('gately_plus')) return false;
+        for (let k in checks) {
+            if (v.get('gately_plus', 'gately', k) !== checks[k]) return false;
+        }
+    }
+    return true;
+}
+
+function getLuciVersion() {
+    if (exec('command -v apk')) {
+        return exec("apk info luci-app-gately-plus 2>/dev/null | grep -oE '[0-9]+\\.[0-9]+\\.[0-9]+' | head -1");
+    }
+    return exec("opkg info luci-app-gately-plus 2>/dev/null | grep '^Version:' | grep -oE '[0-9]+\\.[0-9]+\\.[0-9]+' | head -1");
+}
+
+function runTask(state, args) {
+    let sf = uf('status');
+    sys(`mkdir -p '${DIR}' && rm -f '${sf}' '${uf('progress')}'`);
+    let f = open(sf, 'w');
+    if (f) { f.write(state); f.close(); }
+    sys(`setsid '${SCRIPT}' ${args} >/dev/null 2>&1 &`);
+    return { result: 'ok' };
+}
+
+function scheduleShellCommand(command) {
+    return sys(`setsid sh -c ${shellQuote(command)} </dev/null >/dev/null 2>&1 &`) === 0;
+}
+
+function scheduleServiceAction(action) {
+    if (action !== 'start' && action !== 'stop' && action !== 'restart' && action !== 'reload')
+        return false;
+    return scheduleShellCommand(`${shellQuote(INIT)} ${action}`);
+}
+
+// 有更新任务在跑时拒绝新任务（脚本内部也有加锁，这里只是让 UI 立刻给出提示）
+function updateBusy() {
+    if (!exists(DIR + '/.lock')) return false;
+    let pid = int(trim(read(DIR + '/.lock/pid')));
+    return pid > 0 && exists(`/proc/${pid}`);
+}
+
+function getTaskStatus(opts) {
+    opts = opts || {};
+    let sf  = uf(opts.statusFile || 'status');
+    let lf  = uf(opts.logFile || 'log');
+    let pf  = uf('progress');
+    let doneTag = opts.doneTag || 'done:';
+
+    if (!exists(sf)) return { status: 'idle', code: 'idle' };
+
+    let st  = trim(read(sf));
+    let log = exists(lf) ? exec(`cat '${lf}' 2>/dev/null`) : '';
+
+    for (let s in ['checking', 'downloading', 'installing']) {
+        if (substr(st, 0, length(s)) === s) {
+            let resp = { status: s, code: s, log };
+            if (s === 'downloading')
+                resp.progress = exists(pf) ? (int(trim(read(pf))) || 0) : 0;
+            return resp;
+        }
+    }
+
+    if (substr(st, 0, 6) === 'ready:') {
+        let rel = null;
+        try { rel = json(read(uf('releases.json'))); } catch(e) {}
+        return { status: 'ready', code: 'ready', count: int(substr(st, 6)), releases: rel, log };
+    }
+
+    let dLen = length(doneTag);
+    if (substr(st, 0, dLen) === doneTag)
+        return { status: 'done', code: 'done', installed: substr(st, dLen), log };
+
+    if (substr(st, 0, 6) === 'error:')
+        return { status: 'error', code: substr(st, 6), log };
+
+    return { status: 'idle', code: 'idle' };
+}
+
+function parseStatFields(raw) {
+    let rp = index(raw, ')');
+    if (rp < 0) return [];
+    let tail = trim(substr(raw, rp + 1));
+    let parts = [];
+    for (let f in split(tail, ' ')) {
+        let t = trim(f);
+        if (length(t) > 0) push(parts, t);
+    }
+    return parts;
+}
+
+function readProcKey(path, key) {
+    let raw = read(path);
+    for (let line in split(raw, '\n')) {
+        if (index(line, key) === 0) {
+            let parts = [];
+            for (let f in split(trim(line), ' ')) {
+                let t = trim(f);
+                if (length(t) > 0) push(parts, t);
+            }
+            return int(parts[1]) || 0;
+        }
+    }
+    return 0;
+}
+
+function readTotalTicks() {
+    let line  = exec('head -1 /proc/stat');
+    let total = 0;
+    let first = true;
+    for (let f in split(trim(line), ' ')) {
+        let t = trim(f);
+        if (!length(t)) continue;
+        if (first) { first = false; continue; }
+        total += int(t) || 0;
+    }
+    return total;
+}
+
+const api = {
+
+    toggle_service: (a) => {
+        let action = a.action || '';
+        if (action !== 'enable' && action !== 'disable' && action !== 'restart')
+            return { result: 'error', msg: 'unknown action' };
+        if (action === 'enable' || action === 'disable') {
+            let value = action === 'enable' ? '1' : '0';
+            if (!writeUciOption('enabled', value))
+                return { result: 'error', msg: 'uci_commit_failed' };
+        }
+
+        if (action === 'disable') {
+            if (!scheduleServiceAction('stop'))
+                return { result: 'error', msg: 'service_action_failed' };
+        } else if (action === 'enable') {
+            if (!scheduleServiceAction('start'))
+                return { result: 'error', msg: 'service_action_failed' };
+        } else {
+            if (readUciOption('enabled', '0') !== '1')
+                return { result: 'error', msg: 'service_disabled' };
+            if (!scheduleServiceAction('restart'))
+                return { result: 'error', msg: 'service_action_failed' };
+        }
+        return { result: 'ok' };
+    },
+
+    get_status: () => {
+        let bin = ucv('binpath');
+        return {
+            running:        length(exec('pidof gately 2>/dev/null')) > 0,
+            binary_missing: !exists(bin)
+        };
+    },
+
+    get_arch: () => ({ arch: exec(`'${SCRIPT}' detect_arch 2>/dev/null`) }),
+
+    get_theme: () => {
+        ensureUiOptions();
+        let t = readUciOption('theme', SETTINGS.theme);
+        return { theme: t === 'light' || t === 'dark' ? t : 'auto' };
+    },
+
+    set_theme: (a) => {
+        let t = (a && a.theme) || '';
+        if (t !== 'auto' && t !== 'light' && t !== 'dark')
+            return { result: 'error', msg: 'invalid theme' };
+        if (!writeUciOption('theme', t))
+            return { result: 'error', msg: 'uci_commit_failed' };
+        return { result: 'ok' };
+    },
+
+    get_bg: () => {
+        ensureUiOptions();
+        let v = readUciOption('bg', SETTINGS.bg);
+        return { bg: v === '0' ? '0' : '1' };
+    },
+
+    set_bg: (a) => {
+        let v = (a && a.bg) || '';
+        if (v !== '0' && v !== '1')
+            return { result: 'error', msg: 'invalid bg value' };
+        if (!writeUciOption('bg', v))
+            return { result: 'error', msg: 'uci_commit_failed' };
+        return { result: 'ok' };
+    },
+
+    get_system_info: () => {
+        let bin       = ucv('binpath');
+        let configdir = ucv('configdir');
+        let releaseTag = ucv('installed_version') || '';
+        let gatelyInfo = getGatelyInfo(bin);
+        let ver = gatelyInfo.version || '';
+        if (substr(ver, 0, 1) === 'v') ver = substr(ver, 1);
+        return {
+            version:      ver || releaseTag,
+            release_tag:  releaseTag,
+            luci_version: getLuciVersion() || 'Unknown',
+            commit:       gatelyInfo.commit || '',
+            arch:         exec(`'${SCRIPT}' detect_arch 2>/dev/null`),
+            build_date:   gatelyInfo.buildDate || '',
+            binpath:      bin,
+            configdir:    configdir
+        };
+    },
+
+    get_settings: () => {
+        ensureUiOptions();
+        let u = cursor(), r = {};
+        u.load('gately_plus');
+        for (let k in SETTINGS) r[k] = u.get('gately_plus', 'gately', k) || SETTINGS[k];
+        return r;
+    },
+
+    save_settings: (a) => {
+        if (!ensureUciSection()) return { result: 'error', msg: 'uci_set_failed' };
+
+        // 路径类设置必须是非空绝对路径。空值会让服务带着 -c '' / 空可执行路径启动，
+        // 表现为“设置没生效”甚至起不来，所以在写 uci 之前就挡掉。
+        for (let k in ['binpath', 'configdir']) {
+            if (a[k] === null) continue;
+            let v = trim(`${a[k]}`);
+            if (!length(v) || substr(v, 0, 1) !== '/')
+                return { result: 'error', msg: `${k}_invalid` };
+            a[k] = v;
+        }
+
+        // 管理员密码：不在 SETTINGS（不写入 uci）。
+        // 留空/缺省 => 保持原密码；非空 => 必须 ≥8 位且 account.json 已存在。
+        let newPass = a.admin_password !== null ? a.admin_password : '';
+        let applyPassword = length(newPass) > 0;
+        if (applyPassword) {
+            if (length(newPass) < 8)
+                return { result: 'error', msg: 'password_too_short' };
+            if (!exists(ucv('binpath')))
+                return { result: 'error', msg: 'no_binary' };
+            if (!exists(ucv('configdir') + '/account.json'))
+                return { result: 'error', msg: 'not_initialized' };
+        }
+
+        // 通过 uci CLI 批量写入并提交（最稳定、跨版本一致）。
+        // 只写入本次实际提供的键；比对旧值判断是否需要重启。
+        let restartSet = {};
+        for (let k in RESTART_KEYS) restartSet[RESTART_KEYS[k]] = true;
+        let cronSet = {};
+        for (let k in CRON_KEYS) cronSet[CRON_KEYS[k]] = true;
+
+        let sets = [];
+        let needRestart = false, needCron = false;
+        // 版本记录由更新流程维护，不接受界面写入：一旦被清空，自动更新会把
+        // “当前版本未知”当成“落后”而重复下载
+        let readonlyKeys = { installed_version: true, installed_version_path: true };
+        for (let k in SETTINGS) {
+            if (a[k] === null) continue;
+            if (readonlyKeys[k]) continue;
+            let old = readUciOption(k, SETTINGS[k] || '');
+            if (old !== a[k]) {
+                if (restartSet[k]) needRestart = true;
+                if (cronSet[k])    needCron = true;
+            }
+            push(sets, `uci -q set gately_plus.gately.${k}=${shellQuote(a[k])}`);
+        }
+
+        if (length(sets) > 0) {
+            let cmd = join(' && ', sets) + ' && uci -q commit gately_plus';
+            if (sys(cmd) !== 0)
+                return { result: 'error', msg: 'uci_commit_failed' };
+        }
+
+        // 提交密码重置请求（异步写 account.reset，由接下来的重启处理）
+        if (applyPassword) {
+            let bin = ucv('binpath'), cfg = ucv('configdir');
+            let cmd = `${shellQuote(bin)} reset-password -c ${shellQuote(cfg)}` +
+                      ` -p ${shellQuote(newPass)} -y`;
+            if (sys(cmd) !== 0)
+                return { result: 'error', msg: 'password_set_failed' };
+            needRestart = true;
+        }
+
+        if (needRestart) {
+            if (!scheduleServiceAction('restart'))
+                return { result: 'error', msg: 'service_action_failed' };
+        } else if (needCron) {
+            // 只改了自动更新相关项：reload 即可重写 crontab，不打断服务
+            if (!scheduleServiceAction('reload'))
+                return { result: 'error', msg: 'service_action_failed' };
+        }
+
+        // 改了二进制路径但新位置还没有文件：保存照做，只提醒（用户可能打算稍后下载）
+        if (a.binpath !== null && !exists(trim(`${a.binpath}`)))
+            return { result: 'ok', warn: 'binary_missing' };
+
+        return { result: 'ok' };
+    },
+
+    // 重置管理员密码为默认密码（gately.cn），随后重启服务
+    reset_password: () => {
+        let bin = ucv('binpath'), cfg = ucv('configdir');
+        if (!exists(bin)) return { result: false };
+        let command = `${shellQuote(bin)} reset-password -c ${shellQuote(cfg)} -y && ${shellQuote(INIT)} restart`;
+        return { result: scheduleShellCommand(command) };
+    },
+
+    // 设置管理员新密码（至少 8 位）：提交 account.reset，随后重启服务以应用
+    set_admin_password: (a) => {
+        let pass = (a && a.password) || '';
+        if (length(pass) < 8)
+            return { result: false, msg: 'too_short' };
+        let bin = ucv('binpath'), cfg = ucv('configdir');
+        if (!exists(bin))  return { result: false, msg: 'no_binary' };
+        if (!exists(cfg + '/account.json'))
+            return { result: false, msg: 'not_initialized' };
+        let command = `${shellQuote(bin)} reset-password -c ${shellQuote(cfg)}` +
+            ` -p ${shellQuote(pass)} -y && sleep 1 && ${shellQuote(INIT)} restart`;
+        return { result: scheduleShellCommand(command) };
+    },
+
+    get_process_stats: () => {
+        let pid = 0;
+        for (let candidate in split(exec('pidof gately 2>/dev/null'), ' ')) {
+            pid = int(trim(candidate)) || 0;
+            if (pid) break;
+        }
+        if (!pid || !exists(`/proc/${pid}`))
+            return { pid: null, proc_ticks: 0, total_ticks: 0,
+                     cores: 1, mem_rss: 0, mem_percent: 0,
+                     uptime_seconds: 0, threads: 0, nice: 0 };
+
+        let flds      = parseStatFields(read(`/proc/${pid}/stat`));
+        let utime     = int(flds[11]) || 0;
+        let stime     = int(flds[12]) || 0;
+        let nice      = int(flds[16]) || 0;
+        let threads   = int(flds[17]) || 0;
+        let starttime = int(flds[19]) || 0;
+
+        let totalTicks = readTotalTicks();
+        let cores = int(exec("grep -c '^processor' /proc/cpuinfo 2>/dev/null")) || 1;
+
+        let memRss   = readProcKey(`/proc/${pid}/status`, 'VmRSS:');
+        let memTotal = readProcKey('/proc/meminfo', 'MemTotal:');
+        let memPct   = memTotal > 0
+            ? int(memRss * 10000 / memTotal + 0.5) / 100 : 0;
+
+        let btime = 0;
+        for (let line in split(read('/proc/stat'), '\n')) {
+            if (index(line, 'btime') === 0) {
+                let parts = [];
+                for (let f in split(trim(line), ' ')) {
+                    let t = trim(f);
+                    if (length(t) > 0) push(parts, t);
+                }
+                btime = int(parts[1]) || 0;
+                break;
+            }
+        }
+        let hz         = 100;
+        let startEpoch = btime + int(starttime / hz);
+        let nowEpoch   = int(exec('date +%s')) || 0;
+        let uptimeSec  = nowEpoch > startEpoch ? nowEpoch - startEpoch : 0;
+
+        return {
+            pid:            int(pid),
+            proc_ticks:     utime + stime,
+            total_ticks:    totalTicks,
+            cores:          cores,
+            mem_rss:        memRss,
+            mem_percent:    memPct,
+            uptime_seconds: uptimeSec,
+            threads:        threads,
+            nice:           nice
+        };
+    },
+
+    clean_update: () => {
+        sys(`rm -rf '${DIR}' && mkdir -p '${DIR}'`);
+        return { result: 'ok' };
+    },
+
+    // 手动触发一次自动更新（与 cron 跑的是同一条链路：检查 → 需要则下载安装）
+    run_auto_update: () => {
+        if (updateBusy()) return { result: 'error', msg: 'busy' };
+        sys(`mkdir -p '${DIR}' && rm -f '${DIR}/autostatus' '${DIR}/progress'`);
+        let f = open(uf('autostatus'), 'w');
+        if (f) { f.write('checking'); f.close(); }
+        sys(`setsid '${SCRIPT}' auto manual >/dev/null 2>&1 &`);
+        return { result: 'ok' };
+    },
+
+    // 自动更新用独立的状态/日志，不干扰「检查更新」面板
+    get_auto_run_status: () => {
+        let r = getTaskStatus({ statusFile: 'autostatus', logFile: 'autoupdate.log' });
+        if (r.status === 'done') {
+            let p = split(`${r.installed || ''}`, ':');
+            r.state   = p[0] || 'uptodate';
+            r.version = p[1] || '';
+        }
+        return r;
+    },
+
+    get_upstream_version: (a) => runTask('checking',
+        `check '${a.release_type || ucv('release_type')}'` +
+        ` '${a.arch || ucv('arch')}'`
+    ),
+
+    do_update: (a) => (a.tag && a.filename)
+        ? runTask('downloading',
+            `download '${a.tag}' '${a.filename}' '${ucv('binpath')}'`)
+        : { result: 'error' },
+
+    get_update_status: () => getTaskStatus({}),
+
+    get_auto_update_log: (a) => {
+        let logfile = (a && a.type === 'run') ? SLOG : ALOG;
+        return {
+            log: exists(logfile) ? read(logfile) : ''
+        };
+    },
+
+    list_backups: () => {
+        let files = [];
+        let out = exec(`ls -1t '${DIR}'/*.tar.gz 2>/dev/null`);
+        if (!out) return { files: [] };
+        for (let name in split(out, '\n')) {
+            name = trim(name);
+            if (!length(name)) continue;
+            push(files, {
+                name: replace(name, DIR + '/', ''),
+            });
+        }
+        return { files };
+    },
+
+    restore_backup: (a) => {
+        let filename = a.filename || '';
+        if (!length(filename) || index(filename, '/') >= 0)
+            return { result: 'error', msg: 'invalid filename' };
+        let filepath = `${DIR}/${filename}`;
+        if (!exists(filepath))
+            return { result: 'error', msg: 'file not found' };
+        let configdir = ucv('configdir');
+        if (!length(configdir))
+            return { result: 'error', msg: 'configdir not set' };
+        let parent = exec(`dirname '${configdir}'`);
+        let ret = sys(`tar -xzf '${filepath}' -C '${parent}' 2>/dev/null`);
+        if (ret === 0 && !scheduleServiceAction('restart'))
+            return { result: 'error' };
+        return { result: ret === 0 ? 'ok' : 'error' };
+    },
+
+};
+
+const SIGS = {
+    get_status:             {},
+    get_arch:               {},
+    get_theme:              {},
+    set_theme:              { theme: 'String' },
+    get_bg:                 {},
+    set_bg:                 { bg: 'String' },
+    get_system_info:        {},
+    get_settings:           {},
+    get_process_stats:      {},
+    reset_password:         {},
+    set_admin_password:     { password: 'String' },
+    get_update_status:      {},
+    get_auto_run_status:    {},
+    get_auto_update_log:    { type: 'String' },
+    run_auto_update:        {},
+    clean_update:           {},
+    save_settings:          {},
+    toggle_service:         { action: 'String' },
+    get_upstream_version:   { release_type: 'String', arch: 'String' },
+    do_update:              { tag: 'String', filename: 'String' },
+    list_backups:    {},
+    restore_backup:  { filename: 'String' },
+};
+
+for (let k in SETTINGS) SIGS.save_settings[k] = 'String';
+SIGS.save_settings.admin_password = 'String';
+
+if (ARGV[0] === 'list') {
+    print(sprintf('%J\n', SIGS));
+} else if (ARGV[0] === 'call') {
+    let fn = api[ARGV[1]];
+    if (!fn) {
+        print('{"error":"Unknown method"}\n');
+    } else {
+        let input = json(read('/dev/stdin') ?? '{}') ?? {};
+        try   { print(sprintf('%J\n', fn(input))); }
+        catch (e) { print(sprintf('{"error":"%s"}\n', e)); }
+    }
+} else {
+    exit(1);
+}

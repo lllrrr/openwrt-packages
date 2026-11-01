@@ -1,0 +1,36 @@
+{
+    "admin/services/gately-plus": {
+        "title": "Gately Plus",
+        "order": 59,
+        "action": {
+            "type": "firstchild"
+        },
+        "depends": {
+            "acl": [ "luci-app-gately-plus" ]
+        }
+    },
+    "admin/services/gately-plus/status": {
+        "title": "Running Status",
+        "order": 10,
+        "action": {
+            "type": "view",
+            "path": "gately-plus/status"
+        }
+    },
+    "admin/services/gately-plus/config": {
+        "title": "Basic Settings",
+        "order": 20,
+        "action": {
+            "type": "view",
+            "path": "gately-plus/config"
+        }
+    },
+    "admin/services/gately-plus/update": {
+        "title": "Download & Update",
+        "order": 30,
+        "action": {
+            "type": "view",
+            "path": "gately-plus/update"
+        }
+    }
+}

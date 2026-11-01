@@ -1,0 +1,39 @@
+{
+    "luci-app-gately-plus": {
+        "description": "Grant access to luci-app-gately-plus RPC methods",
+        "read": {
+            "ubus": {
+                "luci.gately-plus": [
+                    "get_status",
+                    "get_arch",
+                    "get_system_info",
+                    "get_settings",
+                    "get_theme",
+                    "get_bg",
+                    "get_process_stats",
+                    "get_update_status",
+                    "get_auto_run_status",
+                    "get_auto_update_log",
+                    "get_upstream_version",
+                    "list_backups"
+                ]
+            }
+        },
+        "write": {
+            "ubus": {
+                "luci.gately-plus": [
+                    "save_settings",
+                    "set_theme",
+                    "set_bg",
+                    "toggle_service",
+                    "reset_password",
+                    "set_admin_password",
+                    "run_auto_update",
+                    "clean_update",
+                    "do_update",
+                    "restore_backup"
+                ]
+            }
+        }
+    }
+}
