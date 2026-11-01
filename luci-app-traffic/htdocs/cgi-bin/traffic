@@ -1,0 +1,169 @@
+#!/bin/sh
+# CGI: WAN traffic data API
+#   /cgi-bin/traffic?mode=3min|1h|1d|30d|thisMonth|lastMonth
+#   /cgi-bin/traffic?mode=year&y=2026
+# Returns: {"mode":"...","from":N,"to":N,"data":[[ts,dn_rate,up_rate,dn_bytes,up_bytes],...]}
+
+echo "Content-Type: application/json"
+echo "Cache-Control: no-store, no-cache, must-revalidate"
+echo ""
+
+QS="$QUERY_STRING"
+MODE=$(printf '%s' "$QS" | sed -n 's/.*mode=\([a-zA-Z0-9]*\).*/\1/p')
+[ -z "$MODE" ] && MODE=3min
+
+TMP=/tmp/traffic
+FLASH=/etc/traffic
+NOW=$(date +%s)
+
+# 统计时区与采集端保持一致，用于「自然日 / 自然月」边界判定
+STAT_TZ=$(uci -q get traffic.main.timezone)
+[ -n "$STAT_TZ" ] && export TZ="$STAT_TZ"
+
+# 日档视图（近30天/本月）是否追加「今天」这段尚未结束的实时数据：
+#   今天还没有日记录（要等明天零点才写），若只读 l4 就会整天不动。
+#   这里用 l3 小时档实时汇总当天，因此「本月」每小时都会变化。
+#   「年」不追加，保持每天变化一次。
+APPEND_TODAY=0
+TODAY_TS=$(date -d "$(date +%Y-%m-%d) 00:00:00" +%s)
+
+case "$MODE" in
+	3min)
+		FILE=$TMP/l1.dat
+		FROM=$((NOW - 180))
+		TO=$NOW
+		MULT=1
+		;;
+	1h)
+		FILE=$TMP/l2.dat
+		FROM=$((NOW - 3600))
+		TO=$NOW
+		MULT=1
+		;;
+	1d)
+		# 自然日视图：?mode=1d&d=YYYY-MM-DD（缺省为今天）
+		# L3 现在是每分钟一条、且存的是「字节」，所以 MULT=1
+		# 多取前 1 小时用于算出 00:00 这一档的增量
+		D=$(printf '%s' "$QS" | sed -n 's/.*[?&]d=\([0-9-]*\).*/\1/p')
+		[ -z "$D" ] && D=$(date +%Y-%m-%d)
+		DS=$(date -d "$D 00:00:00" +%s)
+		FILE=$FLASH/l3.dat
+		FROM=$((DS - 3600))
+		TO=$((DS + 86400))
+		MULT=1
+		;;
+	30d)
+		FILE=$FLASH/l4.dat
+		FROM=$((NOW - 2592000))
+		TO=$NOW
+		MULT=1048576
+		APPEND_TODAY=1
+		;;
+	thisMonth)
+		Y=$(date +%Y)
+		M=$(date +%m)
+		FILE=$FLASH/l4.dat
+		FROM=$(date -d "$Y-$M-01 00:00:00" +%s)
+		TO=$NOW
+		MULT=1048576
+		APPEND_TODAY=1
+		;;
+	lastMonth)
+		Y=$(date +%Y)
+		M=$(date +%m)
+		if [ "$M" = "01" ]; then
+			PY=$((Y - 1))
+			PM=12
+		else
+			PY=$Y
+			PM=$(( ${M#0} - 1 ))
+		fi
+		PMS=$(printf "%02d" "$PM")
+		FILE=$FLASH/l4.dat
+		FROM=$(date -d "$PY-$PMS-01 00:00:00" +%s)
+		TO=$(date -d "$Y-$M-01 00:00:00" +%s)
+		MULT=1048576
+		;;
+	year)
+		Y=$(printf '%s' "$QS" | sed -n 's/.*[?&]y=\([0-9]*\).*/\1/p')
+		[ -z "$Y" ] && Y=$(date +%Y)
+		FILE=$FLASH/l5.dat
+		FROM=$(date -d "$Y-01-01 00:00:00" +%s)
+		TO=$(date -d "$((Y + 1))-01-01 00:00:00" +%s)
+		MULT=1048576
+		;;
+	*)
+		FILE=$TMP/l1.dat
+		FROM=$((NOW - 180))
+		TO=$NOW
+		MULT=1
+		;;
+esac
+
+printf '{"mode":"%s","from":%d,"to":%d,"data":[' "$MODE" "$FROM" "$TO"
+
+if [ "$MODE" = "year" ]; then
+	# 年视图：已结束月份取 l5（永久月档）；当月（或 l5 尚无记录）实时汇总 l4 的日增量。
+	# 因此每天结束写入一条日记录后，当月柱子立即增长，不必等到月底。
+	m=1
+	first=1
+	while [ "$m" -le 12 ]; do
+		ms=$(printf "%02d" "$m")
+		s=$(date -d "$Y-$ms-01 00:00:00" +%s)
+		if [ "$m" -eq 12 ]; then
+			e=$(date -d "$((Y + 1))-01-01 00:00:00" +%s)
+		else
+			nm=$(printf "%02d" $((m + 1)))
+			e=$(date -d "$Y-$nm-01 00:00:00" +%s)
+		fi
+		row=$(awk -F, -v s="$s" -v e="$e" '$1>=s && $1<e {d+=$4; u+=$5; n++} END{if(n) printf "%.0f,%.0f", d, u}' "$FLASH/l5.dat")
+		if [ -z "$row" ]; then
+			row=$(awk -F, -v s="$s" -v e="$e" '$1>=s && $1<e {d+=$4; u+=$5; n++} END{if(n) printf "%.0f,%.0f", d, u}' "$FLASH/l4.dat")
+		fi
+		if [ -n "$row" ]; then
+			dv=${row%%,*}
+			uv=${row##*,}
+			if [ "$first" = "1" ]; then first=0; else printf ','; fi
+			printf '[%d,0,0,%.0f,%.0f]' "$s" \
+				"$(awk -v x="$dv" 'BEGIN{printf "%.0f", x*1048576}')" \
+				"$(awk -v x="$uv" 'BEGIN{printf "%.0f", x*1048576}')"
+		fi
+		m=$((m + 1))
+	done
+else
+	BODY=""
+	if [ -f "$FILE" ]; then
+		BODY=$(awk -F, -v s="$FROM" -v e="$TO" -v m="$MULT" '
+			NF >= 5 && $1 >= s && $1 <= e {
+				if (n++) printf ","
+				if (NF >= 7)
+					printf "[%s,%s,%s,%.0f,%.0f,%.0f,%.0f]", $1, $2, $3, $4*m, $5*m, $6, $7
+				else
+					printf "[%s,%s,%s,%.0f,%.0f,%.0f,%.0f]", $1, $2, $3, $4*m, $5*m, $2, $3
+			}
+		' "$FILE")
+	fi
+	# 追加「今天」的实时增量（由 l3 小时档末值-首值算出），使本月/近30天每小时增长
+	if [ "$APPEND_TODAY" = "1" ]; then
+		TR=$(awk -F, -v s="$TODAY_TS" -v m=1 '
+			{
+				if ($1 < s) { pdb=$4; pub=$5; hb=1; next }   # 零点前最后一条 = 当天基线
+				if (hb == 0) { pdb=$4; pub=$5; hb=1; lts=$1; n++; next }
+				# 计数器归零（接口重连）时按"当前值"算，避免出现负增量
+				tdn += ($4 >= pdb) ? ($4 - pdb) : $4
+				tup += ($5 >= pub) ? ($5 - pub) : $5
+				pdb=$4; pub=$5; lts=$1; n++
+			}
+			END {
+				if (n == 0) exit
+				printf "[%d,0,0,%.0f,%.0f]", lts, tdn*m, tup*m
+			}
+		' "$FLASH/l3.dat")
+		if [ -n "$TR" ]; then
+			if [ -n "$BODY" ]; then BODY="$BODY,$TR"; else BODY="$TR"; fi
+		fi
+	fi
+	printf '%s' "$BODY"
+fi
+
+printf ']}\n'

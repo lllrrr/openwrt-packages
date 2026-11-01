@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>流量监控</title>
+<style>
+:root{
+  --bg:#f6f8fa; --card:#ffffff; --text:#1f2328; --muted:#656d76; --muted2:#8b949e;
+  --border:#d0d7de; --accent:#0969da;
+  --dn:#1a7f37; --up:#9a6700; --grid:rgba(0,0,0,.08);
+}
+html[data-theme="dark"]{
+  --bg:#0d1117; --card:#161b22; --text:#e6edf3; --muted:#8b949e; --muted2:#6e7681;
+  --border:#30363d; --accent:#58a6ff;
+  --dn:#3fb950; --up:#d29922; --grid:rgba(255,255,255,.08);
+}
+*{box-sizing:border-box}
+body{margin:0;padding:16px;background:var(--bg);color:var(--text);
+  font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+.wrap{max-width:1080px;margin:0 auto}
+.head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+h1{font-size:15px;font-weight:600;margin:0}
+.sum{font-size:12px;color:var(--muted);margin-top:3px}
+.sum b{font-weight:600;color:var(--text);font-variant-numeric:tabular-nums}
+.tabs{display:flex;gap:5px;flex-wrap:wrap;align-items:center}
+button{font-family:inherit;font-size:12px;padding:5px 11px;border-radius:6px;
+  border:1px solid var(--border);background:var(--card);color:var(--muted);cursor:pointer;
+  transition:all .15s;white-space:nowrap}
+button:hover{border-color:var(--accent);color:var(--accent)}
+button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.sep{width:1px;height:20px;background:var(--border);margin:0 4px}
+.head-actions{display:flex;gap:8px;align-items:center}
+.btn-apply{background:#5cb85c;color:#fff;border:1px solid #5cb85c;padding:6px 18px;font-size:13px;font-weight:500}
+.btn-apply:hover{background:#4cae4c;border-color:#4cae4c;color:#fff}
+.btn-live{padding:6px 12px;font-size:13px;font-weight:500}
+.btn-live.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:14px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px 12px}
+.k{font-size:11px;color:var(--muted);margin-bottom:5px}
+.v{font-size:14px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.55}
+.dn{color:var(--dn)} .up{color:var(--up)}
+.legend{display:flex;gap:16px;margin-bottom:6px;font-size:11px;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px;margin-right:5px}
+svg{display:block;width:100%;height:250px}
+.tip{position:fixed;pointer-events:none;background:var(--card);border:1px solid var(--border);
+  border-radius:6px;padding:7px 10px;font-size:11px;line-height:1.7;color:var(--text);
+  box-shadow:0 3px 12px rgba(0,0,0,.18);display:none;z-index:999;white-space:nowrap;
+  font-variant-numeric:tabular-nums}
+.tip .h{font-weight:600;margin-bottom:4px;color:var(--text)}
+.tip .r{display:flex;justify-content:space-between;gap:16px}
+.tip .r span:first-child{color:var(--muted)}
+.tip .hr{height:1px;background:var(--border);margin:5px 0}
+.tip .dn{color:var(--dn)} .tip .up{color:var(--up)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div>
+      <h1>WAN 流量监控</h1>
+      <div class="sum" id="sumLine">本期合计 --</div>
+    </div>
+    <div class="head-actions">
+      <button class="btn-apply" id="btnRefresh">刷新</button>
+      <button class="btn-live on" id="btnLive" title="实时刷新开关">实时</button>
+    </div>
+  </div>
+
+  <div class="tabs" id="btns" style="margin-bottom:14px">
+      <button data-m="3min" class="on">3 分钟</button>
+      <button data-m="1h">1 小时</button>
+      <button data-m="1d">1 天</button>
+      <span class="sep"></span>
+      <button data-m="30d">近 30 天</button>
+      <button data-m="thisMonth">本月</button>
+      <button data-m="lastMonth">上月</button>
+      <button data-m="year">年</button>
+      <span id="dayBox" style="display:none;gap:3px;align-items:center">
+        <button id="dPrev" style="padding:4px 7px">◀</button>
+        <span id="dLabel" style="font-size:12px;font-weight:600;min-width:64px;text-align:center">今天</span>
+        <button id="dNext" style="padding:4px 7px">▶</button>
+      </span>
+      <span id="yearBox" style="display:none;gap:3px;align-items:center">
+        <button id="yPrev" style="padding:4px 7px">◀</button>
+        <span id="yLabel" style="font-size:12px;font-weight:600;min-width:42px;text-align:center">2026</span>
+        <button id="yNext" style="padding:4px 7px">▶</button>
+      </span>
+  </div>
+
+  <div class="cards" id="cards">
+    <div class="card" id="peakCard">
+      <div class="k">峰值</div>
+      <div class="v dn">↓ <span id="pDn">--</span></div>
+      <div class="v up">↑ <span id="pUp">--</span></div>
+    </div>
+    <div class="card">
+      <div class="k">本期流量</div>
+      <div class="v dn">↓ <span id="mDn">--</span></div>
+      <div class="v up">↑ <span id="mUp">--</span></div>
+    </div>
+    <div class="card">
+      <div class="k">平均速率</div>
+      <div class="v dn">↓ <span id="aDn">--</span></div>
+      <div class="v up">↑ <span id="aUp">--</span></div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span><i style="background:var(--dn)"></i>下行</span>
+    <span><i style="background:var(--up)"></i>上行</span>
+  </div>
+  <svg id="chart" viewBox="0 0 1000 250" preserveAspectRatio="none"></svg>
+  <div class="tip" id="tip"></div>
+</div>
+
+<script>
+var MODES = {
+  '3min':{type:'line'}, '1h':{type:'line'}, '1d':{type:'line'},
+  '30d':{type:'bar'}, 'thisMonth':{type:'bar'}, 'lastMonth':{type:'bar'}, 'year':{type:'bar'}
+};
+var mode = '3min';
+var year = new Date().getFullYear();
+var dayOff = 0;              // 1天视图：0=今天 -1=昨天 -2=前天
+var rows = [];
+var bars = [];
+var slots1d = [];            // 1天视图的 24 个小时槽
+var timer = null;
+var _chartCtx = null;
+var hoverIdx = -1;
+var mouseVx = -1;
+
+function fmtB(b){
+  if (b >= 1099511627776) return (b/1099511627776).toFixed(2)+' TB';
+  if (b >= 1073741824) return (b/1073741824).toFixed(2)+' GB';
+  if (b >= 1048576) return (b/1048576).toFixed(1)+' MB';
+  if (b >= 1024) return (b/1024).toFixed(0)+' KB';
+  return Math.round(b)+' B';
+}
+function fmtR(m){
+  if (m >= 1000) return (m/1000).toFixed(2)+' Gbps';
+  if (m >= 1) return m.toFixed(1)+' Mbps';
+  return (m*1000).toFixed(0)+' Kbps';
+}
+function scaleUnit(max, kind){
+  if (kind === 'rate'){
+    if (max >= 1000) return {div:1000, unit:'Gbps'};
+    if (max >= 0.001) return {div:1, unit:'Mbps'};
+    return {div:0.001, unit:'Kbps'};
+  }
+  if (max >= 1000) return {div:1000, unit:'TB'};
+  if (max >= 0.001) return {div:1, unit:'GB'};
+  return {div:0.001, unit:'MB'};
+}
+function niceStep(range, target){
+  if (range <= 0) return 1;
+  var rough = range/target;
+  var mag = Math.pow(10, Math.floor(Math.log(rough)/Math.LN10));
+  var n = rough/mag, s;
+  if (n <= 1) s = 1;
+  else if (n <= 2.5) s = 2;
+  else if (n <= 5) s = 5;
+  else s = 10;
+  return s*mag;
+}
+function fmtTick(v, su){
+  var x = v/su.div, s;
+  if (Math.abs(x) >= 100) s = Math.round(x).toString();
+  else if (Math.abs(x) >= 10) s = (Math.round(x*10)/10).toString().replace(/\.0$/,'');
+  else s = (Math.round(x*1000)/1000).toString().replace(/\.?0+$/,'');
+  return s + ' ' + su.unit;
+}
+function pad2(x){ return x<10 ? '0'+x : ''+x; }
+
+function dayStr(off){
+  var d = new Date();
+  d.setDate(d.getDate() + off);
+  return d.getFullYear() + '-' + pad2(d.getMonth()+1) + '-' + pad2(d.getDate());
+}
+function dLabelSet(){
+  var el2 = document.getElementById('dLabel');
+  if (dayOff === 0) el2.textContent = '今天';
+  else if (dayOff === -1) el2.textContent = '昨天';
+  else el2.textContent = dayStr(dayOff).slice(5);
+}
+
+function prepBars(){
+  bars = [];
+  if (mode === 'year'){
+    // 年视图固定 12 列（1~12 月），当年前面月份放数据，未来月份留空
+    for (var m = 0; m <= 11; m++){
+      bars.push({t:0, dn:0, up:0, label: (m+1)+'月', mkey:m});
+    }
+    rows.forEach(function(r){
+      var d = new Date(r[0]*1000);
+      if (d.getFullYear() !== year) return;
+      var mi = d.getMonth();
+      for (var b=0;b<bars.length;b++){
+        if (bars[b].mkey === mi){
+          bars[b].dn = r[3]/1e9;
+          bars[b].up = r[4]/1e9;
+          break;
+        }
+      }
+    });
+    return;
+  }
+
+  if (mode === '1d'){
+    // 自然日视图：固定 24 个小时槽，00:00 -> 24:00
+    var d0 = new Date();
+    d0.setHours(0, 0, 0, 0);
+    d0.setDate(d0.getDate() + dayOff);
+    var dayStart = Math.floor(d0.getTime() / 1000);
+    slots1d = [];
+    for (var h = 0; h < 24; h++){
+      slots1d.push({h:h, dn:0, up:0, rsum:0, usum:0, rcnt:0, pmax:0, pmaxUp:0,
+                    rdn:0, rup:0, pdn:0, pup:0, has:false, label:pad2(h)+':00'});
+    }
+    // rows 首行是"前一天最后一个采样"，用于算出 00:00 这一档的增量
+    for (var j=1; j<rows.length; j++){
+      var ts = rows[j][0];
+      if (ts < dayStart || ts >= dayStart + 86400) continue;
+      // 减 1 秒：若记录时间戳恰好落在整点（如 09:00:00），其增量属于上一小时
+      var hh = Math.floor((ts - dayStart - 1) / 3600);
+      if (hh < 0 || hh > 23) continue;
+      // 计数器归零（WAN 重连/重启）时按"当前值"算增量，而不是算成负数丢弃
+      var dd = (rows[j][3] >= rows[j-1][3]) ? (rows[j][3] - rows[j-1][3]) : rows[j][3];
+      var du = (rows[j][4] >= rows[j-1][4]) ? (rows[j][4] - rows[j-1][4]) : rows[j][4];
+      var s1 = slots1d[hh];
+      s1.dn += dd;
+      s1.up += du;
+      // L3 现在是「分钟级」，一小时内有 60 条 → 速率取平均、峰值取最大
+      s1.rsum += rows[j][1];
+      s1.usum += rows[j][2];
+      s1.rcnt++;
+      var pd1 = (rows[j].length > 6) ? rows[j][5] : rows[j][1];
+      var pu1 = (rows[j].length > 6) ? rows[j][6] : rows[j][2];
+      if (pd1 > s1.pmax) s1.pmax = pd1;
+      if (pu1 > s1.pmaxUp) s1.pmaxUp = pu1;
+      s1.has = true;
+    }
+    for (var z = 0; z < 24; z++){
+      var sz = slots1d[z];
+      if (sz.rcnt > 0){
+        // 速率 = 该小时累计流量 ÷ 3600 秒（等价于「流量 ÷ 60 分钟」）
+        // 固定按整小时算，不按"已走分钟数"，否则当前这一小时会被放大成尖峰
+        sz.rdn = sz.dn / 3600 * 8 / 1e6;
+        sz.rup = sz.up / 3600 * 8 / 1e6;
+        sz.pdn = sz.pmax * 8 / 1e6;
+        sz.pup = sz.pmaxUp * 8 / 1e6;
+      }
+    }
+    return;
+  }
+
+  var slotCount = 30;
+  var endDate = new Date();
+
+  if (mode === 'thisMonth'){
+    // 本月固定铺满整月：endDate 指向当月最后一天，再倒推生成 1 号 ~ 月末 的完整槽位
+    endDate = new Date(endDate.getFullYear(), endDate.getMonth() + 1, 0);
+    slotCount = endDate.getDate();
+  } else if (mode === 'lastMonth'){
+    var lm = new Date();
+    lm.setDate(1);
+    lm.setMonth(lm.getMonth() - 1);
+    var lastDay = new Date(lm.getFullYear(), lm.getMonth() + 1, 0).getDate();
+    slotCount = lastDay;
+    endDate = new Date(lm.getFullYear(), lm.getMonth(), lastDay);
+  }
+
+  var daySlots = [];
+  for (var i2 = slotCount - 1; i2 >= 0; i2--){
+    var dd = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate() - i2);
+    daySlots.push({
+      t: Math.floor(dd.getTime()/1000),
+      key: dd.getFullYear() + '-' + pad2(dd.getMonth()+1) + '-' + pad2(dd.getDate()),
+      dn: 0, up: 0,
+      label: (dd.getMonth()+1) + '/' + dd.getDate()
+    });
+  }
+
+  // L4/L5 每行已存「当期增量」（不是累计值），直接使用，无需与前一条做差
+  for (var k=0;k<rows.length;k++){
+    var v1 = rows[k][3]/1e9;
+    var v2 = rows[k][4]/1e9;
+    if (v1 < 0) v1 = 0;
+    if (v2 < 0) v2 = 0;
+    var t2 = new Date(rows[k][0]*1000);
+    var key2 = t2.getFullYear() + '-' + pad2(t2.getMonth()+1) + '-' + pad2(t2.getDate());
+    for (var s2=0;s2<daySlots.length;s2++){
+      if (daySlots[s2].key === key2){
+        daySlots[s2].dn += v1;
+        daySlots[s2].up += v2;
+        break;
+      }
+    }
+  }
+  bars = daySlots;
+}
+
+function p95(arr){
+  if (!arr || !arr.length) return 0;
+  var a = arr.slice().sort(function(x,y){ return x-y; });
+  var idx = Math.floor(a.length * 0.95);
+  if (idx >= a.length) idx = a.length - 1;
+  return a[idx];
+}
+
+function applyStats(){
+  var td=0, tu=0, span=1;
+  var isLine = MODES[mode].type === 'line';
+  var dnRates = [], upRates = [];
+
+  if (mode === '1d'){
+    var any=false, mxDn1=0, mxUp1=0, nSpan=0;
+    for (var s0=0;s0<slots1d.length;s0++){
+      var sl=slots1d[s0];
+      if (!sl.has) continue;
+      any=true; nSpan++;
+      td += sl.dn; tu += sl.up;
+      var ppd = (sl.pdn !== undefined) ? sl.pdn : sl.rdn;
+      var ppu = (sl.pup !== undefined) ? sl.pup : sl.rup;
+      if (ppd > mxDn1) mxDn1 = ppd;
+      if (ppu > mxUp1) mxUp1 = ppu;
+    }
+    if (!any) return zeroOut();
+    span = nSpan * 3600;
+    document.getElementById('mDn').textContent = fmtB(td);
+    document.getElementById('mUp').textContent = fmtB(tu);
+    document.getElementById('peakCard').innerHTML =
+      '<div class="k">峰值</div>' +
+      '<div class="v dn">↓ ' + fmtR(mxDn1) + '</div>' +
+      '<div class="v up">↑ ' + fmtR(mxUp1) + '</div>';
+    var sl1 = document.getElementById('sumLine');
+    sl1.style.display = '';
+    sl1.innerHTML = '本期合计 <b>' + fmtB(td+tu) + '</b>';
+    document.getElementById('aDn').textContent = fmtR(td*8/span/1e6);
+    document.getElementById('aUp').textContent = fmtR(tu*8/span/1e6);
+    return;
+  }
+
+  if (isLine){
+    if (rows.length < 2){ return zeroOut(); }
+    for (var i=1;i<rows.length;i++){
+      // 计数器归零（WAN 重连）时按"当前值"算，避免负值被丢弃导致少算
+      var db = (rows[i][3] >= rows[i-1][3]) ? (rows[i][3] - rows[i-1][3]) : rows[i][3];
+      var ub = (rows[i][4] >= rows[i-1][4]) ? (rows[i][4] - rows[i-1][4]) : rows[i][4];
+      td += db;
+      tu += ub;
+    }
+    // 峰值 = 统计窗口内「最高的 1 秒速率」（上下行分开）
+    // L2/L3 行带第 6/7 字段（该周期内的 1s 峰值）；L1（3分钟）本身就是 1s 采样，直接用均值列
+    var mxDnP = 0, mxUpP = 0;
+    for (var p=0;p<rows.length;p++){
+      var pd = (rows[p].length > 6) ? rows[p][5] : rows[p][1];
+      var pu = (rows[p].length > 6) ? rows[p][6] : rows[p][2];
+      if (pd > mxDnP) mxDnP = pd;
+      if (pu > mxUpP) mxUpP = pu;
+    }
+    dnRates = [mxDnP * 8 / 1e6];
+    upRates = [mxUpP * 8 / 1e6];
+    span = (rows[rows.length-1][0]-rows[0][0]) || 1;
+  } else {
+    if (!bars.length){ return zeroOut(); }
+    for (var j=0;j<bars.length;j++){
+      td += bars[j].dn * 1e9;
+      tu += bars[j].up * 1e9;
+      dnRates.push(bars[j].dn);
+      upRates.push(bars[j].up);
+    }
+    // 平均速率的时间基准：
+    //   年 = 各月按 30 天估算；本月 = 月初到现在已过去的时间（不能拿整月天数，否则被稀释）
+    if (mode === 'year'){
+      // 当年按「1月1日到现在」算，往年按整年算；固定 12 列后不能直接用 12×30 天
+      if (year === new Date().getFullYear()){
+        var y0 = new Date(year, 0, 1);
+        span = Math.max(3600, Math.floor(Date.now()/1000) - Math.floor(y0.getTime()/1000));
+      } else {
+        span = 365 * 86400;
+      }
+    } else if (mode === 'thisMonth'){
+      var ms0 = new Date(); ms0.setDate(1); ms0.setHours(0, 0, 0, 0);
+      span = Math.max(3600, Math.floor(Date.now()/1000) - Math.floor(ms0.getTime()/1000));
+    } else {
+      span = (bars[bars.length-1].t - bars[0].t) || 86400;
+    }
+  }
+
+  document.getElementById('mDn').textContent = fmtB(td);
+  document.getElementById('mUp').textContent = fmtB(tu);
+
+  var peakCard = document.getElementById('peakCard');
+  var sumLine = document.getElementById('sumLine');
+
+  if (isLine){
+    var mxDn = 0, mxUp = 0;
+    for (var k=0;k<dnRates.length;k++){
+      if (dnRates[k] > mxDn) mxDn = dnRates[k];
+      if (upRates[k] > mxUp) mxUp = upRates[k];
+    }
+    peakCard.innerHTML =
+      '<div class="k">峰值</div>' +
+      '<div class="v dn">↓ ' + fmtR(mxDn) + '</div>' +
+      '<div class="v up">↑ ' + fmtR(mxUp) + '</div>';
+    sumLine.style.display = '';
+    sumLine.innerHTML = '本期合计 <b>' + fmtB(td+tu) + '</b>';
+  } else {
+    peakCard.innerHTML =
+      '<div class="k">本期合计</div>' +
+      '<div class="v" style="font-size:18px">' + fmtB(td+tu) + '</div>';
+    sumLine.style.display = 'none';
+  }
+
+  document.getElementById('aDn').textContent = fmtR(td*8/span/1e6);
+  document.getElementById('aUp').textContent = fmtR(tu*8/span/1e6);
+}
+function zeroOut(){
+  document.getElementById('mDn').textContent = '--';
+  document.getElementById('mUp').textContent = '--';
+  document.getElementById('aDn').textContent = '--';
+  document.getElementById('aUp').textContent = '--';
+
+  var peakCard = document.getElementById('peakCard');
+  var sumLine = document.getElementById('sumLine');
+  if (MODES[mode].type === 'line'){
+    peakCard.innerHTML = '<div class="k">峰值</div><div class="v dn">↓ --</div><div class="v up">↑ --</div>';
+    sumLine.style.display = '';
+    sumLine.innerHTML = '本期合计 <b>--</b>';
+  } else {
+    peakCard.innerHTML = '<div class="k">本期合计</div><div class="v" style="font-size:18px">--</div>';
+    sumLine.style.display = 'none';
+  }
+}
+
+var SVGNS = 'http://www.w3.org/2000/svg';
+function el(tag, attrs){
+  var e = document.createElementNS(SVGNS, tag);
+  for (var k in attrs) e.setAttribute(k, attrs[k]);
+  return e;
+}
+
+// ---- 1 天视图：24 个小时槽，横轴 00:00 -> 24:00 ----
+function placeDots1d(h){
+  if (!_chartCtx || !_chartCtx.is1d) return;
+  var P = {l:92};
+  var vb = document.getElementById('chart').viewBox.baseVal;
+  var W = (vb && vb.width) ? vb.width : 1000;
+  var iw = W - P.l - 14;
+  var x = P.l + iw*h/24;
+  var Y = _chartCtx.Y;
+  _chartCtx.dotDn.setAttribute('cx', x.toFixed(1));
+  _chartCtx.dotDn.setAttribute('cy', Y(_chartCtx.dnA[h]).toFixed(1));
+  _chartCtx.dotDn.setAttribute('opacity', 1);
+  _chartCtx.dotUp.setAttribute('cx', x.toFixed(1));
+  _chartCtx.dotUp.setAttribute('cy', Y(_chartCtx.upA[h]).toFixed(1));
+  _chartCtx.dotUp.setAttribute('opacity', 1);
+}
+
+function drawHourTicks(svg, H, P, iw){
+  var maxLb = Math.max(2, Math.floor(iw / 62));
+  var step = Math.max(1, Math.ceil(24 / maxLb));
+  var last = 0;
+  for (var h = 0; h <= 24; h += step){
+    var x = P.l + iw*h/24;
+    svg.appendChild(el('text', {
+      x:x.toFixed(1), y:H-8, fill:'var(--muted2)', 'font-size':'9', 'text-anchor':'middle'
+    })).textContent = pad2(h) + ':00';
+    last = h;
+  }
+  if (last < 24){
+    svg.appendChild(el('text', {
+      x:(P.l+iw).toFixed(1), y:H-8, fill:'var(--muted2)', 'font-size':'9', 'text-anchor':'end'
+    })).textContent = '24:00';
+  }
+}
+
+function drawDay1d(svg, W, H, P, iw, ih){
+  var maxV = 0, lastIdx = -1;
+  for (var i=0;i<24;i++){
+    var s = slots1d[i];
+    if (!s || !s.has) continue;
+    lastIdx = i;
+    if (s.rdn > maxV) maxV = s.rdn;
+    if (s.rup > maxV) maxV = s.rup;
+  }
+  if (lastIdx < 0){ emptyState(svg, W, H); return; }
+
+  var su = scaleUnit(maxV, 'rate');
+  var st = niceStep(maxV/su.div, 12);
+  var yMax = (Math.floor(maxV/su.div/st)+2)*st;
+  drawGrid(svg, W, H, P, iw, ih, yMax, st, su);
+
+  var X = function(h){ return P.l + iw*h/24; };
+  var Y = function(v){ return P.t + ih - ih*(v/su.div)/yMax; };
+
+  var dnPts = [], upPts = [];
+  for (var h=0; h<=lastIdx; h++){
+    dnPts.push([X(h), Y(slots1d[h].rdn)]);
+    upPts.push([X(h), Y(slots1d[h].rup)]);
+  }
+  [['dn',dnPts],['up',upPts]].forEach(function(pair){
+    if (!pair[1].length) return;
+    var d = pair[1].map(function(pt,i){ return (i?'L':'M')+pt[0].toFixed(1)+','+pt[1].toFixed(1); }).join('');
+    svg.appendChild(el('path', {
+      d:d, fill:'none', stroke:'var(--'+pair[0]+')',
+      'stroke-width':'1.8', 'stroke-linejoin':'round', 'stroke-linecap':'round'
+    }));
+  });
+
+  _chartCtx = {
+    is1d: true, last: lastIdx, Y: Y,
+    dnA: slots1d.map(function(s){ return s.rdn; }),
+    upA: slots1d.map(function(s){ return s.rup; }),
+    dotDn: el('circle', {cx:0,cy:0,r:4.5,fill:'var(--dn)',stroke:'var(--card)','stroke-width':2,opacity:0,'pointer-events':'none'}),
+    dotUp: el('circle', {cx:0,cy:0,r:4.5,fill:'var(--up)',stroke:'var(--card)','stroke-width':2,opacity:0,'pointer-events':'none'})
+  };
+  svg.appendChild(_chartCtx.dotDn);
+  svg.appendChild(_chartCtx.dotUp);
+
+  if (mouseVx >= 0){
+    var hv = Math.round((mouseVx - P.l)/iw*24 - 0.5);
+    if (hv < 0) hv = 0;
+    if (hv > lastIdx) hv = lastIdx;
+    placeDots1d(hv);
+  }
+
+  drawHourTicks(svg, H, P, iw);
+}
+
+function draw(){
+  var svg = document.getElementById('chart');
+  var rect = svg.getBoundingClientRect();
+  var W = Math.max(320, Math.round(rect.width || 1000));
+  var H = 250;
+  var P = {l:92, r:14, t:14, b:28};
+  svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+  var iw0 = W - P.l - P.r;
+  var maxLb = Math.max(2, Math.floor(iw0 / 62));
+  svg.innerHTML = '';
+  var iw = W-P.l-P.r, ih = H-P.t-P.b;
+
+  if (mode === '1d'){
+    drawDay1d(svg, W, H, P, iw, ih);
+    return;
+  }
+
+  if (MODES[mode].type === 'line'){
+    if (rows.length < 2){ emptyState(svg, W, H); return; }
+    var dnA = rows.map(function(r){ return r[1] * 8 / 1e6; });
+    var upA = rows.map(function(r){ return r[2] * 8 / 1e6; });
+    var maxV = Math.max.apply(null, dnA.concat(upA));
+    var su = scaleUnit(maxV, 'rate');
+    var st = niceStep(maxV/su.div, 12);
+    var yMax = (Math.floor(maxV/su.div/st)+2)*st;
+
+    drawGrid(svg, W, H, P, iw, ih, yMax, st, su);
+
+    var n = rows.length;
+    var X = function(i){ return P.l + iw*i/(n-1); };
+    var Y = function(v){ return P.t + ih - ih*(v/su.div)/yMax; };
+
+    [['dn',dnA],['up',upA]].forEach(function(pair){
+      var d = pair[1].map(function(v,i){ return (i?'L':'M')+X(i).toFixed(1)+','+Y(v).toFixed(1); }).join('');
+      svg.appendChild(el('path', {
+        d:d, fill:'none', stroke:'var(--'+pair[0]+')',
+        'stroke-width':'1.8', 'stroke-linejoin':'round', 'stroke-linecap':'round'
+      }));
+    });
+
+    _chartCtx = {
+      X: X, Y: Y, dnA: dnA, upA: upA,
+      dotDn: el('circle', {cx:0, cy:0, r:4.5, fill:'var(--dn)', stroke:'var(--card)', 'stroke-width':2, opacity:0, 'pointer-events':'none'}),
+      dotUp: el('circle', {cx:0, cy:0, r:4.5, fill:'var(--up)', stroke:'var(--card)', 'stroke-width':2, opacity:0, 'pointer-events':'none'})
+    };
+    svg.appendChild(_chartCtx.dotDn);
+    svg.appendChild(_chartCtx.dotUp);
+
+    if (mouseVx >= 0 && n >= 2){
+      var hidx = Math.round((mouseVx - P.l) / iw * (n - 1));
+      if (hidx < 0) hidx = 0;
+      if (hidx > n - 1) hidx = n - 1;
+      var hx = X(hidx);
+      _chartCtx.dotDn.setAttribute('cx', hx.toFixed(1));
+      _chartCtx.dotDn.setAttribute('cy', Y(dnA[hidx]).toFixed(1));
+      _chartCtx.dotDn.setAttribute('opacity', 1);
+      _chartCtx.dotUp.setAttribute('cx', hx.toFixed(1));
+      _chartCtx.dotUp.setAttribute('cy', Y(upA[hidx]).toFixed(1));
+      _chartCtx.dotUp.setAttribute('opacity', 1);
+    }
+
+    var lbls = rows.map(function(r, i){
+      if (mode === '3min'){
+        var sec = Math.round(180 * (1 - i/(rows.length-1)));
+        return Math.floor(sec/60) + ':' + pad2(sec % 60);
+      }
+      if (mode === '1h') return i + '分';
+      var d = new Date(r[0]*1000);
+      return d.getHours() + ':00';
+    });
+    var skip = Math.max(1, Math.ceil((n-1) / (maxLb-1)));
+    lbls.forEach(function(lb, i){
+      if (i % skip !== 0) return;
+      svg.appendChild(el('text', {
+        x:X(i).toFixed(1), y:H-8, fill:'var(--muted2)', 'font-size':'9', 'text-anchor':'middle'
+      })).textContent = lb;
+    });
+  } else {
+    if (!bars.length){ emptyState(svg, W, H); return; }
+    var mx = 0;
+    bars.forEach(function(b){ if (b.dn+b.up > mx) mx = b.dn+b.up; });
+    var s2 = scaleUnit(mx, 'bytes');
+    var st2 = niceStep(mx/s2.div, 12);
+    var yM2 = (Math.floor(mx/s2.div/st2)+2)*st2;
+
+    drawGrid(svg, W, H, P, iw, ih, yM2, st2, s2);
+
+    var n2 = bars.length;
+    var gap = iw/n2;
+    var bw = Math.max(2, gap*0.62);
+
+    bars.forEach(function(b, i){
+      var cx = P.l + gap*i + gap/2;
+      var hDn = ih*(b.dn/s2.div)/yM2;
+      var hUp = ih*(b.up/s2.div)/yM2;
+      var yb = P.t + ih;
+      svg.appendChild(el('rect', {
+        x:(cx-bw/2).toFixed(1), y:(yb-hDn).toFixed(1),
+        width:bw.toFixed(1), height:Math.max(0,hDn).toFixed(1), fill:'var(--dn)'
+      }));
+      svg.appendChild(el('rect', {
+        x:(cx-bw/2).toFixed(1), y:(yb-hDn-hUp).toFixed(1),
+        width:bw.toFixed(1), height:Math.max(0,hUp).toFixed(1), fill:'var(--up)'
+      }));
+    });
+
+    var skip2 = Math.max(1, Math.ceil((n2-1) / (maxLb-1)));
+    bars.forEach(function(b, i){
+      if (i % skip2 !== 0) return;
+      var cx = P.l + gap*i + gap/2;
+      svg.appendChild(el('text', {
+        x:cx.toFixed(1), y:H-8, fill:'var(--muted2)', 'font-size':'9', 'text-anchor':'middle'
+      })).textContent = b.label;
+    });
+  }
+}
+
+function drawGrid(svg, W, H, P, iw, ih, yMax, step, su){
+  for (var v=0; v<=yMax+1e-9; v+=step){
+    var y = P.t + ih - ih*(v/yMax);
+    svg.appendChild(el('line', {
+      x1:P.l, x2:W-P.r, y1:y.toFixed(1), y2:y.toFixed(1),
+      stroke:'var(--grid)', 'stroke-width':'1'
+    }));
+    svg.appendChild(el('text', {
+      x:P.l-8, y:(y+3.5).toFixed(1), fill:'var(--muted)', 'font-size':'10', 'text-anchor':'end'
+    })).textContent = fmtTick(v, su);
+  }
+}
+
+function emptyState(svg, W, H){
+  var P = {l:92, r:14, t:14, b:28};
+  var iw = W-P.l-P.r, ih = H-P.t-P.b;
+  var isRate = MODES[mode].type === 'line';
+  var su = isRate ? {div:1, unit:'Mbps'} : {div:1, unit:'GB'};
+  var yMax = isRate ? 100 : 10;
+  var stp = yMax / 4;
+
+  for (var i=0;i<=4;i++){
+    var v = stp * i;
+    var y = P.t + ih - ih*(v/yMax);
+    svg.appendChild(el('line', {
+      x1:P.l, x2:W-P.r, y1:y.toFixed(1), y2:y.toFixed(1),
+      stroke:'var(--grid)', 'stroke-width':'1'
+    }));
+    svg.appendChild(el('text', {
+      x:P.l-8, y:(y+3.5).toFixed(1), fill:'var(--muted)', 'font-size':'10', 'text-anchor':'end'
+    })).textContent = fmtTick(v, su);
+  }
+
+  svg.appendChild(el('line', {
+    x1:P.l, x2:W-P.r, y1:(P.t+ih), y2:(P.t+ih),
+    stroke:'var(--dn)', 'stroke-width':'1.5', 'stroke-linecap':'round'
+  }));
+  svg.appendChild(el('line', {
+    x1:P.l, x2:W-P.r, y1:(P.t+ih-1.5), y2:(P.t+ih-1.5),
+    stroke:'var(--up)', 'stroke-width':'1.5', 'stroke-linecap':'round'
+  }));
+}
+
+async function load(){
+  var url = '/cgi-bin/traffic?mode='+mode;
+  if (mode === 'year') url += '&y='+year;
+  if (mode === '1d') url += '&d='+dayStr(dayOff);
+  try {
+    var r = await fetch(url, {cache:'no-store'});
+    var d = await r.json();
+    rows = d.data || [];
+    prepBars();
+    applyStats();
+    draw();
+    refreshTip();
+  } catch(e) { console.error(e); }
+}
+
+var liveOn = true;
+
+function setAuto(){
+  if (timer){ clearInterval(timer); timer = null; }
+  if (!liveOn) return;
+  timer = setInterval(load, mode === '3min' ? 1000 : 15000);
+}
+
+var mouseCx = -1, mouseCy = -1;
+
+function refreshTip(){
+  var svg = document.getElementById('chart');
+  var tip = document.getElementById('tip');
+  if (mouseVx < 0){ tip.style.display = 'none'; return; }
+
+  var vb = svg.viewBox.baseVal;
+  var W = (vb && vb.width) ? vb.width : 1000;
+  var PL = 92, PR = 14;
+  var iw = W - PL - PR;
+
+  if (mode === '1d'){
+    var lastD = (_chartCtx && _chartCtx.is1d && _chartCtx.last !== undefined) ? _chartCtx.last : 23;
+    var hd = Math.round((mouseVx - PL)/iw*24 - 0.5);
+    if (hd < 0) hd = 0;
+    if (hd > lastD) hd = lastD;
+    var sd = slots1d[hd];
+    if (!sd || !sd.has){ tip.style.display = 'none'; return; }
+    tip.innerHTML =
+      '<div class="h">' + pad2(hd) + ':00 - ' + pad2(hd+1) + ':00</div>' +
+      '<div class="r"><span>下行</span><span class="dn">' + fmtR(sd.rdn) + '<br>' + fmtB(sd.dn) + '</span></div>' +
+      '<div class="r"><span>上行</span><span class="up">' + fmtR(sd.rup) + '<br>' + fmtB(sd.up) + '</span></div>' +
+      '<div class="hr"></div>' +
+      '<div class="r"><span>合计</span><span>' + fmtB(sd.dn+sd.up) + '</span></div>';
+    placeDots1d(hd);
+    tip.style.display = 'block';
+    var tw1 = tip.offsetWidth;
+    var tx1 = mouseCx + 14;
+    if (tx1 + tw1 > window.innerWidth - 8) tx1 = mouseCx - tw1 - 14;
+    if (tx1 < 4) tx1 = 4;
+    tip.style.left = tx1 + 'px';
+    tip.style.top = (mouseCy - 14) + 'px';
+    return;
+  }
+
+  var isLine = MODES[mode].type === 'line';
+  var n = isLine ? rows.length : bars.length;
+  if (n < 1){ tip.style.display = 'none'; return; }
+
+  // 折线：点在 i/(n-1)；柱状：第 i 根柱占据 [i/n, (i+1)/n)，必须分开算，
+  // 否则用 (n-1) 会越往右偏得越多（年视图里指 10 月会显示 9 月）
+  var idx;
+  if (isLine){
+    idx = Math.round((mouseVx - PL) / iw * (n - 1));
+  } else {
+    idx = Math.floor((mouseVx - PL) / (iw / n));
+  }
+  if (idx < 0) idx = 0;
+  if (idx > n - 1) idx = n - 1;
+
+  if (isLine){
+    if (rows.length < 2){ tip.style.display = 'none'; return; }
+    var r = rows[idx];
+    var db = (idx > 0) ? (r[3] - rows[idx-1][3]) : 0;
+    var ub = (idx > 0) ? (r[4] - rows[idx-1][4]) : 0;
+    if (db < 0) db = 0;
+    if (ub < 0) ub = 0;
+    var title = '0:00';
+    if (mode === '3min'){
+      var secAgo = Math.round(180 * (1 - idx/(rows.length-1)));
+      title = Math.floor(secAgo/60) + ':' + pad2(secAgo % 60);
+    } else if (mode === '1h') title = idx + ' 分';
+    else title = new Date(r[0]*1000).getHours() + ':00';
+
+    tip.innerHTML =
+      '<div class="h">' + title + '</div>' +
+      '<div class="r"><span>下行</span><span class="dn">' + fmtR(r[1]*8/1e6) + '<br>' + fmtB(db) + '</span></div>' +
+      '<div class="r"><span>上行</span><span class="up">' + fmtR(r[2]*8/1e6) + '<br>' + fmtB(ub) + '</span></div>';
+
+    if (_chartCtx && _chartCtx.dotDn && _chartCtx.dnA[idx] !== undefined){
+      hoverIdx = idx;
+      var cxp = _chartCtx.X(idx);
+      _chartCtx.dotDn.setAttribute('cx', cxp.toFixed(1));
+      _chartCtx.dotDn.setAttribute('cy', _chartCtx.Y(_chartCtx.dnA[idx]).toFixed(1));
+      _chartCtx.dotDn.setAttribute('opacity', 1);
+      _chartCtx.dotUp.setAttribute('cx', cxp.toFixed(1));
+      _chartCtx.dotUp.setAttribute('cy', _chartCtx.Y(_chartCtx.upA[idx]).toFixed(1));
+      _chartCtx.dotUp.setAttribute('opacity', 1);
+    }
+  } else {
+    if (_chartCtx && _chartCtx.dotDn){
+      _chartCtx.dotDn.setAttribute('opacity', 0);
+      _chartCtx.dotUp.setAttribute('opacity', 0);
+    }
+    var b = bars[idx];
+    tip.innerHTML =
+      '<div class="h">' + b.label + '</div>' +
+      '<div class="r"><span>下行</span><span class="dn">' + fmtB(b.dn*1e9) + '</span></div>' +
+      '<div class="r"><span>上行</span><span class="up">' + fmtB(b.up*1e9) + '</span></div>' +
+      '<div class="hr"></div>' +
+      '<div class="r"><span>合计</span><span>' + fmtB((b.dn+b.up)*1e9) + '</span></div>';
+  }
+
+  tip.style.display = 'block';
+  var tw = tip.offsetWidth;
+  var tx = mouseCx + 14;
+  if (tx + tw > window.innerWidth - 8) tx = mouseCx - tw - 14;
+  if (tx < 4) tx = 4;
+  tip.style.left = tx + 'px';
+  tip.style.top = (mouseCy - 14) + 'px';
+}
+
+(function bindHover(){
+  var svg = document.getElementById('chart');
+  var tip = document.getElementById('tip');
+
+  svg.addEventListener('mousemove', function(e){
+    var rect = svg.getBoundingClientRect();
+    var vb = svg.viewBox.baseVal;
+    var W = (vb && vb.width) ? vb.width : 1000;
+    mouseVx = (e.clientX - rect.left) / rect.width * W;
+    mouseCx = e.clientX;
+    mouseCy = e.clientY;
+    refreshTip();
+  });
+
+  svg.addEventListener('mouseleave', function(){
+    hoverIdx = -1;
+    mouseVx = -1;
+    mouseCx = -1;
+    mouseCy = -1;
+    tip.style.display = 'none';
+    if (_chartCtx && _chartCtx.dotDn){
+      _chartCtx.dotDn.setAttribute('opacity', 0);
+      _chartCtx.dotUp.setAttribute('opacity', 0);
+    }
+  });
+})();
+
+document.querySelectorAll('#btns button[data-m]').forEach(function(b){
+  b.onclick = function(){
+    document.querySelectorAll('#btns button[data-m]').forEach(function(x){ x.classList.remove('on'); });
+    b.classList.add('on');
+    mode = b.dataset.m;
+    document.getElementById('yearBox').style.display = (mode==='year') ? 'inline-flex' : 'none';
+    document.getElementById('dayBox').style.display = (mode==='1d') ? 'inline-flex' : 'none';
+    document.querySelector('.head-actions').style.display = (mode==='3min') ? 'flex' : 'none';
+    load(); setAuto();
+  };
+});
+document.getElementById('yPrev').onclick = function(){
+  year--; document.getElementById('yLabel').textContent = year; load();
+};
+document.getElementById('yNext').onclick = function(){
+  if (year < new Date().getFullYear()){
+    year++; document.getElementById('yLabel').textContent = year; load();
+  }
+};
+document.getElementById('dPrev').onclick = function(){
+  if (dayOff > -2){ dayOff--; dLabelSet(); load(); }
+};
+document.getElementById('dNext').onclick = function(){
+  if (dayOff < 0){ dayOff++; dLabelSet(); load(); }
+};
+
+(function initTheme(){
+  var t = localStorage.getItem('tmTheme') || 'auto';
+  function apply(){
+    var dark = (t === 'dark') || (t === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  }
+  apply();
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', apply);
+})();
+
+document.getElementById('btnRefresh').onclick = function(){
+  load();
+};
+document.getElementById('btnLive').onclick = function(){
+  liveOn = !liveOn;
+  this.classList.toggle('on', liveOn);
+  this.title = liveOn ? '实时刷新：开' : '实时刷新：关';
+  setAuto();
+};
+
+document.getElementById('yLabel').textContent = year;
+dLabelSet();
+load();
+setAuto();
+
+var _rzT = null;
+window.addEventListener('resize', function(){
+  clearTimeout(_rzT);
+  _rzT = setTimeout(function(){
+    if (rows.length || bars.length) draw();
+  }, 150);
+});
+</script>
+</body>
+</html>

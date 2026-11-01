@@ -1,0 +1,14 @@
+{
+	"luci-app-traffic": {
+		"description": "Grant access to traffic monitor",
+		"read": {
+			"uci": [ "traffic" ],
+			"ubus": {
+				"service": [ "list" ]
+			}
+		},
+		"write": {
+			"uci": [ "traffic" ]
+		}
+	}
+}

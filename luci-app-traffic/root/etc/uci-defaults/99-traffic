@@ -1,0 +1,12 @@
+#!/bin/sh /etc/rc.common
+# UCI defaults for luci-app-traffic
+uci -q batch <<-EOT
+	set traffic.main=traffic
+	set traffic.main.enabled='1'
+	set traffic.main.interface='wan'
+	set traffic.main.interval='3'
+	# POSIX 时区串，用于判定"整点/跨天/月份"边界（不影响存储的 unix 时间戳）
+	# CST-8 = 北京时间 UTC+8；不需要安装 zoneinfo 包
+	set traffic.main.timezone='CST-8'
+	commit traffic
+EOT
