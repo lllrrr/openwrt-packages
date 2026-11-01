@@ -1,4 +1,5 @@
 'use strict';
+'require smwcore';
 /*
  * smwoverlay —— 弹层组件：Dialog（居中）/ Drawer（右侧）/ Sheet（底部）/ Confirm
  *
@@ -670,11 +671,11 @@ var Confirm = {
 	}
 };
 
-return {
+return L.Class.extend({
 	open: open,
 	Dialog: Dialog,
 	Drawer: Drawer,
 	Sheet: Sheet,
 	Confirm: Confirm,
 	instances: instances
-};
+});

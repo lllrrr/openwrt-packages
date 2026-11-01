@@ -166,9 +166,19 @@ function forward(method, params) {
 function call_daemon(req, method) {
 	const env = forward(method, req.args);
 	if (env === null) {
-		req.error(UBUS_STATUS_CONNECTION_FAILED,
-			sprintf('无法连接 smartmwan 守护进程（%s）：检查是否已启动', socket_path()));
-		return null;
+		/* 传输失败返回错误信封而不是 req.error()：req.error 会把消息降级成
+		 * ubus 状态码，前端只能看到 "ubus code 10" 而丢掉 socket 路径等
+		 * 关键排障信息；信封则被前端四态渲染原样展示。
+		 * 守护进程未启动（enabled=0 的设计内常态）也走这里，UI 显示
+		 * 「无法连接」而不是一句莫名的 "未知错误"。 */
+		return {
+			ok: false,
+			error: {
+				code: 'io',
+				message: sprintf('无法连接 smartmwan 守护进程（%s）：请确认服务已启动',
+					socket_path())
+			}
+		};
 	}
 	return env;
 }

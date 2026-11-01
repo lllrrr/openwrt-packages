@@ -1,4 +1,5 @@
 'use strict';
+'require smwcore';
 /*
  * smwfeedback —— 操作反馈与加载态
  *
@@ -423,7 +424,7 @@ function busy(btn, on, label) {
 	}
 }
 
-return {
+return L.Class.extend({
 	Toast: Toast,
 	Loading: {
 		region: region,
@@ -431,4 +432,4 @@ return {
 		progress: progress,
 		busy: busy
 	}
-};
+});

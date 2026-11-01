@@ -399,7 +399,7 @@ Listeners.prototype.release = function() {
 	this.items = [];
 };
 
-return {
+return L.Class.extend({
 	Z_BASE: Z_BASE,
 	pushLayer: pushLayer,
 	popLayer: popLayer,
@@ -421,4 +421,4 @@ return {
 	flatten: flatten,
 	text: text,
 	Listeners: Listeners
-};
+});

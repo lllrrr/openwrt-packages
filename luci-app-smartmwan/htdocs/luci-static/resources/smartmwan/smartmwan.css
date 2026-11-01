@@ -26,27 +26,27 @@
 body,
 .smw-panel,
 .smw-root {
-	/* 色彩角色：优先取 LuCI 主题变量，缺失时落 MD3 基线。
-	 * surface 系（背景）与 on-surface 系（文字）分开取值：
-	 * 主题只覆盖其中一半时，另一半仍有可读的搭配。 */
-	--smw-primary: var(--primary-color, #6750a4);
-	--smw-on-primary: #ffffff;
-	--smw-primary-container: #eaddff;
-	--smw-on-primary-container: #21005d;
-	--smw-secondary-container: #e8def8;
-	--smw-on-secondary-container: #1d192b;
-	--smw-error: var(--danger-color, #b3261e);
-	--smw-on-error: #ffffff;
-	--smw-error-container: #f9dedc;
-	--smw-on-error-container: #410e0b;
+	/* 色彩角色：优先取当前主题的变量（Aurora 用 --brand/--bg/--text/--danger
+	 * 一族并随 data-darkmode 翻转；旧版 LuCI 主题用 --primary-color 一族），
+	 * 都缺失时落 MD3 基线。主题只覆盖一半时，另一半仍有可读搭配。 */
+	--smw-primary: var(--brand, var(--primary-color, #6750a4));
+	--smw-on-primary: var(--on-brand, #ffffff);
+	--smw-primary-container: var(--brand-subtle, #eaddff);
+	--smw-on-primary-container: var(--text, #21005d);
+	--smw-secondary-container: var(--brand-subtle, #e8def8);
+	--smw-on-secondary-container: var(--text, #1d192b);
+	--smw-error: var(--danger, var(--danger-color, #b3261e));
+	--smw-on-error: var(--on-brand, #ffffff);
+	--smw-error-container: var(--danger-surface, #f9dedc);
+	--smw-on-error-container: var(--text, #410e0b);
 
-	--smw-surface: var(--background-color, #fef7ff);
-	--smw-surface-container: var(--background-color-secondary, #f3edf7);
-	--smw-surface-container-high: var(--background-color-highlight, #ece6f0);
-	--smw-on-surface: var(--text-color, #1d1b20);
-	--smw-on-surface-variant: var(--text-color-medium, #49454f);
+	--smw-surface: var(--bg, var(--background-color, #fef7ff));
+	--smw-surface-container: var(--surface-sunken, var(--background-color-secondary, #f3edf7));
+	--smw-surface-container-high: var(--surface-overlay, var(--background-color-highlight, #ece6f0));
+	--smw-on-surface: var(--text, var(--text-color, #1d1b20));
+	--smw-on-surface-variant: var(--text-muted, var(--text-color-medium, #49454f));
 	--smw-outline: var(--border-color-medium, #79747e);
-	--smw-outline-variant: var(--border-color, #cac4d0);
+	--smw-outline-variant: var(--hairline, var(--border-color, #cac4d0));
 
 	--smw-scrim: rgba(0, 0, 0, 0.4);
 	--smw-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.30), 0 1px 3px 1px rgba(0, 0, 0, 0.15);
@@ -102,31 +102,32 @@ body,
 }
 
 /* 暗色：只改令牌，不改布局。
- * 用 prefers-color-scheme 而非主题 class —— 后者在不同 LuCI 主题下名字不统一，
- * 猜错等于整块失效；媒体查询至少覆盖「系统偏好为暗」这一类。
+ * 两条覆盖路径：① prefers-color-scheme（系统暗，任何主题下都成立）；
+ * ② html[data-darkmode=true]（Aurora 等主题自带暗色开关，与系统偏好无关 ——
+ * 桥接的主题变量本身会随该属性翻转，这里的回退兜底只服务无变量可用的主题）。
  * MD3 暗色用「降低饱和的深色 surface + 提亮的主色」，而非简单反色。 */
 @media (prefers-color-scheme: dark) {
 	body,
 	.smw-panel,
 	.smw-root {
-		--smw-primary: var(--primary-color, #d0bcff);
-		--smw-on-primary: #381e72;
-		--smw-primary-container: #4f378b;
-		--smw-on-primary-container: #eaddff;
+		--smw-primary: var(--brand, var(--primary-color, #d0bcff));
+		--smw-on-primary: var(--on-brand, #381e72);
+		--smw-primary-container: var(--brand-subtle, #4f378b);
+		--smw-on-primary-container: var(--text, #eaddff);
 		--smw-secondary-container: #4a4458;
 		--smw-on-secondary-container: #e8def8;
-		--smw-error: var(--danger-color, #f2b8b5);
+		--smw-error: var(--danger, var(--danger-color, #f2b8b5));
 		--smw-on-error: #601410;
-		--smw-error-container: #8c1d18;
+		--smw-error-container: var(--danger-surface, #8c1d18);
 		--smw-on-error-container: #f9dedc;
 
-		--smw-surface: var(--background-color, #141218);
-		--smw-surface-container: var(--background-color-secondary, #211f26);
-		--smw-surface-container-high: var(--background-color-highlight, #2b2930);
-		--smw-on-surface: var(--text-color, #e6e0e9);
-		--smw-on-surface-variant: var(--text-color-medium, #cac4d0);
+		--smw-surface: var(--bg, var(--background-color, #141218));
+		--smw-surface-container: var(--surface-sunken, var(--background-color-secondary, #211f26));
+		--smw-surface-container-high: var(--surface-overlay, var(--background-color-highlight, #2b2930));
+		--smw-on-surface: var(--text, var(--text-color, #e6e0e9));
+		--smw-on-surface-variant: var(--text-muted, var(--text-color-medium, #cac4d0));
 		--smw-outline: var(--border-color-medium, #938f99);
-		--smw-outline-variant: var(--border-color, #48454e);
+		--smw-outline-variant: var(--hairline, var(--border-color, #48454e));
 
 		--smw-scrim: rgba(0, 0, 0, 0.6);
 		--smw-shadow-1: 0 1px 3px rgba(0, 0, 0, 0.5);
@@ -138,6 +139,42 @@ body,
 		--smw-muted-fg: #9aa4af;
 		--smw-line: rgba(255, 255, 255, 0.12);
 	}
+}
+
+/* 主题自带暗色开关（Aurora：html[data-darkmode]）：与系统偏好解耦。
+ * 声明内容与上一块一致；主题变量已自行翻转，这里保证无变量主题下也有
+ * 可读的暗色回退。 */
+html[data-darkmode=true] body,
+html[data-darkmode=true] .smw-panel,
+html[data-darkmode=true] .smw-root {
+	--smw-primary: var(--brand, var(--primary-color, #d0bcff));
+	--smw-on-primary: var(--on-brand, #381e72);
+	--smw-primary-container: var(--brand-subtle, #4f378b);
+	--smw-on-primary-container: var(--text, #eaddff);
+	--smw-secondary-container: #4a4458;
+	--smw-on-secondary-container: #e8def8;
+	--smw-error: var(--danger, var(--danger-color, #f2b8b5));
+	--smw-on-error: #601410;
+	--smw-error-container: var(--danger-surface, #8c1d18);
+	--smw-on-error-container: #f9dedc;
+
+	--smw-surface: var(--bg, var(--background-color, #141218));
+	--smw-surface-container: var(--surface-sunken, var(--background-color-secondary, #211f26));
+	--smw-surface-container-high: var(--surface-overlay, var(--background-color-highlight, #2b2930));
+	--smw-on-surface: var(--text, var(--text-color, #e6e0e9));
+	--smw-on-surface-variant: var(--text-muted, var(--text-color-medium, #cac4d0));
+	--smw-outline: var(--border-color-medium, #938f99);
+	--smw-outline-variant: var(--hairline, var(--border-color, #48454e));
+
+	--smw-scrim: rgba(0, 0, 0, 0.6);
+	--smw-shadow-1: 0 1px 3px rgba(0, 0, 0, 0.5);
+
+	--smw-ok: #5ddb9c;
+	--smw-warn: #f0b357;
+	--smw-bad: #f08b7d;
+	--smw-info: #6cc0f0;
+	--smw-muted-fg: #9aa4af;
+	--smw-line: rgba(255, 255, 255, 0.12);
 }
 
 /* ==================== 盒模型 ==================== */
@@ -467,10 +504,19 @@ body,
 
 .smw-btn:disabled::after { opacity: 0; }
 
-/* filled：主操作。底色加深一层再放白字，主题主色偏亮时也可读。 */
+/* filled：主操作。底色加深一层再放白字，主题主色偏亮时也可读。
+ * 悬停抬一档阴影、按压回落一档 —— 用层级表达交互，不靠变色。 */
 .smw-btn-filled {
 	background: var(--smw-primary);
 	color: var(--smw-on-primary);
+	box-shadow: var(--smw-shadow-1);
+}
+
+.smw-btn-filled:hover:not(:disabled) {
+	box-shadow: var(--smw-shadow-2);
+}
+
+.smw-btn-filled:active:not(:disabled) {
 	box-shadow: var(--smw-shadow-1);
 }
 
@@ -494,6 +540,14 @@ body,
 .smw-btn-danger {
 	background: var(--smw-error);
 	color: var(--smw-on-error);
+	box-shadow: var(--smw-shadow-1);
+}
+
+.smw-btn-danger:hover:not(:disabled) {
+	box-shadow: var(--smw-shadow-2);
+}
+
+.smw-btn-danger:active:not(:disabled) {
 	box-shadow: var(--smw-shadow-1);
 }
 
@@ -975,9 +1029,13 @@ body,
 }
 
 /* 开关（Switch）：用于「开启/关闭一个功能」。
- * 未选中：2dp outline 轨道 + 16dp outline 拇指；
- * 选中：主色轨道 + 24dp on-primary 拇指。 */
-.smw-switch {
+ * 实现：轨道与拇指全部画在 input 自身（background 颜色 + radial-gradient 拇指），
+ * 不用 ::before/::after —— 主题（如 Aurora）对原生 checkbox 的伪元素皮肤
+ * 会以同优先级渗入，真机实测_checked 状态被叠加出对勾图标；gradient 方案
+ * 无伪元素可争抢，任何主题下都稳定。
+ * 未选中：outline 轨道 + 16dp 灰拇指（靠左）；选中：主色轨道 + 24dp 拇指（靠右）。
+ * background-position 参与过渡，滑动动画与伪元素方案一致。 */
+input[type="checkbox"].smw-switch {
 	appearance: none;
 	-webkit-appearance: none;
 	position: relative;
@@ -987,47 +1045,51 @@ body,
 	margin: 0;
 	border: 2px solid var(--smw-outline);
 	border-radius: 16px;
-	background: var(--smw-surface-container-high);
+	background-color: var(--smw-surface-container-high);
+	/* 16dp 拇指：圆心距左边框内缘 10px（4px 边距 + 2px 边框 + 半径 8 − 2px 重叠补偿）。 */
+	background-image: radial-gradient(circle at 12px center, var(--smw-outline) 0 8px, transparent 8.5px);
+	background-repeat: no-repeat;
+	background-size: 100% 100%;
 	cursor: pointer;
 	flex: 0 0 auto;
-	transition: background-color var(--smw-dur-fast) var(--smw-ease),
-		border-color var(--smw-dur-fast) var(--smw-ease);
+	transition: background-position var(--smw-dur-fast) var(--smw-ease),
+		background-color var(--smw-dur-fast) var(--smw-ease),
+		border-color var(--smw-dur-fast) var(--smw-ease),
+		box-shadow var(--smw-dur-fast) var(--smw-ease);
 }
 
-.smw-switch::after {
-	content: "";
-	position: absolute;
-	top: 50%;
-	left: 4px;
-	width: 16px;
-	height: 16px;
-	border-radius: 50%;
-	background: var(--smw-outline);
-	transform: translateY(-50%);
-	transition: left var(--smw-dur-fast) var(--smw-ease),
-		width var(--smw-dur-fast) var(--smw-ease),
-		height var(--smw-dur-fast) var(--smw-ease),
-		background-color var(--smw-dur-fast) var(--smw-ease);
+/* 悬停状态环：比状态层更直白的反馈；按压时环色加深。 */
+input[type="checkbox"].smw-switch:hover:not(:disabled) {
+	box-shadow: 0 0 0 3px var(--smw-primary-container);
 }
 
-.smw-switch:checked {
-	background: var(--smw-primary);
+input[type="checkbox"].smw-switch:active:not(:disabled) {
+	box-shadow: 0 0 0 5px var(--smw-primary-container);
+}
+
+/* 选中：主色轨道，拇指换 on-primary 色并滑到右侧（24dp）。 */
+input[type="checkbox"].smw-switch:checked {
+	background-color: var(--smw-primary);
 	border-color: var(--smw-primary);
+	/* 圆心距右边框内缘 14px：52 − 2×2(边框) − 4(边距) − 12(半径) − 12(滑距)。 */
+	background-image: radial-gradient(circle at 40px center, var(--smw-on-primary) 0 12px, transparent 12.5px);
 }
 
-.smw-switch:checked::after {
-	left: 24px;
-	width: 24px;
-	height: 24px;
-	background: var(--smw-on-primary);
+/* 按压：拇指增大 2dp 的等效效果 —— 圆半径临时 +2px，松手回弹。 */
+input[type="checkbox"].smw-switch:active:not(:disabled) {
+	background-image: radial-gradient(circle at 12px center, var(--smw-outline) 0 10px, transparent 10.5px);
 }
 
-.smw-switch:focus-visible {
+input[type="checkbox"].smw-switch:checked:active:not(:disabled) {
+	background-image: radial-gradient(circle at 40px center, var(--smw-on-primary) 0 14px, transparent 14.5px);
+}
+
+input[type="checkbox"].smw-switch:focus-visible {
 	outline: var(--smw-focus-ring);
 	outline-offset: var(--smw-focus-offset);
 }
 
-.smw-switch:disabled {
+input[type="checkbox"].smw-switch:disabled {
 	opacity: 0.38;
 	cursor: not-allowed;
 }

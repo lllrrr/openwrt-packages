@@ -129,15 +129,24 @@ var smw = L.Class.extend({
 		}
 
 		var self = this;
+		/* armed：LuCI 在 add() 里会同步跑首轮 step()，而此刻 render() 返回的
+		 * 根节点还没挂进文档 —— 首轮找不到 root 是「未挂载」不是「已离开」。
+		 * 不加这个闸门，轮询会在出生的那一 tick 自我摘除，数据从此冻结。 */
+		var armed = false;
 		var f = function() {
 			var root = document.getElementById(rootId);
 			if (root == null) {
+				if (!armed) {
+					armed = true;
+					return;
+				}
 				// 已被切页替换：成对退出的另一半。
 				poll.remove(f);
 				if (self._pollFn === f)
 					self._pollFn = null;
 				return;
 			}
+			armed = true;
 			fn();
 		};
 
@@ -237,6 +246,34 @@ var smw = L.Class.extend({
 			return E('span', { 'class': 'smw-muted' }, [ '（无）' ]);
 		return E('ul', { 'class': 'smw-notes' },
 			notes.map(function(n) { return E('li', {}, [ n ]) }));
+	},
+
+	/* ---------- 错误提炼 ---------- */
+
+	/**
+	 * 把 RPC 失败提炼成一句用户能读懂的话。
+	 * LuCI 对 ubus 错误抛 "RPC call to obj/method failed with ubus code N: Text"，
+	 * 直接展示对用户没有信息量；这里把常见错误码映射成可操作的中文提示，
+	 * 其余原样透传（不编造、不吞掉细节）。
+	 */
+	errText: function(e) {
+		if (e == null)
+			return '未知错误';
+		var m = (e && e.message != null) ? String(e.message) : String(e);
+		var ub = /failed with ubus code (-?\d+): (.+)$/.exec(m);
+		if (ub) {
+			var hints = {
+				3: 'rpcd 桥未加载（尝试重启 rpcd）',
+				4: 'rpcd 对象未找到（尝试重启 rpcd）',
+				6: '权限不足（会话可能已过期，请重新登录）',
+				7: '请求超时',
+				10: '无法连接守护进程（请确认 smartmwand 已启动）'
+			};
+			var hint = hints[ub[1]];
+			return hint ? hint : m;
+		}
+		/* 非 ubus 错误：去掉语言标记前缀，保留正文。 */
+		return m.replace(/^[A-Za-z]+Error:\s*/, '');
 	},
 
 	/* ---------- 按钮（MD3） ---------- */

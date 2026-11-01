@@ -30,7 +30,7 @@ var ALGORITHMS = [
 ];
 
 function call(method) {
-	return rpc.declare({ object: 'smartmwan', method: method });
+	return rpc.declare({ object: 'smartmwan', method: method, reject: true });
 }
 
 return view.extend({
@@ -44,7 +44,7 @@ return view.extend({
 		]).then(function(rv) {
 			return { balance: rv[0], config: rv[1] };
 		}).catch(function(e) {
-			return { __error: String(e && e.message || e) };
+			return { __error: smartmwan.errText(e) };
 		});
 	},
 
@@ -170,7 +170,7 @@ return view.extend({
 				[ '算法限制', b.limitations || '—' ],
 				[ '桶数', String(b.buckets_total) ],
 				[ '上轮搬动', String(b.moved) + ' 桶' ],
-				[ '平滑系数', (b.smoothing_permille / 1000).toFixed(2) ],
+				[ '平滑系数', b.smoothing_permille != null ? (b.smoothing_permille / 1000).toFixed(2) : '—' ],
 				[ '哈希种子', '0x' + (b.hash_seed || 0).toString(16) ]
 			])
 		]));
@@ -291,7 +291,7 @@ return view.extend({
 			if (env.ok) {
 				var r = env.data || {};
 				smartmwan.notify(E('p', [
-					'事务 ' + r.id + '：' +
+					'事务 ' + (r.id || '—') + '：' +
 					(r.ok ? (r.changed ? '已提交' : '无变更（幂等复核通过）') : '未提交')
 				]), 'info');
 			} else {
@@ -301,7 +301,7 @@ return view.extend({
 			}
 			smartmwan.refresh(self, ROOT);
 		}).catch(function(e) {
-			smartmwan.notify(E('p', [ 'RPC 失败：' + e ]), 'error');
+			smartmwan.notify(E('p', [ 'RPC 失败：' + smartmwan.errText(e) ]), 'error');
 		});
 	},
 

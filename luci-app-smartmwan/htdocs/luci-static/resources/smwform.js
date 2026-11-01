@@ -1,4 +1,5 @@
 'use strict';
+'require smwcore';
 /*
  * smwform —— 表单控件与校验
  *
@@ -701,7 +702,7 @@ function validate(fields) {
 	return { ok: true };
 }
 
-return {
+return L.Class.extend({
 	field: field,
 	text: text,
 	password: password,
@@ -723,4 +724,4 @@ return {
 		port: isPort,
 		intBetween: intBetween
 	}
-};
+});

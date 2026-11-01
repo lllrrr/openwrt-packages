@@ -14,7 +14,7 @@
 var ROOT = 'smw-games-root';
 
 function call(method) {
-	return rpc.declare({ object: 'smartmwan', method: method });
+	return rpc.declare({ object: 'smartmwan', method: method, reject: true });
 }
 
 return view.extend({
@@ -25,7 +25,7 @@ return view.extend({
 		]).then(function(rv) {
 			return { games: rv[0], quality: rv[1] };
 		}).catch(function(e) {
-			return { __error: String(e && e.message || e) };
+			return { __error: smartmwan.errText(e) };
 		});
 	},
 
@@ -96,7 +96,9 @@ return view.extend({
 				[ '集合元素', String(d.dns_elements) ],
 				[ '陈旧域名', String(d.dns_stale_domains) ],
 				[ '解析失败（NXDOMAIN / 超时 / 本机）',
-					d.dns_failures.notfound + ' / ' + d.dns_failures.timeout + ' / ' + d.dns_failures.local ]
+					(function(f) {
+						return f ? (f.notfound + ' / ' + f.timeout + ' / ' + f.local) : '—';
+					})(d.dns_failures) ]
 			]),
 			E('p', { 'class': 'smw-muted' }, [
 				'域名规则依赖 DNS 解析；解析失败不清空旧元素，也不计为线路故障。',

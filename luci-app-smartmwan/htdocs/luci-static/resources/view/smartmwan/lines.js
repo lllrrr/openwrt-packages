@@ -12,13 +12,13 @@
 var ROOT = 'smw-lines-root';
 
 function call(method) {
-	return rpc.declare({ object: 'smartmwan', method: method });
+	return rpc.declare({ object: 'smartmwan', method: method, reject: true });
 }
 
 return view.extend({
 	load: function() {
 		return call('getLines')().catch(function(e) {
-			return { __error: String(e && e.message || e) };
+			return { __error: smartmwan.errText(e) };
 		});
 	},
 
@@ -114,7 +114,7 @@ return view.extend({
 				]), 'error');
 			smartmwan.refresh(self, ROOT);
 		}).catch(function(e) {
-			smartmwan.notify(E('p', [ 'RPC 失败：' + e ]), 'error');
+			smartmwan.notify(E('p', [ 'RPC 失败：' + smartmwan.errText(e) ]), 'error');
 		});
 	},
 

@@ -23,7 +23,7 @@ var FAILBACKS = [
 ];
 
 function call(method) {
-	return rpc.declare({ object: 'smartmwan', method: method });
+	return rpc.declare({ object: 'smartmwan', method: method, reject: true });
 }
 
 return view.extend({
@@ -36,7 +36,7 @@ return view.extend({
 		]).then(function(rv) {
 			return { failover: rv[0], config: rv[1] };
 		}).catch(function(e) {
-			return { __error: String(e && e.message || e) };
+			return { __error: smartmwan.errText(e) };
 		});
 	},
 
@@ -274,28 +274,41 @@ return view.extend({
 			}
 			smartmwan.refresh(self, ROOT);
 		}).catch(function(e) {
-			smartmwan.notify(E('p', [ 'RPC 失败：' + e ]), 'error');
+			smartmwan.notify(E('p', [ 'RPC 失败：' + smartmwan.errText(e) ]), 'error');
 		});
 	},
 
-	/** 备用顺序：把某条线路放到第 n 位，其余按现有相对顺序重排。 */
+	/** 备用顺序：把某条线路放到第 n 位；序号留空 = 移出备用列表。
+	 * 两种意图都要真的下发，否则用户清空序号后列表纹丝不动。 */
 	reorder: function(wan, pos) {
 		var self = this;
 		var cur = (this.base.global.backup_order || []).slice();
 		var without = cur.filter(function(n) { return n !== wan; });
-		if (!pos || isNaN(pos))
-			return;                     /* 留空 = 移出备用列表 */
-		without.splice(Math.max(0, Math.min(pos - 1, without.length)), 0, wan);
+		if (pos != null && !isNaN(pos) && pos >= 1)
+			without.splice(Math.max(0, Math.min(pos - 1, without.length)), 0, wan);
+		if (!pos || isNaN(pos)) {
+			/* 留空 = 移出备用。已经不在列表里时如实说明，不假装操作成功。 */
+			if (cur.indexOf(wan) < 0) {
+				smartmwan.notify(E('p', [ wan + ' 本就不在备用列表中' ]), 'info');
+				return;
+			}
+		}
 		call('setBackupOrder')({ order: without }).then(function(env) {
-			if (env && env.ok && env.data && env.data.saved)
-				smartmwan.notify(E('p', [ '备用顺序已更新：' + without.join(' → ') ]), 'info');
-			else
+			if (env && env.ok && env.data && env.data.saved) {
 				smartmwan.notify(E('p', [
-					'设置失败：' + ((env && env.error && env.error.message) || '未变更')
+					without.length
+						? '备用顺序已更新：' + without.join(' → ')
+						: '备用列表已清空'
+				]), 'info');
+			}
+			else {
+				smartmwan.notify(E('p', [
+					'设置失败：' + smartmwan.errText(env && env.error)
 				]), 'error');
+			}
 			smartmwan.refresh(self, ROOT);
 		}).catch(function(e) {
-			smartmwan.notify(E('p', [ 'RPC 失败：' + e ]), 'error');
+			smartmwan.notify(E('p', [ 'RPC 失败：' + smartmwan.errText(e) ]), 'error');
 		});
 	},
 
@@ -320,7 +333,7 @@ return view.extend({
 				]), 'warning');
 			smartmwan.refresh(self, ROOT);
 		}).catch(function(e) {
-			smartmwan.notify(E('p', [ 'RPC 失败：' + e ]), 'error');
+			smartmwan.notify(E('p', [ 'RPC 失败：' + smartmwan.errText(e) ]), 'error');
 		});
 	},
 
@@ -350,7 +363,7 @@ return view.extend({
 					]), 'error');
 				smartmwan.refresh(self, ROOT);
 			}).catch(function(e) {
-				smartmwan.notify(E('p', [ 'RPC 失败：' + e ]), 'error');
+				smartmwan.notify(E('p', [ 'RPC 失败：' + smartmwan.errText(e) ]), 'error');
 			});
 		});
 	},
@@ -366,7 +379,7 @@ return view.extend({
 				]), 'error');
 			smartmwan.refresh(self, ROOT);
 		}).catch(function(e) {
-			smartmwan.notify(E('p', [ 'RPC 失败：' + e ]), 'error');
+			smartmwan.notify(E('p', [ 'RPC 失败：' + smartmwan.errText(e) ]), 'error');
 		});
 	},
 
@@ -395,13 +408,20 @@ return view.extend({
 		}).then(function(env) {
 			if (env == null)
 				return;
-			var r = env.data || {};
-			smartmwan.notify(E('p', [
-				'事务 ' + r.id + '：' + (r.ok ? (r.changed ? '已提交' : '无变更（幂等复核通过）') : '未提交')
-			]), env.ok ? 'info' : 'error');
+			if (env.ok) {
+				var r = env.data || {};
+				smartmwan.notify(E('p', [
+					'事务 ' + (r.id || '—') + '：' +
+					(r.ok ? (r.changed ? '已提交' : '无变更（幂等复核通过）') : '未提交')
+				]), r.ok ? 'info' : 'warning');
+			} else {
+				smartmwan.notify(E('p', [
+					'应用失败：' + smartmwan.errText(env.error)
+				]), 'error');
+			}
 			smartmwan.refresh(self, ROOT);
 		}).catch(function(e) {
-			smartmwan.notify(E('p', [ 'RPC 失败：' + e ]), 'error');
+			smartmwan.notify(E('p', [ 'RPC 失败：' + smartmwan.errText(e) ]), 'error');
 		});
 	},
 

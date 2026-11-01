@@ -37,7 +37,7 @@ var LOG_LEVELS = [
 ];
 
 function call(method) {
-	return rpc.declare({ object: 'smartmwan', method: method });
+	return rpc.declare({ object: 'smartmwan', method: method, reject: true });
 }
 
 return view.extend({
@@ -51,7 +51,7 @@ return view.extend({
 		]).then(function(rv) {
 			return { config: rv[0], diff: rv[1], diag: rv[2] };
 		}).catch(function(e) {
-			return { __error: String(e && e.message || e) };
+			return { __error: smartmwan.errText(e) };
 		});
 	},
 
@@ -376,14 +376,20 @@ return view.extend({
 		}).then(function(env) {
 			if (env == null)
 				return;
-			var r = env.data || {};
-			smartmwan.notify(E('p', [
-				(on ? '已启用' : '已停用') + '：事务 ' + r.id + '（' +
-				(r.ok ? (r.changed ? '已提交' : '无变更') : '未提交') + '）'
-			]), env.ok && r.ok ? 'info' : 'error');
+			if (env.ok) {
+				var r = env.data || {};
+				smartmwan.notify(E('p', [
+					(on ? '已启用' : '已停用') + '：事务 ' + (r.id || '—') + '（' +
+					(r.ok ? (r.changed ? '已提交' : '无变更') : '未提交') + '）'
+				]), r.ok ? 'info' : 'warning');
+			} else {
+				smartmwan.notify(E('p', [
+					(on ? '启用' : '停用') + '失败：' + smartmwan.errText(env.error)
+				]), 'error');
+			}
 			smartmwan.refresh(self, ROOT);
 		}).catch(function(e) {
-			smartmwan.notify(E('p', [ 'RPC 失败：' + e ]), 'error');
+			smartmwan.notify(E('p', [ 'RPC 失败：' + smartmwan.errText(e) ]), 'error');
 		});
 	},
 
@@ -414,13 +420,20 @@ return view.extend({
 		}).then(function(env) {
 			if (env == null)
 				return;
-			var r = env.data || {};
-			smartmwan.notify(E('p', [
-				'事务 ' + r.id + '：' + (r.ok ? (r.changed ? '已提交' : '无变更（幂等复核通过）') : '未提交')
-			]), env.ok ? 'info' : 'error');
+			if (env.ok) {
+				var r = env.data || {};
+				smartmwan.notify(E('p', [
+					'事务 ' + (r.id || '—') + '：' +
+					(r.ok ? (r.changed ? '已提交' : '无变更（幂等复核通过）') : '未提交')
+				]), r.ok ? 'info' : 'warning');
+			} else {
+				smartmwan.notify(E('p', [
+					'应用失败：' + smartmwan.errText(env.error)
+				]), 'error');
+			}
 			smartmwan.refresh(self, ROOT);
 		}).catch(function(e) {
-			smartmwan.notify(E('p', [ 'RPC 失败：' + e ]), 'error');
+			smartmwan.notify(E('p', [ 'RPC 失败：' + smartmwan.errText(e) ]), 'error');
 		});
 	},
 
@@ -541,7 +554,7 @@ return view.extend({
 			call('apply')({}).then(function(env) {
 				if (env && env.ok) {
 					var r = env.data || {};
-					task.done('事务 ' + r.id + '：' +
+					task.done('事务 ' + (r.id || '—') + '：' +
 						(r.ok ? (r.changed ? '已提交' : '无变更（幂等复核通过）') : '未提交'));
 				} else {
 					task.fail('应用失败：' +
@@ -549,7 +562,7 @@ return view.extend({
 				}
 				smartmwan.refresh(self, ROOT);
 			}).catch(function(e) {
-				task.fail('RPC 失败：' + e);
+				task.fail('RPC 失败：' + smartmwan.errText(e));
 			});
 		});
 	},
@@ -576,7 +589,7 @@ return view.extend({
 					task.fail('回滚失败：' + ((env && env.error && env.error.message) || '未知错误'));
 				smartmwan.refresh(self, ROOT);
 			}).catch(function(e) {
-				task.fail('RPC 失败：' + e);
+				task.fail('RPC 失败：' + smartmwan.errText(e));
 			});
 		});
 	},
@@ -592,7 +605,7 @@ return view.extend({
 				]), 'error');
 			smartmwan.refresh(self, ROOT);
 		}).catch(function(e) {
-			smartmwan.notify(E('p', [ 'RPC 失败：' + e ]), 'error');
+			smartmwan.notify(E('p', [ 'RPC 失败：' + smartmwan.errText(e) ]), 'error');
 		});
 	},
 
@@ -613,7 +626,7 @@ return view.extend({
 			}
 			smartmwan.refresh(self, ROOT);
 		}).catch(function(e) {
-			smartmwan.notify(E('p', [ 'RPC 失败：' + e ]), 'error');
+			smartmwan.notify(E('p', [ 'RPC 失败：' + smartmwan.errText(e) ]), 'error');
 		});
 	},
 

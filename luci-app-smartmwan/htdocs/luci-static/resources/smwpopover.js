@@ -1,4 +1,5 @@
 'use strict';
+'require smwcore';
 /*
  * smwpopover —— 锚定浮层（Popover）与提示气泡（Tooltip）
  *
@@ -228,7 +229,7 @@ document.addEventListener('scroll', function() {
 	if (tipOwner != null) hideTip(true);
 }, true);
 
-return {
+return L.Class.extend({
 	Popover: { open: open, close: closeAll, closeCurrent: function() { closeAll(); } },
 	Tooltip: { attach: attach, hide: hideTip }
-};
+});
