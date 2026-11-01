@@ -28,6 +28,13 @@ reload_service() {
 start_service() {
 	[ -x /usr/bin/smartmwand ] || return 1
 
+	# ICMP datagram 探测 socket 受 ping_group_range 约束（OpenWrt 默认全禁，
+	# root 也不例外）—— 升级/未重启场景下 sysctl.d 不一定已生效，这里兜底。
+	# 已显式设置过的（用户自定义范围）不覆盖。
+	if ! sysctl -n net.ipv4.ping_group_range 2>/dev/null | grep -qv '1	0'; then
+		sysctl -qw net.ipv4.ping_group_range="0 2147483647" 2>/dev/null
+	fi
+
 	procd_open_instance
 	procd_set_param command /usr/bin/smartmwand --config /etc/config/smartmwan
 	procd_set_param respawn

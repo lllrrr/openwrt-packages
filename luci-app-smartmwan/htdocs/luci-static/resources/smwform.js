@@ -264,7 +264,7 @@ function text(opts) {
 		'readonly': opts.readonly ? 'readonly' : null,
 		'name': opts.name || null,
 		'input': opts.oninput || null,
-		'change': opts.onchange || null
+		'change': opts.onchange ? function(ev) { opts.onchange(ev.target.value, ev); } : null
 	});
 	return el;
 }
@@ -283,7 +283,7 @@ function password(opts) {
 		'autocomplete': opts.autocomplete || 'current-password',
 		'disabled': opts.disabled ? 'disabled' : null,
 		'input': opts.oninput || null,
-		'change': opts.onchange || null
+		'change': opts.onchange ? function(ev) { opts.onchange(ev.target.value, ev); } : null
 	});
 
 	var shown = false;
@@ -324,7 +324,7 @@ function number(opts) {
 		'readonly': opts.readonly ? 'readonly' : null,
 		'name': opts.name || null,
 		'input': opts.oninput || null,
-		'change': opts.onchange || null
+		'change': opts.onchange ? function(ev) { opts.onchange(ev.target.value, ev); } : null
 	});
 }
 
@@ -397,7 +397,7 @@ function textarea(opts) {
 		'disabled': opts.disabled ? 'disabled' : null,
 		'readonly': opts.readonly ? 'readonly' : null,
 		'input': opts.oninput || null,
-		'change': opts.onchange || null
+		'change': opts.onchange ? function(ev) { opts.onchange(ev.target.value, ev); } : null
 	}, [ opts.value == null ? '' : String(opts.value) ]);
 }
 

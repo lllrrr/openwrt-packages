@@ -26,13 +26,15 @@
 /* 注意：L 与 E 由 LuCI 加载器注入为全局，无需声明；poll/rpc/uci 等模块必须显式
  * require —— 真机实证：漏声明时运行到 `poll.add` 抛 "poll is not defined"。 */
 
+var SMW_ASSET_VER = 4; /* 样式资源版本:CSS 变更时 +1,强制浏览器刷新 */
+
 /* 样式表注入：<link> + L.resource，不用内联 <style>；幂等（按 id 判重）。 */
 if (document.getElementById('smw-css-link') == null) {
 	var link = E('link', {
 		'id': 'smw-css-link',
 		'rel': 'stylesheet',
 		'type': 'text/css',
-		'href': L.resource('smartmwan/smartmwan.css')
+		'href': L.resource('smartmwan/smartmwan.css') + '?v=' + SMW_ASSET_VER
 	});
 	document.head.appendChild(link);
 }
@@ -260,6 +262,8 @@ var smw = L.Class.extend({
 		if (e == null)
 			return '未知错误';
 		var m = (e && e.message != null) ? String(e.message) : String(e);
+		/* 去掉 LuCI 附带的堆栈行，只留首句（读屏与 toast 都不该念堆栈）。 */
+		m = m.split('\n')[0];
 		var ub = /failed with ubus code (-?\d+): (.+)$/.exec(m);
 		if (ub) {
 			var hints = {

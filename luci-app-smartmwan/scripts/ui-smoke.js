@@ -474,6 +474,16 @@ global.smwoverlay = loadRaw('smwoverlay.js');
 global.smwfeedback = loadRaw('smwfeedback.js');
 global.smwform = loadRaw('smwform.js');
 global.smartmwan = loadRaw('smartmwan.js');
+/* failover 的网口绑定走 fs.list（rpcd-mod-file）：stub 与 file list 对齐。 */
+global.fs = {
+	list: function(path) {
+		if (path === '/sys/class/net')
+			return [ 'lo', 'eth0', 'eth1', 'eth2', 'br-lan' ].map(function(n) {
+				return { name: n, type: 'directory' };
+			});
+		return [];
+	}
+};
 
 const core = global.smwcore;
 const overlay = global.smwoverlay;

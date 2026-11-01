@@ -22,7 +22,7 @@ L1_KEEP=180
 L2_KEEP=60
 L3_KEEP=4320          # 3 天 × 1440 分钟
 L3_SLACK=1440         # 允许再攒 1 天才裁剪，避免频繁重写整个文件（省 flash）
-L4_KEEP=62
+L4_KEEP=93            # 3 个月（≈93 天），月视图最多回看 3 个月
 
 mkdir -p "$DIR_TMP" "$DIR_FLASH"
 for f in l1 l2; do [ -f "$DIR_TMP/$f.dat" ] || : > "$DIR_TMP/$f.dat"; done

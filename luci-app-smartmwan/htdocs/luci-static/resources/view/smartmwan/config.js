@@ -36,10 +36,14 @@ var LOG_LEVELS = [
 	{ value: 'trace', label: 'trace（最细，短时排障用）' }
 ];
 
-function call(method) {
-	return rpc.declare({ object: 'smartmwan', method: method, reject: true });
+function call(method, params) {
+	/* params 必须作为模板声明：本机 LuCI 的 rpc.declare 只把模板里
+	 * 出现的键装进请求，缺了模板实参会被整个丢弃（真机实测）。 */
+	return rpc.declare({ object: 'smartmwan', method: method, params: params, reject: true });
 }
 
+/* 兼容旧版共享模块缓存:errText 缺失时退化为原始消息,页面不因混缓存崩溃 */
+var errText = smartmwan.errText || function(e) { return String(e && e.message || e); };
 return view.extend({
 	draft: null,
 
@@ -51,7 +55,7 @@ return view.extend({
 		]).then(function(rv) {
 			return { config: rv[0], diff: rv[1], diag: rv[2] };
 		}).catch(function(e) {
-			return { __error: smartmwan.errText(e) };
+			return { __error: errText(e) };
 		});
 	},
 
@@ -368,7 +372,7 @@ return view.extend({
 				return null;
 			var cfg = JSON.parse(JSON.stringify(self.base));
 			cfg.global.enabled = on;
-			return call('save')({ config: cfg }).then(function(env) {
+			return call('save', { config: {} })({ config: cfg }).then(function(env) {
 				if (!env || !env.ok)
 					throw new Error((env && env.error && env.error.message) || '未知错误');
 				return call('apply')();
@@ -384,12 +388,12 @@ return view.extend({
 				]), r.ok ? 'info' : 'warning');
 			} else {
 				smartmwan.notify(E('p', [
-					(on ? '启用' : '停用') + '失败：' + smartmwan.errText(env.error)
+					(on ? '启用' : '停用') + '失败：' + errText(env.error)
 				]), 'error');
 			}
 			smartmwan.refresh(self, ROOT);
 		}).catch(function(e) {
-			smartmwan.notify(E('p', [ 'RPC 失败：' + smartmwan.errText(e) ]), 'error');
+			smartmwan.notify(E('p', [ 'RPC 失败：' + errText(e) ]), 'error');
 		});
 	},
 
@@ -403,7 +407,7 @@ return view.extend({
 			return;
 		}
 		var cfg = this.draft || this.base;
-		call('save')({ config: cfg }).then(function(env) {
+		call('save', { config: {} })({ config: cfg }).then(function(env) {
 			if (!env || !env.ok) {
 				smartmwan.notify(E('p', [
 					'保存失败：' + ((env && env.error && env.error.message) || '未知错误')
@@ -428,12 +432,12 @@ return view.extend({
 				]), r.ok ? 'info' : 'warning');
 			} else {
 				smartmwan.notify(E('p', [
-					'应用失败：' + smartmwan.errText(env.error)
+					'应用失败：' + errText(env.error)
 				]), 'error');
 			}
 			smartmwan.refresh(self, ROOT);
 		}).catch(function(e) {
-			smartmwan.notify(E('p', [ 'RPC 失败：' + smartmwan.errText(e) ]), 'error');
+			smartmwan.notify(E('p', [ 'RPC 失败：' + errText(e) ]), 'error');
 		});
 	},
 
@@ -514,7 +518,7 @@ return view.extend({
 			throw new Error('不是合法 JSON：' + (e && e.message ? e.message : e));
 		}
 
-		return call('validate')({ config: parsed }).then(function(env) {
+		return call('validate', { config: {} })({ config: parsed }).then(function(env) {
 			if (!env || !env.ok)
 				throw new Error('校验请求失败：' + ((env && env.error && env.error.message) || '未知错误'));
 			var rep = env.data || {};
@@ -523,7 +527,7 @@ return view.extend({
 				var first = issues.length ? (issues[0].path + '：' + issues[0].message) : '未知问题';
 				throw new Error('配置校验不通过（' + issues.length + ' 项），未写入。首个问题：' + first);
 			}
-			return call('save')({ config: parsed });
+			return call('save', { config: {} })({ config: parsed });
 		}).then(function(env) {
 			if (!env || !env.ok)
 				throw new Error('保存失败：' + ((env && env.error && env.error.message) || '未知错误'));
@@ -562,7 +566,7 @@ return view.extend({
 				}
 				smartmwan.refresh(self, ROOT);
 			}).catch(function(e) {
-				task.fail('RPC 失败：' + smartmwan.errText(e));
+				task.fail('RPC 失败：' + errText(e));
 			});
 		});
 	},
@@ -589,7 +593,7 @@ return view.extend({
 					task.fail('回滚失败：' + ((env && env.error && env.error.message) || '未知错误'));
 				smartmwan.refresh(self, ROOT);
 			}).catch(function(e) {
-				task.fail('RPC 失败：' + smartmwan.errText(e));
+				task.fail('RPC 失败：' + errText(e));
 			});
 		});
 	},
@@ -605,7 +609,7 @@ return view.extend({
 				]), 'error');
 			smartmwan.refresh(self, ROOT);
 		}).catch(function(e) {
-			smartmwan.notify(E('p', [ 'RPC 失败：' + smartmwan.errText(e) ]), 'error');
+			smartmwan.notify(E('p', [ 'RPC 失败：' + errText(e) ]), 'error');
 		});
 	},
 
@@ -626,7 +630,7 @@ return view.extend({
 			}
 			smartmwan.refresh(self, ROOT);
 		}).catch(function(e) {
-			smartmwan.notify(E('p', [ 'RPC 失败：' + smartmwan.errText(e) ]), 'error');
+			smartmwan.notify(E('p', [ 'RPC 失败：' + errText(e) ]), 'error');
 		});
 	},
 

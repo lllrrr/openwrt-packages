@@ -3,7 +3,7 @@ import gzip, hashlib, io, os, shutil, stat, tarfile, time, zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "1.4.0"
+VERSION = "1.4.1"
 RELEASE = "1"
 OUT = ROOT / "dist"
 

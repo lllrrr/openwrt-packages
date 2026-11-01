@@ -29,10 +29,14 @@ var ALGORITHMS = [
 	{ value: 'least_traffic', label: '实时流量最少优先（动态重排）' }
 ];
 
-function call(method) {
-	return rpc.declare({ object: 'smartmwan', method: method, reject: true });
+function call(method, params) {
+	/* params 必须作为模板声明：本机 LuCI 的 rpc.declare 只把模板里
+	 * 出现的键装进请求，缺了模板实参会被整个丢弃（真机实测）。 */
+	return rpc.declare({ object: 'smartmwan', method: method, params: params, reject: true });
 }
 
+/* 兼容旧版共享模块缓存:errText 缺失时退化为原始消息,页面不因混缓存崩溃 */
+var errText = smartmwan.errText || function(e) { return String(e && e.message || e); };
 return view.extend({
 	/* 编辑中的草稿：null 表示「还没改过」。只有非 null 才渲染保存栏。 */
 	draft: null,
@@ -44,7 +48,7 @@ return view.extend({
 		]).then(function(rv) {
 			return { balance: rv[0], config: rv[1] };
 		}).catch(function(e) {
-			return { __error: smartmwan.errText(e) };
+			return { __error: errText(e) };
 		});
 	},
 
@@ -96,7 +100,7 @@ return view.extend({
 					control: Form.number({
 						value: g.buckets, min: 2, max: 256, step: 2,
 						onchange: function(v) {
-							self.stage(function(d) { d.global.buckets = parseInt(v, 10); });
+							self.stage(function(d) { d.global.buckets = parseInt(ev.target.value, 10); });
 						}
 					}),
 					help: '桶越多分配越细，但规则数也随之增长；改动会重排全部新建连接。',
@@ -118,7 +122,7 @@ return view.extend({
 					control: Form.number({
 						value: g.rebalance_interval_ms, min: 0, max: 600000, step: 100,
 						onchange: function(v) {
-							self.stage(function(d) { d.global.rebalance_interval_ms = parseInt(v, 10); });
+							self.stage(function(d) { d.global.rebalance_interval_ms = parseInt(ev.target.value, 10); });
 						}
 					}),
 					help: '动态算法的重排节流：太小会让内核被反复重写。',
@@ -265,7 +269,7 @@ return view.extend({
 			return;
 		}
 		var cfg = this.draft || this.base;
-		call('save')({ config: cfg }).then(function(env) {
+		call('save', { config: {} })({ config: cfg }).then(function(env) {
 			if (!env || !env.ok) {
 				smartmwan.notify(E('p', [
 					'保存失败：' + ((env && env.error && env.error.message) || '未知错误')
@@ -301,7 +305,7 @@ return view.extend({
 			}
 			smartmwan.refresh(self, ROOT);
 		}).catch(function(e) {
-			smartmwan.notify(E('p', [ 'RPC 失败：' + smartmwan.errText(e) ]), 'error');
+			smartmwan.notify(E('p', [ 'RPC 失败：' + errText(e) ]), 'error');
 		});
 	},
 

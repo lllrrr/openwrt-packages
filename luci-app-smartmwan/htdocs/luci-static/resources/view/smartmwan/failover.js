@@ -12,6 +12,7 @@
 'require view';
 'require rpc';
 'require ui';
+'require fs';
 
 var ROOT = 'smw-failover-root';
 
@@ -22,21 +23,36 @@ var FAILBACKS = [
 	{ value: 'manual', label: '手动回切（主线路恢复后仍保持备用，需人工确认）' }
 ];
 
-function call(method) {
-	return rpc.declare({ object: 'smartmwan', method: method, reject: true });
+function call(method, params) {
+	/* params 必须作为模板声明：本机 LuCI 的 rpc.declare 只把模板里
+	 * 出现的键装进请求，缺了模板实参会被整个丢弃（真机实测）。 */
+	return rpc.declare({ object: 'smartmwan', method: method, params: params, reject: true });
 }
 
+/* 兼容旧版共享模块缓存:errText 缺失时退化为原始消息,页面不因混缓存崩溃 */
+var errText = smartmwan.errText || function(e) { return String(e && e.message || e); };
 return view.extend({
 	draft: null,
 
 	load: function() {
 		return Promise.all([
 			call('getFailover')(),
-			call('getConfig')()
+			call('getConfig')(),
+			/* 网口清单：fs.list 走 rpcd-mod-file（luci-base ACL 必授），
+			 * 不走 network.getDevices —— 后者依赖的 network ubus 方法在本机
+			 * ACL 未授，且 initNetworkState 会记忆化失败状态。 */
+			fs.list('/sys/class/net')
 		]).then(function(rv) {
-			return { failover: rv[0], config: rv[1] };
+			return {
+				failover: rv[0],
+				config: rv[1],
+				/* 系统当前已知网口（去掉回环）：供线路手动绑定设备用。 */
+				devices: (rv[2] || []).filter(function(e) { return e.type !== 'file'; })
+					.map(function(e) { return e.name; })
+					.filter(function(n) { return n && n !== 'lo'; })
+			};
 		}).catch(function(e) {
-			return { __error: smartmwan.errText(e) };
+			return { __error: errText(e) };
 		});
 	},
 
@@ -104,33 +120,67 @@ return view.extend({
 				])
 			]));
 
-			/* 备用顺序：给每条线路一个序号，按序号升序排列。
-			 * 拖拽排序好看但难用键盘操作，序号对所有人都一样的清楚。 */
-			var orderFields = wans.filter(function(w) {
-				return w.name !== g.primary;
-			}).map(function(w) {
+			/* 备用顺序：顺位下拉预设（不参与备用 / 第 N 顺位），不让用户填数字。
+			 * 改选即时写盘（setBackupOrder），其余线路自动顺延并重绘。 */
+			/* 候选排除主线路：global.primary 未显式设置时，以线路 role=primary
+			 * 为准 —— 否则主线路会混进备用顺位里。 */
+			var backupCandidates = wans.filter(function(w) {
+				return w.name !== g.primary && w.role !== 'primary';
+			});
+			var maxPos = backupCandidates.length;
+			var orderFields = backupCandidates.map(function(w) {
 				var idx = g.backup_order.indexOf(w.name);
 				return Form.field({
-					label: w.name,
-					control: Form.number({
-						value: idx < 0 ? '' : idx + 1,
-						min: 1, max: wans.length,
+					label: w.name + ' 备用顺位',
+					control: Form.select({
+						options: [ { value: '', label: '不参与备用' } ].concat(
+							Array.apply(null, { length: maxPos }).map(function(_, i) {
+								return { value: String(i + 1), label: '第 ' + (i + 1) + ' 顺位' };
+							})
+						),
+						value: idx < 0 ? '' : String(idx + 1),
 						onchange: function(v) {
-							self.reorder(w.name, parseInt(v, 10));
+							self.reorder(w.name, v === '' ? NaN : parseInt(v, 10));
 						}
 					}),
-					help: idx < 0 ? '留空 = 不参与备用' : '当前第 ' + (idx + 1) + ' 顺位',
-					validate: function(v) {
-						if (v === '' || v == null)
-							return null;
-						return Form.validators.intBetween(1, wans.length)(v);
-					}
+					help: idx < 0 ? '当前不参与备用' : '当前第 ' + (idx + 1) + ' 顺位，改选后即时生效'
 				});
 			});
 			root.appendChild(smw.section('备用顺序', [
 				E('div', { 'class': 'smw-form' }, orderFields.map(function(f) { return f.el; })),
 				E('p', { 'class': 'smw-muted' }, [
-					'数字越小越优先接管。主线路故障时按此顺序挑第一条可用线路。'
+					'顺位越靠前越优先接管。主线路故障时按此顺序挑第一条可用线路。'
+				])
+			]));
+
+			/* 网口绑定：每条线路可手动指定网络设备；留空 = 跟随 netifd 自动识别。
+			 * 模组重拨后设备名可能漂移，手动绑定保证该线路始终落在预期网口，
+			 * 而不是被自动识别指到别的口上。 */
+			var deviceFields = wans.map(function(w) {
+				return Form.field({
+					label: w.name + ' 网口',
+					control: Form.select({
+						options: [ { value: '', label: '自动（跟随 netifd）' } ].concat(
+							(data.devices || []).map(function(d) {
+								return { value: d, label: d + (d === (w.device || '') ? '（当前）' : '') };
+							})
+						),
+						value: w.device || '',
+						onchange: function(v) {
+							self.stage(function(d) {
+								for (var i = 0; i < d.wans.length; i++)
+									if (d.wans[i].name === w.name)
+										d.wans[i].device = v;
+							});
+						}
+					}),
+					help: '留空 = 跟随 netifd 自动识别；手动绑定后该线路固定使用所选网口，自动探测不再改写。'
+				});
+			});
+			root.appendChild(smw.section('网口绑定', [
+				E('div', { 'class': 'smw-form' }, deviceFields.map(function(f) { return f.el; })),
+				E('p', { 'class': 'smw-muted' }, [
+					'改动先进入草稿，点「保存并应用」后下发；应用后线路按新网口重新探测。'
 				])
 			]));
 
@@ -245,7 +295,7 @@ return view.extend({
 			this.slot.removeChild(this.slot.firstChild);
 		if (this.draft == null)
 			return;
-		this.slot.appendChild(smartmwan.dirty('回切策略有未保存的修改', [
+		this.slot.appendChild(smartmwan.dirty('有未保存的修改（保存后仍需「应用」才会下发到内核）', [
 			smartmwan.button('保存', {
 				variant: 'text',
 				click: ui.createHandlerFn(self, 'saveConfig', false)
@@ -264,17 +314,18 @@ return view.extend({
 	/** 改主线路：单个字段，走专门的 RPC。 */
 	setPrimary: function(wan) {
 		var self = this;
-		call('setPrimary')({ wan: wan }).then(function(env) {
-			if (env && env.ok && env.data && env.data.saved) {
+		call('setPrimary', { wan: '' })({ wan: wan }).then(function(env) {
+			/* 便捷设置回执形如 {change, changed, receipt}：changed 才是落盘标志。 */
+			if (env && env.ok && env.data && (env.data.changed || env.data.saved)) {
 				smartmwan.notify(E('p', [ '主线路已设为 ' + wan ]), 'info');
 			} else {
 				smartmwan.notify(E('p', [
-					'设置失败：' + ((env && env.error && env.error.message) || '未变更')
+					'设置失败：' + ((env && env.error && env.error.message) || (env && env.data && env.data.change) || '未变更')
 				]), 'error');
 			}
 			smartmwan.refresh(self, ROOT);
 		}).catch(function(e) {
-			smartmwan.notify(E('p', [ 'RPC 失败：' + smartmwan.errText(e) ]), 'error');
+			smartmwan.notify(E('p', [ 'RPC 失败：' + errText(e) ]), 'error');
 		});
 	},
 
@@ -293,22 +344,27 @@ return view.extend({
 				return;
 			}
 		}
-		call('setBackupOrder')({ order: without }).then(function(env) {
-			if (env && env.ok && env.data && env.data.saved) {
+		call('setBackupOrder', { order: [] })({ order: without }).then(function(env) {
+			/* 回执 {change, changed, receipt}：changed=true 表示已写盘。 */
+			if (env && env.ok && env.data && (env.data.changed || env.data.saved)) {
 				smartmwan.notify(E('p', [
-					without.length
+					env.data.change || (without.length
 						? '备用顺序已更新：' + without.join(' → ')
-						: '备用列表已清空'
+						: '备用列表已清空')
 				]), 'info');
+			}
+			else if (env && env.ok && env.data) {
+				/* ok 但 changed=false：顺序与现状一致，如实说明。 */
+				smartmwan.notify(E('p', [ '顺序未变化（与当前一致）' ]), 'info');
 			}
 			else {
 				smartmwan.notify(E('p', [
-					'设置失败：' + smartmwan.errText(env && env.error)
+					'设置失败：' + errText(env && env.error)
 				]), 'error');
 			}
 			smartmwan.refresh(self, ROOT);
 		}).catch(function(e) {
-			smartmwan.notify(E('p', [ 'RPC 失败：' + smartmwan.errText(e) ]), 'error');
+			smartmwan.notify(E('p', [ 'RPC 失败：' + errText(e) ]), 'error');
 		});
 	},
 
@@ -333,7 +389,7 @@ return view.extend({
 				]), 'warning');
 			smartmwan.refresh(self, ROOT);
 		}).catch(function(e) {
-			smartmwan.notify(E('p', [ 'RPC 失败：' + smartmwan.errText(e) ]), 'error');
+			smartmwan.notify(E('p', [ 'RPC 失败：' + errText(e) ]), 'error');
 		});
 	},
 
@@ -352,7 +408,7 @@ return view.extend({
 		}).then(function(ok) {
 			if (!ok)
 				return;
-			call('forceWan')({ wan: wan, confirm: true }).then(function(env) {
+			call('forceWan', { wan: '', confirm: true })({ wan: wan, confirm: true }).then(function(env) {
 				if (env && env.ok)
 					smartmwan.notify(E('p', [
 						'已提交强制切换（事务 ' + (env.data && env.data.id) + '）'
@@ -363,7 +419,7 @@ return view.extend({
 					]), 'error');
 				smartmwan.refresh(self, ROOT);
 			}).catch(function(e) {
-				smartmwan.notify(E('p', [ 'RPC 失败：' + smartmwan.errText(e) ]), 'error');
+				smartmwan.notify(E('p', [ 'RPC 失败：' + errText(e) ]), 'error');
 			});
 		});
 	},
@@ -379,7 +435,7 @@ return view.extend({
 				]), 'error');
 			smartmwan.refresh(self, ROOT);
 		}).catch(function(e) {
-			smartmwan.notify(E('p', [ 'RPC 失败：' + smartmwan.errText(e) ]), 'error');
+			smartmwan.notify(E('p', [ 'RPC 失败：' + errText(e) ]), 'error');
 		});
 	},
 
@@ -391,7 +447,7 @@ return view.extend({
 			return;
 		}
 		var cfg = this.draft || this.base;
-		call('save')({ config: cfg }).then(function(env) {
+		call('save', { config: {} })({ config: cfg }).then(function(env) {
 			if (!env || !env.ok) {
 				smartmwan.notify(E('p', [
 					'保存失败：' + ((env && env.error && env.error.message) || '未知错误')
@@ -416,12 +472,12 @@ return view.extend({
 				]), r.ok ? 'info' : 'warning');
 			} else {
 				smartmwan.notify(E('p', [
-					'应用失败：' + smartmwan.errText(env.error)
+					'应用失败：' + errText(env.error)
 				]), 'error');
 			}
 			smartmwan.refresh(self, ROOT);
 		}).catch(function(e) {
-			smartmwan.notify(E('p', [ 'RPC 失败：' + smartmwan.errText(e) ]), 'error');
+			smartmwan.notify(E('p', [ 'RPC 失败：' + errText(e) ]), 'error');
 		});
 	},
 

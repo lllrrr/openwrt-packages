@@ -2,7 +2,9 @@
 
 一个适用于 OpenWrt / ImmortalWrt / iStoreOS 的 LuCI 公网延迟监控插件。它持续从 WAN 接口探测多个目标，将数据保存在路由器本地，并在 LuCI「状态 → 公网延迟」中展示实时状态和历史曲线。
 
-## v1.4.0
+## v1.4.1
+
+- 历史折线图使用透明背景，适配浏览器黑暗模式，避免绘图区显示刺眼的白底。
 
 - 重做监控仪表盘，增加网络健康总览、平均/当前延迟、丢包、国内/国外分组、在线与异常目标统计。
 - 目标支持国内/国外/自动分类；实时卡片展示探测方法、丢包、抖动、P50/P95/P99。
@@ -22,6 +24,10 @@
 - 当前区间 CSV 导出及按目标筛选曲线
 
 ## 界面预览
+
+### CPE 暗色模式与透明图表
+
+![ImmortalWrt CPE 公网延迟监控，暗色模式下的透明历史折线图](docs/screenshots/cpe-dark-transparent-v141.png)
 
 ### 实时状态与监控总览
 
@@ -47,7 +53,7 @@
 |---|---|---|---|---|
 | iStoreOS | 24.10.8 (2026073111) | 6.6.144 | x86_64 | LuCI 界面、实时探测、历史曲线及时间范围 |
 
-其他 OpenWrt / ImmortalWrt / iStoreOS 版本尚未验证，欢迎提交测试结果。
+透明图表修复已在 ImmortalWrt 24.10-SNAPSHOT / aarch64 CPE 上验证采集服务和页面文件；截图展示浏览器黑暗模式下的实际效果。其他系统版本欢迎提交测试结果。
 
 ## 编译
 
@@ -70,7 +76,7 @@ make package/luci-app-wan-latency/compile V=s
 将 `.ipk` 上传到路由器后执行：
 
 ```sh
-opkg install ./luci-app-wan-latency_1.4.0-1_all.ipk
+opkg install ./luci-app-wan-latency_1.4.1-1_all.ipk
 ```
 
 ### 自解压安装器
@@ -78,8 +84,8 @@ opkg install ./luci-app-wan-latency_1.4.0-1_all.ipk
 也可以使用 `.run` 安装同一个通用 IPK。它不会覆盖已有的 `/etc/config/wan-latency`、目标列表和历史数据：
 
 ```sh
-chmod +x luci-app-wan-latency-1.4.0-1.run
-./luci-app-wan-latency-1.4.0-1.run
+chmod +x luci-app-wan-latency-1.4.1-1.run
+./luci-app-wan-latency-1.4.1-1.run
 ```
 
 `.run` 不会自动联网安装依赖；缺少依赖时会列出需要执行的 `opkg install` 命令。

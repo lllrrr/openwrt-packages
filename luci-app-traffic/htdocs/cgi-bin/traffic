@@ -59,6 +59,24 @@ case "$MODE" in
 		MULT=1048576
 		APPEND_TODAY=1
 		;;
+	month)
+		# 月视图：?mode=month&m=YYYY-MM（缺省本月），可向前翻任意月
+		YM=$(printf '%s' "$QS" | sed -n 's/.*[?&]m=\([0-9-]*\).*/\1/p')
+		[ -z "$YM" ] && YM=$(date +%Y-%m)
+		MY=${YM%%-*}
+		MM=${YM##*-}
+		FILE=$FLASH/l4.dat
+		FROM=$(date -d "$MY-$MM-01 00:00:00" +%s)
+		if [ "$MM" = "12" ]; then
+			TO=$(date -d "$((MY + 1))-01-01 00:00:00" +%s)
+		else
+			NMM=$(printf "%02d" $(( ${MM#0} + 1 )))
+			TO=$(date -d "$MY-$NMM-01 00:00:00" +%s)
+		fi
+		MULT=1048576
+		# 只有"当前月"才追加当天的实时数据（每小时增长）
+		[ "$YM" = "$(date +%Y-%m)" ] && APPEND_TODAY=1
+		;;
 	thisMonth)
 		Y=$(date +%Y)
 		M=$(date +%m)

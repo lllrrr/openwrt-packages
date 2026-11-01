@@ -150,6 +150,8 @@ function fill(container, data) {
 	}
 }
 
+/* 兼容旧版共享模块缓存:errText 缺失时退化为原始消息,页面不因混缓存崩溃 */
+var errText = smartmwan.errText || function(e) { return String(e && e.message || e); };
 return view.extend({
 	load: function() {
 		return Promise.all([
@@ -165,7 +167,7 @@ return view.extend({
 				caps: rv[3]
 			};
 		}).catch(function(e) {
-			return { __error: smartmwan.errText(e) };
+			return { __error: errText(e) };
 		});
 	},
 
@@ -173,6 +175,7 @@ return view.extend({
 		if (data == null || data.__error != null)
 			return this.errorBox(data && data.__error);
 
+		var smw = smartmwan;
 		var self = this;
 		var root = E('div', { 'id': ROOT, 'class': 'smw-panel' }, [
 			E('h2', {}, [ '运行总览' ])
@@ -200,7 +203,7 @@ return view.extend({
 				stamp.textContent = '更新于 ' + smartmwan.time(Date.now()) +
 					(p.state == 'ready' && p.data.reason ? '：' + p.data.reason : '');
 			}).catch(function(e) {
-				stamp.textContent = '刷新失败：' + smartmwan.errText(e);
+				stamp.textContent = '刷新失败：' + errText(e);
 			});
 		}, 5);
 

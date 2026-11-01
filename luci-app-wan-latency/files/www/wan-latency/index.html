@@ -468,8 +468,6 @@ function yMax(){
 function draw(){
   const {ctx,w,h,pad} = geometry();
   ctx.clearRect(0,0,w,h);
-  ctx.fillStyle = "#fbfdfe";
-  ctx.fillRect(0,0,w,h);
   if (!data || !data.t || !data.t.length) {
     ctx.fillStyle = "#84909b";
     ctx.font = "14px sans-serif";

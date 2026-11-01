@@ -23,7 +23,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-smartmwan
-PKG_VERSION:=0.5.0
+PKG_VERSION:=0.6.0
 PKG_RELEASE:=1
 PKG_LICENSE:=GPL-3.0-or-later
 PKG_LICENSE_FILES:=LICENSE

@@ -19,11 +19,12 @@
 
 ## 特性
 
-- **7 个时间维度**
+- **6 个时间维度**
   - `3 分钟`：1 秒采样，支持实时刷新开关
   - `1 小时`：分钟级曲线
-  - `1 天`：**自然日 00:00–24:00**，可左右切换今天 / 昨天 / 前天
-  - `近 30 天`、`本月`、`上月`
+  - `1 天`：**自然日 00:00–24:00 的小时柱状图**，可左右切换今天 / 昨天 / 前天，**保留峰值卡片**
+  - `近 30 天`
+  - `月`：整月柱状图，可左右翻月（本月 / 上月 / 更早）
   - `年`：固定 12 列（1~12 月），可按年份切换
 - **五层降采样**：内存（tmpfs）+ flash 混合存储，按**真实时钟边界**聚合
 - **分钟级落盘**：`1 天` 的数据每分钟写一次 flash，断电最多丢 1 分钟
@@ -40,8 +41,10 @@
 | L1 | 1 秒 | 180 | 3 分钟 | tmpfs（内存） | 3 分钟视图 |
 | L2 | 60 秒 | 60 | 1 小时 | tmpfs（内存） | 1 小时视图 |
 | L3 | **60 秒** | **4320** | **3 天** | flash | 1 天视图；日聚合的数据源 |
-| L4 | 1 天 | 62 | 62 天 | flash | 近 30 天 / 本月 / 上月 |
+| L4 | 1 天 | 93 | 约 3 个月 | flash | 近 30 天 / 月视图 |
 | L5 | 1 月 | 永久 | 不限 | flash | 年视图 |
+
+> **保留期**：分钟档 3 天、日档约 3 个月（月视图最多回看 3 个月）；月汇总档保留给年视图长期使用。
 
 数据格式（CSV）：
 
@@ -174,11 +177,12 @@ A lightweight traffic monitor for a single WAN interface on OpenWrt. It reads th
 
 ### Features
 
-- **7 time ranges**
+- **6 time ranges**
   - `3 min` — 1-second sampling, optional live refresh
   - `1 hour` — per-minute curve
-  - `1 day` — **natural day 00:00–24:00**, switch between today / yesterday / the day before
-  - `Last 30 days`, `This month`, `Last month`
+  - `1 day` — **hourly bars across a natural day 00:00–24:00**, switch between today / yesterday / the day before; the peak card is kept
+  - `Last 30 days`
+  - `Month` — full-month bars, step back through months
   - `Year` — fixed 12 columns (Jan–Dec), with year switching
 - **Five-layer downsampling** across tmpfs and flash, aggregated at **real clock boundaries**
 - **Minute-level durability** — the 1-day data is flushed to flash every minute, so a power cut loses at most 1 minute
@@ -195,8 +199,10 @@ A lightweight traffic monitor for a single WAN interface on OpenWrt. It reads th
 | L1 | 1 s | 180 | 3 min | tmpfs (RAM) | 3-minute view |
 | L2 | 60 s | 60 | 1 hour | tmpfs (RAM) | 1-hour view |
 | L3 | **60 s** | **4320** | **3 days** | flash | 1-day view; source for daily rollup |
-| L4 | 1 day | 62 | 62 days | flash | Last 30 days / this month / last month |
+| L4 | 1 day | 93 | about 3 months | flash | Last 30 days / month view |
 | L5 | 1 month | forever | unlimited | flash | Year view |
+
+> **Retention**: minute layer 3 days, daily layer about 3 months (the month view goes back at most 3 months); the monthly rollup is kept long-term for the year view.
 
 Record format (CSV):
 

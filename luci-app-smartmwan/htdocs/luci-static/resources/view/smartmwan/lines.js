@@ -11,14 +11,18 @@
 
 var ROOT = 'smw-lines-root';
 
-function call(method) {
-	return rpc.declare({ object: 'smartmwan', method: method, reject: true });
+function call(method, params) {
+	/* params 必须作为模板声明：本机 LuCI 的 rpc.declare 只把模板里
+	 * 出现的键装进请求，缺了模板实参会被整个丢弃（真机实测）。 */
+	return rpc.declare({ object: 'smartmwan', method: method, params: params, reject: true });
 }
 
+/* 兼容旧版共享模块缓存:errText 缺失时退化为原始消息,页面不因混缓存崩溃 */
+var errText = smartmwan.errText || function(e) { return String(e && e.message || e); };
 return view.extend({
 	load: function() {
 		return call('getLines')().catch(function(e) {
-			return { __error: smartmwan.errText(e) };
+			return { __error: errText(e) };
 		});
 	},
 
@@ -103,7 +107,7 @@ return view.extend({
 
 	handleMaintenance: function(wan, on) {
 		var self = this;
-		call('setMaintenance')({ wan: wan, on: on }).then(function(env) {
+		call('setMaintenance', { wan: '', on: true })({ wan: wan, on: on }).then(function(env) {
 			if (env && env.ok)
 				smartmwan.notify(E('p', [
 					'线路 ' + wan + (on ? ' 已进入' : ' 已退出') + '维护模式'
@@ -114,7 +118,7 @@ return view.extend({
 				]), 'error');
 			smartmwan.refresh(self, ROOT);
 		}).catch(function(e) {
-			smartmwan.notify(E('p', [ 'RPC 失败：' + smartmwan.errText(e) ]), 'error');
+			smartmwan.notify(E('p', [ 'RPC 失败：' + errText(e) ]), 'error');
 		});
 	},
 

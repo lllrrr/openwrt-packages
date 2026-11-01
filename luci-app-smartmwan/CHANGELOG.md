@@ -2,8 +2,76 @@
 
 遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格，
 版本号遵循语义化版本。**未发布**段落反映当前工作树，而非某个已归档标签。
-
 ## [未发布]
+
+（暂无）
+
+## [0.6.0] — 2026-11-01
+
+### 新增
+
+* **主备切换页「网口绑定」**（`htdocs/.../failover.js`）：每条线路可从系统网口清单
+  （`fs.list('/sys/class/net')`，rpcd-mod-file）手动指定设备，不再只能跟随 netifd 自动
+  识别；「自动（跟随 netifd）」仍是默认项。模组重拨导致设备名漂移时，手动绑定把线路
+  钉在预期网口。走草稿 → save → apply 链路。
+* **游戏路由规则管理**（`htdocs/.../games.js`）：规则卡片列表（启用/选路/目标/端口/
+  域名/优先级/备注，命中数按名称与运行时对齐）与 Drawer 表单增删改；前端轻量校验
+  （名称合法性/唯一性/固定线路必选线路），守护进程全量校验兜底；删除走危险确认。
+* **备用顺位改预设下拉**（`htdocs/.../failover.js`）：每条备用线路「不参与备用 /
+  第 N 顺位」选择，不再手填数字；改选即时写盘，其余线路自动顺延；候选排除主线路
+  （`global.primary` 未显式设置时按线路 `role=primary` 判定）。
+* **MD3 filled 表单与主题令牌桥接**（`htdocs/.../smartmwan.css`）：输入控件改填充底色/
+  顶部圆角/底部强调线（聚焦升 2dp 主色）；设计令牌按「Aurora（--brand/--bg/--text/
+  --danger）→ 旧版主题变量 → MD3 基线」三级回取，暗色令牌同时挂
+  `prefers-color-scheme` 与 `html[data-darkmode]`。
+* **开关与按钮交互打磨**：开关改渐变自绘（拇指 radial-gradient + background-position
+  过渡，按压增大回弹），规避主题对原生 checkbox 伪元素的皮肤叠加；按钮悬停/按压
+  按 MD3 用层级表达。
+
+### 修复
+
+* **LuCI 页面整体打不开**（五个共享模块）：模块工厂 `return {…}` 普通对象不被
+  `Class.isSubclass` 接受，抛 ``"smwcore" factory yields invalid constructor``；
+  改 `L.Class.extend`（加载器对类自动实例化，单例语义不变）。同时补齐
+  smwoverlay/smwfeedback/smwform/smwpopover 缺失的 `'require smwcore'` 声明
+  （依赖经工厂参数注入，未声明即 ReferenceError）。
+* **轮询死胎**（`htdocs/.../smartmwan.js`）：LuCI 在 `poll.add()` 里同步跑首轮 tick，
+  此刻视图根节点尚未挂载，轮询函数以「根节点不在文档」误判为已离开页面并自摘
+  —— 所有页面数据从首版起冻结（stamp 永远停在「轮询已启动」）。加 armed 闸门：
+  首轮未挂载只跳过。状态/流量页同步重构为「壳 + live 容器」原位重绘（保留滚动
+  位置），数据真正刷新。
+* **带参 RPC 实参被整个丢弃**（全部视图）：本机 LuCI 的 `rpc.declare` 只把 params
+  模板里出现的键装进请求，视图声明均未传模板 —— 维护开关、备用顺序、主线路、
+  forceWan、save、validate 等全部带参写操作发空参数（「校验失败: 缺少参数 xxx」），
+  整组写功能从首版起不可用。全部调用点补模板。
+* **便捷设置回执判定错位**（`htdocs/.../failover.js`）：setBackupOrder / setPrimary
+  返回 `{change, changed, receipt}`，前端检查不存在的 `saved` —— 写盘成功也显示
+  「设置失败」。按 changed 判定并展示守护进程变更描述，changed=false 如实说明。
+* **status.js render 缺 `var smw` 声明**：真实加载流 ReferenceError，状态页打不开
+  （此前手动挂载验证命中缓存的旧版文件，掩盖了该错误）。
+* **ICMP 探测被 ping_group_range 全禁**（`root/etc/sysctl.d/smartmwan.conf` + init）：
+  探测用 SOCK_DGRAM + IPPROTO_ICMP，受 ping_group_range 约束，OpenWrt 默认 "1 0"
+  （全禁，root 也不例外）—— 所有线路永远「未测量」，日志报「设备不允许创建 ICMP
+  socket」。随包放宽（探测绑定出口设备与源地址，放宽不带来额外安全面），init
+  运行时兜底。
+* **表单事件约定错位**（`htdocs/.../smwform.js` + 视图）：text/password/number/
+  textarea 的 onchange 传原始事件（与 select/switch 传值的约定不一致），消费方把
+  事件对象当值用（parseInt(event) 恒为 NaN）。统一包装为 onchange(value, ev)，
+  视图处理器回归 value 风格。
+* **save 参数模板漏配**（`config.js` toggleService / `failover.js` saveConfig）：
+  系统设置页与主备页的「保存/保存并应用」发空参数，同样不可用。
+* **开关被主题 checkbox 皮肤叠加**（`smartmwan.css`）：主题对原生 checkbox 的伪元素
+  皮肤（:is(input[type=checkbox]):checked + 图标 SVG）与组件伪元素同优先级互相
+  干扰，选中态被叠出对勾；开关改渐变自绘并伪元素一票否决。通用 16×16 checkbox
+  尺寸规则压扁 52×32 轨道的问题一并以更高优先级选择器修正。
+
+### 变更
+
+* **错误提炼单行化**（`smartmwan.js errText`）：会话过期等错误带多行堆栈，toast 与
+  错误框只保留首句。
+* **CSS 资源版本参数**（`smartmwan.js SMW_ASSET_VER`）：样式更新随版本参数强制刷新，
+  不依赖浏览器再验证时机。
+* **games 评分表数组守卫**：ranking/rules 缺失时不抛错。
 
 ### 变更
 
