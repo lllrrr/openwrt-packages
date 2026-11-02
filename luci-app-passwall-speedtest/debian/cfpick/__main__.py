@@ -196,6 +196,7 @@ def cmd_ddns_uci_apply(args):
     cfg = {"ddns": settings}
     node_list = [{
         "name": item["name"],
+        "node_id": item["node"],
         "ddns_domain": item["domain"],
         "enabled": True,
     } for item in nodes]
@@ -204,9 +205,36 @@ def cmd_ddns_uci_apply(args):
     return 0 if report.get("ok") else 1
 
 
+def cmd_ddns_verify(args):
+    """Validate Cloudflare credentials without writing any DNS record.
+
+    With ``--token`` the settings page can check the value being saved before
+    it is committed; otherwise the UCI config is used.
+    """
+    if args.token:
+        settings = {
+            "enabled": True,
+            "cloudflare": {
+                "api_token": args.token,
+                "zone_id": args.zone_id,
+                "zone_name": args.zone_name,
+            },
+        }
+    else:
+        from . import passwall
+
+        settings = passwall.ddns_config()
+
+    report = ddns.verify({"ddns": settings})
+    _print_json(report)
+    return 0 if report.get("ok") else 1
+
+
 def cmd_ddns(args):
     if args.action == "uci-apply":
         return cmd_ddns_uci_apply(args)
+    if args.action == "verify":
+        return cmd_ddns_verify(args)
     cfg = config.load()
     nodes = cfg.get("nodes", [])
     rows, when = result.read_result()
@@ -289,9 +317,15 @@ def build_parser():
 
     ddns_parser = sub.add_parser("ddns", help="preview or write best IPs to Cloudflare DNS")
     ddns_parser.add_argument("action", nargs="?", default="show",
-                             choices=["show", "apply", "uci-apply"])
+                             choices=["show", "apply", "verify", "uci-apply"])
     ddns_parser.add_argument("--result", default="",
                              help="uci-apply: result.csv written by the shell pipeline")
+    ddns_parser.add_argument("--token", default="",
+                             help="verify: token to check instead of the UCI value")
+    ddns_parser.add_argument("--zone-id", default="",
+                             help="verify: zone id to check")
+    ddns_parser.add_argument("--zone-name", default="",
+                             help="verify: zone name to check")
     ddns_parser.set_defaults(func=cmd_ddns)
 
     core_parser = sub.add_parser(

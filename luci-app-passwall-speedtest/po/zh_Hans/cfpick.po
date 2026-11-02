@@ -324,7 +324,7 @@ msgid "Retest current best IPs"
 msgstr "复测现有最优 IP"
 
 msgid "Runs the test only on the IPs already in the current best list (result.csv) and each node's current address. The online IP list is NOT re-downloaded. One latency round + the download test by default; when the time-boxed iterative test is enabled, the same candidates go through each node's convergence loop until the duration elapses. The best IP is written back as usual."
-msgstr "只对当前 Best IP 表（result.csv）里已有的 IP 和各节点当前 address 测速，不重新下载在线 IP 列表。默认做一轮延迟测速 + 下载实测；开启「限时迭代测速」时，同一批候选进入各节点的收敛循环直到时长结束。最优 IP 照常写回。"
+msgstr "只对当前 Best IP 表（result.csv）里已有的 IP 和各节点当前 address 测速，不重新下载在线 IP 列表。默认做一轮延迟测试 + 下载实测；开启「限时迭代测速」时，同一批候选进入各节点的收敛循环直到时长结束。最优 IP 照常写回。"
 
 msgid "A test is already running"
 msgstr "已有测速在运行"
@@ -682,3 +682,65 @@ msgstr "重置操作台密码？下次打开操作台会要求创建新密码。
 
 msgid "Console password reset. Open the console to create a new one."
 msgstr "操作台密码已重置，请打开操作台创建新密码。"
+msgid "Online update"
+msgstr "在线更新"
+
+msgid "Downloads the latest GitHub release and installs it. Refused while a speed test is running."
+msgstr "下载并安装 GitHub 最新 Release；测速运行中拒绝更新。"
+
+msgid "Update status"
+msgstr "更新状态"
+
+msgid "Ready to update."
+msgstr "可以更新。"
+
+msgid "Updating…"
+msgstr "更新中…"
+
+msgid "A speed test is running; stop it before updating."
+msgstr "测速正在运行，请先停止再更新。"
+
+msgid "Target version"
+msgstr "目标版本"
+
+msgid "Refresh page"
+msgstr "刷新页面"
+
+msgid "Download and install the latest GitHub release? The page may reload after the update."
+msgstr "下载并安装 GitHub 最新 Release？更新后页面可能需要刷新。"
+
+msgid "Update refused"
+msgstr "更新被拒绝"
+
+msgid "Update started."
+msgstr "已开始更新。"
+
+msgid "Starting…"
+msgstr "启动中…"
+
+msgid "Update finished. Refresh the page to use the new version."
+msgstr "更新完成，刷新页面以使用新版本。"
+
+msgid "Current version"
+msgstr "当前版本"
+
+msgid "Latest version"
+msgstr "远端版本"
+
+msgid "Update available"
+msgstr "有可用更新"
+
+msgid "Already up to date"
+msgstr "已是最新版本"
+
+msgid "Check for updates"
+msgstr "检查更新"
+
+msgid "Checking…"
+msgstr "检查中…"
+
+msgid "Check failed"
+msgstr "检查更新失败"
+
+msgid "Check the latest GitHub release; the update button is enabled only when a newer version is available."
+msgstr "检查 GitHub 最新 Release；只有存在新版本时「在线更新」才可用。"

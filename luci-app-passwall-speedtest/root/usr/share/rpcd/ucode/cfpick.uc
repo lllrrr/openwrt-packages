@@ -114,6 +114,16 @@ function read_file_chunk(path, pos, first_tail) {
 	};
 }
 
+// pgrep pattern for the run script, derived from RUN_SCRIPT so a rename cannot
+// leave status() watching the old name.  The bracket keeps pgrep from matching
+// its own command line, e.g. "[c]fpick\.sh".
+function run_script_pattern() {
+	let name = replace(RUN_SCRIPT, /^.*\//, '');
+	let escaped = replace(name, /[.]/g, '\\.');
+
+	return '[' + substr(escaped, 0, 1) + ']' + substr(escaped, 1);
+}
+
 function status() {
 	let cur = uci.cursor();
 	let enabled = '0';
@@ -125,7 +135,7 @@ function status() {
 	catch (e) {}
 
 	// 走节点测速无独立二进制进程，用脚本主进程判定运行中
-	let running = (command('pgrep -f "[p]asswall-speedtest\\.sh" >/dev/null 2>&1').code == 0);
+	let running = (command('pgrep -f "' + run_script_pattern() + '" >/dev/null 2>&1').code == 0);
 
 	return {
 		running: running,
@@ -133,20 +143,27 @@ function status() {
 	};
 }
 
+// Single-instance guard at the API layer as well: while a run is alive,
+// starting another one is a no-op.  The user must stop the current run first;
+// the shell script's run lock is the second line of defence.
 function start() {
-	command('pgrep -f "[p]asswall-speedtest\\.sh" | xargs kill -9 >/dev/null 2>&1');
+	if (status().running)
+		return { started: false, running: true };
+
 	command(shquote(RUN_SCRIPT) + ' start >/dev/null 2>&1 &');
 
-	return {};
+	return { started: true, running: true };
 }
 
 // 复测现有最优 IP：只对当前 result.csv + 各节点现有 address 做一轮延迟 + 下载实测，
-// 不重新下载在线列表。不 kill 现有运行——脚本入口的单实例锁会跳过并记一行日志，
-// 避免用户误点把正在跑的整轮测速杀掉。
+// 不重新下载在线列表。运行中同样直接拒绝，避免用户误点。
 function start_retest() {
+	if (status().running)
+		return { started: false, running: true };
+
 	command(shquote(RUN_SCRIPT) + ' retest >/dev/null 2>&1 &');
 
-	return {};
+	return { started: true, running: true };
 }
 
 // 记录的主进程 PID 是否还活着、且确实是本脚本。只看 /proc/<pid> 存在会被「PID 被无关进程
@@ -265,9 +282,10 @@ function remarks_map() {
 }
 
 // 解析一次运行的结果文件：全局最优（首条数据行）+ 各节点自己的最优
-// （result.csv 全局延迟升序，某节点末列值首次出现的行即该节点最优）。
-// 节点不在 worker 配置内（如被移除/改名）时 idx 为 null，前端按节点名独立展示不连线。
-function parse_run_file(path, idx_of_remarks) {
+// （result.csv 全局延迟升序，某节点首条出现的行即该节点最优）。
+// 节点 ID（passwall section id）是稳定主键：优先用它连线和去重，remarks
+// 只做展示；旧格式没有 ID 列时退回按节点名匹配。
+function parse_run_file(path, idx_of_remarks, idx_of_ids) {
 	let lines = read_lines(path);
 	let time = null;
 	let best = null;
@@ -301,17 +319,21 @@ function parse_run_file(path, idx_of_remarks) {
 		if (length(parts) < 7)
 			continue;
 
-		// 8 列 = ...,地区码,节点；7 列 = 旧格式无节点列，末列即地区码
-		let node = (length(parts) >= 8) ? parts[length(parts) - 1] : '';
+		// 9 列 = ...,地区码,节点,节点ID；8 列 = 旧格式有节点无 ID；7 列 = 无节点列
+		let node = (length(parts) >= 8) ? parts[7] : '';
+		let node_id = (length(parts) >= 9) ? parts[8] : '';
+		let key = (node_id != '') ? node_id : node;
 
 		if (!best)
 			best = { ip: parts[0], latency: +parts[4] || 0, speed: +parts[5] || 0, region: parts[6] };
 
-		if (node != '' && !seen[node]) {
-			seen[node] = true;
+		if (node != '' && !seen[key]) {
+			seen[key] = true;
 			push(nodes, {
 				node: node,
-				idx: (idx_of_remarks[node] != null) ? idx_of_remarks[node] : null,
+				node_id: node_id,
+				idx: (node_id != '' && idx_of_ids[node_id] != null) ? idx_of_ids[node_id] :
+					((idx_of_remarks[node] != null) ? idx_of_remarks[node] : null),
 				ip: parts[0],
 				latency: +parts[4] || 0,
 				speed: +parts[5] || 0,
@@ -336,7 +358,7 @@ function parse_run_file(path, idx_of_remarks) {
 // 解析持久历史文件（/etc/cfpick/history.csv）：多个
 // "# Speed test time: ..." 块，每块数据行 = 该次各节点最优（全局延迟升序去重首现）。
 // 修剪可能产生无时间头的孤立数据行，直接忽略（cur 为空时跳过）。
-function parse_history_file(path, idx_of_remarks) {
+function parse_history_file(path, idx_of_remarks, idx_of_ids) {
 	let lines = read_lines(path);
 	let runs = [];
 	let cur = null;
@@ -366,16 +388,20 @@ function parse_history_file(path, idx_of_remarks) {
 		if (length(parts) < 7)
 			continue;
 
-		let node = (length(parts) >= 8) ? parts[length(parts) - 1] : '';
+		let node = (length(parts) >= 8) ? parts[7] : '';
+		let node_id = (length(parts) >= 9) ? parts[8] : '';
+		let key = (node_id != '') ? node_id : node;
 
 		if (!cur.best)
 			cur.best = { ip: parts[0], latency: +parts[4] || 0, speed: +parts[5] || 0, region: parts[6] };
 
-		if (node != '' && !cur.seen[node]) {
-			cur.seen[node] = true;
+		if (node != '' && !cur.seen[key]) {
+			cur.seen[key] = true;
 			push(cur.nodes, {
 				node: node,
-				idx: (idx_of_remarks[node] != null) ? idx_of_remarks[node] : null,
+				node_id: node_id,
+				idx: (node_id != '' && idx_of_ids[node_id] != null) ? idx_of_ids[node_id] :
+					((idx_of_remarks[node] != null) ? idx_of_remarks[node] : null),
 				ip: parts[0],
 				latency: +parts[4] || 0,
 				speed: +parts[5] || 0,
@@ -406,27 +432,30 @@ function parse_history_file(path, idx_of_remarks) {
 function get_history() {
 	let history = [];
 	let idx_of_remarks = {};
+	let idx_of_ids = {};
 	let workers = worker_ids();
 	let remarks = remarks_map();
 
 	for (let i = 0; i < length(workers); i++) {
 		let r = remarks[workers[i]];
 
+		idx_of_ids[workers[i]] = i + 1;
+
 		if (r != null && idx_of_remarks[r] == null)
 			idx_of_remarks[r] = i + 1;
 	}
 
 	// 持久历史为主（/etc 下，重启与轮转不清）；尚无归档时回退 /tmp 轮转文件（老安装）
-	history = parse_history_file(HISTORY_FILE, idx_of_remarks);
+	history = parse_history_file(HISTORY_FILE, idx_of_remarks, idx_of_ids);
 
 	if (!length(history)) {
-		let item = parse_run_file(RESULT_FILE, idx_of_remarks);
+		let item = parse_run_file(RESULT_FILE, idx_of_remarks, idx_of_ids);
 
 		if (item)
 			push(history, item);
 
 		for (let i = 1; i <= 9; i++) {
-			item = parse_run_file(RESULT_FILE + '.' + i, idx_of_remarks);
+			item = parse_run_file(RESULT_FILE + '.' + i, idx_of_remarks, idx_of_ids);
 
 			if (item)
 				push(history, item);
@@ -443,14 +472,16 @@ function get_history() {
 function get_best_result() {
 	let lines = read_lines(RESULT_FILE);
 	// 按节点独立排序展示：result.csv 本身保持全局排序（有下载实测速度时按吞吐降序，
-	// 否则按延迟升序；DNS 取全局最优/前 N 依赖首行序），此处在展示层按末列节点分组——
+	// 否则按延迟升序；DNS 取全局最优/前 N 依赖首行序），此处在展示层按节点分组——
 	// 全局序里同一节点的行仍保序，每组首行即该节点自己的最优 IP。节点顺序 = 其最优 IP
-	// 在全局排序中首次出现的顺序。
+	// 在全局排序中首次出现的顺序。分组键优先用稳定的 passwall section ID，
+	// 没有 ID 列的旧结果退回节点名。
 	// 全量展示（日志的「其余 N 条见最佳 IP 表」指向这里），不再截尾 500 行。
 	let header = '';
 	let time_line = '';
 	let order = [];
 	let rows = {};
+	let labels = {};
 
 	for (let i = 0; i < length(lines); i++) {
 		let line = trim(lines[i] != null ? lines[i] : '');
@@ -471,14 +502,17 @@ function get_best_result() {
 		}
 
 		let parts = split(line, ',');
-		let node = (length(parts) > 0) ? parts[length(parts) - 1] : '';
+		let node = (length(parts) >= 8) ? parts[7] : '';
+		let node_id = (length(parts) >= 9) ? parts[8] : '';
+		let key = (node_id != '') ? node_id : node;
 
-		if (!rows[node]) {
-			rows[node] = [];
-			push(order, node);
+		if (!rows[key]) {
+			rows[key] = [];
+			labels[key] = node;
+			push(order, key);
 		}
 
-		push(rows[node], line);
+		push(rows[key], line);
 	}
 
 	let out = [];
@@ -489,10 +523,11 @@ function get_best_result() {
 	for (let i = 0; i < length(order); i++) {
 		let node_rows = rows[order[i]];
 		let best = (length(node_rows) > 0) ? split(node_rows[0], ',') : [];
+		let label = labels[order[i]] || order[i];
 
 		let best_speed = +best[5] || 0;
 
-		push(out, '# ── ' + (order[i] != '' ? order[i] : '(无节点)') +
+		push(out, '# ── ' + (label != '' ? label : '(无节点)') +
 			'：最优 ' + (best[0] || '-') + ' / ' + (best[4] || '-') + 'ms' +
 			(best_speed > 0 ? (' / ' + best[5] + ' MB/s') : '') +
 			'，共 ' + length(node_rows) + ' 条 ──');
@@ -641,10 +676,10 @@ function best_per_node(rows) {
 	let seen = {};
 
 	for (let i = 0; i < length(rows); i++) {
-		let node = rows[i].node;
+		let key = (rows[i].node_id != null && rows[i].node_id != '') ? rows[i].node_id : rows[i].node;
 
-		if (!seen[node]) {
-			seen[node] = true;
+		if (!seen[key]) {
+			seen[key] = true;
 			push(out, rows[i]);
 		}
 	}
@@ -677,7 +712,8 @@ function parse_result_row(line) {
 		latency: to_number(parts[4], 0),
 		speed: to_number(parts[5], 0),
 		region: parts[6],
-		node: (length(parts) > 7) ? parts[7] : ''
+		node: (length(parts) > 7) ? parts[7] : '',
+		node_id: (length(parts) > 8) ? parts[8] : ''
 	};
 }
 
@@ -1305,6 +1341,147 @@ function standalone_status() {
 	};
 }
 
+// ── online package update ───────────────────────────────────────────────
+// The actual download/install runs detached in app-update.sh: replacing the
+// package files (and restarting rpcd) would otherwise cut off this RPC call.
+const APP_UPDATE_SCRIPT = '/usr/lib/cfpick/app-update.sh';
+const APP_UPDATE_STATUS = '/tmp/cfpick-app-update.json';
+const APP_UPDATE_PID = '/tmp/cfpick-app-update.pid';
+const APP_UPDATE_LOG = '/tmp/cfpick-app-update.log';
+
+// 当前安装的 luci-app-cfpick 版本（opkg 优先，apk 兜底）。
+function app_current_version() {
+	let out = command_output('opkg list-installed luci-app-cfpick 2>/dev/null');
+
+	let m = match(out.stdout || '', /luci-app-cfpick[ \t]+-[ \t]+([0-9][^ \t\n]*)/);
+
+	if (m)
+		return m[1];
+
+	out = command_output('apk info -v luci-app-cfpick 2>/dev/null');
+	m = match(out.stdout || '', /luci-app-cfpick-([0-9][^ \t\n]*)/);
+
+	return m ? m[1] : '';
+}
+
+function app_version_parts(version) {
+	let clean = replace(trim('' + (version || '')), /^[vV]/, '');
+	let raw = split(clean, '.');
+	let out = [];
+
+	for (let i = 0; i < length(raw); i++) {
+		let m = match(raw[i], /^[0-9]+/);
+
+		push(out, m ? +m[0] : 0);
+	}
+
+	return out;
+}
+
+function app_version_compare(a, b) {
+	let pa = app_version_parts(a);
+	let pb = app_version_parts(b);
+	let n = (length(pa) > length(pb)) ? length(pa) : length(pb);
+
+	for (let i = 0; i < n; i++) {
+		let x = (i < length(pa)) ? pa[i] : 0;
+		let y = (i < length(pb)) ? pb[i] : 0;
+
+		if (x != y)
+			return (x > y) ? 1 : -1;
+	}
+
+	return 0;
+}
+
+function app_update_status_data() {
+	let pid = trim(read_file(APP_UPDATE_PID) || '');
+	let alive = (match(pid, /^[0-9]+$/) &&
+		system('kill -0 ' + pid + ' 2>/dev/null') == 0);
+	let info = {};
+
+	try { info = json(read_file(APP_UPDATE_STATUS) || '{}') || {}; }
+	catch (e) { info = {}; }
+
+	info.updating = alive || info.updating == true;
+	info.current_version = app_current_version();
+
+	return info;
+}
+
+// 检查远端最新 Release，不下载、不安装。只在前端点「检查更新」时调用。
+function app_update_check_data() {
+	let current = app_current_version();
+
+	if (current == '')
+		return { ok: false, current: '', latest: '', available: false,
+			error: '无法读取当前版本' };
+
+	let res = command_output('curl -fsSL --max-time 20 ' +
+		shquote('https://api.github.com/repos/urbanescavenger/CFPick/releases/latest') +
+		' 2>/dev/null');
+	let raw = trim(res.stdout || '');
+
+	if (raw == '')
+		return { ok: false, current: current, latest: '', available: false,
+			error: '无法获取远端版本（GitHub API 不可达）' };
+
+	let info = {};
+
+	try { info = json(raw) || {}; }
+	catch (e) { info = {}; }
+
+	let tag = trim('' + (info.tag_name || ''));
+	let latest = replace(tag, /^[vV]/, '');
+
+	if (latest == '')
+		return { ok: false, current: current, latest: '', available: false,
+			error: 'Release 信息中没有版本号' };
+
+	return {
+		ok: true,
+		current: current,
+		latest: latest,
+		tag: tag,
+		available: app_version_compare(latest, current) > 0,
+		error: ''
+	};
+}
+
+function app_update_start_data() {
+	if (status().running)
+		return { started: false, error: '测速正在运行，请先停止后再更新' };
+
+	if (standalone_updating())
+		return { started: false, error: '内核正在更新，请稍候再更新程序' };
+
+	let current = app_update_status_data();
+
+	if (current.updating)
+		return { started: false, error: '已有在线更新正在进行' };
+
+	if (!fs.access(APP_UPDATE_SCRIPT, 'f'))
+		return { started: false, error: '缺少在线更新脚本' };
+
+	let run = '/tmp/cfpick-app-update-run.sh';
+
+	// Execute a copy: opkg replaces the installed script while it is running.
+	command('cp -f ' + shquote(APP_UPDATE_SCRIPT) + ' ' + shquote(run) +
+		' && chmod 700 ' + shquote(run));
+	command('rm -f ' + shquote(APP_UPDATE_STATUS) + ' ' +
+		shquote(APP_UPDATE_PID) + ' ' + shquote(APP_UPDATE_LOG));
+
+	// -m -p is required: without a pidfile start-stop-daemon refuses because
+	// /bin/sh itself is already running.
+	let rc = system('start-stop-daemon -S -b -m -p ' + shquote(APP_UPDATE_PID) +
+		' -x /bin/sh -- ' + shquote(run) + ' >/dev/null 2>&1');
+
+	if (rc != 0)
+		command('nohup sh ' + shquote(run) + ' >/dev/null 2>&1 &');
+
+	return { started: true };
+}
+
 
 return {
 	'cfpick': {
@@ -1406,18 +1583,32 @@ return {
 			return api_task_add_data(req);
 		}, { source: '', schedule: '', command: '' }),
 
+		api_update_start: api(function() {
+			return app_update_start_data();
+		}),
+
+		api_update_status: api(function() {
+			return app_update_status_data();
+		}),
+
+		api_update_check: api(function() {
+			return app_update_check_data();
+		}),
+
 		api_web_reset: api(function() {
 			return api_web_reset_data();
 		}),
 
 		api_run_start: api(function() {
-			start();
-			return { started: true, mode: 'start' };
+			let result = start();
+			result.mode = 'start';
+			return result;
 		}),
 
 		api_run_retest: api(function() {
-			start_retest();
-			return { started: true, mode: 'retest' };
+			let result = start_retest();
+			result.mode = 'retest';
+			return result;
 		}),
 
 		api_run_stop: api(function() {

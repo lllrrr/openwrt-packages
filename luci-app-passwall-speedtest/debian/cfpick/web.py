@@ -500,6 +500,8 @@ class Handler(BaseHTTPRequestHandler):
             self._apply_ddns()
         elif route == "/api/update-app":
             self._update_app()
+        elif route == "/api/uninstall-app":
+            self._uninstall_app()
         else:
             self._send_error(404, "not found")
 
@@ -802,6 +804,58 @@ class Handler(BaseHTTPRequestHandler):
             "started": True,
             "message": "已开始更新，Web 服务会短暂重启",
             "app": _app_info(),
+        }, status=202)
+
+    def _uninstall_app(self):
+        script = paths.APP_DIR / "uninstall.sh"
+        if not script.exists():
+            self._send_error(400, "找不到卸载脚本: %s" % script)
+            return
+        if lock.is_running():
+            self._send_error(409, "测速正在运行，先停止测速再卸载")
+            return
+        if _core_update["updating"]:
+            self._send_error(409, "内核正在更新，请稍候再卸载")
+            return
+        if _read_update_state().get("updating"):
+            self._send_error(409, "程序正在更新，请稍候再卸载")
+            return
+
+        runner = shutil.which("systemd-run")
+        if not runner:
+            self._send_error(400, "未找到 systemd-run；请在服务器执行 %s" % script)
+            return
+
+        unit = "cfpick-uninstall-%d" % int(time.time())
+        command = [
+            runner,
+            # 后台排队执行；给响应留出时间后再停止当前 Web 服务。
+            "--no-block",
+            "--unit=" + unit,
+            "--collect",
+            "--property=Type=oneshot",
+            "/bin/sh",
+            "-c",
+            "sleep 2; exec /bin/sh " + str(script),
+        ]
+        try:
+            completed = subprocess.run(
+                command,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=15,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            self._send_error(500, "启动卸载失败: %s" % exc)
+            return
+        if completed.returncode != 0:
+            error = completed.stderr.decode("utf-8", "replace").strip()
+            self._send_error(500, "启动卸载失败: %s" % error)
+            return
+        self._send_json({
+            "started": True,
+            "message": "已开始卸载，Web 服务即将停止；配置、结果与日志默认保留。",
         }, status=202)
 
     def _fail_app_update(self, message):

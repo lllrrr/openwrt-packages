@@ -1841,6 +1841,14 @@ local function collect_app_stats(now)
 								if #st.ph > 4000 then st.ph = {} end
 								e = { b = 0, n = {}, g = {} }
 								st.ph[host] = e
+							elseif type(e.n) ~= "table" then
+								-- 早期版本把节点和分组各存成一个字符串;
+								-- 直接索引它会让整个 tick 抛错停摆
+								local on, og, ob = e.n, e.g, e.b or 0
+								e = { b = ob, n = {}, g = {} }
+								if on and on ~= "" then e.n[on] = ob end
+								if og and og ~= "" then e.g[og] = ob end
+								st.ph[host] = e
 							end
 							-- a name can leave through several nodes over a day;
 							-- keep every one of them with its own share
@@ -4501,8 +4509,25 @@ function methods.tick()
 	-- clear the shared copy so this tick rebuilds it from the current table
 	IDX.ct = nil
 	IDX.memo = {}
-	local apps = collect_app_stats(now)
+	local apps, stat_err = pcall(collect_app_stats, now)
+	if not apps then
+		-- 一处异常不该让整轮停摆:应用统计失败时其余维护照常进行,
+		-- 但要把错误和时间记下来,健康检查才有东西可看
+		stat_err = tostring(stat_err)
+	else
+		stat_err = nil
+	end
 	IDX.ct, IDX.memo = nil, nil
+	local stt = load_json_map(STATE_DIR .. "/tickstate.json", function() return {} end)
+	stt.last = now
+	if stat_err then
+		stt.error = stat_err:sub(1, 200)
+		stt.error_at = now
+	else
+		stt.error = nil
+		stt.ok_at = now
+	end
+	save_json_map(STATE_DIR .. "/tickstate.json", stt)
 	if IDX.appips_dirty then
 		save_json_map(APPIPS_FILE, IDX.appips)
 		IDX.appips, IDX.appips_dirty = nil, nil
@@ -4667,6 +4692,23 @@ end
 -- Health probe. Covers the two failures actually seen in the field: a watcher
 -- that is alive but no longer reads the log, and saved state that never made
 -- it into the kernel.
+-- 自检项里能自动处理的那些,一键修复。restart 必须脱离父进程,
+-- 否则重启服务时这个 ubus 调用也会跟着断。
+function methods.fix(id)
+	id = tostring(id or "")
+	if id == "watcher" or id == "appstats" or id == "logread" then
+		sys.call("( /etc/init.d/languard restart ) >/dev/null 2>&1 &")
+		return ok({ action = "restart", id = id })
+	elseif id == "luci_realip" then
+		sys.call("( /usr/libexec/languard-luci-realip >/dev/null 2>&1; /etc/init.d/uhttpd restart ) >/dev/null 2>&1 &")
+		return ok({ action = "realip" })
+	elseif id == "nftset" or id == "rulesfile" or id == "nfthook" then
+		methods.sync()
+		return ok({ action = "sync", id = id })
+	end
+	return err("no automatic fix for " .. id)
+end
+
 function methods.selfcheck()
 	local checks = {}
 	local function add(id, ok, detail, hint)
@@ -4760,6 +4802,17 @@ function methods.selfcheck()
 	if fh then fh:write("x") fh:close() fs.unlink(probe) end
 	add("state", writable, writable and "writable" or STATE_DIR .. " not writable",
 		writable and "" or "check directory permissions")
+
+	-- 7b) 应用统计是否还在推进。tick 曾在升级后每轮抛错,账本静默冻结
+	local ts = load_json_map(STATE_DIR .. "/tickstate.json", function() return {} end)
+	local age = ts.ok_at and (os.time() - tonumber(ts.ok_at)) or nil
+	local stale_min = 5
+	local fresh = age ~= nil and age <= stale_min * 60
+	add("appstats", fresh,
+		age and string.format("last successful tick %d min ago", math.floor(age / 60))
+		    or "never recorded a successful tick",
+		fresh and "" or ((ts.error and ("last error: " .. ts.error .. " — ")) or "") ..
+		                 "/etc/init.d/languard restart")
 
 	-- 8) automatic protection
 	local cfg = load_autocfg()
@@ -4933,6 +4986,7 @@ if arg[1] == "list" then
 		wladd       = { mac = "" },
 		wldel       = { mac = "" },
 		blockaudit  = { limit = "" },
+		fix         = { id = "" },
 		panicstate  = {},
 		panic       = { on_ = "" },
 		trend       = {},
@@ -5124,6 +5178,8 @@ elseif arg[1] == "call" then
 		res = methods.wladd(req.mac)
 	elseif name == "wldel" then
 		res = methods.wldel(req.mac)
+	elseif name == "fix" then
+		res = methods.fix(req.id)
 	elseif name == "blockaudit" then
 		res = methods.blockaudit(req.limit)
 	elseif name == "panicstate" then

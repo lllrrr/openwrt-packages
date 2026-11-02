@@ -7,51 +7,51 @@
 const callStatus = rpc.declare({
 	object: 'cfpick',
 	method: 'api_status',
-	expect: { ok: false, data: {} }
+	expect: {}
 });
 
 const callResults = rpc.declare({
 	object: 'cfpick',
 	method: 'api_results',
 	params: [ 'limit' ],
-	expect: { ok: false, data: { rows: [] } }
+	expect: {}
 });
 
 const callHistory = rpc.declare({
 	object: 'cfpick',
 	method: 'api_history',
-	expect: { ok: false, data: { history: [] } }
+	expect: {}
 });
 
 const callTasks = rpc.declare({
 	object: 'cfpick',
 	method: 'api_tasks',
-	expect: { ok: false, data: { entries: [] } }
+	expect: {}
 });
 
 const callLog = rpc.declare({
 	object: 'cfpick',
 	method: 'api_log',
 	params: [ 'pos' ],
-	expect: { ok: false, data: { pos: 0, content: '' } }
+	expect: {}
 });
 
 const callStart = rpc.declare({
 	object: 'cfpick',
 	method: 'api_run_start',
-	expect: { ok: false, data: {} }
+	expect: {}
 });
 
 const callRetest = rpc.declare({
 	object: 'cfpick',
 	method: 'api_run_retest',
-	expect: { ok: false, data: {} }
+	expect: {}
 });
 
 const callStop = rpc.declare({
 	object: 'cfpick',
 	method: 'api_run_stop',
-	expect: { ok: false, data: {} }
+	expect: {}
 });
 
 function pick(result, errors) {

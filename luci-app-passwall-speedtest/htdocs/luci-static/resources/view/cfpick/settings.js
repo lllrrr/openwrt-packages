@@ -1,6 +1,7 @@
 'use strict';
 'require view';
 'require form';
+'require poll';
 'require rpc';
 'require ui';
 'require uci';
@@ -10,6 +11,193 @@ const callReset = rpc.declare({
 	method: 'api_web_reset',
 	expect: {}
 });
+
+const callStatus = rpc.declare({
+	object: 'cfpick',
+	method: 'api_status',
+	expect: {}
+});
+
+const callUpdateStatus = rpc.declare({
+	object: 'cfpick',
+	method: 'api_update_status',
+	expect: {}
+});
+
+const callUpdateStart = rpc.declare({
+	object: 'cfpick',
+	method: 'api_update_start',
+	expect: {}
+});
+
+const callUpdateCheck = rpc.declare({
+	object: 'cfpick',
+	method: 'api_update_check',
+	expect: {}
+});
+
+function updateSection(initialStatus, initialUpdate) {
+	const state = {
+		running: !!(initialStatus && initialStatus.running),
+		update: initialUpdate || {},
+		checking: false,
+		check: { checked: false, latest: '', available: false, error: '' }
+	};
+
+	const statusText = E('span', {}, _('Ready to update.'));
+	const versionText = E('span', { 'class': 'cbi-value-description' }, '');
+	const checkButton = E('button', {
+		type: 'button',
+		'class': 'btn cbi-button'
+	}, _('Check for updates'));
+	const button = E('button', {
+		type: 'button',
+		'class': 'btn cbi-button cbi-button-apply'
+	}, _('Online update'));
+	const reloadButton = E('button', {
+		type: 'button',
+		'class': 'btn cbi-button',
+		style: 'display:none'
+	}, _('Refresh page'));
+
+	reloadButton.addEventListener('click', function() {
+		window.location.reload();
+	});
+
+	function render() {
+		const update = state.update || {};
+		const busy = !!update.updating;
+		const current = update.current_version || '';
+
+		button.disabled = state.running || busy || !state.check.available;
+		button.textContent = busy ? _('Updating…') : _('Online update');
+		checkButton.disabled = state.running || busy || state.checking;
+		checkButton.textContent = state.checking ? _('Checking…') : _('Check for updates');
+
+		statusText.textContent = update.message
+			|| (state.running
+				? _('A speed test is running; stop it before updating.')
+				: _('Ready to update.'));
+
+		let info = _('Current version') + ': ' + (current || '—');
+		if (state.check.checked) {
+			if (state.check.error)
+				info += ' · ' + state.check.error;
+			else
+				info += ' · ' + _('Latest version') + ': ' + (state.check.latest || '—') +
+					' · ' + (state.check.available ? _('Update available') : _('Already up to date'));
+		}
+		versionText.textContent = info;
+		reloadButton.style.display = (!busy && update.ok === true) ? '' : 'none';
+	}
+
+	function refresh() {
+		return Promise.all([
+			L.resolveDefault(callStatus(), null),
+			L.resolveDefault(callUpdateStatus(), null)
+		]).then(function(results) {
+			const status = results[0] || {};
+			const update = results[1] || {};
+			const wasUpdating = !!(state.update && state.update.updating);
+
+			state.running = !!(status.ok === true && status.data && status.data.running);
+			state.update = (update.ok === true && update.data) ? update.data : {};
+
+			if (wasUpdating && !state.update.updating && state.update.ok) {
+				state.check = { checked: false, latest: '', available: false, error: '' };
+				ui.addNotification(null, E('p', {},
+					_('Update finished. Refresh the page to use the new version.')));
+				runCheck();
+			}
+
+			render();
+		}).catch(function() {});
+	}
+
+	function runCheck() {
+		if (state.running || state.checking || (state.update && state.update.updating))
+			return Promise.resolve();
+
+		state.checking = true;
+		state.check = { checked: false, latest: '', available: false, error: '' };
+		render();
+
+		return callUpdateCheck().then(function(result) {
+			if (!result || result.ok !== true)
+				throw new Error((result && result.error) || _('Request failed'));
+
+			const data = result.data || {};
+			if (data.ok === false)
+				throw new Error(data.error || _('Check failed'));
+
+			state.check = {
+				checked: true,
+				latest: data.latest || '',
+				available: !!data.available,
+				error: ''
+			};
+		}).catch(function(e) {
+			state.check = {
+				checked: true,
+				latest: '',
+				available: false,
+				error: (e && e.message) || _('Check failed')
+			};
+		}).then(function() {
+			state.checking = false;
+			render();
+		});
+	}
+
+	checkButton.addEventListener('click', runCheck);
+
+	button.addEventListener('click', function() {
+		if (!state.check.available || state.running || (state.update && state.update.updating))
+			return;
+
+		if (!confirm(_('Download and install the latest GitHub release? The page may reload after the update.')))
+			return;
+
+		button.disabled = true;
+		callUpdateStart().then(function(result) {
+			if (!result || result.ok !== true)
+				throw new Error((result && result.error) || _('Request failed'));
+			if (result.data && result.data.started === false)
+				throw new Error(result.data.error || _('Update refused'));
+
+			ui.addNotification(null, E('p', {}, _('Update started.')));
+			state.update = { updating: true, message: _('Starting…') };
+			render();
+			return refresh();
+		}).catch(function(e) {
+			ui.addNotification(null, E('p', {}, e.message || _('Request failed')));
+			render();
+		});
+	});
+
+	poll.add(refresh, 3);
+	render();
+
+	return E('div', { 'class': 'cbi-section' }, [
+		E('h3', {}, _('Online update')),
+		E('p', { 'class': 'cbi-section-descr', style: 'margin-bottom:8px' },
+			_('Check the latest GitHub release; the update button is enabled only when a newer version is available.')),
+		E('div', { 'class': 'cbi-value' }, [
+			E('label', { 'class': 'cbi-value-title' }, _('Update status')),
+			E('div', { 'class': 'cbi-value-field' }, [
+				E('div', { style: 'display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px' }, [
+					statusText,
+					versionText
+				]),
+				E('div', { style: 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px' }, [
+					checkButton,
+					button,
+					reloadButton
+				])
+			])
+		])
+	]);
+}
 
 function consoleUrl() {
 	const port = uci.get('cfpick', 'global', 'web_port') || '17544';
@@ -21,11 +209,17 @@ function consoleUrl() {
 
 return view.extend({
 	load: function() {
-		return uci.load('cfpick');
+		return Promise.all([
+			uci.load('cfpick'),
+			L.resolveDefault(callStatus(), null),
+			L.resolveDefault(callUpdateStatus(), null)
+		]);
 	},
 
-	render: function() {
+	render: function(data) {
 		let m, s, o;
+		const status = (data[1] && data[1].ok === true) ? data[1].data : {};
+		const update = (data[2] && data[2].ok === true) ? data[2].data : {};
 
 		m = new form.Map('cfpick', _('Settings'),
 			_('This page only configures the standalone web console entry. All speed-test settings and operations are in the console.'));
@@ -87,6 +281,20 @@ return view.extend({
 			});
 		};
 
-		return m.render();
+		const section = updateSection(status, update);
+		const rendered = m.render();
+
+		// LuCI's form.Map.render() returns a Promise in some releases and a
+		// DOM node in others; support both instead of calling appendChild
+		// blindly (that produced "node.appendChild is not a function").
+		if (rendered && typeof rendered.appendChild === 'function') {
+			rendered.appendChild(section);
+			return rendered;
+		}
+
+		return Promise.resolve(rendered).then(function(node) {
+			node.appendChild(section);
+			return node;
+		});
 	}
 });

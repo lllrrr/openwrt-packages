@@ -103,6 +103,18 @@ class CloudflareClient:
     def _call(self, method, path, body=None):
         return self._call_raw(method, path, body).get("result")
 
+    def verify_token(self):
+        """Check that the configured API token is valid and active."""
+        result = self._call("GET", "/user/tokens/verify") or {}
+        status = str(result.get("status") or "").lower()
+        if status and status != "active":
+            raise DdnsError("Cloudflare API Token 状态为 %s" % result.get("status"))
+        return result
+
+    def zone(self, zone_id):
+        """Fetch a zone by ID, raising when the token cannot access it."""
+        return self._call("GET", "/zones/" + str(zone_id))
+
     def zone_id(self, zone_id="", zone_name="", domain=""):
         """Resolve the zone for a hostname; ``zone_id`` wins when configured."""
         if zone_id:
@@ -152,6 +164,22 @@ def _zone_candidates(domain):
     return [".".join(labels[index:]) for index in range(0, max(0, len(labels) - 1))]
 
 
+def _entry_summary(entry):
+    """One node's outcome in plain text, for the run summary."""
+    label = str(entry.get("domain") or entry.get("node") or "")
+    if entry.get("error"):
+        return "%s: %s" % (label, entry["error"])
+    parts = []
+    for key, title in (("created", "新建"), ("updated", "更新"),
+                       ("unchanged", "无变化")):
+        value = int(entry.get(key) or 0)
+        if value:
+            parts.append("%s %d" % (title, value))
+    if entry.get("extra"):
+        parts.append("另有 %d 条旧记录未动" % entry["extra"])
+    return "%s: %s" % (label, "，".join(parts) or "未写入")
+
+
 def _record_differs(record, ttl, proxied):
     try:
         current_ttl = int(record.get("ttl", 0))
@@ -169,8 +197,12 @@ def _select(cfg, nodes, rows):
         count = 1
     count = max(1, min(count, 10))
 
+    by_id = {}
     by_node = {}
     for row in rows:
+        node_id = str(getattr(row, "node_id", "") or "")
+        if node_id:
+            by_id.setdefault(node_id, []).append(row)
         if row.node:
             by_node.setdefault(row.node, []).append(row)
 
@@ -187,8 +219,10 @@ def _select(cfg, nodes, rows):
         if zone_name and "." not in domain:
             domain = "%s.%s" % (domain, zone_name)
         name = str(node.get("name") or "")
+        node_id = str(node.get("node_id") or "")
         entry = {
             "node": name,
+            "node_id": node_id,
             "domain": domain,
             "ips": [],
             "types": {},
@@ -202,7 +236,9 @@ def _select(cfg, nodes, rows):
             entry["error"] = "域名不在配置的 Zone %s 内" % zone_name
             planned.append(entry)
             continue
-        selected = by_node.get(name) or []
+        # Stable passwall section id wins so a remarks rename cannot orphan this
+        # node's results; legacy rows (no id column) fall back to the display name.
+        selected = (by_id.get(node_id) if node_id else None) or by_node.get(name) or []
         selected = selected[:count]
         if not selected:
             entry["error"] = "本次没有可用结果"
@@ -222,6 +258,32 @@ def _select(cfg, nodes, rows):
             entry["error"] = "没有可写入的 IP"
         planned.append(entry)
     return planned
+
+
+def verify(cfg):
+    """Validate the Cloudflare credentials without writing any DNS record.
+
+    Used by the settings page before committing a token: an invalid token used
+    to surface only at the end of a multi-minute speed test.
+    """
+    ddns_cfg = cfg.get("ddns") or {}
+    cloudflare = ddns_cfg.get("cloudflare") or {}
+    token = str(cloudflare.get("api_token") or "").strip()
+    if not token:
+        return {"ok": False, "error": "未配置 Cloudflare API Token"}
+
+    client = CloudflareClient(token)
+    try:
+        client.verify_token()
+        zone_id = str(cloudflare.get("zone_id") or "").strip()
+        zone_name = _clean_domain(cloudflare.get("zone_name"))
+        if zone_id:
+            client.zone(zone_id)
+        elif zone_name:
+            client.zone_id("", zone_name, "")
+        return {"ok": True, "error": ""}
+    except DdnsError as exc:
+        return {"ok": False, "error": str(exc)}
 
 
 def preview(cfg, nodes, rows, when=""):
@@ -294,6 +356,7 @@ def apply(cfg, nodes, rows, log=None, client=None, when=""):
     for item in planned:
         entry = {
             "node": item["node"],
+            "node_id": item.get("node_id", ""),
             "domain": item["domain"],
             "ips": item["ips"],
             "types": item["types"],
@@ -331,9 +394,14 @@ def apply(cfg, nodes, rows, log=None, client=None, when=""):
             log("DDNS [%s] %s 写入失败: %s" % (entry["node"], entry["domain"], exc))
         report["nodes"].append(entry)
 
+    # The summary lists each node's outcome instead of only a failure count:
+    # a node skipped for "no usable result" is not the same as a Cloudflare
+    # write error, and the caller (log / status page) can tell them apart.
+    report["summary"] = [_entry_summary(entry) for entry in report["nodes"]]
     if report["failed"]:
         report["ok"] = False
-        report["error"] = "%d 个节点写入失败" % report["failed"]
+        report["error"] = "；".join(report["summary"])
+        log("DDNS 汇总: %s" % report["error"])
     return report
 
 

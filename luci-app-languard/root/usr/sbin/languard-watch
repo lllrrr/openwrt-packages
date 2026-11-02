@@ -130,7 +130,14 @@ main() {
 	# block the log reader; the trap below takes it down with us.
 	(
 		while :; do
-			ubus -S call luci.languard tick >/dev/null 2>&1
+			# a tick that dies silently used to freeze every counter with no
+			# trace; keep a failure count and report it once
+			if ubus -S call luci.languard tick 2>/dev/null | grep -q '"success":true'; then
+				TICKFAIL=0
+			else
+				TICKFAIL=$((TICKFAIL + 1))
+				[ "$TICKFAIL" = 3 ] && logger -t "$LOG_TAG" "warning: tick has failed $TICKFAIL times in a row; check selfcheck"
+			fi
 			sleep 55
 		done
 	) &

@@ -583,6 +583,7 @@ class Engine:
                 self._iterate_summary(node, rows)
             for row in rows:
                 row.node = node["name"]
+                row.node_id = str(node.get("id") or "")
                 merged.append(row)
 
         merged = result.sort_rows(merged, "speed")
@@ -672,7 +673,7 @@ class Engine:
     def _log_download_note(self):
         if not self.dl_enabled:
             return
-        self.log.log("下载实测已启用：所有 worker 延迟测速结束后，逐节点串行实测每个 worker "
+        self.log.log("下载实测已启用：所有 worker 完成一轮延迟测试后，逐节点串行实测每个 worker "
                      "延迟最优的 %d 个 IP（%s，单 IP 上限 %ds）" % (
                          self.cfg["download_count"], self.cfg["download_url"],
                          self.cfg["download_time"]))

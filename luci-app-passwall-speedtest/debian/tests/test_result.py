@@ -61,6 +61,31 @@ class FileTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0].node, "")
 
+    def test_node_id_roundtrip_and_legacy_eight_columns(self):
+        rows = [result.Row(ip="1.1.1.1", latency=10, speed=1.0,
+                           node="renamed", node_id="MrHOrfnH")]
+        result.write_result(self.result_file, rows)
+        read, _ = result.read_result(self.result_file)
+        self.assertEqual(read[0].node, "renamed")
+        self.assertEqual(read[0].node_id, "MrHOrfnH")
+
+        self.result_file.write_text(
+            "IP 地址,已发送,已接收,丢包率,平均延迟,下载速度(MB/s),地区码,节点\n"
+            "1.1.1.1,3,3,0.00,20.00,0.00,JP,node-a\n", encoding="utf-8")
+        read, _ = result.read_result(self.result_file)
+        self.assertEqual(read[0].node, "node-a")
+        self.assertEqual(read[0].node_id, "")
+
+    def test_node_id_keeps_history_together_after_rename(self):
+        rows = [
+            result.Row(ip="1.1.1.1", latency=10, node="old-name", node_id="id-a"),
+            result.Row(ip="2.2.2.2", latency=20, node="new-name", node_id="id-a"),
+        ]
+        self.assertEqual(len(result.node_best_rows(rows)), 1)
+        text = result.best_view(rows)
+        self.assertIn("# ── old-name", text)
+        self.assertNotIn("# ── new-name", text)
+
     def test_history_roundtrip(self):
         rows = result.sort_rows(self.make_rows())
         result.append_history(rows, "2026-01-02 03:04:05", self.history_file)

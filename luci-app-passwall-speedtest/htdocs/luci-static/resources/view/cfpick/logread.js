@@ -6,7 +6,7 @@ const callGetLog = rpc.declare({
 	object: 'cfpick',
 	method: 'api_log',
 	params: [ 'pos' ],
-	expect: { ok: false, data: { pos: 0, content: '' } }
+	expect: {}
 });
 
 return view.extend({

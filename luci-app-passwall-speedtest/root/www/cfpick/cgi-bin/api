@@ -83,6 +83,19 @@ function shquote(value) {
 	return "'" + replace('' + value, "'", "'\\''") + "'";
 }
 
+function command_output(cmd) {
+	let pipe = fs.popen(cmd, 'r');
+	let out = '';
+	let rc = -1;
+
+	if (pipe) {
+		out = pipe.read('all') || '';
+		rc = pipe.close();
+	}
+
+	return { code: rc, stdout: out };
+}
+
 function sha256(text) {
 	let pipe = fs.popen("printf '%s' " + shquote(text) + " | sha256sum", 'r');
 	let out = '';
@@ -614,6 +627,29 @@ function save_config(req) {
 		node_test_node: test_node,
 		stable_node: stable
 	};
+
+	// Validate the Cloudflare credentials before touching UCI.  An invalid
+	// token used to surface only at the end of a multi-minute speed test.
+	if (values.ddns_enabled == '1') {
+		if (values.ddns_api_token == '')
+			return send(req, fail('启用 DDNS 时必须填写 Cloudflare API Token'), '400 Bad Request');
+
+		let check = command_output('/usr/bin/cfpick ddns verify' +
+			' --token ' + shquote(values.ddns_api_token) +
+			' --zone-id ' + shquote(values.ddns_zone_id) +
+			' --zone-name ' + shquote(values.ddns_zone_name) +
+			' 2>/dev/null');
+		let report = null;
+
+		try { report = json(check.stdout || '{}'); }
+		catch (e) { report = null; }
+
+		if (report == null || report.ok !== true) {
+			let reason = (report && report.error) ? report.error : ('校验命令失败（exit ' + check.code + '）');
+
+			return send(req, fail('DDNS 校验失败：' + reason), '400 Bad Request');
+		}
+	}
 
 	for (let key in values) {
 		cur.set(CONFIG, 'global', key, values[key]);

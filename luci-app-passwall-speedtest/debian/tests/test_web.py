@@ -132,7 +132,7 @@ class WebTests(unittest.TestCase):
     def test_app_update_api(self):
         status, data = self.request("/api/app")
         self.assertEqual(status, 200)
-        self.assertEqual(data["version"], "1.0.0")
+        self.assertEqual(data["version"], "1.0.7")
         self.assertIn("source_dir", data)
         self.assertIn("update", data)
         self.assertFalse(data["manageable"])

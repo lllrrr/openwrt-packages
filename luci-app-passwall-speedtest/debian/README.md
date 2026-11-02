@@ -163,6 +163,9 @@ sudo cfpick update-core --type all
 从**没有这个按钮的旧版本**第一次升级时，仍需在服务器执行一次上面的
 `deploy.sh --core none`；之后的版本更新可以直接在 Web 里点按钮。
 
+「程序更新」卡片右侧还有「卸载程序」按钮，行为等同于不带参数的
+`uninstall.sh`：停止 Web 服务并删除程序，保留配置、结果和日志。测速运行中会被拒绝。
+
 ### 卸载
 
 ```bash
@@ -170,7 +173,8 @@ sudo /opt/cfpick/uninstall.sh            # 保留配置、结果、日志
 sudo /opt/cfpick/uninstall.sh --purge    # 全部删除
 ```
 
-也可以在仓库里运行 `sudo sh debian/uninstall.sh`。
+也可以在仓库里运行 `sudo sh debian/uninstall.sh`；或在 Web「内核 → 程序更新」
+卡片点击「卸载程序」（默认保留数据）。
 
 ## 首次使用
 
@@ -302,7 +306,7 @@ cfpick serve              # 前台启动 Web（--listen 0.0.0.0 --port 8787）
 
 | 路径 | 内容 |
 | --- | --- |
-| `/var/lib/cfpick/result.csv` | 当前结果；表头 `IP 地址,已发送,已接收,丢包率,平均延迟,下载速度(MB/s),地区码,节点`，末尾 `# Speed test time:` |
+| `/var/lib/cfpick/result.csv` | 当前结果；表头 `IP 地址,已发送,已接收,丢包率,平均延迟,下载速度(MB/s),地区码,节点,节点ID`，末尾 `# Speed test time:` |
 | `/var/lib/cfpick/result.csv.1` … `.9` | 最近 10 次结果滚动 |
 | `/var/lib/cfpick/result.json` | 本次结果的结构化导出（`generated_at` / `best` / `nodes` / `rows` 全量） |
 | `/var/lib/cfpick/best.json` | 精简的最优导出（`generated_at` / `best` / 各节点最优 `nodes`，不含全量 rows） |

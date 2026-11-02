@@ -5,12 +5,18 @@
 
 [中文说明](README.md)
 
-**CFPick** is a Cloudflare / CDN IP optimizer with two deployment models:
+**CFPick is a Cloudflare CDN IP optimizer: it measures from your own machine through a real proxy core and picks the fastest CDN edge IP for your particular line.**
 
-*   **OpenWrt LuCI package** (`luci-app-cfpick`): tests candidate Cloudflare IPs through your existing [PassWall](https://github.com/xiaorouji/openwrt-passwall) nodes, or through a locally managed mihomo / Xray-core, then writes the best IP back to proxy nodes and DNS integrations.
+*   **Candidates can come from the latest online preferred-IP list**: with the online CM source selected, every run downloads the current list (`IP:PORT#CC`, filterable by country and port, with a customizable URL); built-in IPv4 / IPv6 lists or a custom IP file also work. The list is only a set of candidates, not the answer.
+*   **Real kernel, real connections**: each candidate IP is temporarily written into a node config, and your local mihomo / Xray-core kernel or your existing [PassWall](https://github.com/xiaorouji/openwrt-passwall) node brings up a local SOCKS proxy to make real connections to it and measure.
+*   **Local optimum, not list ranking**: every candidate is latency-screened first, then the best few are ranked by a real fixed-size download; the winner is whatever actually performs best from your machine, not what someone else's list says.
+
+Test flow: each candidate IP is written into a node (or handed to the local kernel), then probed through a local SOCKS with HTTP HEAD latency (`time_pretransfer`) across every candidate; next, each worker's N lowest-latency IPs download a real fixed-size file over the same chain and are ranked by measured throughput (MB/s). The best IP is written back to the node and other integrations.
+
+CFPick ships in two deployment models:
+
+*   **OpenWrt LuCI package** (`luci-app-cfpick`): runs the test through your existing PassWall nodes or the local kernel, then writes the best IP back to proxy nodes and DNS integrations.
 *   **Debian / Ubuntu standalone** ([`debian/`](debian/README.md)): no OpenWrt or PassWall required; bundles two switchable, independently upgradable proxy cores, a Python-stdlib engine and a web console.
-
-The test is two-stage: each candidate IP is written into a node (or handed to the local core), then probed through a local SOCKS with HTTP HEAD latency (`time_pretransfer`) across every candidate; next, each worker's N lowest-latency IPs download a real fixed-size file over the same chain and are ranked by measured throughput (MB/s). The best IP is written back to the node and other integrations.
 
 > **Renamed**: the project was originally `luci-app-cloudflarespeedtest`, then `luci-app-passwall-speedtest`; starting with **1.0.0** it is **CFPick**. Package `luci-app-cfpick`, UCI config `/etc/config/cfpick`, CLI `cfpick`. Previous settings are not migrated — reconfigure after upgrading.
 
@@ -39,7 +45,7 @@ The test is two-stage: each candidate IP is written into a node (or handed to th
 Only two entries under LuCI → Services → CFPick, similar to Lucky:
 
 *   **Console**: shows the test status, the standalone console URL and an "Open web console" button; the actual operations happen in the standalone console. The "Standalone Engine" tab lives inside that console.
-*   **Settings**: only the console entry settings: enable, port, listen address, username, session timeout, open console and reset password. All speed-test settings and operations live in the console tabs.
+*   **Settings**: the console entry settings (enable, port, listen address, username, session timeout, open console, reset password) plus an **Online update** button: it downloads and installs the matching ipk / apk from the latest GitHub release. It is refused while a speed test is running; refresh the page after the update. All speed-test settings and operations still live in the console tabs.
 
 ## Standalone Web Console
 

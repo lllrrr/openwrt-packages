@@ -2,8 +2,12 @@
 
 The CSV layout matches the OpenWrt version:
 
-    IP 地址,已发送,已接收,丢包率,平均延迟,下载速度(MB/s),地区码,节点
+    IP 地址,已发送,已接收,丢包率,平均延迟,下载速度(MB/s),地区码,节点,节点ID
 
+``节点`` is the display name (passwall remarks); ``节点ID`` is the stable
+passwall section id.  Matching (retest candidates, history, DDNS) uses the id
+when present so that renaming a node's remarks does not orphan its results.
+Legacy files without the last column still parse, with the id left empty.
 The final ``# Speed test time: ...`` line is kept at the end of the file.
 """
 
@@ -17,7 +21,7 @@ from pathlib import Path
 
 from . import paths
 
-HEADER = ["IP 地址", "已发送", "已接收", "丢包率", "平均延迟", "下载速度(MB/s)", "地区码", "节点"]
+HEADER = ["IP 地址", "已发送", "已接收", "丢包率", "平均延迟", "下载速度(MB/s)", "地区码", "节点", "节点ID"]
 TIME_PREFIX = "# Speed test time:"
 HISTORY_MAX_LINES = 5000
 
@@ -32,6 +36,7 @@ class Row:
     speed: float = 0.0
     region: str = ""
     node: str = ""
+    node_id: str = ""
 
     def fields(self):
         return [
@@ -43,6 +48,7 @@ class Row:
             "%.2f" % self.speed,
             self.region,
             self.node,
+            self.node_id,
         ]
 
     def as_dict(self):
@@ -55,6 +61,7 @@ class Row:
             "speed": round(self.speed, 2),
             "region": self.region,
             "node": self.node,
+            "node_id": self.node_id,
         }
 
 
@@ -91,6 +98,7 @@ def _parse_row(parts):
         speed=number(parts[5], 0.0),
         region=(parts[6] or "").strip(),
         node=(parts[7] or "").strip() if len(parts) >= 8 else "",
+        node_id=(parts[8] or "").strip() if len(parts) >= 9 else "",
     )
 
 
@@ -159,13 +167,19 @@ def rotate_results(path=None, keep=9):
         pass
 
 
+def _node_key(row):
+    """Stable node identity: passwall section id, else display name."""
+    return row.node_id or row.node
+
+
 def node_best_rows(rows):
     """First (best) row per node, in global result order."""
     seen = set()
     out = []
     for row in rows:
-        if row.node and row.node not in seen:
-            seen.add(row.node)
+        key = _node_key(row)
+        if key and key not in seen:
+            seen.add(key)
             out.append(row)
     return out
 
@@ -217,8 +231,9 @@ def parse_history(path=None):
                 continue
             if current["best"] is None:
                 current["best"] = row
-            if row.node and row.node not in current["seen"]:
-                current["seen"].add(row.node)
+            key = _node_key(row)
+            if key and key not in current["seen"]:
+                current["seen"].add(key)
                 current["nodes"].append(row)
     out = []
     for run in runs:
@@ -242,16 +257,19 @@ def best_view(rows, when=""):
         return ""
     groups = {}
     order = []
+    labels = {}
     for row in rows:
-        name = row.node
-        if name not in groups:
-            groups[name] = []
-            order.append(name)
-        groups[name].append(row)
+        key = _node_key(row)
+        if key not in groups:
+            groups[key] = []
+            labels[key] = row.node
+            order.append(key)
+        groups[key].append(row)
 
     lines = [",".join(HEADER)]
-    for name in order:
-        node_rows = groups[name]
+    for key in order:
+        name = labels.get(key) or key
+        node_rows = groups[key]
         best = node_rows[0]
         extra = " / %.2f MB/s" % best.speed if best.speed > 0 else ""
         lines.append("# ── %s：最优 %s / %.2fms%s，共 %d 条 ──" % (

@@ -267,8 +267,28 @@ class DdnsTests(unittest.TestCase):
         self.assertFalse(report["ok"])
         self.assertEqual(report["failed"], 1)
         self.assertEqual(len(report["nodes"]), 2)
+        # 汇总逐节点列出结果，而不是只给一个失败计数
+        self.assertIn("jp.example.com", report["error"])
+        self.assertIn("broken.example.net", report["error"])
+        self.assertIn("jp.example.com", "；".join(report["summary"]))
         self.assertEqual(transport.records[("zone1", "jp.example.com")][0]["content"],
                          "1.1.1.1")
+
+    def test_node_id_matches_after_remark_rename(self):
+        cfg = make_cfg()
+        node = {"name": "new-name", "node_id": "MrHOrfnH",
+                "ddns_domain": "jp.example.com", "enabled": True}
+        row = Row(ip="1.1.1.1", latency=10, speed=2.0,
+                  node="old-name", node_id="MrHOrfnH")
+        report = ddns.preview(cfg, [node], [row])
+        self.assertEqual(report["nodes"][0]["ips"], ["1.1.1.1"])
+
+    def test_legacy_row_matches_by_name_without_id(self):
+        cfg = make_cfg()
+        node = {"name": "jp", "ddns_domain": "jp.example.com", "enabled": True}
+        row = Row(ip="1.1.1.1", latency=10, speed=2.0, node="jp")
+        report = ddns.preview(cfg, [node], [row])
+        self.assertEqual(report["nodes"][0]["ips"], ["1.1.1.1"])
 
     def test_disabled_is_noop(self):
         cfg = make_cfg(ddns={"enabled": False, "cloudflare": {"api_token": "token"}})

@@ -32,8 +32,8 @@
 	const PHASES = {
 		idle: '空闲',
 		starting: '启动中',
-		latency: '延迟测速',
-		running: '延迟测速',
+		latency: '一轮延迟测试',
+		running: '一轮延迟测试',
 		download: '下载实测',
 		commit: '写入结果',
 		stopping: '正在停止',
@@ -1255,18 +1255,45 @@
 			text = '未找到 systemd-run，无法在线更新';
 		}
 		setText('app-update-state', text);
+		const running = !!(state.status && state.status.running);
+		const busy = !!update.updating;
 		const button = $('#btn-app-update');
 		if (button) {
-			const busy = !!update.updating;
-			button.disabled = !app.manageable || !app.systemd_run || busy;
+			button.disabled = !app.manageable || !app.systemd_run || busy || running;
 			button.textContent = busy ? '更新中…' : '更新程序';
 		}
+
+		const uninstall = $('#btn-app-uninstall');
+		if (uninstall)
+			uninstall.disabled = running || busy;
 	}
 
 	async function refreshAppInfo() {
 		try {
 			renderAppInfo(await api('/api/app'));
 		} catch (e) { /* ignore */ }
+	}
+
+	async function uninstallApp() {
+		if (!confirm('卸载程序会停止 Web 服务；配置、结果与日志默认保留。继续？'))
+			return;
+
+		const button = $('#btn-app-uninstall');
+		if (button) button.disabled = true;
+
+		try {
+			const response = await api('/api/uninstall-app', { method: 'POST', body: {} });
+			toast(response.message || '已开始卸载，Web 服务即将停止');
+		} catch (e) {
+			// The service stops while the uninstall script runs, so a dropped
+			// connection usually means the uninstall started successfully.
+			if (e instanceof TypeError) {
+				toast('卸载已开始，Web 服务可能已停止');
+			} else {
+				toast(e.message, true);
+				if (button) button.disabled = false;
+			}
+		}
 	}
 
 	async function updateApp() {
@@ -1453,6 +1480,7 @@
 
 		$('#btn-core-refresh').addEventListener('click', refreshCore);
 		$('#btn-app-update').addEventListener('click', updateApp);
+		$('#btn-app-uninstall').addEventListener('click', uninstallApp);
 		$('#btn-save-core').addEventListener('click', async () => {
 			state.config.core.type = $('#core-type').value;
 			await saveConfig('内核选择已保存');

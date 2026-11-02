@@ -370,6 +370,10 @@
 		$('#btn-start').disabled = running;
 		$('#btn-retest').disabled = running;
 		$('#btn-stop').disabled = !running;
+
+		const lockHint = running ? '已有测速在运行，请先停止' : '';
+		$('#btn-start').title = lockHint;
+		$('#btn-retest').title = lockHint;
 	}
 
 	// ── 独立内核模式（统一测速使用 mihomo / Xray） ─────────────────
@@ -897,8 +901,13 @@
 		buttons.forEach((button) => { button.disabled = true; });
 
 		try {
-			await api(action, { method: 'POST', body: {} });
-			toast(message);
+			const result = await api(action, { method: 'POST', body: {} });
+
+			if (result && result.started === false)
+				toast('已有测速在运行，请先点击停止');
+			else
+				toast(message);
+
 			await refreshStatus();
 		}
 		catch (e) {
@@ -1356,6 +1365,10 @@
 			toast('配置已保存');
 		}
 		catch (e) {
+			// DDNS validation failed: clear the token field so the user must
+			// re-enter a working Cloudflare token before saving again.
+			if (String(e.message || '').indexOf('DDNS') >= 0)
+				setValue('cfg-ddns-token', '');
 			toast(e.message, true);
 		}
 	}
