@@ -1,0 +1,31 @@
+{
+	"admin/services/cfpick": {
+		"title": "CFPick",
+		"order": 99,
+		"action": {
+			"type": "firstchild"
+		},
+		"depends": {
+			"acl": [ "luci-app-cfpick" ],
+			"uci": { "cfpick": true }
+		}
+	},
+
+	"admin/services/cfpick/console": {
+		"title": "Operations Console",
+		"order": 1,
+		"action": {
+			"type": "view",
+			"path": "cfpick/console"
+		}
+	},
+
+	"admin/services/cfpick/settings": {
+		"title": "Settings",
+		"order": 2,
+		"action": {
+			"type": "view",
+			"path": "cfpick/settings"
+		}
+	}
+}

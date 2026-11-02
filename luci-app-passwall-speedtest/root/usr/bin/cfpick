@@ -1,0 +1,16 @@
+#!/bin/sh
+# Standalone core-based speed test (mihomo / Xray-core), independent of
+# PassWall's run_socks.  The engine lives in /usr/lib/cfpick; its
+# configuration, results and optional downloaded cores stay in /etc so they
+# survive reboots (OpenWrt's /var is tmpfs).
+set -eu
+
+APP_DIR=/usr/lib/cfpick
+
+export CFPICK_APP_DIR="${CFPICK_APP_DIR:-$APP_DIR}"
+export CFPICK_CONFIG_DIR="${CFPICK_CONFIG_DIR:-/etc/cfpick}"
+export CFPICK_STATE_DIR="${CFPICK_STATE_DIR:-/etc/cfpick/state}"
+export CFPICK_LOG_DIR="${CFPICK_LOG_DIR:-/tmp/log/cfpick}"
+export PYTHONPATH="$CFPICK_APP_DIR${PYTHONPATH:+:$PYTHONPATH}"
+
+exec python3 -m cfpick "$@"

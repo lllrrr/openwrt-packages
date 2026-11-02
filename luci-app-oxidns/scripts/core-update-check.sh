@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 # 内核取源逻辑的契约测试：openwrt-oxidns 的 apk 优先，架构不支持时回落官方。
 #
@@ -138,10 +138,18 @@ if [ "$INJECT" = "1" ]; then
 			bad "注入 $_key 未生效（sed 没匹配到）"
 			return 0
 		fi
-		if (
+		# 子壳里先丢掉父壳继承的函数定义：注入若把源码改成了语法错误，
+		# eval 失败后旧函数仍在，断言会全绿 —— 那正是「缺陷注入假绿」。
+		_rc=0
+		(
 			FAILED=0
+			unset -f version_gt openwrt_pkg_arch installed_pkg_version
 			suite "$_copy"
-		) >"$WORK/inject-$_key.out" 2>&1; then
+		) >"$WORK/inject-$_key.out" 2>&1 || _rc=$?
+		if [ "$_rc" -ne 0 ] && grep -qiE 'syntax error|command not found' "$WORK/inject-$_key.out"; then
+			# 变红的原因不对：注入本身把代码改坏了，不构成有效回归
+			bad "注入 $_key 改出了 shell 错误（注入本身无效）" "见 $WORK/inject-$_key.out"
+		elif [ "$_rc" -eq 0 ]; then
 			bad "注入 $_key 没有被断言抓到" "见 $WORK/inject-$_key.out"
 		else
 			ok "注入 $_key 已变红"
@@ -172,10 +180,18 @@ if [ "$INJECT" = "1" ]; then
 			bad "注入 $_key 未生效（片段没改到任何内容）"
 			return 0
 		fi
-		if (
+		# 子壳里先丢掉父壳继承的函数定义：注入若把源码改成了语法错误，
+		# eval 失败后旧函数仍在，断言会全绿 —— 那正是「缺陷注入假绿」。
+		_rc=0
+		(
 			FAILED=0
+			unset -f version_gt openwrt_pkg_arch installed_pkg_version
 			suite "$_copy"
-		) >"$WORK/inject-$_key.out" 2>&1; then
+		) >"$WORK/inject-$_key.out" 2>&1 || _rc=$?
+		if [ "$_rc" -ne 0 ] && grep -qiE 'syntax error|command not found' "$WORK/inject-$_key.out"; then
+			# 变红的原因不对：注入本身把代码改坏了，不构成有效回归
+			bad "注入 $_key 改出了 shell 错误（注入本身无效）" "见 $WORK/inject-$_key.out"
+		elif [ "$_rc" -eq 0 ]; then
 			bad "注入 $_key 没有被断言抓到" "见 $WORK/inject-$_key.out"
 		else
 			ok "注入 $_key 已变红"

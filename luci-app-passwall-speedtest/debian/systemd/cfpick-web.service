@@ -1,0 +1,23 @@
+[Unit]
+Description=CFPick web console
+Documentation=file:///opt/cfpick/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/cfpick
+Environment=CFPICK_APP_DIR=/opt/cfpick
+Environment=PYTHONPATH=/opt/cfpick
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 -m cfpick serve
+Restart=on-failure
+RestartSec=3
+# The service writes /etc/cfpick, /var/lib/cfpick,
+# /var/log/cfpick, manages the root crontab and starts the mihomo core.
+# It therefore runs as root, like the OpenWrt package. Keep the listener on
+# 127.0.0.1 or put it behind an authenticating reverse proxy.
+
+[Install]
+WantedBy=multi-user.target

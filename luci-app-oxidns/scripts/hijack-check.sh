@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 # DNS 劫持的契约测试。
 #

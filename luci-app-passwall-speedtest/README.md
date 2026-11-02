@@ -1,103 +1,240 @@
-# luci-app-passwall-speedtest
+# CFPick
 
-[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/urbanescavenger/luci-app-passwall-speedtest/build.yml?style=for-the-badge&logo=GitHub)](https://github.com/urbanescavenger/luci-app-passwall-speedtest/actions/workflows/build.yml)
-[![GitHub release (latest by date)](https://img.shields.io/github/v/release/urbanescavenger/luci-app-passwall-speedtest?style=for-the-badge)](https://github.com/urbanescavenger/luci-app-passwall-speedtest/releases)
+[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/urbanescavenger/CFPick/build.yml?style=for-the-badge&logo=GitHub)](https://github.com/urbanescavenger/CFPick/actions/workflows/build.yml)
+[![GitHub release (latest by date)](https://img.shields.io/github/v/release/urbanescavenger/CFPick?style=for-the-badge)](https://github.com/urbanescavenger/CFPick/releases)
 
-[中文说明](README.CN.md)
+[English](README.en.md)
 
-**luci-app-passwall-speedtest** is a LuCI application for OpenWrt that selects the best Cloudflare IP **through your existing [PassWall](https://github.com/xiaorouji/openwrt-passwall) nodes**. It writes each candidate IP into a passwall node's `address` and spins up a local SOCKS via passwall: first it screens every candidate with HTTP HEAD latency (`time_pretransfer`); then, for each worker's N lowest-latency IPs, it downloads a real fixed-size file over the same node chain and measures actual throughput (MB/s). The final best IP is written back to the passwall node(s) and other integrations.
+**CFPick** 是一个 Cloudflare / CDN 优选 IP 工具，提供两种部署方式：
 
-> This is a refactor of the original `luci-app-cloudflarespeedtest`: the standalone `CloudflareSpeedTest` binary download path has been removed. The test now runs entirely through passwall — no external test binary is downloaded or bundled. It is two-stage: cheap latency screening across all candidates, then a real download test on the few most promising ones.
+*   **OpenWrt LuCI 插件**（`luci-app-cfpick`）：经你已有的 [PassWall](https://github.com/xiaorouji/openwrt-passwall) 节点，或本机 mihomo / Xray-core 内核，对候选 Cloudflare IP 做两阶段测速，把最优 IP 写回代理节点和 DNS 集成。
+*   **Debian / Ubuntu 脚本版**（[`debian/`](debian/README.md)）：不依赖 OpenWrt 和 PassWall，自带两个可切换、可独立升级的代理内核、Python 标准库引擎与 Web 面板。
 
-## Requirements
+测速流程：把每个候选 IP 临时写进一个节点（或交给本机内核），用本地 SOCKS 发起 `curl -I` 取 `time_pretransfer` 对全部候选做延迟初筛；再对每个 worker 延迟最优的 N 个 IP 经同一条链路**真实下载固定大小文件**，按实测吞吐（MB/s）选出最终最优，最后写回节点及其它集成。
 
-*   **PassWall** (`openwrt-passwall`) must be installed — the test drives `/usr/share/passwall/app.sh run_socks`. If passwall is missing, the test reports an error and aborts.
-*   **curl** (hard dependency) for the latency probe.
-*   At least one CF-CDN-fronted passwall node (VLESS / VMess / Trojan / SS …). SOCKS-type passwall nodes cannot be used as test nodes (their `address` IS the SOCKS server).
+> **改名说明**：项目原名 `luci-app-cloudflarespeedtest`，后改为 `luci-app-passwall-speedtest`；从 **1.0.0** 起统一更名为 **CFPick**。包名 `luci-app-cfpick`，UCI 配置 `/etc/config/cfpick`，CLI `cfpick`。旧配置不会自动迁移，升级后请在 LuCI 重新配置。
 
-## Features
+## 依赖
 
-*   **Node-Based Latency Test**: Probes candidate Cloudflare IPs through your passwall node chain — finds the best CF IP *as seen from your proxy's egress*.
-*   **Latency Screening + Real Download Test**: Latency first (cheap, covers every candidate); then, **after every worker has stopped probing**, the main process downloads a real fixed-size file through each worker's N lowest-latency IPs (default 5, max 10) over the same node chain, **one worker and one IP at a time**; `speed_download` from curl is converted to MB/s. The final best IP is picked by measured throughput; IPs whose download fails are dropped; if every download fails (e.g. the URL is unreachable through that node), the latency ranking is kept. Each IP gets its own SOCKS config, and the generated `/tmp/etc/passwall/<flag>.json` is verified to point at the candidate IP before a speed is accepted, so the number cannot come from an unrelated path. Downloads never overlap latency probing — otherwise workers still probing would compete with them for the router's WAN bandwidth and make the per-IP numbers incomparable. Fast-death: a candidate that downloads less than 1 MB in the first 5 seconds is aborted and marked failed (curl `--speed-limit`/`--speed-time`), so dead or crawling IPs no longer burn the full per-IP time limit. In iterative mode the download phase runs after convergence and does not count toward `iterate_minutes`.
-*   **Retest Current Best IPs**: A dedicated button on the Plugin Settings page (CLI: `passwall-speedtest.sh retest`) — it does **not** re-download the online IP list. Candidates come only from the current `result.csv` rows for each node plus that node's current `address`. Candidate source and scheduling are independent: by default it runs ONE latency round + the download test; if the time-boxed iterative test is also enabled, the same candidates go through each node's convergence loop until `iterate_minutes` elapses, dropping IPs that fail each pass. The best IP is written back as usual. Useful for quickly validating the existing best IPs after a scheduled run without pulling tens of thousands of candidates.
-*   **Multi-Threaded Workers**: Passwall nodes selected in the Third-Party tab run as parallel workers — each tests all candidate IPs through its own chain and gets its own best IP written back. Concurrency is capped by `node_test_threads`.
-*   **Fail-Fast Multi-Probe**: Each IP is probed `node_test_probes` times; if any probe fails, the IP is discarded immediately. Only IPs that succeed on all probes are kept, so the result is a stable one.
-*   **Time-Boxed Iterative Test**: With `iterate_enabled`, each tested node runs its **own independent convergence loop** until `iterate_minutes` elapses: after its first pass it only re-tests the IPs that passed its previous pass, so its candidate pool shrinks toward the most stable, lowest-latency IPs. Nothing is written to result.csv or passwall mid-run. A node saves its result and exits early once its pool converges to **≤ N IPs**, where N reuses `download_test_count` (so the surviving set is exactly what the download test will measure; 3 when the download test is off) — no need to wait out the timer; at the end each node's final-pass results are printed to the log before one final merge writes every node's best IP.
-*   **Proxy Integration**: Writes the best IP back to ssr / passwall / passwall2 / bypass / vssr nodes, and to HOST / MosDNS / astra-dns / Alibaba Cloud DDNS.
-*   **Visual Charts**: History chart for latency trends; hovering/clicking a point shows that node's best IP, latency and measured download speed (latency only when no download test was run).
-*   **Improved UI & Logs**: Redesigned status display; per-IP log lines like `进度: 走节点测速 [node] 5/30 (16%) - 1.2.3.4 延迟 87ms 丢包 0.00 [保留]`.
-*   **Partial Results Saved on Stop**: Stopping mid-test triggers a trap that cleans up SOCKS, restores node addresses, and keeps the previous result if nothing new was measured. **When the user stops round one manually, the IPs that already passed latency still complete the download test** (up to 5 per worker, run one worker/IP at a time after all probing has stopped) before write-back. The same holds for the automatic early stop (after the first worker finishes): workers stopped early still get their already-passed IPs download-tested.
-*   **Broad Integrations**: The best IP can be automatically applied to SSR+ / Passwall / PassWall2 / Bypass / Vssr / HOST / MosDNS / astra-dns / Alibaba Cloud DDNS.
+*   **PassWall**（`openwrt-passwall`）必须已安装——测速会调用 `/usr/share/passwall/app.sh run_socks`。未安装 passwall 时测速会报错并中止。
+*   **curl**（硬依赖），用于延迟探测。
+*   至少一个 CF-CDN 前置的 passwall 节点（VLESS / VMess / Trojan / SS …）。SOCKS 类型的 passwall 节点不能用作测速节点（其 `address` 本身就是 SOCKS 服务器）。
 
-## UI Pages
+## 主要特性
 
-Three pages under LuCI → Services → PassWall Speed Test:
+*   **走节点测速**：经你的 passwall 节点链路探测候选 Cloudflare IP——选出的是「从你代理出口看」最优的 CF IP。
+*   **延迟初筛 + 真实下载实测**：先对全部候选测延迟（便宜、覆盖广），**等所有 worker 停止探测后**，再由主进程对每个 worker 延迟最优的前 N 个 IP（默认 5 个，最多 10 个）经同一节点链路**逐节点、逐 IP 串行**下载固定大小文件，用 curl 的 `speed_download` 换算 MB/s。最终按实测下载速度选最优；下载失败的 IP 剔除；若全部下载失败（如测试 URL 经该节点不可达）则回退到延迟排序，不丢延迟阶段成果。每个 IP 使用独立的 SOCKS 配置，下载前会校验 `/tmp/etc/passwall/<flag>.json` 里的出站地址确实是该候选 IP，避免测到与候选 IP 无关的速度。下载与延迟探测不重叠——否则仍在探测的 worker 会与下载互抢路由器 WAN 带宽，各 IP 的速度没有可比性。**快速死亡**：起测 5 秒内下载不足 1 MB 的候选会被立即中止并判失败（curl `--speed-limit`/`--speed-time`），死 IP / 爬行 IP 不再白等满单 IP 时限。迭代模式下下载实测是收敛结束后的额外阶段，不计入 `iterate_minutes`。
+*   **复测现有最优 IP**：主设置页新增「复测现有最优 IP」按钮（CLI：`/usr/lib/cfpick/bin/cfpick.sh retest`）——**不重新下载在线 IP 列表**，只取当前 `result.csv` 中该节点的行 + 节点当前 `address`。候选来源与调度方式相互独立：默认做一轮延迟测速 + 下载实测；若同时开启「限时迭代测速」，同一批候选会进入各节点的收敛循环直到 `iterate_minutes` 结束，每轮剔除未通过的 IP。结束后照常写回。适合定时跑完后快速确认现有最优是否仍然可用、或在不拉取上万条候选的情况下重新排序。
+*   **多线程 worker**：在「第三方设置」里选的 passwall 节点作为并行 worker——每个 worker 经自己的链路测全部候选 IP、各写各的最优 IP；并发上限由 `node_test_threads` 控制。
+*   **多探测 fail-fast**：每个 IP 探测 `node_test_probes` 次；任意一次失败该 IP 立即丢弃。只有全部探测都成功的 IP 才保留，确保结果稳定。
+*   **限时迭代测速**：开启 `iterate_enabled` 后进入计时模式——每个待测节点跑**独立的收敛循环**直到 `iterate_minutes` 分钟：第 1 遍测完自己的候选后，每遍只测上一遍通过的 IP，候选池逐遍收敛到最稳定、延迟最低的 IP；运行期间不写 result.csv、不写回 passwall。节点候选收敛到 **≤N 个**即保存结果提前结束（N 复用 `download_test_count`，收敛后的候选恰好就是接下来下载实测的那批；下载实测关闭时为 3 个），不必等到计时结束；结束时日志打出各节点最终轮的完整测速结果，随后一次性写回各节点最优。
+*   **应用到代理插件**：最优 IP 自动写回 ssr / passwall / passwall2 / bypass / vssr 节点，以及 HOST / MosDNS / astra-dns / 阿里云 DDNS。
+*   **可视化图表**：延迟历史趋势图；悬停/点击数据点显示该节点的最优 IP、延迟与实测下载速度（未做下载实测时只显示延迟）。
+*   **优化的界面与日志**：重新设计的状态展示；逐 IP 日志如 `进度: 走节点测速 [节点] 5/30 (16%) - 1.2.3.4 延迟 87ms 丢包 0.00 [保留]`。
+*   **中途停止不丢结果**：中途停止会触发 trap 清理 SOCKS、恢复节点 address，若无新结果则保留上一次结果。**用户手动停止第一轮时，已通过延迟的 IP 仍会完成下载实测**（每 worker 最多 `download_test_count` 个（上限 10）；所有 worker 停止探测后逐节点逐 IP 串行）后再写回；「首个 worker 已完成、其余自动提前停止」也一样，不再跳过其余 worker 的下载。
+*   **丰富的应用集成**：优选 IP 可自动应用到 SSR+ / Passwall / PassWall2 / Bypass / Vssr / HOST / MosDNS / astra-dns / 阿里云 DDNS。
+*   **独立内核测速**：统一测速可切换到本机 mihomo / Xray-core 内核（同一套节点、IP 列表和参数），内核可独立安装/升级；启用后不再依赖 `run_socks`，也不需要改写 PassWall 节点。
 
-*   **Plugin Settings**: Basic (test params) + Crontab tabs, with a Start/Stop button, a 3-second polled status bar, a read-only Best IP area, and a latency history chart.
-*   **Third Party Settings**: Tabs appear on demand for each proxy tool installed on the router. The passwall nodes selected here double as the parallel workers.
-*   **Logs**: Incrementally fetches the test log, with an optional 5-second auto-refresh.
+## 界面页面
 
-## Test Parameters
+插件在 LuCI → 服务 → CFPick 下只有两个入口，和 Lucky 的布局一致：
 
-*   **IP list source**: Built-in IPv4 / IPv6 lists or a custom IP file, with an optional "scan all IPs in each /24" flag.
-*   **Latency cap / lower bound / packet-loss cap** (`tl` / `tll` / `tlr`): Discard candidate IPs outside these thresholds (ms / ms / 0–1).
-*   **Passwall node to test through**: Single-node fallback when no passwall workers are selected.
-*   **Probe URL**: URL probed via the node's local SOCKS (HTTP HEAD). Defaults to Google `generate_204`.
-*   **Max IPs to test**: Cap on candidate IPs tested per worker.
-*   **Probe timeout**: Per-IP curl `--max-time` (seconds).
-*   **Probes per IP**: Number of curl probes per IP (all must succeed or the IP is discarded).
-*   **Max parallel workers**: Concurrency cap for multi-node mode (0 = all).
-*   **Real download speed test** (`download_test_enabled`, on by default): after latency screening, measure actual throughput on a few candidates.
-*   **Download-test candidates per worker** (`download_test_count`, default 5, max 10): only the N lowest-latency IPs of each worker are download-tested. This consumes real proxy traffic: with the default 10 MB URL, up to about 100 MB per worker, added up across workers (tests are serialized).
-*   **Download test URL** (`download_test_url`): fixed-size file fetched through the node's local SOCKS; defaults to Cloudflare `speed.cloudflare.com/__down?bytes=10000000` (10 MB). The response must be HTTP 2xx with at least 16 KB of data.
-*   **Download test time limit** (`download_test_time`, default 10s): per-IP curl `--max-time`; a transfer cut off by the limit still yields a valid average speed from the bytes received.
-*   **Time-boxed iterative test / duration**: Time-boxed mode where each tested node runs an independent convergence loop (each pass only re-tests IPs that passed the previous pass); at the deadline the best remaining IP per node is written back. After convergence, the final passing set's N lowest-latency IPs also go through the download test.
+*   **操作台（Console）**：显示测速运行状态、Web 操作台地址，以及「打开 Web 操作台」按钮；实际操作都在独立操作台里完成，「独立测速」页签也在操作台内。
+*   **设置（Settings）**：只保留 Web 操作台入口配置：启用、端口、监听地址、用户名、会话有效期、打开操作台、重置密码。所有测速设置和操作都在独立操作台的页签里。
 
-## How the Best IP Is Applied
+## 独立 Web 操作台
 
-After a test completes:
+独立操作台（`cfpick-web`）在单独端口运行，有自己的登录和管理界面；LuCI 的「设置」只保留操作台入口配置，所有测速设置和操作都在操作台里。
 
-*   Each passwall worker node gets its own best IP written to `passwall.<node>.address`. With the download test enabled, "best" means highest measured throughput (failed downloads are excluded); otherwise, or when every download fails, it falls back to lowest latency.
-*   The global best IP (first row of `result.csv`; the highest throughput when download tests succeeded) is written automatically to: HOST (`/etc/hosts`), MosDNS, astra-dns, Alibaba Cloud DDNS, and the `server`/`address` field of ssr / passwall / passwall2 / bypass / vssr nodes.
+### 启用
 
-> Note: The plugin does not modify `ip route`. The best IP takes effect through hosts / DNS / proxy nodes.
+1. LuCI → 服务 → CFPick → **设置 → Web 操作台**；
+2. 勾选「启用独立操作台」，设置端口（默认 **17544**，避开 Lucky 常用的 17543）、监听地址和用户名；
+3. 保存并应用，服务会自动启动；
+4. 浏览器打开 `http://<路由器IP>:17544/`，首次会要求创建管理员密码（至少 6 位）。
 
-## Scheduled Tasks
+密码只以加盐 SHA-256 哈希保存在 UCI（`cfpick.global.web_password`），不保存明文；会话 Cookie 为 `HttpOnly` + `SameSite=Strict`，写操作还要求自定义请求头，防止 CSRF。
 
-Built-in cron scheduling supports a 1–24 hour interval or a custom cron expression. The `init.d` script updates the crontab idempotently, only when it changes.
+### 操作台页签
 
-Every full run takes a single-instance lock at its entry point: only one run at a time, and an overlapping trigger (duplicate cron firings, repeated UI clicks, manual SSH runs) is **skipped with one log line** instead of racing the running one over the same passwall nodes. A leftover lock from a killed process or a power loss is taken over automatically on the next run. When writing a custom cron expression, mind the minute field: `* 19 * * 4` means "every minute of hour 19 on Thursday" — use `0 19 * * 4` for a single run.
+*   **概览**：运行状态、开始/停止/复测、各节点最优 IP、最近历史、定时任务。
+*   **节点**：单节点/稳定节点，以及 worker 表（每个 PassWall 节点一行，并指派 CM IP 列表）。
+*   **IP 列表**：五个 CM 源列表的启用、名称、国家码和端口。
+*   **设置**：IP 来源、延迟/丢包阈值、探测参数、下载实测、限时迭代、五段 cron、操作台账号。
+*   **日志**：实时日志，可自动刷新。
+*   **第三方**：SSR+ / PassWall / PassWall2 / Bypass / Vssr / HOST / 阿里云 DNS / MosDNS / astra-dns 的写回配置。
 
-## Results & History
+操作台内部调用同一套 `api_*` 管理 API，因此和 LuCI 页面看到的数据完全一致。
 
-Results are saved to `/tmp/passwall-speedtest/result.csv` with 10 rolling historical versions kept; the Best IP area shows every row grouped per node. Column 6 `下载速度(MB/s)` holds the real download measurement — only the N lowest-latency IPs per worker are filled; rows that were not download-tested (or runs with the download test disabled) keep `0.00`. The latency chart plots the persistent history.
+### 账号与安全
 
-Run logs are kept at `/tmp/passwall-speedtest.log`; at the start of each run the previous log is rotated to `.log.1` ~ `.log.5` (last 5 runs; `/tmp` is a RAM disk — cleared on reboot, never written to flash). In addition, when each run finishes its full log is **overwritten** to `/etc/config/passwall-speedtest.log` (same directory as the UCI config — persistent across reboots, keeps only the most recent run). The log page shows whole lines including `[node remark]` and `[kept]/[dropped]` tags, so per-node iteration rounds can be read directly.
-
-## Installation
-
-1.  Download the latest `.ipk` or `.apk` file from [Releases](https://github.com/urbanescavenger/luci-app-passwall-speedtest/releases).
-2.  Install it on your router:
-    ```bash
-    opkg install luci-app-passwall-speedtest_*.ipk
+*   修改密码：操作台「设置 → 操作台账号」，修改后需要重新登录。
+*   忘记密码：SSH 执行
+    ```sh
+    uci delete cfpick.global.web_password
+    uci commit cfpick
+    /etc/init.d/cfpick-web restart
     ```
-3.  Go to LuCI → Services → PassWall Speed Test to configure.
-    > Upgrading from the old `luci-app-cloudflarespeedtest`: the UCI config was renamed to `passwall-speedtest`, so previous settings are **not** migrated — reconfigure in the LuCI page. You may delete the old `/etc/config/cloudflarespeedtest`.
+    然后重新打开操作台创建密码。
+*   操作台默认只建议在局域网使用（明文 HTTP）；远程访问请走 VPN 或带 TLS 的反向代理，不要把 17544 直接暴露到公网。
+*   服务脚本：`/etc/init.d/cfpick-web`；端口、监听地址、用户名由 UCI 的 `web_port` / `web_bind` / `web_user` 控制，保存配置会触发服务重载。
 
-## Build
+## 独立内核模式（统一测速的可选项）
+
+可以在操作台的 **「独立测速」** 页签里，把**统一测速**切换到本机 mihomo / Xray-core：
+
+*   **启用开关**：勾选「启用独立内核」并保存。启用后，「开始测速」的每个 worker 用本机内核拉起候选 IP 的本地 SOCKS（`cfpick core start`），不再调用 PassWall 的 `run_socks`；关闭则完全保持原来的 PassWall 流程。
+*   **同一套配置**：节点仍是「节点」页里的 PassWall worker，IP 列表、探测/下载参数、定时任务都不变；不需要第二套节点或分享链接。
+*   **双内核 + 自助升级**：mihomo 与 Xray-core 二选一；页签按内核各显示一张卡片（版本、路径、来源、当前使用状态），可填版本标签后单独「安装/升级」到 `/etc/cfpick/state/core`（独立于 PassWall 的内核），也可继续复用系统 `/usr/bin/mihomo`、`/usr/bin/xray`。
+*   **不碰 PassWall**：独立模式下测速期间不改写节点 `address`、不切换全局节点；内核出站带 `mark 255`，命中 PassWall OUTPUT 链的 `meta mark 255 return`，保持「本地 SOCKS → 被测节点」单层，**不需要修改 PassWall 配置**。节点类型与所选内核不兼容（如 ss/hysteria2、带 plugin 的 SS、VMess xhttp 选 mihomo 等）时，该节点自动回退 PassWall `run_socks`，并在日志里说明。
+*   **写回**：测完仍按原逻辑把各 worker 的最优 IP 写回 PassWall 节点；如果节点配置了 DDNS 域名，则该节点只写 DNS、不回写（见下）。
+*   **CLI**：
+    ```sh
+    cfpick cores
+    cfpick update-core --type xray|mihomo|all
+    cfpick core start --node <id> --ip <candidate> --port <socks> --core xray --flag <flag>
+    cfpick core stop --flag <flag>
+    ```
+*   **依赖**：`python3-light`、`python3-urllib`、`python3-codecs`、`python3-openssl`、`python3-email`、`curl`、`ca-bundle`（由 ipk 自动安装）。
+
+## 按节点 DDNS（Cloudflare）
+
+*   在操作台 **设置 → DDNS 写回（Cloudflare）** 卡里填写 API Token（可选 Zone ID / Zone 名称、TTL、每节点写入 IP 数、是否走 Cloudflare 代理），勾选启用。
+*   在 **节点** 页 worker 表的 **DDNS 域名** 列填该节点的域名。
+*   测速结束后：填了域名的 worker 把最优 IP 写入该域名的 A/AAAA 记录，**不再写回 PassWall 节点**；没填域名的 worker 照旧写回。
+*   域名需属于同一个 Cloudflare Zone；留空 Zone 时按域名自动查找。DDNS 失败只记日志，不影响测速结果。
+
+## 管理 API
+
+rpcd 对象 `cfpick` 同时提供两套方法：
+
+*   **旧方法**（`status` / `start` / `start_retest` / `stop` / `get_log` / `get_history` / `get_best_result` / `list_nodes`）保持原有返回结构，已有页面和脚本不受影响。
+*   **`api_*` 稳定接口**：统一返回信封，异常也会变成正常响应，便于外部脚本消费：
+
+```json
+{ "ok": true,  "data": { }, "ts": 1700000000 }
+{ "ok": false, "error": "message", "ts": 1700000000 }
+```
+
+| 方法 | 权限 | 参数 | 说明 |
+| --- | --- | --- | --- |
+| `api_ping` | read | — | 健康检查与 API 版本 |
+| `api_status` | read | — | 运行状态、PID、模式、阶段、耗时、cron、worker 数与全局最优 |
+| `api_results` | read | `limit`（0 = 全部） | `result.csv` 的结构化结果 |
+| `api_history` | read | — | 持久历史（与旧 `get_history` 相同） |
+| `api_nodes` | read | — | 本机各代理软件的节点列表 |
+| `api_log` | read | `pos` | 增量日志，`pos` 为上次返回的位置 |
+| `api_tasks` | read | — | 只列出与本插件相关的 crontab 任务（`/etc/crontabs/root`、`/etc/crontab`），含计划、命令与启用状态 |
+| `api_task_save` | write | `source` `line` `schedule` `enabled` | 修改相关任务的计划或启用/停用；`start` 主任务同步到 UCI |
+| `api_task_delete` | write | `source` `line` | 删除相关任务；`start` 主任务通过关闭 UCI 定时移除 |
+| `api_task_add` | write | `source` `schedule` `command` | 添加相关任务（命令必须指向本插件） |
+| `api_run_start` | write | — | 开始一轮完整测速 |
+| `api_run_retest` | write | — | 复测现有最优 IP |
+| `api_run_stop` | write | — | 请求停止（协作式，完成收尾后退出） |
+
+示例：
+
+```sh
+ubus call cfpick api_status
+ubus call cfpick api_results '{"limit":500}'
+ubus call cfpick api_tasks
+```
+
+通过 LuCI/rpcd 会话访问的外部应用需要在 ACL 中获得对应方法的 read/write 权限；以 root 直接执行 `ubus call` 不受 ACL 限制。本插件自带的 ACL 已包含全部 `api_*` 方法。
+
+> 首次安装或升级本版本后，如果管理页提示 `Request failed` 或看不到 `api_*` 方法，请执行 `/etc/init.d/rpcd restart`（或重启路由器）让 rpcd 重新加载 ucode 与 ACL。
+
+## 测速参数
+
+*   **IP 列表来源**：内置 IPv4 / IPv6 列表或自定义 IP 文件，可选「扫描每个 /24 中的全部 IP」。
+*   **延迟上限 / 下限 / 丢包率上限**（`tl` / `tll` / `tlr`）：丢弃超出阈值的候选 IP（单位：ms / ms / 0–1）。
+*   **用于测速的 passwall 节点**：未选 passwall worker 时的单节点回退。
+*   **探测 URL**：经节点本地 SOCKS 探测的 URL（HTTP HEAD），默认 Google `generate_204`。
+*   **最大测速 IP 数**：每个 worker 测试的候选 IP 数上限。
+*   **探测超时**：每个 IP 的 curl `--max-time`（秒）。
+*   **每 IP 探测次数**：每个 IP 的 curl 探测次数（全部成功才保留）。
+*   **最大并发 worker**：多节点模式的并发上限（0 = 全部）。
+*   **真实下载测速**（`download_test_enabled`，默认开）：延迟初筛后对少量候选实测下载吞吐。
+*   **每 worker 下载测速候选数**（`download_test_count`，默认 5，最多 10）：只测每个 worker 延迟最优的前 N 个 IP。注意这会真实消耗代理流量：默认 URL 为 10 MB，每 worker 最多约 100 MB，多 worker 串行累加。
+*   **下载测速 URL**（`download_test_url`）：经节点本地 SOCKS 下载的固定大小文件，默认 Cloudflare `speed.cloudflare.com/__down?bytes=10000000`（10 MB）。响应必须是 HTTP 2xx 且至少收到 16 KB。
+*   **下载测速单 IP 时限**（`download_test_time`，默认 10s）：每个 IP 的 curl `--max-time`；被时限截断的部分下载仍按已下载字节计算平均速度。
+*   **限时迭代测速 / 迭代测速时长**：开启后进入计时模式，每个待测节点独立循环收敛（每遍只测上一遍通过的 IP），到点取剩余最优写回；迭代收敛结束后同样对最终通过集中延迟最优的前 N 个 IP 做下载实测。
+
+## 优选 IP 的应用方式
+
+测速完成后：
+
+*   每个 passwall worker 节点会写回各自的最优 IP 到 `passwall.<节点>.address`。有下载实测时「最优」= 实测吞吐最高（下载失败的行不参与），未启用或全部失败时退回延迟最低。
+*   全局最优 IP（`result.csv` 首行，下载测试成功时即全局吞吐最高）自动写入：HOST（`/etc/hosts`）、MosDNS、astra-dns、阿里云 DDNS，以及 ssr / passwall / passwall2 / bypass / vssr 节点的 `server`/`address` 字段。
+
+> 注：插件不修改 `ip route`。优选 IP 仅通过 hosts / DNS / 代理节点生效。
+
+## 定时任务
+
+内置 cron 调度，支持按 1~24 小时间隔运行，或填写自定义 cron 表达式。`init.d` 脚本以幂等方式按需更新 crontab，不会重复写入。
+
+操作台「概览 → 定时任务」只显示与本插件相关的 crontab 行，可直接修改五段计划、启用/停用、删除，或添加 `start` / `retest` / `test` / `replace` 任务。`start` 主任务仍由设置页与 UCI 维护，改它会同步回设置；其余相关任务直接写入 `/etc/crontabs/root`。停用不会删除该行，而是加上 `# [cfpick-disabled]` 前缀注释，随时可以恢复。
+
+每次整跑在入口持有一把单实例锁：同一时刻只允许一次完整运行，重叠触发（定时任务重叠、页面连点、SSH 手敲）会被**跳过并记一行日志**，不会两套 worker 去抢同一批 passwall 节点、互删中间状态。锁的持有者被 kill -9 / 断电带走时留下的残留锁，会在下次运行时自动接管。自定义 cron 注意分钟字段别写 `*`（`* 19 * * 4` 是「周四 19 点内每分钟一次」，要一次请写 `0 19 * * 4`）。
+
+## 结果与历史
+
+测速结果保存在 `/tmp/cfpick/result.csv`，滚动保留 10 个历史版本；Best IP 区按节点分组全量展示。第 6 列 `下载速度(MB/s)` 为真实下载实测值——只对每个 worker 延迟最优的前 N 个 IP 填写，未测到或未启用下载测速的行保持 `0.00`。延迟图表取持久历史绘制。
+
+运行日志保存在 `/tmp/cfpick.log`，每次运行开始时把上次日志滚动归档为 `.log.1` ~ `.log.5`（最近 5 次，`/tmp` 内存盘重启即清、不写 flash）。此外每次运行结束时把本次完整日志**覆盖**到 `/etc/config/cfpick.log`（与 UCI 配置文件同目录，持久保存、重启不丢，只保留最近一次运行）。日志页整行显示，含 `[节点备注名]` 与 `[保留]/[丢弃]` 标签，可直接按节点核对迭代轮次。
+
+## 安装与使用
+
+1.  从 [Releases](https://github.com/urbanescavenger/CFPick/releases) 页面下载最新的 `.ipk` 或 `.apk` 文件。
+2.  上传到路由器并安装：
+    ```bash
+    opkg install luci-app-cfpick_*.ipk
+    ```
+    *注：如果安装时提示缺少依赖，请先更新 opkg 源 (`opkg update`)。*
+3.  进入 LuCI 界面 → 服务 → CFPick 进行配置。
+    > **从旧版升级**：包名已改为 `luci-app-cfpick`，UCI 配置改为 `cfpick`，CLI 改为 `cfpick`。旧设置**不会**自动迁移——请先卸载旧包（`opkg remove luci-app-passwall-speedtest` 或 `opkg remove luci-app-cloudflarespeedtest`），安装新包后重新配置；旧 `/etc/config/passwall-speedtest` 可自行删除。
+
+## 截图
+
+![概览](screenshots/overview.png)
+![历史趋势](screenshots/chart.png)
+
+## 编译
 
 ```bash
-# Compile package only
-make package/luci-app-passwall-speedtest/compile V=99
+# 仅编译软件包
+make package/luci-app-cfpick/compile V=99
 
-# Compile full image
+# 编译完整固件
 make menuconfig
-#choose LuCI ---> 3. Applications  ---> <*> luci-app-passwall-speedtest..... for LuCI ----> save
+#choose LuCI ---> 3. Applications  ---> <*> luci-app-cfpick..... for LuCI ----> save
 make V=99
 ```
 
-## Acknowledgements
+## Debian / Ubuntu 独立版
+
+主分支提供一套不依赖 OpenWrt/PassWall 的独立实现，位于 [`debian/`](debian/README.md)：自带 **mihomo / Xray-core** 两个可切换、可分别升级的代理内核模块（用节点分享链接测速）、Python3 标准库引擎与 Web 可视化页面，结果导出为 CSV/JSON。
+
+一键部署（Debian/Ubuntu）：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/urbanescavenger/CFPick/main/debian/deploy.sh -o /tmp/cfpick-deploy.sh
+sudo bash /tmp/cfpick-deploy.sh
+rm -f /tmp/cfpick-deploy.sh
+```
+
+或手动安装：
+
+```bash
+git clone https://github.com/urbanescavenger/CFPick.git
+cd CFPick
+sudo sh debian/install.sh
+```
+
+完整部署、升级、卸载和 Web 访问方式见 [`debian/README.md`](debian/README.md)。
+
+## 致谢
 
 *   [openwrt-passwall](https://github.com/xiaorouji/openwrt-passwall)
-*   [CloudflareSpeedTest](https://github.com/XIU2/CloudflareSpeedTest) (the IP list format is reused)
+*   [CloudflareSpeedTest](https://github.com/XIU2/CloudflareSpeedTest)（沿用其 IP 列表格式）
 *   [mingxiaoyu/luci-app-cloudflarespeedtest](https://github.com/mingxiaoyu/luci-app-cloudflarespeedtest)

@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 set -eu
 
@@ -2703,17 +2703,10 @@ version_gt() {
 	esac
 	case "$GT_AREV" in '' | *[!0-9]*) GT_AREV=0 ;; esac
 	case "$GT_BREV" in '' | *[!0-9]*) GT_BREV=0 ;; esac
-	GT_CMP="$(awk -v a="$GT_A" -v b="$GT_B" 'BEGIN {
-		na = split(a, x, "."); nb = split(b, y, ".");
-		n = (na > nb) ? na : nb;
-		for (i = 1; i <= n; i++) {
-			xa = (i <= na) ? x[i] + 0 : 0;
-			yb = (i <= nb) ? y[i] + 0 : 0;
-			if (xa > yb) { print 1; exit }
-			if (xa < yb) { print -1; exit }
-		}
-		print 0;
-	}')"
+	# awk 程序写成单行：缺陷注入（scripts/core-update-check.sh 的 string_cmp）
+	# 靠整行替换来把「逐段数值比较」改回字符串比较，跨行写法只能替掉首行，
+	# 残留的 awk 体就成了 shell 语法错误。
+	GT_CMP="$(awk -v a="$GT_A" -v b="$GT_B" 'BEGIN { na = split(a, x, "."); nb = split(b, y, "."); n = (na > nb) ? na : nb; for (i = 1; i <= n; i++) { xa = (i <= na) ? x[i] + 0 : 0; yb = (i <= nb) ? y[i] + 0 : 0; if (xa > yb) { print 1; exit } if (xa < yb) { print -1; exit } } print 0; }')"
 	if [ "$GT_CMP" -gt 0 ]; then
 		return 0
 	fi

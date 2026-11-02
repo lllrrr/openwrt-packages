@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 set -eu
 
@@ -146,7 +146,10 @@ NODE
 # 顺序参数必须给满（rules_save 的 params 声明与实际调用）
 node scripts/check-rule-args.mjs
 
-for script in scripts/po2lmo.mjs scripts/strip-tar-eof.mjs scripts/write-apk-data-tar.mjs scripts/write-ar-archive.mjs scripts/check-rule-args.mjs; do
+# 「立即重置」必须先落盘再触发（重置读 UCI，不读输入框）
+node scripts/learn-reset-check.mjs
+
+for script in scripts/po2lmo.mjs scripts/strip-tar-eof.mjs scripts/write-apk-data-tar.mjs scripts/write-ar-archive.mjs scripts/check-rule-args.mjs scripts/learn-reset-check.mjs; do
 	node --check "$script"
 done
 node scripts/po2lmo.mjs po/zh_Hans/oxidns.po "${TMPDIR:-/tmp}/oxidns.zh-cn.lmo"

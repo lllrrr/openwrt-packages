@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 # luci-app-oxidns: clear OxiDNS learned dynamic domain sets through the admin API.
 #

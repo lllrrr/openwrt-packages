@@ -1,0 +1,26 @@
+{
+	"luci-app-cfpick": {
+		"description": "Grant UCI access for luci-app-cfpick",
+		"read": {
+			"ubus": {
+				"cfpick": [
+					"status", "get_log", "get_history", "get_best_result", "list_nodes",
+					"api_ping", "api_status", "api_results", "api_history",
+					"api_nodes", "api_log", "api_tasks", "standalone_status"
+				]
+			},
+			"uci": [ "cfpick" ]
+		},
+		"write": {
+			"ubus": {
+				"cfpick": [
+					"start", "start_retest", "stop",
+					"api_run_start", "api_run_retest", "api_run_stop",
+					"api_task_save", "api_task_delete", "api_task_add",
+					"api_web_reset"
+				]
+			},
+			"uci": [ "cfpick" ]
+		}
+	}
+}

@@ -1,0 +1,1518 @@
+/* cfpick web UI — vanilla JS, no build step. */
+(function () {
+	'use strict';
+
+	const $ = (selector, root) => (root || document).querySelector(selector);
+	const $$ = (selector, root) => Array.from((root || document).querySelectorAll(selector));
+
+	const state = {
+		token: localStorage.getItem('cfpick_token') || '',
+		config: null,
+		status: null,
+		core: null,
+		best: null,
+		history: [],
+		nodeInfo: [],
+		coreTags: {},
+		appInfo: null,
+		appTimer: 0,
+		tab: 'overview',
+		logPos: 0,
+		resultFilter: '',
+		lastRunning: false,
+		pollTimer: 0,
+		logTimer: 0,
+		coreTimer: 0,
+		elapsedTimer: 0,
+		chart: null,
+		// 日志读取串行化，避免切页/定时器/手动刷新并发读到同一段而重复追加。
+		logChain: Promise.resolve(),
+	};
+
+	const PHASES = {
+		idle: '空闲',
+		starting: '启动中',
+		latency: '延迟测速',
+		running: '延迟测速',
+		download: '下载实测',
+		commit: '写入结果',
+		stopping: '正在停止',
+		done: '已完成',
+		failed: '失败',
+	};
+
+	const PALETTE = [
+		['#2fbf71', 'rgba(47,191,113,0.18)'],
+		['#ff6b5e', 'rgba(255,107,94,0.18)'],
+		['#4da3ff', 'rgba(77,163,255,0.18)'],
+		['#e0a340', 'rgba(224,163,64,0.18)'],
+		['#9b7bff', 'rgba(155,123,255,0.18)'],
+		['#ff9f43', 'rgba(255,159,67,0.18)'],
+		['#20c4cb', 'rgba(32,196,203,0.18)'],
+		['#f368a8', 'rgba(243,104,168,0.18)'],
+	];
+
+	// ── api ─────────────────────────────────────────────────────────────
+	function withToken(url) {
+		if (!state.token)
+			return url;
+		return url + (url.indexOf('?') >= 0 ? '&' : '?') + 'token=' + encodeURIComponent(state.token);
+	}
+
+	async function api(path, options) {
+		const opts = Object.assign({}, options || {});
+		opts.headers = Object.assign({}, opts.headers || {});
+		if (state.token)
+			opts.headers['X-CFPICK-Token'] = state.token;
+		if (opts.body && typeof opts.body !== 'string') {
+			opts.body = JSON.stringify(opts.body);
+			opts.headers['Content-Type'] = 'application/json';
+		}
+		const response = await fetch(path, opts);
+		const text = await response.text();
+		let data = {};
+		try { data = text ? JSON.parse(text) : {}; } catch (e) { data = { error: text }; }
+		if (response.status === 401) {
+			showAuth();
+			throw new Error('需要访问令牌');
+		}
+		if (!response.ok)
+			throw new Error(data.error || ('HTTP ' + response.status));
+		return data;
+	}
+
+	// ── toast / dialogs ─────────────────────────────────────────────────
+	let toastTimer = 0;
+	function toast(message, isError) {
+		const node = $('#toast');
+		node.textContent = message;
+		node.classList.toggle('error', !!isError);
+		node.classList.remove('hidden');
+		clearTimeout(toastTimer);
+		toastTimer = setTimeout(() => node.classList.add('hidden'), isError ? 6500 : 3800);
+	}
+
+	function showAuth() {
+		$('#auth-overlay').classList.remove('hidden');
+		$('#auth-error').textContent = '';
+		const input = $('#auth-token');
+		if (input) { input.value = state.token || ''; input.focus(); }
+	}
+
+	function hideAuth() {
+		$('#auth-overlay').classList.add('hidden');
+	}
+
+	function closeOverlays() {
+		$$('.overlay').forEach((node) => {
+			if (node.id !== 'auth-overlay')
+				node.classList.add('hidden');
+		});
+	}
+
+	// ── formatting ──────────────────────────────────────────────────────
+	function fmtDuration(seconds) {
+		seconds = Math.max(0, Math.floor(seconds || 0));
+		const h = Math.floor(seconds / 3600);
+		const m = Math.floor((seconds % 3600) / 60);
+		const s = seconds % 60;
+		if (h) return h + ' 小时 ' + m + ' 分';
+		if (m) return m + ' 分 ' + s + ' 秒';
+		return s + ' 秒';
+	}
+
+	function fmtNumber(value, digits) {
+		const number = Number(value);
+		return Number.isFinite(number) ? number.toFixed(digits == null ? 2 : digits) : '—';
+	}
+
+	function phaseLabel(phase) {
+		return PHASES[phase] || phase || '空闲';
+	}
+
+	function setText(id, text) {
+		const node = document.getElementById(id);
+		if (node) node.textContent = text;
+	}
+
+	// ── tabs ────────────────────────────────────────────────────────────
+	const TABS = ['overview', 'nodes', 'iplists', 'settings', 'logs', 'core'];
+
+	function initialTab() {
+		const name = (window.location.hash || '').replace(/^#/, '');
+		return TABS.indexOf(name) >= 0 ? name : 'overview';
+	}
+
+	function activateTab(name) {
+		state.tab = name;
+		$$('.tab').forEach((tab) => tab.classList.toggle('active', tab.dataset.tab === name));
+		$$('.panel').forEach((panel) => panel.classList.toggle('active', panel.dataset.panel === name));
+		if (window.location.hash !== '#' + name)
+			history.replaceState(null, '', '#' + name);
+		if (name === 'logs') {
+			reloadLog(true);
+		} else if (name === 'core') {
+			refreshCore();
+			refreshAppInfo();
+		} else if (name === 'nodes') {
+			refreshNodeInfo();
+		} else if (name === 'settings') {
+			refreshCronTasks();
+		}
+	}
+
+	// ── status ───────────────────────────────────────────────────────────
+	function renderStatus(status) {
+		state.status = status;
+		const running = !!status.running;
+		const dot = $('#status-dot');
+		dot.classList.toggle('running', running);
+		dot.classList.toggle('idle', !running && status.phase !== 'failed');
+		dot.classList.toggle('error', !running && status.phase === 'failed');
+
+		let text;
+		if (running) {
+			text = phaseLabel(status.phase) + ' · 已运行 ' + fmtDuration(status.elapsed) +
+				' · ' + (status.node_count || 0) + ' 个节点' +
+				(status.stop_requested ? ' · 正在停止（收尾中）' : '');
+		} else {
+			text = phaseLabel(status.phase);
+			if (status.last && status.last.last_time)
+				text += ' · 上次 ' + status.last.last_time;
+			if (status.last && status.last.best_ip)
+				text += ' · 最优 ' + status.last.best_ip;
+			if (status.last && status.last.error)
+				text += ' · ' + status.last.error;
+		}
+		setText('status-text', text);
+		setText('ov-phase', running ? phaseLabel(status.phase) : phaseLabel(status.phase));
+		setText('ov-elapsed', running
+			? '已运行 ' + fmtDuration(status.elapsed) + (status.stop_requested ? ' · 正在停止' : '')
+			: (status.last && status.last.finished_at ? '上次完成于 ' + new Date(status.last.finished_at * 1000).toLocaleString() : '—'));
+
+		$('#btn-start').disabled = running;
+		$('#btn-stop').disabled = !running;
+		$('#btn-retest').disabled = running;
+
+		if (status.core) renderActiveCore(status.core);
+		setText('ov-cron', status.cron ? '已启用' : '未启用');
+		setText('ov-cron-line', status.cron_line || '—');
+		renderDdnsStatus(status.ddns);
+	}
+
+	function ddnsText(info) {
+		if (!info || !info.enabled) return '未启用';
+		if (!info.configured) return '已启用，但没有节点填写 DDNS 域名';
+		if (info.error) return info.error;
+		if (!info.at) return '等待下次测速写入';
+		return (info.ok === false ? '上次写入失败 · ' : '') + info.at +
+			' · ' + (info.updated || 0) + ' 条更新 / ' + (info.unchanged || 0) + ' 条无变化' +
+			(info.failed ? ' / ' + info.failed + ' 个节点失败' : '');
+	}
+
+	function renderDdnsStatus(info) {
+		const enabled = !!(info && info.enabled);
+		let head = '—';
+		if (enabled) {
+			if (info.ok === false) head = '写入失败';
+			else if (info.at) head = '已写入';
+			else head = '等待写入';
+		}
+		setText('ov-ddns', head);
+		setText('ov-ddns-meta', ddnsText(info));
+		setText('ddns-status', enabled
+			? ('DDNS：' + ddnsText(info))
+			: 'DDNS 未启用；启用后，只有填写了 DDNS 域名的节点会写 DNS。');
+	}
+
+	function renderActiveCore(info) {
+		const type = info.type || (state.config && state.config.core && state.config.core.type) || '';
+		setText('ov-core', info.installed
+			? (type ? type + ' · ' : '') + (info.version || '已安装')
+			: (type ? type + ' · ' : '') + '未安装');
+		setText('ov-core-path', info.path || '—');
+	}
+
+	async function pollStatus() {
+		try {
+			const status = await api('/api/status');
+			const wasRunning = state.lastRunning;
+			state.lastRunning = !!status.running;
+			renderStatus(status);
+			if (wasRunning && !status.running) {
+				await refreshResults();
+				toast('测速已结束，结果已刷新');
+			}
+		} catch (e) {
+			/* auth overlay is already shown on 401 */
+		}
+	}
+
+	function tickElapsed() {
+		const status = state.status;
+		if (!status || !status.running || !status.started_at)
+			return;
+		const elapsed = Math.floor(Date.now() / 1000) - status.started_at;
+		setText('ov-elapsed', '已运行 ' + fmtDuration(elapsed) +
+			(status.stop_requested ? ' · 正在停止' : ''));
+	}
+
+	// ── best / table / chart ─────────────────────────────────────────────
+	function renderBest() {
+		const best = state.best || {};
+		const payload = best.payload || {};
+		$('#best-text').textContent = best.content || '尚无结果。';
+		const top = payload.best;
+		setText('ov-best-ip', top && top.ip ? top.ip : '—');
+		setText('ov-best-meta', top
+			? (fmtNumber(top.latency) + ' ms · ' +
+			   (top.speed > 0 ? fmtNumber(top.speed) + ' MB/s' : '未做下载实测') +
+			   (top.node ? ' · ' + top.node : ''))
+			: '—');
+		setText('result-time', payload.generated_at ? '生成时间：' + payload.generated_at : '');
+
+		const csv = $('#dl-csv');
+		const json = $('#dl-json');
+		csv.href = withToken('/api/export/result.csv');
+		json.href = withToken('/api/export/result.json');
+		const exports = (state.config && state.config.export) || {};
+		csv.classList.toggle('hidden', exports.csv === false);
+		json.classList.toggle('hidden', exports.json === false);
+
+		renderResultTable();
+	}
+
+	function renderResultTable() {
+		const rows = ((state.best && state.best.payload && state.best.payload.rows) || []);
+		const filter = $('#result-filter');
+		const nodes = [];
+		rows.forEach((row) => {
+			if (row.node && nodes.indexOf(row.node) < 0) nodes.push(row.node);
+		});
+		const selected = state.resultFilter;
+		filter.replaceChildren();
+		const all = document.createElement('option');
+		all.value = '';
+		all.textContent = '全部节点';
+		filter.appendChild(all);
+		nodes.forEach((name) => {
+			const option = document.createElement('option');
+			option.value = name;
+			option.textContent = name;
+			filter.appendChild(option);
+		});
+		filter.value = nodes.indexOf(selected) >= 0 ? selected : '';
+
+		const body = $('#result-table tbody');
+		body.replaceChildren();
+		const visible = rows.filter((row) => !state.resultFilter || row.node === state.resultFilter);
+		if (!visible.length) {
+			const tr = document.createElement('tr');
+			const td = document.createElement('td');
+			td.colSpan = 6;
+			td.className = 'empty';
+			td.textContent = '尚无结果';
+			tr.appendChild(td);
+			body.appendChild(tr);
+			return;
+		}
+		const bestIp = rows[0] && rows[0].ip;
+		visible.forEach((row) => {
+			const tr = document.createElement('tr');
+			if (row.ip === bestIp) tr.className = 'best';
+			const cells = [
+				[row.ip, 'ip'],
+				[fmtNumber(row.latency), ''],
+				[fmtNumber(row.loss), ''],
+				[row.speed > 0 ? fmtNumber(row.speed) : '—', ''],
+				[row.region || '—', ''],
+				[row.node || '—', ''],
+			];
+			cells.forEach((cell) => {
+				const td = document.createElement('td');
+				if (cell[1]) td.className = cell[1];
+				td.textContent = cell[0];
+				tr.appendChild(td);
+			});
+			body.appendChild(tr);
+		});
+	}
+
+	function chartTheme() {
+		const style = getComputedStyle(document.documentElement);
+		return {
+			text: style.getPropertyValue('--muted').trim() || '#667085',
+			border: style.getPropertyValue('--border').trim() || '#dbe2ea',
+			background: style.getPropertyValue('--bg-elev').trim() || '#ffffff',
+		};
+	}
+
+	function renderChart() {
+		if (!window.Chart) return;
+		const canvas = $('#history-chart');
+		if (!canvas) return;
+		if (state.chart) {
+			state.chart.destroy();
+			state.chart = null;
+		}
+		const runs = (state.history || []).slice().sort((a, b) => a.time > b.time ? 1 : (a.time < b.time ? -1 : 0));
+		if (!runs.length) {
+			setText('chart-hint', '暂无历史数据；完成一次测速后会出现趋势线。');
+			return;
+		}
+		setText('chart-hint', '每个点 = 某次运行中该节点的最优 IP');
+
+		const toTimestamp = (text) => {
+			const parsed = Date.parse(String(text || '').replace(' ', 'T'));
+			return Number.isFinite(parsed) ? parsed : NaN;
+		};
+		const series = {};
+		const order = [];
+		runs.forEach((run) => {
+			const points = (run.nodes && run.nodes.length)
+				? run.nodes
+				: [{ node: '', ip: run.ip, latency: run.latency, speed: run.speed, region: run.region }];
+			const timestamp = toTimestamp(run.time);
+			if (!Number.isFinite(timestamp)) return;
+			points.forEach((point) => {
+				const key = point.node || '(全局)';
+				if (!series[key]) { series[key] = []; order.push(key); }
+				series[key].push({
+					x: timestamp,
+					y: point.latency,
+					node: point.node || '',
+					ip: point.ip,
+					speed: point.speed,
+					region: point.region,
+				});
+			});
+		});
+
+		const theme = chartTheme();
+		const datasets = order.map((key, index) => ({
+			label: key,
+			data: series[key],
+			borderColor: PALETTE[index % PALETTE.length][0],
+			backgroundColor: PALETTE[index % PALETTE.length][1],
+			tension: 0.3,
+			fill: false,
+			pointRadius: 4,
+			pointHoverRadius: 6,
+			borderWidth: 2,
+		}));
+
+		state.chart = new Chart(canvas, {
+			type: 'line',
+			data: { datasets: datasets },
+			options: {
+				responsive: true,
+				maintainAspectRatio: false,
+				interaction: { mode: 'nearest', intersect: true },
+				onClick: function (event, elements, chart) {
+					const hits = chart.getElementsAtEventForMode(event, 'nearest', { intersect: true }, false);
+					if (!hits || !hits.length) return;
+					showPoint(chart.data.datasets[hits[0].datasetIndex].data[hits[0].index]);
+				},
+				plugins: {
+					legend: {
+						position: 'top',
+						labels: { color: theme.text, usePointStyle: true, boxWidth: 8 },
+					},
+					tooltip: {
+						mode: 'nearest',
+						intersect: true,
+						callbacks: {
+							title: (items) => '时间：' + formatChartTime(items[0].raw.x),
+							label: (item) => {
+								const raw = item.raw;
+								return (raw.node || '全局') + '：最优 ' + raw.ip + ' / ' +
+									fmtNumber(raw.y) + 'ms' +
+									(raw.speed > 0 ? ' / ' + fmtNumber(raw.speed) + ' MB/s' : '');
+							},
+						},
+					},
+				},
+				scales: {
+					x: {
+						type: 'time',
+						time: {
+							unit: 'hour',
+							displayFormats: { hour: 'MM-dd HH:mm' },
+						},
+						offset: true,
+						ticks: { color: theme.text, autoSkip: true, maxTicksLimit: 6, maxRotation: 45 },
+						grid: { color: theme.border },
+					},
+					y: {
+						type: 'linear',
+						title: { display: true, text: '延迟 (ms)', color: theme.text },
+						ticks: { color: theme.text },
+						grid: { color: theme.border },
+					},
+				},
+			},
+		});
+	}
+
+	function formatChartTime(value) {
+		if (value instanceof Date) return value.toLocaleString();
+		const number = Number(value);
+		return Number.isFinite(number) ? new Date(number).toLocaleString() : String(value || '');
+	}
+
+	function showPoint(point) {
+		setText('point-title', point.node || '全局最优');
+		const body = $('#point-body');
+		body.replaceChildren();
+		const lines = [
+			'最优 IP：' + point.ip,
+			'延迟：' + fmtNumber(point.y) + ' ms',
+			'时间：' + formatChartTime(point.x),
+		];
+		if (point.speed > 0) lines.push('下载速度：' + fmtNumber(point.speed) + ' MB/s');
+		if (point.region) lines.push('地区：' + point.region);
+		lines.forEach((line) => {
+			const p = document.createElement('p');
+			p.textContent = line;
+			body.appendChild(p);
+		});
+		$('#point-overlay').classList.remove('hidden');
+	}
+
+	async function refreshResults() {
+		try {
+			const results = await Promise.all([api('/api/best'), api('/api/history')]);
+			state.best = results[0];
+			state.history = (results[1] && results[1].history) || [];
+			renderBest();
+			renderChart();
+		} catch (e) {
+			/* handled by api() */
+		}
+	}
+
+	// ── nodes ───────────────────────────────────────────────────────────
+	function ipListSelect(selected) {
+		const select = document.createElement('select');
+		const fallback = document.createElement('option');
+		fallback.value = '';
+		fallback.textContent = '默认列表';
+		select.appendChild(fallback);
+		const lists = (state.config && state.config.ip_lists) || [];
+		lists.forEach((list, index) => {
+			const option = document.createElement('option');
+			option.value = 'list' + (index + 1);
+			option.textContent = 'list' + (index + 1) +
+				(list.name ? ' · ' + list.name : '') +
+				(list.enabled ? '' : '（未启用）');
+			select.appendChild(option);
+		});
+		select.value = selected || '';
+		return select;
+	}
+
+	function renderNodes() {
+		const body = $('#nodes-body');
+		if (!body) return;
+		body.replaceChildren();
+		const nodes = (state.config && state.config.nodes) || [];
+		nodes.forEach((node, index) => {
+			const tr = document.createElement('tr');
+			tr.dataset.index = String(index);
+
+			const enabledCell = document.createElement('td');
+			const enabled = document.createElement('input');
+			enabled.type = 'checkbox';
+			enabled.checked = node.enabled !== false;
+			enabled.addEventListener('change', () => {
+				node.enabled = enabled.checked;
+				tr.classList.toggle('disabled', !enabled.checked);
+			});
+			enabledCell.appendChild(enabled);
+			tr.appendChild(enabledCell);
+
+			const nameCell = document.createElement('td');
+			const name = document.createElement('input');
+			name.type = 'text';
+			name.value = node.name || '';
+			name.placeholder = '节点名称';
+			name.addEventListener('input', () => { node.name = name.value; });
+			nameCell.appendChild(name);
+			tr.appendChild(nameCell);
+
+			const linkCell = document.createElement('td');
+			const link = document.createElement('input');
+			link.type = 'text';
+			link.className = 'link-input';
+			link.value = node.link || '';
+			link.placeholder = 'vless://… / vmess://… / trojan://… / ss://… / hysteria2://…';
+			link.spellcheck = false;
+			link.addEventListener('input', () => { node.link = link.value; });
+			linkCell.appendChild(link);
+			tr.appendChild(linkCell);
+
+			const listCell = document.createElement('td');
+			const listSelect = ipListSelect(node.ip_list);
+			listSelect.addEventListener('change', () => { node.ip_list = listSelect.value; });
+			listCell.appendChild(listSelect);
+			tr.appendChild(listCell);
+
+			const ddnsCell = document.createElement('td');
+			const ddnsDomain = document.createElement('input');
+			ddnsDomain.type = 'text';
+			ddnsDomain.className = 'ddns-input';
+			ddnsDomain.value = node.ddns_domain || '';
+			ddnsDomain.placeholder = 'jp 或 jp.example.com；留空 = 只测速';
+			ddnsDomain.spellcheck = false;
+			ddnsDomain.addEventListener('input', () => { node.ddns_domain = ddnsDomain.value; });
+			ddnsCell.appendChild(ddnsDomain);
+			tr.appendChild(ddnsCell);
+
+			const statusCell = document.createElement('td');
+			const info = state.nodeInfo[index];
+			const badge = document.createElement('span');
+			if (info && info.valid) {
+				badge.className = 'badge ok';
+				badge.textContent = info.type + ' · ' + info.server + ':' + info.port;
+			} else if (info) {
+				badge.className = 'badge bad';
+				badge.textContent = '无效';
+				badge.title = info.error || '';
+			} else {
+				badge.className = 'badge info';
+				badge.textContent = '未保存';
+			}
+			statusCell.appendChild(badge);
+			tr.appendChild(statusCell);
+
+			const actionCell = document.createElement('td');
+			const remove = document.createElement('button');
+			remove.type = 'button';
+			remove.className = 'btn small danger';
+			remove.textContent = '删除';
+			remove.addEventListener('click', () => {
+				if (!confirm('删除节点 ' + (node.name || ('#' + (index + 1))) + '？')) return;
+				nodes.splice(index, 1);
+				renderNodes();
+			});
+			actionCell.appendChild(remove);
+			tr.appendChild(actionCell);
+
+			if (node.enabled === false) tr.classList.add('disabled');
+			body.appendChild(tr);
+		});
+		$('#nodes-empty').classList.toggle('hidden', nodes.length > 0);
+	}
+
+	async function refreshNodeInfo() {
+		try {
+			const data = await api('/api/nodes');
+			state.nodeInfo = data.nodes || [];
+			renderNodes();
+		} catch (e) { /* ignore */ }
+	}
+
+	function nameFromLink(link) {
+		const hash = link.indexOf('#');
+		if (hash >= 0) {
+			try { return decodeURIComponent(link.slice(hash + 1)).trim(); }
+			catch (e) { return link.slice(hash + 1).trim(); }
+		}
+		return '';
+	}
+
+	function importBulk() {
+		const text = $('#bulk-links').value || '';
+		const nodes = state.config.nodes || (state.config.nodes = []);
+		const existing = new Set(nodes.map((node) => (node.link || '').trim()));
+		let added = 0;
+		text.split(/\r?\n/).forEach((line) => {
+			const link = line.trim();
+			if (!link || link.startsWith('#') || existing.has(link)) return;
+			existing.add(link);
+			nodes.push({
+				name: nameFromLink(link),
+				link: link,
+				ip_list: '',
+				ddns_domain: '',
+				enabled: true,
+			});
+			added += 1;
+		});
+		$('#bulk-links').value = '';
+		$('#bulk-overlay').classList.add('hidden');
+		renderNodes();
+		toast(added ? ('已导入 ' + added + ' 个节点，记得点击「保存节点」') : '没有可导入的新链接');
+	}
+
+	// ── IP lists ────────────────────────────────────────────────────────
+	function renderIpLists() {
+		const body = $('#iplists-body');
+		if (!body) return;
+		body.replaceChildren();
+		const lists = (state.config && state.config.ip_lists) || [];
+		lists.forEach((list, index) => {
+			const tr = document.createElement('tr');
+
+			const enabledCell = document.createElement('td');
+			const enabled = document.createElement('input');
+			enabled.type = 'checkbox';
+			enabled.checked = !!list.enabled;
+			enabled.addEventListener('change', () => { list.enabled = enabled.checked; });
+			enabledCell.appendChild(enabled);
+			tr.appendChild(enabledCell);
+
+			const nameCell = document.createElement('td');
+			const name = document.createElement('input');
+			name.type = 'text';
+			name.value = list.name || '';
+			name.placeholder = 'list' + (index + 1);
+			name.addEventListener('input', () => { list.name = name.value; });
+			nameCell.appendChild(name);
+			tr.appendChild(nameCell);
+
+			const regionCell = document.createElement('td');
+			const regions = document.createElement('input');
+			regions.type = 'text';
+			regions.value = (list.regions || []).join(' ');
+			regions.placeholder = 'JP SG KR（留空 = 全部）';
+			regions.addEventListener('input', () => {
+				list.regions = regions.value.split(/[\s,]+/).filter(Boolean).map((code) => code.toUpperCase());
+			});
+			regionCell.appendChild(regions);
+			tr.appendChild(regionCell);
+
+			const portCell = document.createElement('td');
+			const port = document.createElement('input');
+			port.type = 'number';
+			port.min = '1';
+			port.max = '65535';
+			port.value = list.port || 443;
+			port.addEventListener('input', () => { list.port = parseInt(port.value, 10) || 443; });
+			portCell.appendChild(port);
+			tr.appendChild(portCell);
+
+			body.appendChild(tr);
+		});
+	}
+
+	// ── scheduled tasks ─────────────────────────────────────────────────
+	function renderCronTasks(data) {
+		const body = $('#cron-body');
+		if (!body) return;
+		body.replaceChildren();
+		const entries = (data && data.entries) || [];
+		entries.forEach((entry) => {
+			const tr = document.createElement('tr');
+			if (entry.kind === 'comment' || entry.kind === 'env') {
+				// 注释和环境变量不是任务，占一整行按原样显示。
+				const td = document.createElement('td');
+				td.colSpan = 4;
+				td.className = 'mono cron-raw';
+				td.textContent = entry.line || '';
+				tr.appendChild(td);
+				body.appendChild(tr);
+				return;
+			}
+			const source = document.createElement('td');
+			source.className = 'muted';
+			source.textContent = entry.source || '—';
+			tr.appendChild(source);
+
+			const schedule = document.createElement('td');
+			schedule.className = 'mono';
+			schedule.textContent = entry.schedule || '—';
+			tr.appendChild(schedule);
+
+			const command = document.createElement('td');
+			command.className = 'mono cron-command';
+			command.textContent = entry.command || entry.line || '';
+			tr.appendChild(command);
+
+			const mark = document.createElement('td');
+			if (entry.managed) {
+				const badge = document.createElement('span');
+				badge.className = 'badge info';
+				badge.textContent = '本程序';
+				mark.appendChild(badge);
+			}
+			tr.appendChild(mark);
+			body.appendChild(tr);
+		});
+		if (!entries.length) {
+			const tr = document.createElement('tr');
+			const td = document.createElement('td');
+			td.colSpan = 4;
+			td.className = 'empty';
+			td.textContent = '没有读到已设置的 cron 任务';
+			tr.appendChild(td);
+			body.appendChild(tr);
+		}
+		const managed = data && data.managed;
+		setText('cron-note', managed && managed.line ? '本程序任务已启用' : '本程序任务未启用');
+		setText('cron-errors', ((data && data.errors) || []).join('；'));
+	}
+
+	async function refreshCronTasks() {
+		try {
+			renderCronTasks(await api('/api/cron'));
+		} catch (e) {
+			setText('cron-note', '读取失败：' + e.message);
+		}
+	}
+
+	// ── settings form ───────────────────────────────────────────────────
+	const CRON_FIELDS = ['schedule_minute', 'schedule_hour', 'schedule_day',
+		'schedule_month', 'schedule_weekday'];
+	const CRON_LABELS = {
+		schedule_minute: '分钟',
+		schedule_hour: '小时',
+		schedule_day: '日',
+		schedule_month: '月',
+		schedule_weekday: '星期',
+	};
+	const CRON_PRESETS = {
+		hourly: '0 * * * *',
+		'half-hourly': '*/30 * * * *',
+		'6h': '0 */6 * * *',
+		'12h': '0 */12 * * *',
+		daily: '0 3 * * *',
+		weekly: '0 3 * * 1',
+		monthly: '0 3 1 * *',
+	};
+
+	function normalizeCronText(value) {
+		// Chinese IMEs in full-width mode turn "12" into "１２", which looks
+		// like "1 2" and would fail cron validation.  Convert to half-width.
+		return String(value || '')
+			.replace(/[！-～]/g,
+				(ch) => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
+			.replace(/　/g, ' ');
+	}
+
+	function cronParts() {
+		return CRON_FIELDS.map((id) => {
+			const node = $('#' + id);
+			return node ? normalizeCronText(node.value).trim() : '';
+		});
+	}
+
+	function setCronParts(expression) {
+		const parts = String(expression || '').trim().split(/\s+/);
+		CRON_FIELDS.forEach((id, index) => {
+			const node = $('#' + id);
+			if (node) node.value = normalizeCronText(parts[index] || '*');
+		});
+	}
+
+	function cronExpression() {
+		return cronParts().map((part) => part || '*').join(' ');
+	}
+
+	function updateCronPreview() {
+		const parts = cronParts();
+		const hasSpace = parts.some((part) => /\s/.test(part));
+		setText('schedule-preview', parts.map((part) => part || '*').join(' ') +
+			(hasSpace ? '   ⚠ 字段内不要用空格，多个值请用逗号' : ''));
+	}
+
+	function cronFieldError() {
+		const parts = cronParts();
+		for (let index = 0; index < parts.length; index += 1) {
+			const label = CRON_LABELS[CRON_FIELDS[index]];
+			const value = parts[index];
+			if (!value) return label + '不能为空';
+			if (/\s/.test(value))
+				return label + '字段不能包含空格；多个值请用逗号分隔，例如 1,2';
+			if (!/^[0-9A-Za-z*,/-]+$/.test(value))
+				return label + '字段包含不支持的字符（请用半角数字/字母）';
+		}
+		return '';
+	}
+
+	function matchCronPreset(expression) {
+		const normalized = String(expression || '').trim().replace(/\s+/g, ' ');
+		for (const key of Object.keys(CRON_PRESETS)) {
+			if (CRON_PRESETS[key] === normalized) return key;
+		}
+		return 'custom';
+	}
+
+	function applySchedulePreset() {
+		const select = $('#schedule_preset');
+		const expression = select ? CRON_PRESETS[select.value] : '';
+		if (!expression) return;
+		setCronParts(expression);
+		updateCronPreview();
+	}
+
+	function onCronInput(event) {
+		const node = event && event.currentTarget;
+		if (node) {
+			const normalized = normalizeCronText(node.value);
+			if (normalized !== node.value) node.value = normalized;
+		}
+		const select = $('#schedule_preset');
+		if (select) select.value = matchCronPreset(cronExpression());
+		updateCronPreview();
+	}
+
+	function fillSettings(cfg) {
+		const set = (id, value) => { const node = $('#' + id); if (node) node.value = value == null ? '' : value; };
+		const check = (id, value) => { const node = $('#' + id); if (node) node.checked = !!value; };
+
+		set('ip_source', cfg.ip_source);
+		set('ip_online_url', cfg.ip_online_url);
+		set('custom_ip_file', cfg.custom_ip_file);
+		check('custom_allip', cfg.custom_allip);
+		set('latency_max', cfg.latency_max);
+		set('latency_min', cfg.latency_min);
+		set('loss_max', cfg.loss_max);
+		set('test_count', cfg.test_count);
+		set('probe_timeout', cfg.probe_timeout);
+		set('probes', cfg.probes);
+		set('max_workers', cfg.max_workers);
+		set('probe_url', cfg.probe_url);
+		check('download_enabled', cfg.download_enabled);
+		set('download_count', cfg.download_count);
+		set('download_url', cfg.download_url);
+		set('download_time', cfg.download_time);
+		check('iterate_enabled', cfg.iterate_enabled);
+		set('iterate_minutes', cfg.iterate_minutes);
+		const ddns = cfg.ddns || {};
+		const cloudflare = ddns.cloudflare || {};
+		check('ddns_enabled', ddns.enabled);
+		set('ddns_token', cloudflare.api_token || '');
+		set('ddns_zone_id', cloudflare.zone_id);
+		set('ddns_zone_name', cloudflare.zone_name);
+		set('ddns_ip_count', ddns.ip_count);
+		set('ddns_ttl', ddns.ttl);
+		check('ddns_proxied', cloudflare.proxied);
+		check('schedule_enabled', cfg.schedule.enabled);
+		// Older configs selected between an hour interval and a raw expression.
+		// Show the expression that is actually in effect, then always save the
+		// structured five-field form.
+		let cronExpr = cfg.schedule.custom_cron || '0 3 * * *';
+		if (!cfg.schedule.custom_enabled && cfg.schedule.hour)
+			cronExpr = '0 */' + cfg.schedule.hour + ' * * *';
+		setCronParts(cronExpr);
+		if ($('#schedule_preset')) $('#schedule_preset').value = matchCronPreset(cronExpr);
+		updateCronPreview();
+		if ($('#core-type')) $('#core-type').value = cfg.core.type;
+		set('core_dns', cfg.core.dns_nameserver);
+		set('web_listen', cfg.web.listen);
+		set('web_port', cfg.web.port);
+		set('web_token', cfg.web.token);
+		updateFieldVisibility();
+	}
+
+	function collectSettings() {
+		const cfg = JSON.parse(JSON.stringify(state.config || {}));
+		const text = (id) => { const node = $('#' + id); return node ? node.value.trim() : ''; };
+		const check = (id) => { const node = $('#' + id); return !!(node && node.checked); };
+		const number = (id, fallback, min, max) => {
+			let value = parseFloat(text(id));
+			if (!Number.isFinite(value)) value = fallback;
+			if (min != null && value < min) value = min;
+			if (max != null && value > max) value = max;
+			return value;
+		};
+		const integer = (id, fallback, min, max) => Math.round(number(id, fallback, min, max));
+
+		cfg.ip_source = text('ip_source') || 'builtin_ipv4';
+		cfg.ip_online_url = text('ip_online_url');
+		cfg.custom_ip_file = text('custom_ip_file');
+		cfg.custom_allip = check('custom_allip');
+		cfg.latency_max = integer('latency_max', 0, 0, 60000);
+		cfg.latency_min = integer('latency_min', 40, 0, 60000);
+		cfg.loss_max = number('loss_max', 0.2, 0, 1);
+		cfg.test_count = integer('test_count', 30, 1, 100000);
+		cfg.probe_timeout = integer('probe_timeout', 5, 1, 120);
+		cfg.probes = integer('probes', 3, 1, 5);
+		cfg.max_workers = integer('max_workers', 5, 0, 128);
+		cfg.probe_url = text('probe_url');
+		cfg.download_enabled = check('download_enabled');
+		cfg.download_count = integer('download_count', 5, 1, 10);
+		cfg.download_url = text('download_url');
+		cfg.download_time = integer('download_time', 10, 1, 60);
+		cfg.iterate_enabled = check('iterate_enabled');
+		cfg.iterate_minutes = integer('iterate_minutes', 30, 1, 10080);
+		const oldDdns = cfg.ddns || {};
+		cfg.ddns = Object.assign({}, oldDdns, {
+			enabled: check('ddns_enabled'),
+			provider: 'cloudflare',
+			ip_count: integer('ddns_ip_count', 1, 1, 10),
+			ttl: integer('ddns_ttl', 300, 1, 86400),
+			cloudflare: Object.assign({}, oldDdns.cloudflare || {}, {
+				api_token: text('ddns_token'),
+				zone_id: text('ddns_zone_id'),
+				zone_name: text('ddns_zone_name'),
+				proxied: check('ddns_proxied'),
+			}),
+		});
+		const parts = cronParts();
+		const cronError = cronFieldError();
+		if (cronError) throw new Error(cronError);
+		cfg.schedule = Object.assign({}, cfg.schedule, {
+			enabled: check('schedule_enabled'),
+			custom_enabled: true,
+			custom_cron: parts.join(' '),
+			// Kept for older readers; custom_enabled=true makes it unused.
+			hour: (cfg.schedule && cfg.schedule.hour) || 24,
+		});
+		const corePaths = Object.assign({}, (cfg.core && cfg.core.paths) || {});
+		$$('#core-cards input[data-core-path]').forEach((input) => {
+			corePaths[input.dataset.corePath] = input.value.trim();
+		});
+		cfg.core = Object.assign({}, cfg.core, {
+			type: text('core-type') || (cfg.core && cfg.core.type) || 'mihomo',
+			paths: corePaths,
+			dns_nameserver: text('core_dns'),
+		});
+		cfg.web = Object.assign({}, cfg.web, {
+			listen: text('web_listen') || '127.0.0.1',
+			port: integer('web_port', 8787, 1, 65535),
+			token: text('web_token'),
+		});
+		return cfg;
+	}
+
+	function updateFieldVisibility() {
+		const source = $('#ip_source') ? $('#ip_source').value : '';
+		$$('[data-when]').forEach((node) => {
+			const key = node.dataset.when;
+			let visible = true;
+			if (key === 'online') visible = source === 'online';
+			else if (key === 'custom_file') visible = source === 'custom_file';
+			node.classList.toggle('hidden', !visible);
+		});
+	}
+
+	async function previewDdns() {
+		try {
+			const data = await api('/api/ddns');
+			const preview = data.preview || {};
+			const nodes = preview.nodes || [];
+			let text;
+			if (!nodes.length) {
+				text = preview.error || '没有节点配置 DDNS 域名（这些节点只测速）。';
+			} else {
+				text = nodes.map((item) => item.error
+					? (item.node || '?') + ' → ' + item.domain + '：' + item.error
+					: (item.node || '?') + ' → ' + item.domain + '：' + (item.ips || []).join(', ')
+				).join('\n');
+				if (!preview.enabled) text += '\n（DDNS 当前未启用，预览不会写入）';
+			}
+			setText('ddns-status', text);
+		} catch (e) {
+			toast(e.message, true);
+		}
+	}
+
+	async function applyDdns() {
+		const button = $('#btn-ddns-apply');
+		if (button) button.disabled = true;
+		try {
+			const data = await api('/api/ddns/apply', { method: 'POST', body: {} });
+			toast(data.message || 'DDNS 写入完成');
+			if (data.report) {
+				const failed = (data.report.nodes || []).filter((item) => item.error);
+				const lines = (data.report.nodes || []).map((item) => item.error
+					? (item.node || '?') + ' → ' + item.domain + '：' + item.error
+					: (item.node || '?') + ' → ' + item.domain + '：' + (item.ips || []).join(', ') +
+						'（新建 ' + (item.created || 0) + ' / 更新 ' + (item.updated || 0) +
+						' / 无变化 ' + (item.unchanged || 0) + '）');
+				setText('ddns-status', lines.join('\n') || data.message || '');
+				if (failed.length) toast(failed.length + ' 个节点写入失败', true);
+			}
+			await pollStatus();
+		} catch (e) {
+			toast(e.message, true);
+		} finally {
+			if (button) button.disabled = false;
+		}
+	}
+
+	async function saveConfig(successMessage) {
+		const hint = $('#save-hint');
+		if (hint) hint.textContent = '正在保存…';
+		try {
+			const payload = collectSettings();
+			const response = await api('/api/config', { method: 'POST', body: { config: payload } });
+			const oldToken = state.token;
+			state.config = response.config;
+			state.token = (response.config.web && response.config.web.token) || '';
+			if (state.token) localStorage.setItem('cfpick_token', state.token);
+			else localStorage.removeItem('cfpick_token');
+			$('#dl-log').href = withToken('/api/export/log');
+			state.nodeInfo = (await api('/api/nodes')).nodes || [];
+			renderNodes();
+			renderIpLists();
+			fillSettings(state.config);
+			renderBest();
+			refreshCore();
+			refreshCronTasks();
+			if (hint) hint.textContent = '已保存 ' + new Date().toLocaleTimeString();
+			if (response.warnings && response.warnings.length)
+				toast(response.warnings.join('；'), true);
+			else
+				toast(response.cron_error ? (successMessage + '；定时任务: ' + response.cron_error)
+					: (successMessage || '配置已保存'), !!response.cron_error);
+			if (oldToken !== state.token) pollStatus();
+		} catch (e) {
+			if (hint) hint.textContent = '';
+			toast(e.message, true);
+		}
+	}
+
+	// ── logs ────────────────────────────────────────────────────────────
+	// 切页、2 秒定时器和手动刷新可能同时发起读取；若两个请求用同一个 pos
+	// 各追加一次，日志就会出现重复行。这里把读取排成串行队列。
+	function reloadLog(reset) {
+		state.logChain = state.logChain.then(
+			() => reloadLogNow(reset),
+			() => reloadLogNow(reset)
+		);
+		return state.logChain;
+	}
+
+	async function reloadLogNow(reset) {
+		const view = $('#log-view');
+		if (!view) return;
+		if (reset) {
+			state.logPos = 0;
+			view.textContent = '';
+		}
+		try {
+			const chunk = await api('/api/log?pos=' + state.logPos);
+			if (chunk.content) {
+				view.textContent += chunk.content;
+				state.logPos = chunk.pos || 0;
+				if (view.textContent.length > 2 * 1024 * 1024)
+					view.textContent = view.textContent.slice(-2 * 1024 * 1024);
+				if ($('#log-follow').checked)
+					view.scrollTop = view.scrollHeight;
+			}
+			setText('log-meta', '已读取 ' + state.logPos + ' 字节' +
+				(state.status && state.status.running ? ' · 测速运行中' : ''));
+		} catch (e) {
+			/* ignore */
+		}
+	}
+
+	function tickLogs() {
+		if (state.tab !== 'logs') return;
+		if (!$('#log-autorefresh') || !$('#log-autorefresh').checked) return;
+		reloadLog(false);
+	}
+
+	// ── core modules ─────────────────────────────────────────────────────
+	const CORE_LABELS = {
+		mihomo: 'mihomo（Clash.Meta）',
+		xray: 'Xray-core',
+	};
+
+	function renderCoreCards(payload) {
+		const container = $('#core-cards');
+		if (!container) return;
+		$$('#core-cards input[data-core-tag]').forEach((input) => {
+			state.coreTags[input.dataset.coreTag] = input.value;
+		});
+		if (state.config && state.config.core) {
+			if (!state.config.core.paths) state.config.core.paths = {};
+			$$('#core-cards input[data-core-path]').forEach((input) => {
+				state.config.core.paths[input.dataset.corePath] = input.value.trim();
+			});
+		}
+		container.replaceChildren();
+		const cores = payload.cores || {};
+		const active = payload.active || '';
+		const updating = !!payload.updating;
+		const updatingType = payload.updating_type || '';
+
+		Object.keys(CORE_LABELS).forEach((type) => {
+			const info = cores[type] || {};
+			const card = document.createElement('div');
+			card.className = 'card stat core-card';
+
+			const head = document.createElement('div');
+			head.className = 'core-card-head';
+			const title = document.createElement('h2');
+			title.textContent = CORE_LABELS[type];
+			const badge = document.createElement('span');
+			if (type === active) {
+				badge.className = 'badge info';
+				badge.textContent = info.installed ? '当前使用' : '当前使用 · 未安装';
+			} else if (info.installed) {
+				badge.className = 'badge ok';
+				badge.textContent = '已安装';
+			} else {
+				badge.className = 'badge bad';
+				badge.textContent = '未安装';
+			}
+			head.appendChild(title);
+			head.appendChild(badge);
+			card.appendChild(head);
+
+			const list = document.createElement('dl');
+			list.className = 'kv';
+			const rows = [
+				['版本', info.version || '—', 'mono'],
+				['路径', info.path || '—', 'mono'],
+				['来源', info.managed ? '托管（可自动升级）' : (info.installed ? '自定义路径' : '—'), ''],
+			];
+			rows.forEach((row) => {
+				const dt = document.createElement('dt');
+				dt.textContent = row[0];
+				const dd = document.createElement('dd');
+				if (row[2]) dd.className = row[2];
+				dd.textContent = row[1];
+				list.appendChild(dt);
+				list.appendChild(dd);
+			});
+			card.appendChild(list);
+
+			const pathLabel = document.createElement('label');
+			pathLabel.className = 'core-path-label';
+			pathLabel.appendChild(document.createTextNode('自定义二进制路径（留空使用托管内核）'));
+			const pathInput = document.createElement('input');
+			pathInput.type = 'text';
+			pathInput.spellcheck = false;
+			pathInput.dataset.corePath = type;
+			pathInput.placeholder = '/var/lib/cfpick/core/' + type;
+			pathInput.value = ((state.config && state.config.core && state.config.core.paths) || {})[type] || '';
+			pathInput.addEventListener('input', () => {
+				if (!state.config.core.paths) state.config.core.paths = {};
+				state.config.core.paths[type] = pathInput.value.trim();
+			});
+			pathLabel.appendChild(pathInput);
+			card.appendChild(pathLabel);
+
+			const updateRow = document.createElement('div');
+			updateRow.className = 'core-update-row';
+			const tagInput = document.createElement('input');
+			tagInput.type = 'text';
+			tagInput.placeholder = '版本标签，留空 = 最新版';
+			tagInput.dataset.coreTag = type;
+			tagInput.value = state.coreTags[type] || '';
+			tagInput.spellcheck = false;
+			tagInput.addEventListener('input', () => {
+				state.coreTags[type] = tagInput.value;
+			});
+			const button = document.createElement('button');
+			button.type = 'button';
+			button.className = 'btn small primary';
+			button.textContent = (updating && updatingType === type) ? '更新中…' :
+				(info.installed ? '升级' : '安装');
+			button.disabled = updating;
+			button.addEventListener('click', () => updateCore(type, tagInput.value.trim()));
+			updateRow.appendChild(tagInput);
+			updateRow.appendChild(button);
+			card.appendChild(updateRow);
+
+			container.appendChild(card);
+		});
+	}
+
+	function renderCore(payload) {
+		if (!payload) return;
+		state.core = payload;
+		renderCoreCards(payload);
+		let message = payload.message || '';
+		if (payload.error) message += (message ? '：' : '') + payload.error;
+		setText('core-message', message);
+		const active = payload.active || ((state.config && state.config.core && state.config.core.type) || '');
+		const info = (payload.cores || {})[active] || {};
+		renderActiveCore(Object.assign({}, info, { type: active }));
+	}
+
+	async function refreshCore() {
+		try {
+			renderCore(await api('/api/core'));
+			scheduleCorePoll();
+		} catch (e) { /* ignore */ }
+	}
+
+	// ── application self-update ──────────────────────────────────────────
+	function renderAppInfo(app) {
+		if (!app) return;
+		state.appInfo = app;
+		setText('app-current-version', app.version || '—');
+		setText('app-commit', app.commit || '—');
+		setText('app-branch', app.branch || '—');
+		setText('app-source', app.source_dir || '—');
+		const update = app.update || {};
+		let text = '—';
+		if (update.updating) {
+			text = update.message || '更新中…';
+		} else if (update.message) {
+			text = update.message
+				+ (update.error ? '：' + update.error : '')
+				+ (update.commit ? '（' + update.commit + '）' : '');
+		} else if (!app.manageable) {
+			text = '源码目录不可用，无法在线更新';
+		} else if (!app.systemd_run) {
+			text = '未找到 systemd-run，无法在线更新';
+		}
+		setText('app-update-state', text);
+		const button = $('#btn-app-update');
+		if (button) {
+			const busy = !!update.updating;
+			button.disabled = !app.manageable || !app.systemd_run || busy;
+			button.textContent = busy ? '更新中…' : '更新程序';
+		}
+	}
+
+	async function refreshAppInfo() {
+		try {
+			renderAppInfo(await api('/api/app'));
+		} catch (e) { /* ignore */ }
+	}
+
+	async function updateApp() {
+		if (!confirm('更新程序会拉取代码并重启 Web 服务，页面会短暂断连。继续？'))
+			return;
+		try {
+			const response = await api('/api/update-app', { method: 'POST', body: {} });
+			toast(response.message || '已开始更新程序');
+			if (response.app) renderAppInfo(response.app);
+			waitForAppUpdate();
+		} catch (e) {
+			// fetch 本身失败（TypeError）通常说明服务已经开始重启、连接被断开；
+			// 更新可能正在进行，继续轮询状态，而不是直接报 "Failed to fetch"。
+			if (e instanceof TypeError) {
+				toast('更新请求已断开（Web 服务可能正在重启），等待更新结果…');
+				waitForAppUpdate();
+			} else {
+				toast(e.message, true);
+			}
+		}
+	}
+
+	function waitForAppUpdate() {
+		clearInterval(state.appTimer);
+		let attempts = 0;
+		state.appTimer = setInterval(async () => {
+			attempts += 1;
+			try {
+				const app = await api('/api/app');
+				renderAppInfo(app);
+				if (!app.update || !app.update.updating) {
+					clearInterval(state.appTimer);
+					state.appTimer = 0;
+					const ok = !!(app.update && app.update.ok);
+					const detail = (app.update && (app.update.error || app.update.message)) || '请查看更新日志';
+					toast(ok ? '程序更新完成，页面即将刷新' : ('更新失败：' + detail), !ok);
+					setTimeout(() => window.location.reload(), 1200);
+					return;
+				}
+			} catch (e) {
+				/* the web service is restarting */
+			}
+			if (attempts >= 60) {
+				clearInterval(state.appTimer);
+				state.appTimer = 0;
+				toast('更新状态超时，请手动刷新页面', true);
+			}
+		}, 2000);
+	}
+
+	function scheduleCorePoll() {
+		clearTimeout(state.coreTimer);
+		if (state.core && state.core.updating) {
+			state.coreTimer = setTimeout(() => { refreshCore(); }, 2000);
+		}
+	}
+
+	async function updateCore(type, tag) {
+		try {
+			const response = await api('/api/core/update', {
+				method: 'POST',
+				body: { type: type, tag: tag || '' },
+			});
+			toast(response.message || ('已开始更新 ' + type));
+			await refreshCore();
+		} catch (e) {
+			toast(e.message, true);
+		}
+	}
+
+	// ── actions ─────────────────────────────────────────────────────────
+	async function startTest(mode) {
+		try {
+			await api('/api/start', { method: 'POST', body: { mode: mode } });
+			toast(mode === 'retest' ? '已开始复测现有最优 IP' : '已开始测速');
+			activateTab('logs');
+			await pollStatus();
+		} catch (e) {
+			toast(e.message, true);
+		}
+	}
+
+	async function stopTest() {
+		try {
+			const response = await api('/api/stop', { method: 'POST', body: {} });
+			toast(response.message || '已请求停止');
+			await pollStatus();
+		} catch (e) {
+			toast(e.message, true);
+		}
+	}
+
+	// ── init ────────────────────────────────────────────────────────────
+	async function loadAll() {
+		const results = await Promise.all([
+			api('/api/config'),
+			api('/api/status'),
+			api('/api/best'),
+			api('/api/history'),
+			api('/api/nodes'),
+			api('/api/core'),
+			api('/api/app'),
+		]);
+		state.config = results[0].config;
+		state.status = results[1];
+		state.lastRunning = !!results[1].running;
+		state.best = results[2];
+		state.history = (results[3] && results[3].history) || [];
+		state.nodeInfo = (results[4] && results[4].nodes) || [];
+		state.core = results[5];
+		state.appInfo = results[6];
+		if (results[1] && results[1].state_dir)
+			setText('state-dir', results[1].state_dir);
+		$('#dl-log').href = withToken('/api/export/log');
+
+		renderStatus(state.status);
+		fillSettings(state.config);
+		renderNodes();
+		renderIpLists();
+		renderBest();
+		renderChart();
+		renderCore(state.core);
+		renderAppInfo(state.appInfo);
+		activateTab(initialTab());
+	}
+
+	function startPolling() {
+		clearInterval(state.pollTimer);
+		clearInterval(state.logTimer);
+		clearInterval(state.elapsedTimer);
+		state.pollTimer = setInterval(pollStatus, 3000);
+		state.logTimer = setInterval(tickLogs, 2000);
+		state.elapsedTimer = setInterval(tickElapsed, 1000);
+	}
+
+	function bindEvents() {
+		$('#tabs').addEventListener('click', (event) => {
+			const tab = event.target.closest('.tab');
+			if (tab) activateTab(tab.dataset.tab);
+		});
+		window.addEventListener('hashchange', () => activateTab(initialTab()));
+
+		$('#btn-start').addEventListener('click', () => startTest('start'));
+		$('#btn-stop').addEventListener('click', stopTest);
+		$('#btn-retest').addEventListener('click', () => startTest('retest'));
+
+		$('#btn-add-node').addEventListener('click', () => {
+			(state.config.nodes || (state.config.nodes = [])).push({
+				name: '', link: '', ip_list: '', ddns_domain: '', enabled: true,
+			});
+			renderNodes();
+		});
+		$('#btn-save-nodes').addEventListener('click', () => saveConfig('节点已保存'));
+		$('#btn-save-iplists').addEventListener('click', () => saveConfig('IP 列表已保存'));
+
+		$('#btn-bulk').addEventListener('click', () => {
+			$('#bulk-overlay').classList.remove('hidden');
+			$('#bulk-links').focus();
+		});
+		$('#bulk-cancel').addEventListener('click', () => $('#bulk-overlay').classList.add('hidden'));
+		$('#bulk-apply').addEventListener('click', importBulk);
+
+		$('#settings-form').addEventListener('submit', (event) => {
+			event.preventDefault();
+			saveConfig('设置已保存');
+		});
+		$('#ip_source').addEventListener('change', updateFieldVisibility);
+		$('#schedule_preset').addEventListener('change', applySchedulePreset);
+		CRON_FIELDS.forEach((id) => {
+			const node = $('#' + id);
+			if (node) node.addEventListener('input', onCronInput);
+		});
+		$('#btn-cron-refresh').addEventListener('click', refreshCronTasks);
+		$('#btn-ddns-preview').addEventListener('click', previewDdns);
+		$('#btn-ddns-apply').addEventListener('click', applyDdns);
+
+		$('#result-filter').addEventListener('change', (event) => {
+			state.resultFilter = event.target.value;
+			renderResultTable();
+		});
+
+		$('#btn-log-reload').addEventListener('click', () => reloadLog(true));
+		$('#dl-log').href = withToken('/api/export/log');
+
+		$('#btn-core-refresh').addEventListener('click', refreshCore);
+		$('#btn-app-update').addEventListener('click', updateApp);
+		$('#btn-save-core').addEventListener('click', async () => {
+			state.config.core.type = $('#core-type').value;
+			await saveConfig('内核选择已保存');
+			await refreshCore();
+		});
+
+		$('#point-close').addEventListener('click', () => $('#point-overlay').classList.add('hidden'));
+		$$('.overlay').forEach((overlay) => {
+			overlay.addEventListener('click', (event) => {
+				if (event.target === overlay && overlay.id !== 'auth-overlay')
+					overlay.classList.add('hidden');
+			});
+		});
+		document.addEventListener('keydown', (event) => {
+			if (event.key === 'Escape') closeOverlays();
+		});
+
+		$('#auth-form').addEventListener('submit', async (event) => {
+			event.preventDefault();
+			const token = $('#auth-token').value.trim();
+			if (!token) {
+				$('#auth-error').textContent = '请输入令牌';
+				return;
+			}
+			state.token = token;
+			localStorage.setItem('cfpick_token', token);
+			try {
+				await loadAll();
+				hideAuth();
+				startPolling();
+			} catch (e) {
+				$('#auth-error').textContent = e.message === '需要访问令牌' ? '令牌无效' : e.message;
+			}
+		});
+
+		if (window.matchMedia) {
+			const query = window.matchMedia('(prefers-color-scheme: dark)');
+			const redraw = () => { if (state.history.length) renderChart(); };
+			if (query.addEventListener) query.addEventListener('change', redraw);
+			else if (query.addListener) query.addListener(redraw);
+		}
+	}
+
+	async function init() {
+		bindEvents();
+		try {
+			const pingResponse = await fetch('/api/ping');
+			const ping = await pingResponse.json();
+			setText('app-version', ping.version || '');
+			$('#dl-log').href = withToken('/api/export/log');
+			if (ping.auth_required && !state.token) {
+				showAuth();
+				return;
+			}
+			await loadAll();
+			startPolling();
+		} catch (e) {
+			toast('初始化失败：' + e.message, true);
+		}
+	}
+
+	init();
+})();

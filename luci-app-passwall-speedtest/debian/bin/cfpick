@@ -1,0 +1,25 @@
+#!/bin/sh
+# CFPick — Cloudflare IP optimizer (Debian/Ubuntu CLI).
+# Run `cfpick --help` for commands.
+set -eu
+
+SELF=$0
+while [ -L "$SELF" ]; do
+    DIR=$(CDPATH= cd -- "$(dirname -- "$SELF")" && pwd)
+    SELF=$(readlink "$SELF")
+    case "$SELF" in
+        /*) ;;
+        *) SELF="$DIR/$SELF" ;;
+    esac
+done
+# Installed layout: /opt/cfpick/bin/cfpick -> package /opt/cfpick/cfpick.
+# Source layout: debian/bin/cfpick -> package debian/cfpick.
+APP_DIR=$(CDPATH= cd -- "$(dirname -- "$SELF")/.." && pwd)
+if [ ! -d "$APP_DIR/cfpick" ]; then
+    APP_DIR=${CFPICK_APP_DIR:-/opt/cfpick}
+fi
+
+PYTHON=${CFPICK_PYTHON:-python3}
+export CFPICK_APP_DIR="$APP_DIR"
+export PYTHONPATH="$APP_DIR${PYTHONPATH:+:$PYTHONPATH}"
+exec "$PYTHON" -m cfpick "$@"

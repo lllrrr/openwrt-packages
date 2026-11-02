@@ -200,6 +200,8 @@ var STYLE = `
 .cb-badge-on { background: var(--success-surface); color: var(--success); }
 .cb-badge-off { background: var(--hover-faint); color: var(--text-muted); }
 .cb-badge-blocked { background: var(--danger-surface); color: var(--danger); }
+.cb-input { width: 100%; box-sizing: border-box; padding: .35rem .6rem; border-radius: .35rem;
+	border: 1px solid var(--hairline); background: transparent; color: inherit; font-size: .85rem; }
 .cb-tag { display: inline-block; padding: 0 .4rem; border-radius: .25rem;
 	font-size: .7rem; font-family: var(--font-mono); letter-spacing: .02em;
 	background: var(--hover-faint); color: var(--text-muted); }
@@ -212,6 +214,11 @@ var STYLE = `
 .cb-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 .cb-btn[disabled] { opacity: .45; cursor: default; }
 .cb-range { padding: .15rem .45rem; font-size: .72rem; }
+.cb-input { width: 100%; box-sizing: border-box; padding: .35rem .6rem; border-radius: .35rem;
+	border: 1px solid var(--hairline); background: transparent; color: inherit; font-size: .85rem; }
+.cb-tag { display: inline-block; padding: 0 .35rem; margin-right: .3rem; border-radius: .25rem;
+	border: 1px solid var(--hairline); font-size: .68rem; line-height: 1.4; opacity: .8; white-space: nowrap; }
+.cb-tag-node { border-color: var(--focus-ring); }
 .cb-range-on { background: var(--hover-faint); border-color: var(--focus-ring); }
 .cb-btn-danger { border-color: var(--danger); color: var(--danger); }
 .cb-btn-danger:hover { background: var(--danger-surface); }
@@ -1187,6 +1194,50 @@ return view.extend({
 			selfC.appFilter = (selfC.appFilter === name) ? null : name;
 			selfC.renderAppStats();
 		};
+		var plist = (this.appStats && this.appStats.proxy) || [];
+		var ptot = (this.appStats && this.appStats.proxy_total) || 0;
+		var hlist = (this.appStats && this.appStats.hosts) || [];
+		var ptb = document.getElementById('cb-proxy-tbody');
+		if (ptb) {
+			while (ptb.firstChild) ptb.removeChild(ptb.firstChild);
+			var phead = document.getElementById('cb-proxy-total');
+			if (phead) phead.textContent = ptot ? fmtBytes(ptot) : '';
+			var q = (this.proxyFilter || '').trim().toLowerCase();
+			if (q) {
+				hlist = hlist.filter(function (x) {
+					var hay = [ x.host || '' ];
+					(x.nodes || []).forEach(function (n) { hay.push(n.node); });
+					(x.groups || []).forEach(function (g) { hay.push(g.group); });
+					return hay.join(' ').toLowerCase().indexOf(q) !== -1;
+				});
+			}
+			if (!hlist.length) {
+				ptb.appendChild(E('tr', {}, E('td', { 'colspan': 3, 'class': 'cb-empty' },
+					q ? _('Nothing matches this filter') : _('Nothing went through the proxy in this window'))));
+			}
+			var lim = (this.proxyTop === undefined) ? 10 : this.proxyTop;
+			var shown = lim ? hlist.slice(0, lim) : hlist;
+			var top = shown.length ? shown[0].bytes : 0;
+			shown.forEach(function (x) {
+				var tags = [];
+				(x.groups || []).forEach(function (g, i) {
+					if (i < 4) tags.push(E('span', { 'class': 'cb-tag', 'title': fmtBytes(g.bytes) }, g.group));
+				});
+				(x.nodes || []).forEach(function (n, i) {
+					if (i < 4) tags.push(E('span', { 'class': 'cb-tag cb-tag-node', 'title': fmtBytes(n.bytes) }, n.node));
+				});
+				ptb.appendChild(E('tr', {}, [
+					E('td', { 'class': 'cb-mono', 'style': 'font-size:.78rem' }, x.host || '(ip)'),
+					E('td', { 'class': 'cb-hide-sm' }, tags),
+					E('td', { 'style': 'text-align:right;white-space:nowrap' }, [
+						E('span', { 'style': 'display:inline-block;height:.5rem;border-radius:2px;background:var(--accent);opacity:.55;vertical-align:middle;margin-right:.5rem;width:' +
+							(top ? Math.max(2, Math.round(56 * x.bytes / top)) : 0) + 'px' }),
+						E('span', {}, fmtBytes(x.bytes))
+					])
+				]));
+			});
+		}
+
 		var tbody = document.getElementById('cb-app-tbody');
 		if (!tbody) return;
 		while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
@@ -3114,6 +3165,46 @@ E('div', { 'class': 'cb-card' }, [
 						E('button', { 'class': 'cb-btn', 'click': function (ev) { self.refreshAppStats(ev); } }, _('Refresh')),
 						E('button', { 'class': 'cb-btn cb-btn-danger', 'click': function (ev) { self.handleAppReset(ev); } }, _('Reset counters'))
 					])
+				])
+			]),
+			E('div', { 'class': 'cb-card' }, [
+				E('div', { 'class': 'cb-card-head' }, [
+					E('span', { 'class': 'cb-dot' }), E('span', {}, _('Proxy quota')),
+					E('span', { 'id': 'cb-proxy-total', 'class': 'cb-count', 'style': 'margin-left:auto' }, ''),
+					E('span', { 'style': 'display:flex;gap:.3rem;margin-left:.6rem' },
+						[ [ 10, '10' ], [ 20, '20' ], [ 30, '30' ], [ 0, _('All') ] ].map(function (p) {
+							return E('button', {
+								'class': 'cb-btn cb-range' + (p[0] === (self.proxyTop === undefined ? 10 : self.proxyTop) ? ' cb-range-on' : ''),
+								'click': function (ev) {
+									ev.currentTarget.parentNode.querySelectorAll('.cb-range')
+										.forEach(function (b) { b.classList.remove('cb-range-on'); });
+									ev.currentTarget.classList.add('cb-range-on');
+									self.proxyTop = p[0];
+									self.renderAppStats();
+								}
+							}, p[1]);
+						}))
+				]),
+				E('div', { 'class': 'cb-card-body' }, [
+					E('div', { 'style': 'margin-bottom:.6rem' }, [
+						E('input', {
+							'class': 'cb-input', 'type': 'text', 'placeholder': _('Filter domains, nodes or groups'),
+							'value': this.proxyFilter || '',
+							'input': function (ev) { self.proxyFilter = ev.currentTarget.value; self.renderAppStats(); }
+						})
+					]),
+					E('div', { 'class': 'cb-tablewrap' }, [
+						E('table', { 'class': 'cb-table' }, [
+							E('thead', {}, E('tr', {}, [
+								E('th', {}, _('Domain')),
+								E('th', { 'class': 'cb-hide-sm' }, _('Route')),
+								E('th', { 'style': 'text-align:right;width:9rem' }, _('Traffic'))
+							])),
+							E('tbody', { 'id': 'cb-proxy-tbody' })
+						])
+					]),
+					E('div', { 'style': 'margin-top:.5rem;font-size:.78rem;opacity:.65' },
+						_('Counted from the routing decision Clash already made. Nothing is added to the packet path.'))
 				])
 			]),
 			E('div', { 'class': 'cb-card' }, [

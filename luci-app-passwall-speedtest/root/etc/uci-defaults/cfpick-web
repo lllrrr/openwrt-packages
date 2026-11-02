@@ -1,0 +1,21 @@
+#!/bin/sh
+
+# Defaults for the standalone management console (cfpick-web).  It stays
+# disabled until the user enables it in LuCI and sets an admin password in
+# the console on first use.
+
+uci -q get cfpick.global.web_enabled >/dev/null || \
+	uci set cfpick.global.web_enabled='0'
+uci -q get cfpick.global.web_port >/dev/null || \
+	uci set cfpick.global.web_port='17544'
+uci -q get cfpick.global.web_bind >/dev/null || \
+	uci set cfpick.global.web_bind='0.0.0.0'
+uci -q get cfpick.global.web_user >/dev/null || \
+	uci set cfpick.global.web_user='admin'
+uci -q get cfpick.global.web_timeout >/dev/null || \
+	uci set cfpick.global.web_timeout='3600'
+uci -q get cfpick.global.web_password >/dev/null || \
+	uci set cfpick.global.web_password=''
+
+uci commit cfpick
+exit 0

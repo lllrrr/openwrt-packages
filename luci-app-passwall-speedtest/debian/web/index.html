@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CFPick 优选</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <div class="logo">CF</div>
+    <div>
+      <h1>CFPick 优选</h1>
+      <p>CDN 优选 · 自带 mihomo / Xray 代理内核</p>
+    </div>
+  </div>
+  <div class="statusline">
+    <span id="status-dot" class="dot idle"></span>
+    <span id="status-text">正在加载…</span>
+  </div>
+  <div class="actions">
+    <button id="btn-start" class="btn primary" type="button">开始测速</button>
+    <button id="btn-stop" class="btn danger" type="button" disabled>停止</button>
+    <button id="btn-retest" class="btn" type="button">复测现有最优</button>
+  </div>
+</header>
+
+<nav class="tabs" id="tabs">
+  <button type="button" class="tab active" data-tab="overview">概览</button>
+  <button type="button" class="tab" data-tab="nodes">节点</button>
+  <button type="button" class="tab" data-tab="iplists">IP 列表</button>
+  <button type="button" class="tab" data-tab="settings">设置</button>
+  <button type="button" class="tab" data-tab="logs">日志</button>
+  <button type="button" class="tab" data-tab="core">内核</button>
+</nav>
+
+<main>
+  <!-- ── Overview ───────────────────────────────────────────────── -->
+  <section class="panel active" data-panel="overview">
+    <div class="cards">
+      <div class="card stat">
+        <span class="label">运行状态</span>
+        <strong id="ov-phase">—</strong>
+        <span id="ov-elapsed" class="sub">—</span>
+      </div>
+      <div class="card stat">
+        <span class="label">全局最优 IP</span>
+        <strong id="ov-best-ip" class="mono">—</strong>
+        <span id="ov-best-meta" class="sub">—</span>
+      </div>
+      <div class="card stat">
+        <span class="label">代理内核</span>
+        <strong id="ov-core">—</strong>
+        <span id="ov-core-path" class="sub mono">—</span>
+      </div>
+      <div class="card stat">
+        <span class="label">定时任务</span>
+        <strong id="ov-cron">—</strong>
+        <span id="ov-cron-line" class="sub mono">—</span>
+      </div>
+      <div class="card stat">
+        <span class="label">DDNS</span>
+        <strong id="ov-ddns">—</strong>
+        <span id="ov-ddns-meta" class="sub">—</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>各节点最优 IP</h2>
+        <div class="card-actions">
+          <a id="dl-csv" class="btn small" href="#">下载 CSV</a>
+          <a id="dl-json" class="btn small" href="#">下载 JSON</a>
+        </div>
+      </div>
+      <pre id="best-text" class="best-text">尚无结果。</pre>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>历史趋势</h2>
+        <span class="muted" id="chart-hint">每个点 = 某次运行中该节点的最优 IP</span>
+      </div>
+      <div class="chart-wrap"><canvas id="history-chart"></canvas></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>本次结果</h2>
+        <select id="result-filter" class="compact">
+          <option value="">全部节点</option>
+        </select>
+      </div>
+      <div class="table-wrap">
+        <table class="data" id="result-table">
+          <thead>
+            <tr><th>IP</th><th>延迟 (ms)</th><th>丢包</th><th>下载 (MB/s)</th><th>地区</th><th>节点</th></tr>
+          </thead>
+          <tbody><tr><td colspan="6" class="empty">尚无结果</td></tr></tbody>
+        </table>
+      </div>
+      <p class="muted" id="result-time"></p>
+    </div>
+  </section>
+
+  <!-- ── Nodes ──────────────────────────────────────────────────── -->
+  <section class="panel" data-panel="nodes">
+    <div class="card">
+      <div class="card-head">
+        <h2>代理节点</h2>
+        <div class="card-actions">
+          <button type="button" class="btn small" id="btn-bulk">批量导入</button>
+          <button type="button" class="btn small" id="btn-add-node">添加节点</button>
+          <button type="button" class="btn small primary" id="btn-save-nodes">保存节点</button>
+        </div>
+      </div>
+      <p class="muted">
+        每行一个节点，支持 <code>vless://</code>、<code>vmess://</code>、<code>trojan://</code>、
+        <code>ss://</code>、<code>hysteria2://</code> 分享链接。测速时会把链接中的服务器地址替换成候选
+        Cloudflare IP，端口保持不变；每个节点是一个并行 worker。链接含凭据，配置文件权限为 600。
+        「DDNS 域名」留空的节点只参与测速；填写后，该节点的最优 IP 会写入这个域名的
+        A/AAAA 记录（需在「设置 → DDNS」中配置 Cloudflare Token）。
+      </p>
+      <div class="table-wrap">
+        <table class="data nodes-table">
+          <thead>
+            <tr><th>启用</th><th>名称</th><th>分享链接</th><th>IP 列表</th><th>DDNS 域名</th><th>解析</th><th></th></tr>
+          </thead>
+          <tbody id="nodes-body"></tbody>
+        </table>
+      </div>
+      <div id="nodes-empty" class="empty-note hidden">还没有节点，点击「添加节点」或「批量导入」。</div>
+    </div>
+  </section>
+
+  <!-- ── IP lists ────────────────────────────────────────────────── -->
+  <section class="panel" data-panel="iplists">
+    <div class="card">
+      <div class="card-head">
+        <h2>在线 CM 源 IP 列表</h2>
+        <div class="card-actions">
+          <button type="button" class="btn small primary" id="btn-save-iplists">保存列表</button>
+        </div>
+      </div>
+      <p class="muted">
+        仅在「IP 来源 = 在线 CM 源」时使用。五个列表共享在线源地址，各自按端口和国家码过滤；
+        节点可在「节点」页指派其中一个列表，未指派的节点使用第一个启用的列表。
+        端口只用于挑选候选 IP，实际探测仍走节点自己的端口。
+      </p>
+      <div class="table-wrap">
+        <table class="data">
+          <thead>
+            <tr><th>启用</th><th>名称</th><th>国家码（空格或逗号分隔，留空 = 全部）</th><th>端口</th></tr>
+          </thead>
+          <tbody id="iplists-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Settings ────────────────────────────────────────────────── -->
+  <section class="panel" data-panel="settings">
+    <form id="settings-form" autocomplete="off">
+      <div class="card">
+        <div class="card-head"><h2>候选 IP 来源</h2></div>
+        <div class="grid">
+          <label>来源
+            <select id="ip_source">
+              <option value="builtin_ipv4">内置 IPv4 列表</option>
+              <option value="builtin_ipv6">内置 IPv6 列表</option>
+              <option value="online">在线 CM 源</option>
+              <option value="custom_file">自定义文件</option>
+            </select>
+          </label>
+          <label data-when="online">在线源地址
+            <input id="ip_online_url" type="text" spellcheck="false" placeholder="https://zip.cm.edu.kg/all.txt">
+          </label>
+          <label data-when="custom_file">自定义 IP 文件
+            <input id="custom_ip_file" type="text" spellcheck="false" placeholder="/etc/cfpick/ip.txt">
+          </label>
+          <label class="check" data-when="custom_file">
+            <input id="custom_allip" type="checkbox">
+            扫描每个 /24 内的全部 IP（较慢）
+          </label>
+        </div>
+        <p class="muted">内置文件为 CIDR 段：默认每个 /24 随机取一个地址；IPv6 每个 /64 取一个样本。在线源格式为 <code>IP:PORT#国家码</code>。</p>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>延迟筛选与探测</h2></div>
+        <div class="grid three">
+          <label>延迟上限 (ms，0 = 不限) <input id="latency_max" type="number" min="0" step="1"></label>
+          <label>延迟下限 (ms，0 = 不限) <input id="latency_min" type="number" min="0" step="1"></label>
+          <label>丢包率上限 <input id="loss_max" type="number" min="0" max="1" step="0.01"></label>
+          <label>候选 IP 数 / 节点 <input id="test_count" type="number" min="1" step="1"></label>
+          <label>探测超时 (s) <input id="probe_timeout" type="number" min="1" step="1"></label>
+          <label>每 IP 探测次数 <input id="probes" type="number" min="1" max="5" step="1"></label>
+          <label>最大并发 worker <input id="max_workers" type="number" min="0" step="1"></label>
+          <label class="span2">探测 URL
+            <input id="probe_url" type="text" spellcheck="false">
+          </label>
+        </div>
+        <p class="muted">任意一次探测失败该 IP 立即丢弃，只有全部探测都成功才保留。并发上限 0 表示全部节点同时运行。延迟是经节点 SOCKS 测得的全链路耗时，包含节点自身 RTT；远端节点常超过 200ms，延迟上限默认不限（0），调得太低会把所有候选全部丢弃。</p>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>真实下载实测</h2></div>
+        <div class="grid three">
+          <label class="check"><input id="download_enabled" type="checkbox"> 启用下载实测</label>
+          <label>每节点候选数（最多 10） <input id="download_count" type="number" min="1" max="10" step="1"></label>
+          <label>单 IP 时限 (s) <input id="download_time" type="number" min="1" max="60" step="1"></label>
+          <label class="span2">下载 URL
+            <input id="download_url" type="text" spellcheck="false">
+          </label>
+        </div>
+        <p class="muted">所有 worker 停止延迟探测后，逐节点串行下载：只测每个节点延迟最优的前 N 个 IP；5 秒内不足 1 MB 的候选会被 curl 快速中止并判失败。下载失败的行会被剔除；全部失败时保留延迟排序。</p>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>限时迭代</h2></div>
+        <div class="grid three">
+          <label class="check"><input id="iterate_enabled" type="checkbox"> 启用限时迭代收敛</label>
+          <label>迭代时长（分钟） <input id="iterate_minutes" type="number" min="1" step="1"></label>
+        </div>
+        <p class="muted">每个节点独立循环：第一遍测初始候选，之后每遍只复测上一遍通过的 IP，直到时长结束或候选收敛到 ≤ 下载候选数（未启用下载时为 3）。迭代期间不写结果，结束后统一导出并对最终候选做下载实测。</p>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>定时任务</h2></div>
+        <div class="grid three">
+          <label class="check"><input id="schedule_enabled" type="checkbox"> 启用定时测速</label>
+          <label>常用频率
+            <select id="schedule_preset">
+              <option value="custom">自定义</option>
+              <option value="hourly">每小时（整点）</option>
+              <option value="half-hourly">每 30 分钟</option>
+              <option value="6h">每 6 小时</option>
+              <option value="12h">每 12 小时</option>
+              <option value="daily">每天 03:00</option>
+              <option value="weekly">每周一 03:00</option>
+              <option value="monthly">每月 1 日 03:00</option>
+            </select>
+          </label>
+        </div>
+        <div class="grid five cron-grid">
+          <label>分钟 <input id="schedule_minute" type="text" spellcheck="false" placeholder="0"></label>
+          <label>小时 <input id="schedule_hour" type="text" spellcheck="false" placeholder="3"></label>
+          <label>日 <input id="schedule_day" type="text" spellcheck="false" placeholder="*"></label>
+          <label>月 <input id="schedule_month" type="text" spellcheck="false" placeholder="*"></label>
+          <label>星期 <input id="schedule_weekday" type="text" spellcheck="false" placeholder="*"></label>
+        </div>
+        <p class="muted">
+          标准五段 cron：分 时 日 月 星期，支持 <code>*</code>、数字、范围
+          <code>1-5</code>、列表 <code>1,2</code>、步长 <code>*/6</code>，月份和星期也
+          可以用 <code>jan-dec</code> / <code>sun-sat</code>。多个值用<b>逗号</b>分隔，
+          字段内不要用空格。星期 <code>0</code> 和 <code>7</code> 都表示周日；
+          「日」和「星期」同时限定时，cron 是“或”关系。
+        </p>
+        <p class="muted">即将写入：
+          <code id="schedule-preview">0 3 * * *</code>
+          <span>（保存配置时以幂等方式写入 crontab，只维护带 <code>cfpick</code> 标记的块）</span>
+        </p>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2>已设置的任务</h2>
+          <div class="card-actions">
+            <span id="cron-note" class="muted"></span>
+            <button type="button" class="btn small" id="btn-cron-refresh">刷新</button>
+          </div>
+        </div>
+        <p class="muted">
+          只读列出系统 cron：当前用户及其它用户的 crontab、<code>/etc/crontab</code>、
+          <code>/etc/cron.d</code>，以及 <code>/etc/cron.{hourly,daily,weekly,monthly}</code> 下的可执行脚本。
+          标记「本程序」的一行由上方定时任务配置维护，其余任务本程序不会改动。
+        </p>
+        <div class="table-wrap">
+          <table class="data cron-table" id="cron-table">
+            <thead>
+              <tr><th>来源</th><th>计划</th><th>任务</th><th></th></tr>
+            </thead>
+            <tbody id="cron-body"><tr><td colspan="4" class="empty">加载中…</td></tr></tbody>
+          </table>
+        </div>
+        <p class="muted" id="cron-errors"></p>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2>DDNS（Cloudflare 优选 IP）</h2>
+          <div class="card-actions">
+            <button type="button" class="btn small" id="btn-ddns-apply">立即写入</button>
+            <button type="button" class="btn small" id="btn-ddns-preview">预览</button>
+          </div>
+        </div>
+        <div class="grid three">
+          <label class="check"><input id="ddns_enabled" type="checkbox"> 启用 DDNS 写入</label>
+          <label>API Token
+            <input id="ddns_token" type="password" autocomplete="new-password" placeholder="*** = 保留已保存的令牌">
+          </label>
+          <label>Zone ID（可选） <input id="ddns_zone_id" type="text" spellcheck="false" placeholder="留空则自动查找"></label>
+          <label>Zone 名称（可选） <input id="ddns_zone_name" type="text" spellcheck="false" placeholder="example.com"></label>
+          <label>每节点写入 IP 数 <input id="ddns_ip_count" type="number" min="1" max="10" step="1"></label>
+          <label>TTL（秒，1 = 自动） <input id="ddns_ttl" type="number" min="1" max="86400" step="1"></label>
+          <label class="check"><input id="ddns_proxied" type="checkbox"> Cloudflare 橙云代理（不推荐）</label>
+        </div>
+        <p class="muted">
+          每个节点在「节点」页填写自己的 DDNS 域名；留空的节点只测速，不写 DNS。
+          写入的是该节点本次最优的 IP（IPv4 → A，IPv6 → AAAA）。Zone ID / 名称都留空时按域名自动查找。
+          API Token 需要该 Zone 的 <code>DNS:Edit</code> 权限。启用橙云代理后 Cloudflare 会返回自己的
+          边缘 IP，写入的优选 IP 不会生效，优选场景请保持关闭。
+        </p>
+        <p class="muted" id="ddns-status">尚未写入。</p>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>内核与 Web</h2></div>
+        <div class="grid three">
+          <label>自定义 DNS
+            <input id="core_dns" type="text" spellcheck="false" placeholder="223.5.5.5（留空用系统 DNS）">
+          </label>
+          <label>监听地址 <input id="web_listen" type="text" spellcheck="false"></label>
+          <label>监听端口 <input id="web_port" type="number" min="1" max="65535" step="1"></label>
+          <label>访问令牌 <input id="web_token" type="password" autocomplete="new-password" placeholder="留空表示不校验"></label>
+        </div>
+        <p class="muted">监听地址 / 端口修改后需要重启 Web 服务（<code>systemctl restart cfpick-web</code>）才会生效。令牌仅用于 Web API；默认只监听 127.0.0.1。</p>
+      </div>
+
+      <div class="save-bar">
+        <span id="save-hint" class="muted"></span>
+        <button type="submit" class="btn primary">保存全部设置</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- ── Logs ────────────────────────────────────────────────────── -->
+  <section class="panel" data-panel="logs">
+    <div class="card">
+      <div class="card-head">
+        <h2>运行日志</h2>
+        <div class="card-actions">
+          <label class="check inline"><input id="log-follow" type="checkbox" checked> 自动滚动</label>
+          <label class="check inline"><input id="log-autorefresh" type="checkbox" checked> 每 2 秒刷新</label>
+          <button type="button" class="btn small" id="btn-log-reload">重新加载</button>
+          <a class="btn small" id="dl-log" href="#">下载日志</a>
+        </div>
+      </div>
+      <pre id="log-view" class="log-view"></pre>
+      <p class="muted" id="log-meta"></p>
+    </div>
+  </section>
+
+  <!-- ── Core ────────────────────────────────────────────────────── -->
+  <section class="panel" data-panel="core">
+    <div class="card">
+      <div class="card-head">
+        <h2>内核模块</h2>
+        <div class="card-actions">
+          <button type="button" class="btn small" id="btn-core-refresh">刷新</button>
+          <button type="button" class="btn small primary" id="btn-save-core">保存内核设置</button>
+        </div>
+      </div>
+      <div class="grid">
+        <label>当前使用的内核
+          <select id="core-type">
+            <option value="mihomo">mihomo（Clash.Meta）</option>
+            <option value="xray">Xray-core</option>
+          </select>
+        </label>
+      </div>
+      <p class="muted">
+        两个内核都是独立模块，可分别安装/升级，升级互不影响，也不会中断正在运行的测速（下一次运行生效）。
+        节点兼容性：mihomo 支持 vless / vmess / trojan / ss / hysteria2 及 tcp / ws / grpc /
+        h2 / http 传输，xhttp 目前仅 VLESS；xray 支持 vless / vmess / trojan / ss
+        （SS 不支持 plugin）及 tcp / ws / grpc / xhttp 传输，不支持 hysteria2
+        （Xray 26 也已移除 h2/http 传输）。VMess/Trojan 的 xhttp 节点请选 Xray。
+        自定义二进制路径优先于托管内核；卡片里的「安装 / 升级」始终更新托管内核。
+      </p>
+      <p class="muted" id="core-message"></p>
+    </div>
+    <div class="cards" id="core-cards"></div>
+    <div class="card">
+      <div class="card-head">
+        <h2>程序更新</h2>
+        <div class="card-actions">
+          <button type="button" class="btn small primary" id="btn-app-update">更新程序</button>
+        </div>
+      </div>
+      <dl class="kv">
+        <dt>当前版本</dt><dd id="app-current-version">—</dd>
+        <dt>代码提交</dt><dd id="app-commit" class="mono">—</dd>
+        <dt>分支</dt><dd id="app-branch" class="mono">—</dd>
+        <dt>源码目录</dt><dd id="app-source" class="mono">—</dd>
+        <dt>更新状态</dt><dd id="app-update-state">—</dd>
+      </dl>
+      <p class="muted">
+        从源码目录拉取当前分支、重新安装并重启 Web 服务；页面会短暂断连后自动恢复。
+        首次从没有此按钮的旧版本升级时，仍需在服务器执行一次
+        <code>deploy.sh --core none</code>。
+      </p>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <span>cfpick <span id="app-version"></span></span>
+  <span>结果目录：<code id="state-dir">/var/lib/cfpick</code></span>
+</footer>
+
+<!-- Auth overlay -->
+<div id="auth-overlay" class="overlay hidden">
+  <form class="dialog" id="auth-form" autocomplete="off">
+    <h2>需要访问令牌</h2>
+    <p class="muted">该服务端启用了访问令牌，请输入 Web 令牌。</p>
+    <input id="auth-token" type="password" placeholder="访问令牌" autofocus>
+    <div class="dialog-actions">
+      <button type="submit" class="btn primary">保存并继续</button>
+    </div>
+    <p class="error" id="auth-error"></p>
+  </form>
+</div>
+
+<!-- Bulk import dialog -->
+<div id="bulk-overlay" class="overlay hidden">
+  <div class="dialog wide">
+    <h2>批量导入节点</h2>
+    <p class="muted">每行一条分享链接；名称取自链接的 <code>#备注</code>，没有备注则自动命名。</p>
+    <textarea id="bulk-links" rows="12" spellcheck="false" placeholder="vless://...&#10;trojan://..."></textarea>
+    <div class="dialog-actions">
+      <button type="button" class="btn" id="bulk-cancel">取消</button>
+      <button type="button" class="btn primary" id="bulk-apply">导入</button>
+    </div>
+  </div>
+</div>
+
+<!-- Point detail dialog -->
+<div id="point-overlay" class="overlay hidden">
+  <div class="dialog">
+    <h2 id="point-title">节点</h2>
+    <div id="point-body" class="point-body"></div>
+    <div class="dialog-actions">
+      <button type="button" class="btn" id="point-close">关闭</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="/vendor/chart.js"></script>
+<script src="/vendor/chartjs-adapter-date-fns.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

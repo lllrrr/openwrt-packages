@@ -23,6 +23,9 @@ msgstr ""
 msgid "Already up to date (%s)."
 msgstr ""
 
+msgid "API username cannot be empty."
+msgstr ""
+
 msgid "Apply"
 msgstr ""
 msgid "Applying DNS hijack..."
@@ -440,6 +443,9 @@ msgid "Saving rule file..."
 msgstr ""
 
 msgid "Saving schedule..."
+msgstr ""
+
+msgid "Saving schedule before reset..."
 msgstr ""
 
 msgid "Saving settings..."

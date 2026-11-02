@@ -1405,6 +1405,24 @@ load_apps = function()
 	local d = load_json_map(APPS_FILE, function() return { seq = 0, apps = {} } end)
 	d.seq = tonumber(d.seq) or 0
 	d.apps = type(d.apps) == "table" and d.apps or {}
+	-- the curated library and the feed often describe the same app under
+	-- spellings that differ only in case; two rows for one app splits its
+	-- traffic, so they are folded together here and merged everywhere after
+	local byname, uniq = {}, {}
+	for _, a in ipairs(d.apps) do
+		local k = (a.name or ""):lower()
+		local m = byname[k]
+		if not m then
+			byname[k] = a
+			uniq[#uniq + 1] = a
+		else
+			if m.feed and not a.feed then
+				m.name, m.class, m.feed = a.name, a.class or m.class, a.feed
+			end
+			for _, sig in ipairs(a.sigs or {}) do m.sigs[#m.sigs + 1] = sig end
+		end
+	end
+	d.apps = uniq
 	_apps_cache = d
 	return d
 end
@@ -1504,6 +1522,13 @@ function IDX.build(apps)
 					idx.label[h] = idx.label[h] or a
 				else
 					idx.substr[#idx.substr + 1] = { host = h, app = a, proto = sig.proto }
+					-- "*.googlevideo.com" is how the feed writes a domain rule;
+					-- registering the base makes a narrow app own it before a
+					-- broad category that spells the same domain out exactly
+					local base = h:match("^%*%.(.+)$")
+					if base and base:find(".", 1, true) and not base:find("*", 1, true) then
+						idx.suffix[base] = idx.suffix[base] or a
+					end
 				end
 			elseif sig.dport and sig.dport ~= "" then
 				idx.port[#idx.port + 1] = { dport = sig.dport, proto = sig.proto, app = a }
@@ -1537,6 +1562,10 @@ end
 -- address range is trustworthy; a bare port is a guess.
 local function classify_flow(apps, proto, port, ip, host)
 	local idx = IDX.get(apps)
+	-- the same name repeats across dozens of flows in one tick, and the
+	-- lookup walks every label; remember the answer for the tick's lifetime
+	local memo = IDX.memo
+	if host and memo and memo[host] then return memo[host][1], memo[host][2] end
 	if host and host ~= "" then
 		-- a bare label is the most specific thing there is: the curated
 		-- library names apps that way and must not lose to a bundle category
@@ -1545,13 +1574,19 @@ local function classify_flow(apps, proto, port, ip, host)
 		local pos = 1
 		while true do
 			local a = idx.label[h:sub(pos, (h:find(".", pos, true) or (#h + 1)) - 1)]
-			if a then return a, "high" end
+			if a then
+				if memo then memo[host] = { a, "high" } end
+				return a, "high"
+			end
 			local dot = h:find(".", pos, true)
 			if not dot then break end
 			pos = dot + 1
 		end
 		local a = IDX.suffix_match(idx, host)
-		if a then return a, "high" end
+		if a then
+			if memo then memo[host] = { a, "high" } end
+			return a, "high"
+		end
 		for _, s in ipairs(idx.substr) do
 			if s.host ~= "" and host:lower():find(s.host, 1, true) then
 				if not s.proto or s.proto == "" or s.proto == proto then
@@ -1657,7 +1692,8 @@ local function collect_clash_stats(now, apps, st, seen)
 		local host = m.host
 		local dip = fakeip[(m.sourceIP or "") .. "|" .. (m.sourcePort or "")]
 		if host and dip and host ~= dip then
-			fresh[dip] = { h = host }
+			local ch = c.chains or {}
+			fresh[dip] = { h = host, c = ch[#ch], o = ch[1] }
 			n = n + 1
 		end
 	end
@@ -1684,16 +1720,30 @@ local function collect_app_stats(now)
 		-- window can still be read, and only a week of it is worth keeping
 		st.hist = st.hist or {}
 		if st.day and st.day ~= "" and st.apps then
-			st.hist[st.day] = { apps = st.apps, dev = st.dev, low = st.low }
+			st.hist[st.day] = { apps = st.apps, dev = st.dev, low = st.low,
+			                    proxy = st.proxy, node = st.node, ph = st.ph }
 		end
 		local days = {}
 		for d in pairs(st.hist) do days[#days + 1] = d end
 		table.sort(days)
 		for i = 1, #days - 7 do st.hist[days[i]] = nil end
-		st.day, st.apps, st.dev, st.low = today, {}, {}, nil
+		st.day, st.apps, st.dev, st.low, st.proxy, st.node, st.ph = today, {}, {}, nil, {}, {}, {}
 	end
 
-	local seen = load_json_map(CT_SEEN_FILE, function() return {} end)
+	-- one line per flow: json was 492 KB and cost more to parse than the
+	-- conntrack scan it exists to avoid
+	IDX.load_seen = IDX.load_seen or function()
+		local out, f = {}, io.open(CT_SEEN_FILE, "r")
+		if not f then return out end
+		for line in f:lines() do
+			local p_, s_, sp_, d_, dp_, b_ =
+				line:match("^(%S+) (%S+) (%S+) (%S+) (%S+) (%d+)")
+			if p_ then out[p_ .. "|" .. s_ .. "|" .. sp_ .. "|" .. d_ .. "|" .. dp_] = { b = b_ } end
+		end
+		f:close()
+		return out
+	end
+	local seen = IDX.load_seen()
 	local fresh = {}
 	local fake_cache = collect_clash_stats(now, apps, st, seen) or {}
 	local counted = 0
@@ -1726,7 +1776,33 @@ local function collect_app_stats(now)
 				-- were all being reported as a game. Only a hostname, an
 				-- address we learned, or a verified fingerprint counts.
 				if delta > 0 and dev_ip then
-					local host = fake_cache[remote_ip] and fake_cache[remote_ip].h
+					local fc = fake_cache[remote_ip]
+					local host = fc and fc.h
+					-- quota is spent whether or not we can name the app, so this
+					-- is counted before classification and independently of it
+					if fc and fc.o and fc.o ~= "DIRECT" then
+						st.proxy = st.proxy or {}
+						local g = fc.c or fc.o
+						st.proxy[g] = (st.proxy[g] or 0) + delta
+						st.node = st.node or {}
+						st.node[fc.o] = (st.node[fc.o] or 0) + delta
+						-- which names actually went out that way, so a group
+						-- can be traced back to the addresses behind it
+						if host and host ~= "" then
+							st.ph = st.ph or {}
+							local e = st.ph[host]
+							if not e then
+								if #st.ph > 4000 then st.ph = {} end
+								e = { b = 0, n = {}, g = {} }
+								st.ph[host] = e
+							end
+							-- a name can leave through several nodes over a day;
+							-- keep every one of them with its own share
+							e.b = (e.b or 0) + delta
+							e.n[fc.o] = (e.n[fc.o] or 0) + delta
+							e.g[g] = (e.g[g] or 0) + delta
+						end
+					end
 					local app, conf = classify_flow(apps, proto, remote_port, remote_ip, host)
 					if app and conf == "high" then
 						learn_app_ip(app.name, remote_ip)
@@ -1746,11 +1822,17 @@ local function collect_app_stats(now)
 		n = n + 1
 		if n <= 8000 then kept[k] = v end
 	end
-	for k, v in pairs(seen) do
-		if k:sub(1, 6) == "clash|" and kept[k] == nil then kept[k] = v end
-	end
 
-	save_json_map(CT_SEEN_FILE, kept)
+
+	fs.mkdirr(STATE_DIR)
+	local sf = io.open(CT_SEEN_FILE .. ".tmp", "w")
+	if sf then
+		for k, v in pairs(kept) do
+			sf:write((k:gsub("|", " ")), " ", tostring(v.b), "\n")
+		end
+		sf:close()
+		os.rename(CT_SEEN_FILE .. ".tmp", CT_SEEN_FILE)
+	end
 	save_json_map(APPSTAT_FILE, st)
 	return { bytes = counted, apps = (function()
 		local c = 0
@@ -1785,8 +1867,23 @@ function methods.appstats(range)
 	else
 		buckets[#buckets + 1] = st
 	end
-	local apps, dev, low = {}, {}, {}
+	local apps, dev, low, prox, nodes, ph = {}, {}, {}, {}, {}, {}
 	for _, b in ipairs(buckets) do
+		for k, v in pairs(b.proxy or {}) do prox[k] = (prox[k] or 0) + v end
+		for k, v in pairs(b.node or {}) do nodes[k] = (nodes[k] or 0) + v end
+		for k, v in pairs(b.ph or {}) do
+			local e = ph[k]
+			if not e then e = { b = 0, n = {}, g = {} }; ph[k] = e end
+			e.b = e.b + (v.b or 0)
+			if type(v.n) == "table" then
+				for n, x in pairs(v.n) do e.n[n] = (e.n[n] or 0) + x end
+				for n, x in pairs(v.g or {}) do e.g[n] = (e.g[n] or 0) + x end
+			else
+				-- entries written before the split existed carry one name
+				if v.n then e.n[v.n] = (e.n[v.n] or 0) + (v.b or 0) end
+				if v.g then e.g[v.g] = (e.g[v.g] or 0) + (v.b or 0) end
+			end
+		end
 		for k, v in pairs(b.apps or {}) do apps[k] = (apps[k] or 0) + v end
 		for k, v in pairs(b.low or {}) do low[k] = (low[k] or 0) + v end
 		for ip, m in pairs(b.dev or {}) do
@@ -1830,8 +1927,37 @@ function methods.appstats(range)
 		table.sort(list, function(a, b) return a.bytes > b.bytes end)
 	end
 
+	local plist, ptotal = {}, 0
+	for g, bytes in pairs(prox) do
+		plist[#plist + 1] = { group = g, bytes = bytes }
+		ptotal = ptotal + bytes
+	end
+	table.sort(plist, function(a, b) return a.bytes > b.bytes end)
+
+	local nlist = {}
+	for k, bytes in pairs(nodes) do nlist[#nlist + 1] = { node = k, bytes = bytes } end
+	table.sort(nlist, function(a, b) return a.bytes > b.bytes end)
+
+	local function ranked(m, key)
+		local out = {}
+		for k, v in pairs(m or {}) do out[#out + 1] = { [key] = k, bytes = v } end
+		table.sort(out, function(a, b) return a.bytes > b.bytes end)
+		return out
+	end
+	local hlist = {}
+	for host, e in pairs(ph) do
+		local nl = ranked(e.n, "node")
+		local gl = ranked(e.g, "group")
+		hlist[#hlist + 1] = { host = host, bytes = e.b or 0,
+		                      nodes = nl, groups = gl,
+		                      node = nl[1] and nl[1].node, group = gl[1] and gl[1].group }
+	end
+	table.sort(hlist, function(a, b) return a.bytes > b.bytes end)
+	while #hlist > 1000 do table.remove(hlist) end
+
 	return { success = true, running = true, day = st.day or "", range = range or "today",
-	         apps = names, dev = devs, per_app = per_app }
+	         apps = names, dev = devs, per_app = per_app,
+	         proxy = plist, proxy_total = ptotal, nodes = nlist, hosts = hlist }
 end
 
 function methods.appreset()
@@ -1973,14 +2099,17 @@ local _qos_dirty = false
 
 learn_app_ip = function(app, ip)
 	if not app or not ip or ip == "" then return end
-	local d = load_appips()
+	-- hundreds of flows can each name a new address in one tick; reading and
+	-- rewriting the file per call turned a 170 ms tick into 900 ms
+	local d = IDX.appips
+	if not d then d = load_appips(); IDX.appips = d end
 	local list = d[app] or {}
 	for _, v in ipairs(list) do if v == ip then return end end
 	-- keep the newest entries; a long-lived app accumulates CDN addresses
 	table.insert(list, 1, ip)
 	while #list > 64 do table.remove(list) end
 	d[app] = list
-	save_json_map(APPIPS_FILE, d)
+	IDX.appips_dirty = true
 	_qos_dirty = true
 end
 
@@ -4323,8 +4452,13 @@ function methods.tick()
 	_qos_dirty = false
 	-- clear the shared copy so this tick rebuilds it from the current table
 	IDX.ct = nil
+	IDX.memo = {}
 	local apps = collect_app_stats(now)
-	IDX.ct = nil
+	IDX.ct, IDX.memo = nil, nil
+	if IDX.appips_dirty then
+		save_json_map(APPIPS_FILE, IDX.appips)
+		IDX.appips, IDX.appips_dirty = nil, nil
+	end
 	if _qos_dirty then apply_qos() end
 	-- keep the redirect chain in step with the rules: add the bypass return
 	-- when something needs it, remove it when nothing does

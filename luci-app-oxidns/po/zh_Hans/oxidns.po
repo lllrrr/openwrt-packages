@@ -32,6 +32,9 @@ msgstr "API 用户名"
 msgid "Already up to date (%s)."
 msgstr "已是最新版本（%s）。"
 
+msgid "API username cannot be empty."
+msgstr "API 用户名不能为空。"
+
 msgid "Apply"
 msgstr "应用"
 msgid "Applying DNS hijack..."
@@ -450,6 +453,9 @@ msgstr "正在保存规则文件..."
 
 msgid "Saving schedule..."
 msgstr "正在保存计划..."
+
+msgid "Saving schedule before reset..."
+msgstr "重置前正在保存设置..."
 
 msgid "Saving settings..."
 msgstr "正在保存设置..."

@@ -565,7 +565,8 @@ function handleLearnFreqChange() {
 		row.style.display = (select && select.value === 'weekly') ? '' : 'none';
 }
 
-function saveLearnSchedule(button) {
+/* silent = true：紧接着要跑「立即重置」，保存成功的提示交给调用方，别抢它的输出 */
+function saveLearnSchedule(button, silent) {
 	var resetCn = document.getElementById('oxidns-learn-cn');
 	var resetProxy = document.getElementById('oxidns-learn-proxy');
 	var cn = !!(resetCn && resetCn.checked);
@@ -573,7 +574,7 @@ function saveLearnSchedule(button) {
 
 	if (!cn && !proxy) {
 		renderResult('warning', _('Select at least one learned file to reset.'), '', 'oxidns-learn-status');
-		return Promise.resolve();
+		return Promise.resolve(false);
 	}
 
 	var args = [
@@ -587,12 +588,21 @@ function saveLearnSchedule(button) {
 		learnInputValue('oxidns-learn-api-pass')
 	];
 
-	return runRuleCall(button, _('Saving schedule...'), callLearnSave, args, 'oxidns-learn-status').then(function(result) {
+	/* 用户名留空会被后端原样写进 UCI（该字段没有判空），重置请求就成了
+	   `curl -u ":<pass>"`。在这里拦住，别把坏值落盘。 */
+	if (!args[6]) {
+		renderResult('error', _('Save failed'), _('API username cannot be empty.'), 'oxidns-learn-status');
+		notifyResult('error', _('Save failed'));
+		return Promise.resolve(false);
+	}
+
+	return runRuleCall(button, silent ? _('Saving schedule before reset...') : _('Saving schedule...'),
+		callLearnSave, args, 'oxidns-learn-status').then(function(result) {
 		if (!result || result.ok === false) {
 			renderResult('error', _('Save failed'),
 				result && (result.message || result.error), 'oxidns-learn-status');
 			notifyResult('error', _('Save failed'));
-			return;
+			return false;
 		}
 
 		/* 已保存的密码不回显：清空输入框，避免下次保存时重复提交 */
@@ -600,23 +610,34 @@ function saveLearnSchedule(button) {
 		if (passNode)
 			passNode.value = '';
 
-		renderResult('success', _('Schedule saved'),
-			result.cron_line ? '%s %s'.format(result.cron_line, 'oxidns-learn-reset.sh') : '', 'oxidns-learn-status');
-		notifyResult('success', _('Schedule saved'));
+		if (!silent) {
+			renderResult('success', _('Schedule saved'),
+				result.cron_line ? '%s %s'.format(result.cron_line, 'oxidns-learn-reset.sh') : '', 'oxidns-learn-status');
+			notifyResult('success', _('Schedule saved'));
+		}
+
+		return true;
 	});
 }
 
 function resetLearnedNow(button) {
-	return runRuleCall(button, _('Resetting learned files...'), callLearnRun, [], 'oxidns-learn-status').then(function(result) {
-		if (!result || result.ok === false) {
-			renderResult('error', _('Reset failed'),
-				result && (result.message || result.error), 'oxidns-learn-status');
-			notifyResult('error', _('Reset failed'));
+	/* 重置脚本读的是 UCI，不是输入框 —— 改了用户名/密码/API 地址却没点保存就重置，
+	   用的是旧值。所以先把表单落盘，成功后再触发。 */
+	return saveLearnSchedule(button, true).then(function(saved) {
+		if (!saved)
 			return;
-		}
 
-		renderResult('success', _('Learned files cleared'), result.detail, 'oxidns-learn-status');
-		notifyResult('success', _('Learned files cleared'));
+		return runRuleCall(button, _('Resetting learned files...'), callLearnRun, [], 'oxidns-learn-status').then(function(result) {
+			if (!result || result.ok === false) {
+				renderResult('error', _('Reset failed'),
+					result && (result.message || result.error), 'oxidns-learn-status');
+				notifyResult('error', _('Reset failed'));
+				return;
+			}
+
+			renderResult('success', _('Learned files cleared'), result.detail, 'oxidns-learn-status');
+			notifyResult('success', _('Learned files cleared'));
+		});
 	});
 }
 
