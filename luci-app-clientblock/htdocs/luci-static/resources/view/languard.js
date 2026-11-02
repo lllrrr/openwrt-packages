@@ -36,6 +36,7 @@ var callIpList = rpc.declare({
 var callSync = rpc.declare({ object: 'luci.languard', method: 'sync' });
 var callAppList = rpc.declare({ object: 'luci.languard', method: 'applist' });
 var callAppStats = rpc.declare({ object: 'luci.languard', method: 'appstats' });
+var callBlockAudit = rpc.declare({ object: 'luci.languard', method: 'blockaudit', params: [ 'limit' ] });
 var callAppImport = rpc.declare({ object: 'luci.languard', method: 'appimport', params: ['text'] });
 var callAppDel = rpc.declare({ object: 'luci.languard', method: 'appdel', params: ['id'] });
 var callSigList = rpc.declare({ object: 'luci.languard', method: 'siglist', params: ['name'] });
@@ -2062,7 +2063,23 @@ return view.extend({
 
 	refreshLogs: function () {
 		var self = this;
-		return callLogList('500').then(function (res) {
+		// 封禁记录和登录记录合成一条时间线:它们回答的是同一类问题
+		var audit = callBlockAudit('100').then(function (r) {
+			return ((r && r.events) || []).map(function (e) {
+				var ts = Math.round(new Date(String(e.ts).replace(' ', 'T')).getTime() / 1000) || 0;
+				var t = ts ? fmtTime(ts) : String(e.ts || '');
+				return { ts: ts, kind: e.kind === 'panic' ? 'panic' : e.kind,
+				         result: e.kind === 'unblock' ? 'closed' : 'failure',
+				         ip: e.ip && e.ip !== '-' ? e.ip : '',
+				         user: e.mac && e.mac !== '-' ? e.mac : '',
+				         detail: (e.note || '') };
+			});
+		}).catch(function () { return []; });
+		return Promise.all([ callLogList('500'), audit ]).then(function (both) {
+			var res = both[0];
+			var merged = ((res && res.entries) || []).concat(both[1]);
+			merged.sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); });
+			res = { entries: merged };
 			var next = (res && res.entries) || [];
 			var prev = self.logs || [];
 			// Only touch the DOM when the head changed, so the flash animation
@@ -2168,7 +2185,7 @@ return view.extend({
 
 		if (!list.length) {
 			tbody.appendChild(E('tr', {}, E('td', { 'colspan': 7, 'class': 'cb-empty' },
-				all.length ? _('No entries match the filter') : _('No login activity recorded yet'))));
+				all.length ? _('No entries match the filter') : _('No activity recorded yet'))));
 		}
 
 		var lastDay = null;

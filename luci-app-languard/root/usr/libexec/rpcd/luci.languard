@@ -425,6 +425,7 @@ function methods.knownadd(mac)
 	-- accepting a device also clears any block it may have
 	local st = load_state()
 	if st[mac] then
+		IDX.audit("unblock", mac, st[mac].ip, "allowed by user (" .. tostring(st[mac].source) .. ")")
 		st[mac] = nil
 		save_state(st)
 		render_rules(st)
@@ -469,6 +470,7 @@ function methods.wladd(mac)
 	-- a trusted device must not stay blocked
 	local st = load_state()
 	if st[mac] then
+		IDX.audit("unblock", mac, st[mac].ip, "allowed by user (" .. tostring(st[mac].source) .. ")")
 		st[mac] = nil
 		save_state(st)
 		render_rules(st)
@@ -492,6 +494,22 @@ end
 local function load_panic()
 	local p = load_json_map(PANIC_FILE, function() return { on = false } end)
 	return p
+end
+
+function methods.blockaudit(limit)
+	local n = tonumber(limit) or 200
+	local all = read_all(STATE_DIR .. "/block-audit.log") or ""
+	local lines = {}
+	for line in all:gmatch("[^\n]+") do lines[#lines + 1] = line end
+	local out = {}
+	local first = math.max(1, #lines - n + 1)
+	for i = #lines, first, -1 do
+		local ts, kind, mac, ip, note = lines[i]:match("^([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t(.*)$")
+		if kind then
+			out[#out + 1] = { ts = ts, kind = kind, mac = mac, ip = ip, note = note }
+		end
+	end
+	return { success = true, running = true, events = out, count = #out }
 end
 
 function methods.panicstate()
@@ -527,16 +545,22 @@ function methods.panic(on_v)
 					host = (statics[mac] and statics[mac].host) or (leases[mac] and leases[mac].host) or nil,
 					ip = (leases[mac] and leases[mac].ip) or (statics[mac] and statics[mac].ip) or nil,
 				}
+				IDX.audit("block", mac, state[mac].ip, "panic")
 				changed = true
 			end
 		end
 		p.on = true
+		IDX.audit("panic", "-", "-", "on")
 		p.since = p.since or os.time()
 	else
 		for mac, meta in pairs(state) do
-			if meta.source == "panic" then state[mac] = nil; changed = true end
+			if meta.source == "panic" then
+				IDX.audit("unblock", mac, meta.ip, "panic off")
+				state[mac] = nil; changed = true
+			end
 		end
 		p.on = false
+		IDX.audit("panic", "-", "-", "off")
 		p.since = nil
 	end
 	for _, meta in pairs(state) do if meta.source == "panic" then count = count + 1 end end
@@ -1499,6 +1523,28 @@ end
 -- are not plain domains (substrings, wildcards, ports) stay in short lists.
 -- Lua 5.1 allows 200 locals per chunk, so the index lives in one table
 local IDX = {}
+
+-- 谁在什么时候因为什么被封/解封。没有这个,事后只能靠猜。
+IDX.audit = function(kind, mac, ip, note)
+	local path = STATE_DIR .. "/block-audit.log"
+	local f = io.open(path, "a")
+	if not f then return end
+	f:write(string.format("%s\t%s\t%s\t%s\t%s\n", os.date("%Y-%m-%d %H:%M:%S"),
+		kind, mac or "-", ip or "-", ((note or ""):gsub("[\r\n]+", " "))))
+	f:close()
+	local probe = io.open(path, "r")
+	local size = 0
+	if probe then size = probe:seek("end") or 0; probe:close() end
+	if size > 262144 then
+		local all = read_all(path) or ""
+		local lines = {}
+		for line in all:gmatch("[^\n]+") do lines[#lines + 1] = line end
+		local keep = {}
+		for i = math.max(1, #lines - 1000), #lines do keep[#keep + 1] = lines[i] end
+		local w = io.open(path, "w")
+		if w then w:write(table.concat(keep, "\n"), "\n"); w:close() end
+	end
+end
 
 function IDX.build(apps)
 	local idx = { suffix = {}, label = {}, substr = {}, port = {} }
@@ -3740,6 +3786,7 @@ function methods.block(mac, host, ip, source, minutes)
 		ip = (ip ~= "" and ip) or (l and l.ip) or (s and s.ip) or (prev and prev.ip) or nil,
 	}
 	if not save_state(state) then return err("cannot write state") end
+	IDX.audit("block", mac, state[mac].ip, state[mac].source .. (state[mac].expires and " (temporary)" or ""))
 	if not render_rules(state) then return err("cannot write rules") end
 	reload_firewall()
 	local c = collect_devices()
@@ -3753,6 +3800,7 @@ function methods.unblock(mac)
 	if not mac then return err("invalid MAC") end
 	local state = load_state()
 	if state[mac] == nil then return err("not blocked") end
+	IDX.audit("unblock", mac, state[mac].ip, "manual")
 	state[mac] = nil
 	save_state(state)
 	local ips = load_ipstate()
@@ -4884,6 +4932,7 @@ if arg[1] == "list" then
 		wllist      = {},
 		wladd       = { mac = "" },
 		wldel       = { mac = "" },
+		blockaudit  = { limit = "" },
 		panicstate  = {},
 		panic       = { on_ = "" },
 		trend       = {},
@@ -5075,6 +5124,8 @@ elseif arg[1] == "call" then
 		res = methods.wladd(req.mac)
 	elseif name == "wldel" then
 		res = methods.wldel(req.mac)
+	elseif name == "blockaudit" then
+		res = methods.blockaudit(req.limit)
 	elseif name == "panicstate" then
 		res = methods.panicstate()
 	elseif name == "panic" then
