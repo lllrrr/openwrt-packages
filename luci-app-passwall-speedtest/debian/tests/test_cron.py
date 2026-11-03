@@ -245,6 +245,23 @@ class TaskWriteTests(unittest.TestCase):
         self.assertTrue(self.written.rstrip().endswith(
             "15 6 * * * %s run replace" % cron.cli_command()))
 
+    def test_add_appends_start_task(self):
+        # The panel offers start for every added task, so the crontab manager
+        # must accept it alongside retest/test/replace.
+        first, second = self._patches()
+        with first, second:
+            cron.add_task("0 */6 * * *", "start")
+        self.assertTrue(self.written.rstrip().endswith(
+            "0 */6 * * * %s run start" % cron.cli_command()))
+
+    def test_save_switches_task_to_start(self):
+        first, second = self._patches()
+        with first, second:
+            cron.save_task(self.lines[3], "0 4 * * *", enabled=True,
+                           mode="start")
+        self.assertIn("0 4 * * * /usr/local/bin/cfpick run start",
+                      self.written.splitlines())
+
     def test_add_rejects_duplicate(self):
         self.lines.append("15 6 * * * %s run replace" % cron.cli_command())
         first, second = self._patches()

@@ -213,6 +213,9 @@ table.data td.ip { font-family: var(--mono); }
 }
 .node-picker-list label.check { flex-direction: row; align-items: center; gap: 6px; font-size: 0.78rem; font-weight: 500; }
 .cron-table td .node-picker { min-width: 150px; }
+/* 国家码多选：沿用 node-picker 的交互，选项排两列，少滚动。 */
+.country-picker { min-width: 150px; }
+.country-picker .node-picker-list { grid-template-columns: repeat(2, minmax(96px, 1fr)); min-width: 240px; }
 table.data tr.best td { font-weight: 600; }
 table.data .empty, .empty-note { color: var(--muted); text-align: center; padding: 22px; }
 .hidden { display: none !important; }
@@ -222,6 +225,9 @@ table.data .empty, .empty-note { color: var(--muted); text-align: center; paddin
 .nodes-table input[type="text"] { min-width: 240px; }
 .nodes-table input.ddns-input { min-width: 220px; font-family: var(--mono); font-size: 0.78rem; }
 .nodes-table input.link-input { min-width: 420px; font-family: var(--mono); font-size: 0.76rem; }
+/* 表格自动布局下 select 的 width:100% 会把 min-content 压成一个箭头宽，
+   IP 列表下拉因此显示不全；这里按内容撑开并给下限。 */
+.nodes-table select { width: auto; min-width: 170px; max-width: 240px; }
 .nodes-table .row-actions { display: flex; gap: 6px; }
 .badge {
   display: inline-block; padding: 1px 7px; border-radius: 999px;

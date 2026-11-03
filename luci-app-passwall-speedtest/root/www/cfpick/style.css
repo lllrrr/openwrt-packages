@@ -172,6 +172,7 @@ table.data td.empty { color: var(--muted); text-align: center; padding: 20px; }
 table.data tr.best td { font-weight: 650; }
 table.data td.cmd { font-family: var(--mono); font-size: 0.76rem; word-break: break-all; }
 table.data td input[type="text"], table.data td input[type="number"] { min-width: 110px; }
+table.data td select { width: auto; min-width: 150px; max-width: 240px; }
 table.data td input.regions { min-width: 150px; font-family: var(--mono); }
 .task-actions { display: inline-flex; gap: 6px; align-items: center; }
 .task-badge {
@@ -225,6 +226,9 @@ table.data td .schedule-editor { flex-wrap: nowrap; min-width: 206px; }
 }
 .node-picker-list label.check { flex-direction: row; align-items: center; gap: 6px; font-size: 0.78rem; }
 table.data td .node-picker { min-width: 150px; }
+/* 国家码多选：沿用 node-picker 的交互，选项排两列，少滚动。 */
+.country-picker { min-width: 150px; }
+.country-picker .node-picker-list { grid-template-columns: repeat(2, minmax(96px, 1fr)); min-width: 240px; }
 
 /* core module cards */
 .badge {

@@ -646,6 +646,66 @@
 	}
 
 	// ── IP lists ────────────────────────────────────────────────────────
+	// 与 LuCI 设置页「国家过滤」保持一致；源列表里出现列表外的两位码时，
+	// buildCountryPicker 会把它们补进选项，避免保存时被悄悄清掉。
+	const COUNTRY_CODES = [
+		['JP', '日本'], ['SG', '新加坡'], ['KR', '韩国'], ['HK', '香港'],
+		['TW', '台湾'], ['TH', '泰国'], ['VN', '越南'], ['ID', '印尼'],
+		['PH', '菲律宾'], ['MY', '马来西亚'], ['IN', '印度'], ['KH', '柬埔寨'],
+		['DE', '德国'], ['NL', '荷兰'], ['FR', '法国'], ['GB', '英国'],
+		['FI', '芬兰'], ['SE', '瑞典'], ['CH', '瑞士'], ['RU', '俄罗斯'],
+		['TR', '土耳其'], ['UA', '乌克兰'], ['US', '美国'], ['CA', '加拿大'],
+		['BR', '巴西'], ['AU', '澳大利亚'], ['AE', '阿联酋'], ['ZA', '南非'],
+	];
+
+	// 折叠式国家码多选（复用 node-picker 的样式与交互）。
+	function buildCountryPicker(selected) {
+		const details = document.createElement('details');
+		details.className = 'node-picker country-picker';
+		const summary = document.createElement('summary');
+		const list = document.createElement('div');
+		list.className = 'node-picker-list';
+
+		const known = new Set(COUNTRY_CODES.map((entry) => entry[0]));
+		const chosen = [];
+		(selected || []).forEach((code) => {
+			const value = String(code || '').trim().toUpperCase();
+			if (value && chosen.indexOf(value) < 0) chosen.push(value);
+		});
+		const options = COUNTRY_CODES.concat(
+			chosen.filter((code) => !known.has(code)).map((code) => [code, '自定义']));
+
+		options.forEach((entry) => {
+			const label = document.createElement('label');
+			label.className = 'check';
+			const box = document.createElement('input');
+			box.type = 'checkbox';
+			box.value = entry[0];
+			box.checked = chosen.indexOf(entry[0]) >= 0;
+			const text = document.createElement('span');
+			text.textContent = entry[0] + ' ' + entry[1];
+			label.appendChild(box);
+			label.appendChild(text);
+			list.appendChild(label);
+		});
+
+		details.appendChild(summary);
+		details.appendChild(list);
+		details._values = () => Array.from(
+			list.querySelectorAll('input[type="checkbox"]:checked'))
+			.map((box) => box.value);
+		function sync() {
+			const values = details._values();
+			summary.textContent = values.length ? values.join(' ') : '全部';
+			summary.title = values.length
+				? values.join(' ')
+				: '不限制国家，保留该端口下的全部 IP';
+		}
+		details.addEventListener('change', sync);
+		sync();
+		return details;
+	}
+
 	function renderIpLists() {
 		const body = $('#iplists-body');
 		if (!body) return;
@@ -672,13 +732,8 @@
 			tr.appendChild(nameCell);
 
 			const regionCell = document.createElement('td');
-			const regions = document.createElement('input');
-			regions.type = 'text';
-			regions.value = (list.regions || []).join(' ');
-			regions.placeholder = 'JP SG KR（留空 = 全部）';
-			regions.addEventListener('input', () => {
-				list.regions = regions.value.split(/[\s,]+/).filter(Boolean).map((code) => code.toUpperCase());
-			});
+			const regions = buildCountryPicker(list.regions || []);
+			regions.addEventListener('change', () => { list.regions = regions._values(); });
 			regionCell.appendChild(regions);
 			tr.appendChild(regionCell);
 

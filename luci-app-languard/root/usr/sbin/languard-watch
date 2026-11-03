@@ -82,7 +82,7 @@ main() {
 
 	# A live instance wins: never kill a working watcher just because we started.
 	if [ -f "$PIDFILE" ]; then
-		OLD=$(cat "$PIDFILE" 2>/dev/null)
+		OLD=$(awk '{print $1}' "$PIDFILE" 2>/dev/null)
 		if [ -n "$OLD" ] && [ "$OLD" != "$$" ] && kill -0 "$OLD" 2>/dev/null; then
 			logger -t "$LOG_TAG" "already running (pid $OLD), exiting"
 			exit 0
@@ -98,16 +98,20 @@ main() {
 		grep -q "languard-watch" "/proc/$_p/cmdline" 2>/dev/null && kill -9 "$_p" 2>/dev/null
 	done
 
-	echo $$ > "$PIDFILE"
+	# 只回收上一任 watcher 留下的那个 logread。以前按 ps 全表扫,会把别的
+	# 包自己的 logread -f 一起杀掉。pidfile 里记着 "watcher logread" 两段。
+	_old_l=$(awk '{print $2}' "$PIDFILE" 2>/dev/null)
+	if [ -n "$_old_l" ]; then
+		_pp=$(awk '{print $4}' "/proc/$_old_l/stat" 2>/dev/null)
+		[ "$_pp" = "1" ] && kill -9 "$_old_l" 2>/dev/null
+	fi
 
-	# Reap `logread -f` children orphaned by previously killed watchers. They
-	# are reparented to init and would otherwise accumulate forever.
-	for _p in $(ps w 2>/dev/null | grep "[l]ogread -f" | awk '{print $1}'); do
-		_pp=$(awk '{print $4}' "/proc/$_p/stat" 2>/dev/null)
-		[ "$_pp" = "1" ] && kill -9 "$_p" 2>/dev/null
+	# 关闭时不能 exit:procd 会把重启配额耗光,用户再打开就永远起不来。
+	# 留在原地等开关变化。
+	while ! enabled; do
+		logger -t "$LOG_TAG" "automatic protection is off; waiting"
+		sleep 30
 	done
-
-	enabled || { logger -t "$LOG_TAG" "disabled, exiting"; exit 0; }
 	local th
 	th=$(threshold)
 	logger -t "$LOG_TAG" "started (threshold=$th)"
@@ -125,6 +129,7 @@ main() {
 	mkfifo "$PIPE" 2>/dev/null || { logger -t "$LOG_TAG" "cannot create fifo"; exit 1; }
 	logread -f > "$PIPE" 2>/dev/null &
 	LRPID=$!
+	echo "$$ $LRPID" > "$PIDFILE"
 
 	# Reconcile scheduled blocks once a minute. Runs in a child so it cannot
 	# block the log reader; the trap below takes it down with us.
@@ -202,6 +207,8 @@ main() {
 		[ -n "$user" ] || user="(unknown)"
 
 		log_event "$kind" failure "$ip" "$user" "$detail"
+		# 总开关每轮都要看:面板关掉之后,运行中的 watcher 不能再累积计数
+		enabled || continue
 		enabled_kind "$kind" || continue
 		# re-read on every event: the panel can change it without a restart
 		count_ip "$ip" "$(threshold)" "$kind"

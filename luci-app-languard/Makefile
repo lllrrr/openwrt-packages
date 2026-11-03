@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-languard
-PKG_VERSION:=2.23.2
+PKG_VERSION:=2.36.1
 PKG_RELEASE:=1
 
 PKG_LICENSE:=Apache-2.0
@@ -23,6 +23,9 @@ define Package/luci-app-languard/install
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/root/usr/libexec/rpcd/luci.languard $(1)/usr/libexec/rpcd/
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/root/usr/sbin/languard-watch $(1)/usr/sbin/
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/root/etc/init.d/languard $(1)/etc/init.d/
+	# 后端拆出的模块:luci.mk 只拷贝 root/ 的目录结构,文件权限要显式设置
+	$(INSTALL_DIR) $(1)/usr/lib/lua/languard
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/root/usr/lib/lua/languard/*.lua $(1)/usr/lib/lua/languard/
 endef
 
 include $(TOPDIR)/feeds/luci/luci.mk

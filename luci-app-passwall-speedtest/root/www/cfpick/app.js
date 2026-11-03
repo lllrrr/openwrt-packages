@@ -1516,6 +1516,74 @@
 			.replace(/　/g, ' ');
 	}
 
+	// 与 LuCI 设置页、Debian 版一致的国家码集合；列表外的两位码会作为
+	// 「自定义」保留，避免保存时被清掉。
+	const COUNTRY_CODES = [
+		['JP', '日本'], ['SG', '新加坡'], ['KR', '韩国'], ['HK', '香港'],
+		['TW', '台湾'], ['TH', '泰国'], ['VN', '越南'], ['ID', '印尼'],
+		['PH', '菲律宾'], ['MY', '马来西亚'], ['IN', '印度'], ['KH', '柬埔寨'],
+		['DE', '德国'], ['NL', '荷兰'], ['FR', '法国'], ['GB', '英国'],
+		['FI', '芬兰'], ['SE', '瑞典'], ['CH', '瑞士'], ['RU', '俄罗斯'],
+		['TR', '土耳其'], ['UA', '乌克兰'], ['US', '美国'], ['CA', '加拿大'],
+		['BR', '巴西'], ['AU', '澳大利亚'], ['AE', '阿联酋'], ['ZA', '南非']
+	];
+
+	// 折叠式国家码多选，复用 node-picker 的样式与交互。
+	function buildCountryPicker(selected) {
+		const details = el('details', { class: 'node-picker country-picker' });
+		const summary = el('summary');
+		const list = el('div', { class: 'node-picker-list' });
+		const known = {};
+
+		COUNTRY_CODES.forEach((entry) => { known[entry[0]] = true; });
+
+		const chosen = [];
+		const source = Array.isArray(selected)
+			? selected
+			: String(selected || '').split(/[\s,]+/);
+
+		source.forEach((code) => {
+			const value = String(code || '').trim().toUpperCase();
+
+			if (value && chosen.indexOf(value) < 0)
+				chosen.push(value);
+		});
+
+		COUNTRY_CODES.concat(chosen
+			.filter((code) => !known[code])
+			.map((code) => [code, '自定义'])).forEach((entry) => {
+			list.appendChild(el('label', { class: 'check' }, [
+				el('input', {
+					type: 'checkbox',
+					value: entry[0],
+					checked: chosen.indexOf(entry[0]) >= 0
+				}),
+				el('span', { text: entry[0] + ' ' + entry[1] })
+			]));
+		});
+
+		details.appendChild(summary);
+		details.appendChild(list);
+
+		details._values = () => Array.prototype.slice.call(
+			list.querySelectorAll('input[type="checkbox"]:checked'))
+			.map((box) => box.value);
+
+		const sync = () => {
+			const values = details._values();
+
+			summary.textContent = values.length ? values.join(' ') : '全部';
+			summary.title = values.length
+				? values.join(' ')
+				: '不限制国家，保留该端口下的全部 IP';
+		};
+
+		list.addEventListener('change', sync);
+		sync();
+
+		return details;
+	}
+
 	function renderIpLists() {
 		const body = $('#cfg-iplists-body');
 		if (!body)
@@ -1526,12 +1594,12 @@
 		state.ipLists.forEach((item) => {
 			const enabled = el('input', { type: 'checkbox', checked: !!item.enabled });
 			const name = el('input', { type: 'text', value: item.name || '', placeholder: '名称' });
-			const regions = el('input', { type: 'text', class: 'regions', value: item.regions || '', placeholder: 'JP SG KR' });
+			const regions = buildCountryPicker(item.regions || '');
 			const port = el('input', { type: 'number', value: item.port || '443', min: '1', max: '65535' });
 
 			enabled.addEventListener('change', () => { item.enabled = enabled.checked; });
 			name.addEventListener('input', () => { item.name = name.value; });
-			regions.addEventListener('input', () => { item.regions = regions.value; });
+			regions.addEventListener('change', () => { item.regions = regions._values(); });
 			port.addEventListener('input', () => { item.port = port.value; });
 
 			body.appendChild(el('tr', {}, [

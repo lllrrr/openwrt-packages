@@ -169,11 +169,19 @@ function niceStep(range, target){
   else s = 10;
   return s*mag;
 }
-function fmtTick(v, su){
-  var x = v/su.div, s;
-  if (Math.abs(x) >= 100) s = Math.round(x).toString();
-  else if (Math.abs(x) >= 10) s = (Math.round(x*10)/10).toString().replace(/\.0$/,'');
-  else s = (Math.round(x*1000)/1000).toString().replace(/\.?0+$/,'');
+// 传入的 v 已经是"显示单位"下的值（drawGrid 里 step/yMax 都已除过 div），不能再除 su.div。
+// 小数位数由「刻度步长」决定：步长 0.2 就全显示 1 位（0.0 / 0.2 / … / 2.0），
+// 这样同一根轴上数字宽度一致、右对齐才整齐。
+function stepDecimals(step){
+  if (!isFinite(step) || step <= 0) return 0;
+  var s = step.toFixed(10).replace(/0+$/, '').replace(/\.$/, '');
+  var p = s.indexOf('.');
+  return p < 0 ? 0 : (s.length - p - 1);
+}
+function fmtTick(v, su, dec){
+  if (dec === undefined) dec = 0;
+  var s = v.toFixed(dec);
+  if (/^-0(\.0+)?$/.test(s)) s = (0).toFixed(dec);
   return s + ' ' + su.unit;
 }
 function pad2(x){ return x<10 ? '0'+x : ''+x; }
@@ -733,6 +741,7 @@ function draw(){
 }
 
 function drawGrid(svg, W, H, P, iw, ih, yMax, step, su){
+  var dec = stepDecimals(step);
   for (var v=0; v<=yMax+1e-9; v+=step){
     var y = P.t + ih - ih*(v/yMax);
     svg.appendChild(el('line', {
@@ -741,7 +750,7 @@ function drawGrid(svg, W, H, P, iw, ih, yMax, step, su){
     }));
     svg.appendChild(el('text', {
       x:P.l-8, y:(y+3.5).toFixed(1), fill:'var(--muted)', 'font-size':'10', 'text-anchor':'end'
-    })).textContent = fmtTick(v, su);
+    })).textContent = fmtTick(v, su, dec);
   }
 }
 
@@ -752,6 +761,7 @@ function emptyState(svg, W, H){
   var su = isRate ? {div:1, unit:'Mbps'} : {div:1, unit:'GB'};
   var yMax = isRate ? 100 : 10;
   var stp = yMax / 4;
+  var dec = stepDecimals(stp);
 
   for (var i=0;i<=4;i++){
     var v = stp * i;
@@ -762,7 +772,7 @@ function emptyState(svg, W, H){
     }));
     svg.appendChild(el('text', {
       x:P.l-8, y:(y+3.5).toFixed(1), fill:'var(--muted)', 'font-size':'10', 'text-anchor':'end'
-    })).textContent = fmtTick(v, su);
+    })).textContent = fmtTick(v, su, dec);
   }
 
   svg.appendChild(el('line', {

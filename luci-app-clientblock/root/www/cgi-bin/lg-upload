@@ -29,7 +29,22 @@ fi
 dir=/etc/languard/uploads
 mkdir -p "$dir"
 out="$dir/$name"
-cat > "$out" || {
+# 上限 8 MB:flash 只有几百 MB,内网任何设备都能调这个接口
+if [ -n "${CONTENT_LENGTH:-}" ] && [ "$CONTENT_LENGTH" -gt 8388608 ] 2>/dev/null; then
+	printf 'Status: 413 Payload Too Large\r\n'
+	printf 'Content-Type: application/json\r\n\r\n'
+	printf '{"error":"too large"}'
+	exit 0
+fi
+head -c 8388609 > "$out.$$" 2>/dev/null
+if [ "$(wc -c < "$out.$$" 2>/dev/null || echo 0)" -gt 8388608 ]; then
+	rm -f "$out.$$"
+	printf 'Status: 413 Payload Too Large\r\n'
+	printf 'Content-Type: application/json\r\n\r\n'
+	printf '{"error":"too large"}'
+	exit 0
+fi
+mv "$out.$$" "$out" 2>/dev/null || {
 	printf 'Status: 500 Internal Server Error\r\n'
 	printf 'Content-Type: application/json\r\n\r\n'
 	printf '{"error":"write failed"}'

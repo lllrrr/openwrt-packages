@@ -12,6 +12,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from cfpick import __version__
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -132,7 +134,7 @@ class WebTests(unittest.TestCase):
     def test_app_update_api(self):
         status, data = self.request("/api/app")
         self.assertEqual(status, 200)
-        self.assertEqual(data["version"], "1.0.12")
+        self.assertEqual(data["version"], __version__)
         self.assertIn("source_dir", data)
         self.assertIn("update", data)
         self.assertFalse(data["manageable"])

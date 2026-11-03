@@ -17,7 +17,7 @@ END = "# <<< cfpick <<<"
 # Marker for a task disabled from the web panel.  The original schedule and
 # command stay on the line, so the panel can show and re-enable it.
 DISABLED_PREFIX = "# [cfpick-disabled] "
-RUN_MODES = ("retest", "test", "replace")
+RUN_MODES = ("start", "retest", "test", "replace")
 # Cron lines select nodes with ``--node=<percent-encoded-name>``.  Encoding
 # keeps names with spaces/quotes shell-safe without any quoting rules of our
 # own, so the flag can be removed again with a plain regex.
