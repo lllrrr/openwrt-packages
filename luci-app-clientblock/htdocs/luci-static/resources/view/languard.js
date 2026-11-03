@@ -2237,9 +2237,11 @@ return view.extend({
 			// the auth method is its own column now; drop it from the detail text
 			var reason = String(e.detail || '').replace(/^auth=\w+\s*/, '').trim();
 
-			var cc = e.geo ? String(e.geo).split('|')[4] : '';
+			// 国家码太省了,写国家名;城市和运营商留在 title 里
+			var gp = e.geo ? String(e.geo).split('|') : [];
+			var gname = (gp[0] || '').trim() || (gp[4] || '').trim();
 			var geoCell = e.geo
-				? E('span', { 'class': 'cb-tag', 'title': fmtGeo(e.geo) }, cc || '?')
+				? E('span', { 'class': 'cb-tag', 'title': fmtGeo(e.geo), 'style': 'white-space:nowrap' }, gname || '?')
 				: '';
 
 			var key = e.ts + '|' + e.ip + '|' + e.kind + '|' + e.result;

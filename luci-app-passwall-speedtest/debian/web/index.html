@@ -102,6 +102,19 @@
       </div>
       <p class="muted" id="result-time"></p>
     </div>
+
+    <div class="card">
+      <div class="card-head"><h2>已设置的任务</h2></div>
+      <p class="muted">这里显示 cfpick 定时任务，可直接启用/停用；修改计划、类型、节点或增删请到「设置」页。所有任务都是普通 crontab 行。</p>
+      <div class="table-wrap">
+        <table class="data cron-table" id="ov-cron-table">
+          <thead>
+            <tr><th>状态</th><th>计划</th><th>任务</th><th>节点</th><th>命令</th></tr>
+          </thead>
+          <tbody id="ov-cron-body"><tr><td colspan="5" class="empty">加载中…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
   </section>
 
   <!-- ── Nodes ──────────────────────────────────────────────────── -->
@@ -228,62 +241,40 @@
       </div>
 
       <div class="card">
-        <div class="card-head"><h2>定时任务</h2></div>
-        <div class="grid three">
-          <label class="check"><input id="schedule_enabled" type="checkbox"> 启用定时测速</label>
-          <label>常用频率
-            <select id="schedule_preset">
-              <option value="custom">自定义</option>
-              <option value="hourly">每小时（整点）</option>
-              <option value="half-hourly">每 30 分钟</option>
-              <option value="6h">每 6 小时</option>
-              <option value="12h">每 12 小时</option>
-              <option value="daily">每天 03:00</option>
-              <option value="weekly">每周一 03:00</option>
-              <option value="monthly">每月 1 日 03:00</option>
-            </select>
-          </label>
-        </div>
-        <div class="grid five cron-grid">
-          <label>分钟 <input id="schedule_minute" type="text" spellcheck="false" placeholder="0"></label>
-          <label>小时 <input id="schedule_hour" type="text" spellcheck="false" placeholder="3"></label>
-          <label>日 <input id="schedule_day" type="text" spellcheck="false" placeholder="*"></label>
-          <label>月 <input id="schedule_month" type="text" spellcheck="false" placeholder="*"></label>
-          <label>星期 <input id="schedule_weekday" type="text" spellcheck="false" placeholder="*"></label>
-        </div>
-        <p class="muted">
-          标准五段 cron：分 时 日 月 星期，支持 <code>*</code>、数字、范围
-          <code>1-5</code>、列表 <code>1,2</code>、步长 <code>*/6</code>，月份和星期也
-          可以用 <code>jan-dec</code> / <code>sun-sat</code>。多个值用<b>逗号</b>分隔，
-          字段内不要用空格。星期 <code>0</code> 和 <code>7</code> 都表示周日；
-          「日」和「星期」同时限定时，cron 是“或”关系。
-        </p>
-        <p class="muted">即将写入：
-          <code id="schedule-preview">0 3 * * *</code>
-          <span>（保存配置时以幂等方式写入 crontab，只维护带 <code>cfpick</code> 标记的块）</span>
-        </p>
-      </div>
-
-      <div class="card">
         <div class="card-head">
-          <h2>已设置的任务</h2>
+          <h2>定时任务</h2>
           <div class="card-actions">
             <span id="cron-note" class="muted"></span>
             <button type="button" class="btn small" id="btn-cron-refresh">刷新</button>
           </div>
         </div>
         <p class="muted">
-          只读列出系统 cron：当前用户及其它用户的 crontab、<code>/etc/crontab</code>、
-          <code>/etc/cron.d</code>，以及 <code>/etc/cron.{hourly,daily,weekly,monthly}</code> 下的可执行脚本。
-          标记「本程序」的一行由上方定时任务配置维护，其余任务本程序不会改动。
+          显示与本程序相关的 cron 任务（当前用户的 crontab 可直接修改，<code>/etc/crontab</code>
+          与 <code>/etc/cron.d</code> 中的条目只读）。所有任务都是普通 crontab 行，可改计划、
+          类型、节点或启停；没有单独的主任务。
         </p>
         <div class="table-wrap">
           <table class="data cron-table" id="cron-table">
             <thead>
-              <tr><th>来源</th><th>计划</th><th>任务</th><th></th></tr>
+              <tr><th>启用</th><th>计划</th><th>任务</th><th>节点</th><th>命令</th><th>操作</th></tr>
             </thead>
-            <tbody id="cron-body"><tr><td colspan="4" class="empty">加载中…</td></tr></tbody>
+            <tbody id="cron-body"><tr><td colspan="6" class="empty">加载中…</td></tr></tbody>
           </table>
+        </div>
+        <div id="cron-add-form" class="grid task-add">
+          <label>计划 <span id="cron-add-schedule" class="schedule-host"></span></label>
+          <label>任务
+            <select id="cron-add-mode">
+              <option value="start">完整测速并写回（start）</option>
+              <option value="retest">复测现有最优并写回（retest）</option>
+              <option value="test">仅测速，不写回（test）</option>
+              <option value="replace">仅写回现有结果（replace）</option>
+            </select>
+          </label>
+          <label>节点
+            <span id="cron-add-nodes" class="node-picker-host"></span>
+          </label>
+          <label>&nbsp;<button type="button" class="btn primary" id="btn-cron-add">添加任务</button></label>
         </div>
         <p class="muted" id="cron-errors"></p>
       </div>

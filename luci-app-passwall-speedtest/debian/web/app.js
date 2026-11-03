@@ -156,7 +156,7 @@
 			refreshAppInfo();
 		} else if (name === 'nodes') {
 			refreshNodeInfo();
-		} else if (name === 'settings') {
+		} else if (name === 'settings' || name === 'overview') {
 			refreshCronTasks();
 		}
 	}
@@ -697,60 +697,490 @@
 	}
 
 	// ── scheduled tasks ─────────────────────────────────────────────────
+	const SCHEDULE_MODES = [
+		['hourly', '每小时'],
+		['half-hourly', '每 30 分钟'],
+		['6h', '每 6 小时'],
+		['12h', '每 12 小时'],
+		['daily', '每天'],
+		['weekly', '每周'],
+		['monthly', '每月'],
+		['custom', '自定义'],
+	];
+	const TASK_MODES = [
+		['start', '完整测速并写回（start）'],
+		['retest', '复测现有最优并写回（retest）'],
+		['test', '仅测速，不写回（test）'],
+		['replace', '仅写回现有结果（replace）'],
+	];
+
+	function pad2(value) {
+		return String(value).padStart(2, '0');
+	}
+
+	function cronPartsOf(expression) {
+		const parts = normalizeCronText(expression).trim().split(/\s+/).filter(Boolean);
+		if (parts.length && parts[0].charAt(0) === '@')
+			return { alias: parts[0], parts: [parts[0], '', '', '', ''] };
+		while (parts.length < 5) parts.push('*');
+		return { alias: '', parts: parts.slice(0, 5) };
+	}
+
+	function cronNumber(value) {
+		return /^\d+$/.test(value) ? String(parseInt(value, 10)) : null;
+	}
+
+	function detectSchedule(expression) {
+		const parsed = cronPartsOf(expression);
+		const parts = parsed.parts;
+		if (parsed.alias) return { mode: 'custom', raw: parsed.alias };
+
+		const minute = cronNumber(parts[0]);
+		const hour = cronNumber(parts[1]);
+		const day = cronNumber(parts[2]);
+		const weekday = cronNumber(parts[4]);
+		const dailyTail = parts[2] === '*' && parts[3] === '*' && parts[4] === '*';
+
+		if (parts[0] === '0' && parts[1] === '*' && dailyTail) return { mode: 'hourly' };
+		if (parts[0] === '*/30' && parts[1] === '*' && dailyTail) return { mode: 'half-hourly' };
+		if (parts[0] === '0' && parts[1] === '*/6' && dailyTail) return { mode: '6h' };
+		if (parts[0] === '0' && parts[1] === '*/12' && dailyTail) return { mode: '12h' };
+		if (minute != null && hour != null && dailyTail)
+			return { mode: 'daily', minute: minute, hour: hour };
+		if (minute != null && hour != null && parts[2] === '*' && parts[3] === '*' && weekday != null)
+			return { mode: 'weekly', minute: minute, hour: hour,
+				weekday: weekday === '7' ? '0' : weekday };
+		if (minute != null && hour != null && day != null && parts[3] === '*' && parts[4] === '*')
+			return { mode: 'monthly', minute: minute, hour: hour, day: day };
+		return { mode: 'custom', raw: parts.join(' ') };
+	}
+
+	function taskLabel(command) {
+		const cmd = String(command || '').trim();
+		if (!cmd) return '—';
+		const match = cmd.match(/\b(?:cfpick|cfpick\.sh)\s+(?:run\s+)?(start|retest|test|replace)\b/);
+		if (match) {
+			return {
+				start: '完整测速并写回',
+				retest: '复测现有最优并写回',
+				test: '仅测速，不写回',
+				replace: '仅写回现有结果',
+			}[match[1]];
+		}
+		if (/\baliddns\.sh\b/.test(cmd)) return '阿里云 DDNS';
+		if (/\bastra-dns\.sh\b/.test(cmd)) return 'Astra DNS';
+		if (/\bcfpick\s+ddns\b/.test(cmd)) return 'DDNS 写回';
+		if (/\bcfpick\s+update-core\b/.test(cmd)) return '内核更新';
+		return '自定义';
+	}
+
+	function taskMode(command) {
+		const match = String(command || '').trim()
+			.match(/^(.*?\bcfpick(?:\.sh)?)\s+run\s+(start|retest|test|replace)\b(.*)$/);
+		return match ? { prefix: match[1], mode: match[2], suffix: match[3] } : null;
+	}
+
+	function buildScheduleEditor(expression) {
+		const detected = detectSchedule(expression);
+		const editor = document.createElement('span');
+		editor.className = 'schedule-editor';
+
+		const mode = document.createElement('select');
+		mode.className = 'sched-mode';
+		SCHEDULE_MODES.forEach(([value, label]) => {
+			const option = document.createElement('option');
+			option.value = value;
+			option.textContent = label;
+			mode.appendChild(option);
+		});
+		mode.value = detected.mode;
+
+		const time = document.createElement('input');
+		time.type = 'time';
+		time.className = 'sched-time';
+		time.value = detected.hour != null
+			? pad2(parseInt(detected.hour, 10)) + ':' + pad2(parseInt(detected.minute, 10))
+			: '03:00';
+
+		const weekday = document.createElement('select');
+		weekday.className = 'sched-weekday';
+		[['1', '周一'], ['2', '周二'], ['3', '周三'], ['4', '周四'],
+			['5', '周五'], ['6', '周六'], ['0', '周日']].forEach(([value, label]) => {
+			const option = document.createElement('option');
+			option.value = value;
+			option.textContent = label;
+			weekday.appendChild(option);
+		});
+		weekday.value = detected.weekday || '1';
+
+		const day = document.createElement('input');
+		day.type = 'number';
+		day.className = 'sched-day';
+		day.min = '1';
+		day.max = '31';
+		day.value = detected.day || '1';
+
+		const custom = document.createElement('input');
+		custom.type = 'text';
+		custom.className = 'sched-custom';
+		custom.spellcheck = false;
+		custom.value = detected.raw || normalizeCronText(expression).trim() || '0 3 * * *';
+
+		editor.appendChild(mode);
+		editor.appendChild(time);
+		editor.appendChild(weekday);
+		editor.appendChild(day);
+		editor.appendChild(custom);
+
+		function sync() {
+			const value = mode.value;
+			time.classList.toggle('hidden', value !== 'daily' && value !== 'weekly' && value !== 'monthly');
+			weekday.classList.toggle('hidden', value !== 'weekly');
+			day.classList.toggle('hidden', value !== 'monthly');
+			custom.classList.toggle('hidden', value !== 'custom');
+		}
+		mode.addEventListener('change', sync);
+		sync();
+
+		editor._scheduleValue = function () {
+			const selected = mode.value;
+			if (selected === 'hourly') return '0 * * * *';
+			if (selected === 'half-hourly') return '*/30 * * * *';
+			if (selected === '6h') return '0 */6 * * *';
+			if (selected === '12h') return '0 */12 * * *';
+			if (selected === 'custom')
+				return normalizeCronText(custom.value).trim() || '0 3 * * *';
+
+			const clock = String(time.value || '03:00').split(':');
+			const hour = parseInt(clock[0], 10) || 0;
+			const minute = parseInt(clock[1], 10) || 0;
+			if (selected === 'weekly')
+				return minute + ' ' + hour + ' * * ' + (weekday.value || '1');
+			if (selected === 'monthly')
+				return minute + ' ' + hour + ' ' + (parseInt(day.value, 10) || 1) + ' * *';
+			return minute + ' ' + hour + ' * * *';
+		};
+		return editor;
+	}
+
+	function mountScheduleEditor(hostId, expression) {
+		const host = $('#' + hostId);
+		if (!host) return;
+		const editor = buildScheduleEditor(expression || '0 3 * * *');
+		host.replaceChildren(editor);
+		host._scheduleValue = editor._scheduleValue;
+	}
+
+	function configuredNodes() {
+		const list = [];
+		const seen = new Set();
+		((state.config && state.config.nodes) || []).forEach((node, index) => {
+			const name = (node.name || '').trim() || ('node' + (index + 1));
+			if (seen.has(name)) return;
+			seen.add(name);
+			list.push({ name: name, enabled: node.enabled !== false, stale: false });
+		});
+		return list;
+	}
+
+	// A collapsible checkbox list.  No selection means "every enabled node",
+	// matching the CLI's --node semantics.
+	function buildNodePicker(selected, disabled) {
+		const details = document.createElement('details');
+		details.className = 'node-picker';
+		const summary = document.createElement('summary');
+		const list = document.createElement('div');
+		list.className = 'node-picker-list';
+
+		const nodes = configuredNodes();
+		const known = new Set(nodes.map((node) => node.name));
+		(selected || []).forEach((name) => {
+			if (name && !known.has(name)) {
+				known.add(name);
+				nodes.push({ name: name, enabled: false, stale: true });
+			}
+		});
+		const chosen = new Set(selected || []);
+		nodes.forEach((node) => {
+			const label = document.createElement('label');
+			label.className = 'check';
+			const box = document.createElement('input');
+			box.type = 'checkbox';
+			box.value = node.name;
+			box.checked = chosen.has(node.name);
+			box.disabled = !!disabled;
+			const text = document.createElement('span');
+			text.textContent = node.name + (node.stale
+				? '（已删除）' : (node.enabled ? '' : '（未启用）'));
+			label.appendChild(box);
+			label.appendChild(text);
+			list.appendChild(label);
+		});
+		if (!nodes.length) {
+			const empty = document.createElement('span');
+			empty.className = 'muted';
+			empty.textContent = '还没有配置节点';
+			list.appendChild(empty);
+		}
+
+		details.appendChild(summary);
+		details.appendChild(list);
+		details._nodeValues = () => Array.from(
+			list.querySelectorAll('input[type="checkbox"]:checked'))
+			.map((box) => box.value);
+		function sync() {
+			const values = details._nodeValues();
+			summary.textContent = values.length ? values.join('、') : '全部节点';
+			summary.title = values.length ? values.join('、') : '全部已启用节点';
+		}
+		list.addEventListener('change', sync);
+		sync();
+		return details;
+	}
+
+	function mountNodePicker(hostId, selected) {
+		const host = $('#' + hostId);
+		if (!host) return;
+		const picker = buildNodePicker(selected);
+		host.replaceChildren(picker);
+		host._nodeValues = picker._nodeValues;
+	}
+
+	async function saveCronTask(entry, schedule, enabled, mode, nodes) {
+		const body = { line: entry.line, schedule: schedule, enabled: enabled, mode: mode || '' };
+		// null/undefined keeps the command's existing --node flags untouched;
+		// an empty array explicitly clears them (= all nodes).
+		if (nodes != null) body.nodes = nodes;
+		try {
+			const data = await api('/api/cron/task/save', {
+				method: 'POST',
+				body: body,
+			});
+			renderCronTasks(data);
+			toast(enabled ? '定时任务已保存并启用' : '定时任务已保存并停用');
+		} catch (e) {
+			toast(e.message, true);
+			refreshCronTasks().catch(() => {});
+		}
+	}
+
+	async function deleteCronTask(entry) {
+		if (!confirm('删除定时任务？\n\n' + (entry.schedule || '') + ' ' + (entry.command || '')))
+			return;
+		try {
+			const data = await api('/api/cron/task/delete', {
+				method: 'POST',
+				body: { line: entry.line },
+			});
+			renderCronTasks(data);
+			toast('定时任务已删除');
+		} catch (e) {
+			toast(e.message, true);
+			refreshCronTasks().catch(() => {});
+		}
+	}
+
+	async function addCronTask() {
+		const host = $('#cron-add-schedule');
+		const schedule = host && typeof host._scheduleValue === 'function' ? host._scheduleValue() : '';
+		const modeNode = $('#cron-add-mode');
+		const nodeHost = $('#cron-add-nodes');
+		const nodes = nodeHost && typeof nodeHost._nodeValues === 'function'
+			? nodeHost._nodeValues() : [];
+		if (!schedule) {
+			toast('请填写计划表达式', true);
+			return;
+		}
+		try {
+			const data = await api('/api/cron/task/add', {
+				method: 'POST',
+				body: {
+					schedule: schedule,
+					mode: modeNode ? modeNode.value : 'retest',
+					nodes: nodes,
+				},
+			});
+			renderCronTasks(data);
+			toast('定时任务已添加');
+		} catch (e) {
+			toast(e.message, true);
+		}
+	}
+
 	function renderCronTasks(data) {
 		const body = $('#cron-body');
 		if (!body) return;
 		body.replaceChildren();
-		const entries = (data && data.entries) || [];
-		entries.forEach((entry) => {
+
+		// Every task is an ordinary crontab line; there is no managed main
+		// task to hide or special-case.
+		const tasks = (data && data.tasks) || [];
+		tasks.forEach((entry) => {
+			const writable = !!entry.writable;
 			const tr = document.createElement('tr');
-			if (entry.kind === 'comment' || entry.kind === 'env') {
-				// 注释和环境变量不是任务，占一整行按原样显示。
-				const td = document.createElement('td');
-				td.colSpan = 4;
-				td.className = 'mono cron-raw';
-				td.textContent = entry.line || '';
-				tr.appendChild(td);
-				body.appendChild(tr);
-				return;
+
+			const enabledCell = document.createElement('td');
+			const enabled = document.createElement('input');
+			enabled.type = 'checkbox';
+			enabled.checked = !entry.disabled;
+			enabled.disabled = !writable;
+			enabledCell.appendChild(enabled);
+			tr.appendChild(enabledCell);
+
+			const scheduleCell = document.createElement('td');
+			const schedule = buildScheduleEditor(entry.schedule || '0 3 * * *');
+			schedule.querySelectorAll('select, input').forEach((node) => {
+				node.disabled = !writable;
+			});
+			scheduleCell.appendChild(schedule);
+			tr.appendChild(scheduleCell);
+
+			const taskCell = document.createElement('td');
+			const detected = taskMode(entry.command);
+			let taskSelect = null;
+			if (detected) {
+				taskSelect = document.createElement('select');
+				taskSelect.className = 'task-mode';
+				TASK_MODES.forEach(([value, label]) => {
+					const option = document.createElement('option');
+					option.value = value;
+					option.textContent = label;
+					taskSelect.appendChild(option);
+				});
+				taskSelect.value = detected.mode;
+				taskSelect.disabled = !writable;
+				taskCell.appendChild(taskSelect);
+			} else {
+				taskCell.textContent = taskLabel(entry.command);
 			}
-			const source = document.createElement('td');
-			source.className = 'muted';
-			source.textContent = entry.source || '—';
-			tr.appendChild(source);
+			tr.appendChild(taskCell);
 
-			const schedule = document.createElement('td');
-			schedule.className = 'mono';
-			schedule.textContent = entry.schedule || '—';
-			tr.appendChild(schedule);
+			const nodeCell = document.createElement('td');
+			let nodePicker = null;
+			if (detected) {
+				if (writable) {
+					nodePicker = buildNodePicker(entry.nodes || []);
+					nodeCell.appendChild(nodePicker);
+				} else {
+					nodeCell.className = 'muted';
+					nodeCell.textContent = (entry.nodes && entry.nodes.length)
+						? entry.nodes.join('、') : '全部节点';
+				}
+			} else {
+				nodeCell.className = 'muted';
+				nodeCell.textContent = '—';
+			}
+			tr.appendChild(nodeCell);
 
-			const command = document.createElement('td');
-			command.className = 'mono cron-command';
-			command.textContent = entry.command || entry.line || '';
-			tr.appendChild(command);
+			const commandCell = document.createElement('td');
+			commandCell.className = 'mono cron-command';
+			commandCell.textContent = entry.command || '';
+			tr.appendChild(commandCell);
 
-			const mark = document.createElement('td');
-			if (entry.managed) {
+			const actionCell = document.createElement('td');
+			if (writable) {
+				const actions = document.createElement('div');
+				actions.className = 'row-actions';
+				const save = document.createElement('button');
+				save.type = 'button';
+				save.className = 'btn small primary';
+				save.textContent = '保存';
+				save.addEventListener('click', () => saveCronTask(
+					entry, schedule._scheduleValue(), enabled.checked,
+					taskSelect ? taskSelect.value : '',
+					nodePicker ? nodePicker._nodeValues() : null));
+				const remove = document.createElement('button');
+				remove.type = 'button';
+				remove.className = 'btn small danger';
+				remove.textContent = '删除';
+				remove.addEventListener('click', () => deleteCronTask(entry));
+				actions.appendChild(save);
+				actions.appendChild(remove);
+				actionCell.appendChild(actions);
+			} else {
 				const badge = document.createElement('span');
-				badge.className = 'badge info';
-				badge.textContent = '本程序';
-				mark.appendChild(badge);
+				badge.className = 'badge';
+				badge.textContent = '只读';
+				actionCell.appendChild(badge);
 			}
-			tr.appendChild(mark);
+			tr.appendChild(actionCell);
+
 			body.appendChild(tr);
 		});
-		if (!entries.length) {
+
+		if (!tasks.length) {
 			const tr = document.createElement('tr');
 			const td = document.createElement('td');
-			td.colSpan = 4;
+			td.colSpan = 6;
 			td.className = 'empty';
-			td.textContent = '没有读到已设置的 cron 任务';
+			td.textContent = '暂无与本程序相关的定时任务';
 			tr.appendChild(td);
 			body.appendChild(tr);
 		}
-		const managed = data && data.managed;
-		setText('cron-note', managed && managed.line ? '本程序任务已启用' : '本程序任务未启用');
+
+		setText('cron-note', tasks.length ? (tasks.length + ' 个任务') : '暂无任务');
 		setText('cron-errors', ((data && data.errors) || []).join('；'));
+		renderOverviewCronTasks(tasks);
+	}
+
+	// The overview copy is read-only apart from enable/disable, matching the
+	// LuCI console: every other edit lives on the Settings tab.
+	function renderOverviewCronTasks(tasks) {
+		const body = $('#ov-cron-body');
+		if (!body) return;
+		body.replaceChildren();
+
+		if (!tasks.length) {
+			const tr = document.createElement('tr');
+			const td = document.createElement('td');
+			td.colSpan = 5;
+			td.className = 'empty';
+			td.textContent = '暂无其他定时任务';
+			tr.appendChild(td);
+			body.appendChild(tr);
+			return;
+		}
+
+		tasks.forEach((entry) => {
+			const tr = document.createElement('tr');
+
+			const stateCell = document.createElement('td');
+			const toggle = document.createElement('button');
+			toggle.type = 'button';
+			toggle.className = 'btn small' + (entry.disabled ? '' : ' primary');
+			toggle.textContent = entry.disabled ? '启用' : '停用';
+			toggle.disabled = !entry.writable;
+			toggle.addEventListener('click', () => {
+				const detected = taskMode(entry.command);
+				// entry.disabled === true means the next click enables it.
+				saveCronTask(entry, entry.schedule, entry.disabled,
+					detected ? detected.mode : '',
+					detected ? (entry.nodes || []) : null);
+			});
+			stateCell.appendChild(toggle);
+			tr.appendChild(stateCell);
+
+			const scheduleCell = document.createElement('td');
+			scheduleCell.className = 'mono';
+			scheduleCell.textContent = entry.schedule || '—';
+			tr.appendChild(scheduleCell);
+
+			const taskCell = document.createElement('td');
+			taskCell.textContent = taskLabel(entry.command);
+			tr.appendChild(taskCell);
+
+			const nodeCell = document.createElement('td');
+			nodeCell.textContent = (entry.nodes && entry.nodes.length)
+				? entry.nodes.join('、') : '全部节点';
+			tr.appendChild(nodeCell);
+
+			const commandCell = document.createElement('td');
+			commandCell.className = 'mono cron-command';
+			commandCell.textContent = entry.command || '';
+			tr.appendChild(commandCell);
+
+			body.appendChild(tr);
+		});
 	}
 
 	async function refreshCronTasks() {
@@ -762,25 +1192,6 @@
 	}
 
 	// ── settings form ───────────────────────────────────────────────────
-	const CRON_FIELDS = ['schedule_minute', 'schedule_hour', 'schedule_day',
-		'schedule_month', 'schedule_weekday'];
-	const CRON_LABELS = {
-		schedule_minute: '分钟',
-		schedule_hour: '小时',
-		schedule_day: '日',
-		schedule_month: '月',
-		schedule_weekday: '星期',
-	};
-	const CRON_PRESETS = {
-		hourly: '0 * * * *',
-		'half-hourly': '*/30 * * * *',
-		'6h': '0 */6 * * *',
-		'12h': '0 */12 * * *',
-		daily: '0 3 * * *',
-		weekly: '0 3 * * 1',
-		monthly: '0 3 1 * *',
-	};
-
 	function normalizeCronText(value) {
 		// Chinese IMEs in full-width mode turn "12" into "１２", which looks
 		// like "1 2" and would fail cron validation.  Convert to half-width.
@@ -788,73 +1199,6 @@
 			.replace(/[！-～]/g,
 				(ch) => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
 			.replace(/　/g, ' ');
-	}
-
-	function cronParts() {
-		return CRON_FIELDS.map((id) => {
-			const node = $('#' + id);
-			return node ? normalizeCronText(node.value).trim() : '';
-		});
-	}
-
-	function setCronParts(expression) {
-		const parts = String(expression || '').trim().split(/\s+/);
-		CRON_FIELDS.forEach((id, index) => {
-			const node = $('#' + id);
-			if (node) node.value = normalizeCronText(parts[index] || '*');
-		});
-	}
-
-	function cronExpression() {
-		return cronParts().map((part) => part || '*').join(' ');
-	}
-
-	function updateCronPreview() {
-		const parts = cronParts();
-		const hasSpace = parts.some((part) => /\s/.test(part));
-		setText('schedule-preview', parts.map((part) => part || '*').join(' ') +
-			(hasSpace ? '   ⚠ 字段内不要用空格，多个值请用逗号' : ''));
-	}
-
-	function cronFieldError() {
-		const parts = cronParts();
-		for (let index = 0; index < parts.length; index += 1) {
-			const label = CRON_LABELS[CRON_FIELDS[index]];
-			const value = parts[index];
-			if (!value) return label + '不能为空';
-			if (/\s/.test(value))
-				return label + '字段不能包含空格；多个值请用逗号分隔，例如 1,2';
-			if (!/^[0-9A-Za-z*,/-]+$/.test(value))
-				return label + '字段包含不支持的字符（请用半角数字/字母）';
-		}
-		return '';
-	}
-
-	function matchCronPreset(expression) {
-		const normalized = String(expression || '').trim().replace(/\s+/g, ' ');
-		for (const key of Object.keys(CRON_PRESETS)) {
-			if (CRON_PRESETS[key] === normalized) return key;
-		}
-		return 'custom';
-	}
-
-	function applySchedulePreset() {
-		const select = $('#schedule_preset');
-		const expression = select ? CRON_PRESETS[select.value] : '';
-		if (!expression) return;
-		setCronParts(expression);
-		updateCronPreview();
-	}
-
-	function onCronInput(event) {
-		const node = event && event.currentTarget;
-		if (node) {
-			const normalized = normalizeCronText(node.value);
-			if (normalized !== node.value) node.value = normalized;
-		}
-		const select = $('#schedule_preset');
-		if (select) select.value = matchCronPreset(cronExpression());
-		updateCronPreview();
 	}
 
 	function fillSettings(cfg) {
@@ -889,16 +1233,8 @@
 		set('ddns_ip_count', ddns.ip_count);
 		set('ddns_ttl', ddns.ttl);
 		check('ddns_proxied', cloudflare.proxied);
-		check('schedule_enabled', cfg.schedule.enabled);
-		// Older configs selected between an hour interval and a raw expression.
-		// Show the expression that is actually in effect, then always save the
-		// structured five-field form.
-		let cronExpr = cfg.schedule.custom_cron || '0 3 * * *';
-		if (!cfg.schedule.custom_enabled && cfg.schedule.hour)
-			cronExpr = '0 */' + cfg.schedule.hour + ' * * *';
-		setCronParts(cronExpr);
-		if ($('#schedule_preset')) $('#schedule_preset').value = matchCronPreset(cronExpr);
-		updateCronPreview();
+		// The add form starts with no selection (= all nodes) after a reload.
+		mountNodePicker('cron-add-nodes', []);
 		if ($('#core-type')) $('#core-type').value = cfg.core.type;
 		set('core_dns', cfg.core.dns_nameserver);
 		set('web_listen', cfg.web.listen);
@@ -951,16 +1287,6 @@
 				zone_name: text('ddns_zone_name'),
 				proxied: check('ddns_proxied'),
 			}),
-		});
-		const parts = cronParts();
-		const cronError = cronFieldError();
-		if (cronError) throw new Error(cronError);
-		cfg.schedule = Object.assign({}, cfg.schedule, {
-			enabled: check('schedule_enabled'),
-			custom_enabled: true,
-			custom_cron: parts.join(' '),
-			// Kept for older readers; custom_enabled=true makes it unused.
-			hour: (cfg.schedule && cfg.schedule.hour) || 24,
 		});
 		const corePaths = Object.assign({}, (cfg.core && cfg.core.paths) || {});
 		$$('#core-cards input[data-core-path]').forEach((input) => {
@@ -1463,12 +1789,10 @@
 			saveConfig('设置已保存');
 		});
 		$('#ip_source').addEventListener('change', updateFieldVisibility);
-		$('#schedule_preset').addEventListener('change', applySchedulePreset);
-		CRON_FIELDS.forEach((id) => {
-			const node = $('#' + id);
-			if (node) node.addEventListener('input', onCronInput);
-		});
 		$('#btn-cron-refresh').addEventListener('click', refreshCronTasks);
+		mountScheduleEditor('cron-add-schedule', '0 3 * * *');
+		mountNodePicker('cron-add-nodes', []);
+		$('#btn-cron-add').addEventListener('click', addCronTask);
 		$('#btn-ddns-preview').addEventListener('click', previewDdns);
 		$('#btn-ddns-apply').addEventListener('click', applyDdns);
 

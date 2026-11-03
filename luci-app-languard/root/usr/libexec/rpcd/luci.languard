@@ -3310,6 +3310,18 @@ local function log_read(limit)
 		end
 	end
 	f:close()
+	-- 断开的记录来自 dropbear 的 Exit 行,那里没有认证方式;用同一 IP+用户
+	-- 最近一次成功登录的方式补齐,免得那一列全是 n/a
+	local lastauth = {}
+	for _, e in ipairs(all) do
+		local key = e.ip .. "|" .. e.user
+		if e.result == "success" then
+			local m = e.detail:match("auth=(%w+)")
+			if m then lastauth[key] = m end
+		elseif e.result == "disconnect" and not e.detail:match("^auth=") then
+			if lastauth[key] then e.detail = "auth=" .. lastauth[key] .. " " .. e.detail end
+		end
+	end
 	-- newest first
 	for i = #all, 1, -1 do
 		out[#out + 1] = all[i]

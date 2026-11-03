@@ -151,6 +151,8 @@ main { padding: 22px clamp(16px, 4vw, 40px); max-width: 1280px; margin: 0 auto; 
   margin-bottom: 12px;
 }
 .card-head h2 { margin-right: auto; }
+.card-head h3 { margin-right: auto; font-size: 1rem; }
+.card-subhead { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--border); }
 .card-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .muted { color: var(--muted); font-size: 0.82rem; }
 .error { color: var(--danger); font-size: 0.82rem; min-height: 1em; }
@@ -177,6 +179,40 @@ table.data tbody tr:hover { background: var(--accent-soft); }
 table.data td.ip { font-family: var(--mono); }
 .cron-table td.cron-command { white-space: normal; word-break: break-all; min-width: 260px; }
 .cron-table td.cron-raw { color: var(--muted); white-space: pre-wrap; word-break: break-all; }
+.cron-table td { vertical-align: middle; }
+.cron-table td .schedule-editor { flex-wrap: nowrap; min-width: 206px; }
+.cron-table .row-actions { display: flex; gap: 6px; }
+.schedule-host { display: block; }
+.schedule-editor { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; }
+.schedule-editor select, .schedule-editor input {
+  width: auto; min-height: 32px; padding: 5px 8px; font-size: 0.8rem;
+}
+.schedule-editor .sched-mode { min-width: 108px; }
+.schedule-editor .sched-time { min-width: 92px; }
+.schedule-editor .sched-weekday { min-width: 72px; }
+.schedule-editor .sched-day { width: 70px; min-width: 70px; }
+.schedule-editor .sched-custom { flex: 1; min-width: 160px; font-family: var(--mono); }
+.task-add { margin-top: 12px; align-items: end; }
+.task-mode { min-width: 220px; min-height: 32px; padding: 5px 8px; font-size: 0.8rem; }
+.node-picker-host { display: block; min-width: 0; }
+.node-picker { min-width: 0; max-width: 100%; }
+.node-picker summary {
+  cursor: pointer; list-style: none; border: 1px solid var(--border);
+  background: var(--bg-elev); border-radius: 7px; padding: 6px 9px;
+  font-size: 0.78rem; color: var(--text); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+}
+.node-picker summary::-webkit-details-marker { display: none; }
+.node-picker summary::after { content: " ▾"; color: var(--muted); }
+.node-picker[open] summary::after { content: " ▴"; }
+.node-picker-list {
+  display: grid; gap: 3px; padding: 7px 9px; margin-top: 4px;
+  border: 1px solid var(--border); border-radius: 7px;
+  background: var(--bg-elev); max-height: 190px; overflow-y: auto;
+  min-width: 170px;
+}
+.node-picker-list label.check { flex-direction: row; align-items: center; gap: 6px; font-size: 0.78rem; font-weight: 500; }
+.cron-table td .node-picker { min-width: 150px; }
 table.data tr.best td { font-weight: 600; }
 table.data .empty, .empty-note { color: var(--muted); text-align: center; padding: 22px; }
 .hidden { display: none !important; }

@@ -132,7 +132,7 @@ class WebTests(unittest.TestCase):
     def test_app_update_api(self):
         status, data = self.request("/api/app")
         self.assertEqual(status, 200)
-        self.assertEqual(data["version"], "1.0.9")
+        self.assertEqual(data["version"], "1.0.12")
         self.assertIn("source_dir", data)
         self.assertIn("update", data)
         self.assertFalse(data["manageable"])
@@ -143,11 +143,22 @@ class WebTests(unittest.TestCase):
         status, data = self.request("/api/cron")
         self.assertEqual(status, 200)
         self.assertIn("installed", data)
-        self.assertIn("managed", data)
-        self.assertIn("enabled", data["managed"])
-        self.assertIn("line", data["managed"])
+        # Tasks are ordinary crontab lines; no managed/main-task concept.
+        self.assertNotIn("managed", data)
         self.assertIsInstance(data["entries"], list)
+        self.assertIn("tasks", data)
+        self.assertIsInstance(data["tasks"], list)
+        self.assertIn("writable", data)
+        self.assertIn("run_command", data)
         self.assertIsInstance(data["errors"], list)
+
+    def test_cron_task_write_is_blocked_in_tests(self):
+        # CFPICK_SKIP_CRON=1 keeps the test suite away from the real crontab.
+        status, data = self.request("/api/cron/task/add", method="POST",
+                                    payload={"schedule": "0 3 * * *",
+                                             "mode": "retest"})
+        self.assertEqual(status, 400)
+        self.assertIn("禁止", data["error"])
 
     def test_static_files(self):
         status, text = self.request("/")
@@ -221,7 +232,9 @@ class WebTests(unittest.TestCase):
                                     payload={"config": cfg})
         self.assertEqual(status, 200)
         self.assertEqual(data["config"]["schedule"]["custom_cron"], "0 3 * * *")
-        self.assertTrue(any("cron" in warning for warning in data["warnings"]))
+        # The legacy schedule fields are inert now: saving must not warn or
+        # regenerate any cron task from them.
+        self.assertFalse(any("cron" in warning for warning in data["warnings"]))
 
         fixed = data["config"]
         fixed["schedule"]["custom_cron"] = "15 4 * * 1"
@@ -229,6 +242,18 @@ class WebTests(unittest.TestCase):
                                     payload={"config": fixed})
         self.assertEqual(status, 200)
         self.assertEqual(data["config"]["schedule"]["custom_cron"], "15 4 * * 1")
+
+    def test_schedule_has_no_node_selection(self):
+        # The managed main task always runs every enabled node; node selection
+        # belongs to the additional tasks only.
+        status, data = self.request("/api/config")
+        self.assertEqual(status, 200)
+        cfg = data["config"]
+        cfg["schedule"]["nodes"] = ["whatever"]
+        status, data = self.request("/api/config", method="POST",
+                                    payload={"config": cfg})
+        self.assertEqual(status, 200)
+        self.assertNotIn("nodes", data["config"]["schedule"])
 
     def test_token_auth(self):
         status, data = self.request("/api/config")

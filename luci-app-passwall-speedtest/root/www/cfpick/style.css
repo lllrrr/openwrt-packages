@@ -194,6 +194,9 @@ table.data td input.regions { min-width: 150px; font-family: var(--mono); }
 /* structured schedule editor (frequency + fixed time) */
 .schedule-host { display: block; }
 .schedule-editor { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; }
+/* In the task table keep 频率 + 时间 on one line; the table scrolls if the
+   card is too narrow instead of stacking the controls. */
+table.data td .schedule-editor { flex-wrap: nowrap; min-width: 206px; }
 .schedule-editor select,
 .schedule-editor input { width: auto; min-height: 32px; padding: 5px 8px; font-size: 0.8rem; }
 .schedule-editor .sched-mode { min-width: 108px; }
@@ -201,6 +204,27 @@ table.data td input.regions { min-width: 150px; font-family: var(--mono); }
 .schedule-editor .sched-weekday { min-width: 72px; }
 .schedule-editor .sched-day { width: 70px; min-width: 70px; }
 .schedule-editor .sched-custom { flex: 1; min-width: 160px; font-family: var(--mono); }
+
+/* scheduled-task node selection */
+.node-picker-host { display: block; min-width: 0; }
+.node-picker { min-width: 0; max-width: 100%; }
+.node-picker summary {
+	cursor: pointer; list-style: none; border: 1px solid var(--border);
+	background: var(--bg-elev); border-radius: 7px; padding: 6px 9px;
+	font-size: 0.78rem; color: var(--text); white-space: nowrap;
+	overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+}
+.node-picker summary::-webkit-details-marker { display: none; }
+.node-picker summary::after { content: " ▾"; color: var(--muted); }
+.node-picker[open] summary::after { content: " ▴"; }
+.node-picker-list {
+	display: grid; gap: 3px; padding: 7px 9px; margin-top: 4px;
+	border: 1px solid var(--border); border-radius: 7px;
+	background: var(--bg-elev); max-height: 190px; overflow-y: auto;
+	min-width: 170px;
+}
+.node-picker-list label.check { flex-direction: row; align-items: center; gap: 6px; font-size: 0.78rem; }
+table.data td .node-picker { min-width: 150px; }
 
 /* core module cards */
 .badge {

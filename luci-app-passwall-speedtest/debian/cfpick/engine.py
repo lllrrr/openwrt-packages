@@ -44,10 +44,17 @@ class EngineError(RuntimeError):
 
 
 class Engine:
-    def __init__(self, cfg, logger, mode, binary, core_type, run_dir):
+    def __init__(self, cfg, logger, mode, binary, core_type, run_dir,
+                 node_names=None, full_run=False):
         self.cfg = cfg
         self.log = logger
         self.mode = mode
+        # Empty means "every enabled node"; otherwise only these names run.
+        self.node_names = [str(name).strip() for name in (node_names or [])
+                           if str(name).strip()]
+        # Only a run that covers every configured node may rotate the result
+        # history; a partial run merges its rows into the current file.
+        self.full_run = bool(full_run)
         self.binary = binary
         self.core_type = core_type
         self.run_dir = Path(run_dir)
@@ -89,6 +96,23 @@ class Engine:
         self.log.log("收到终止信号（%s），停止内核进程并退出（保留上一次结果）" % signum)
         self.stop_all_cores()
 
+    def _wait_for_download(self):
+        """Pause probing while another task owns the download slot.
+
+        Downloads compete for the same WAN bandwidth; a task that is still
+        probing would skew the measured throughput.  The wait ends when the
+        other task releases the slot, and honours a stop request.
+        """
+        if not lock.download_active_by_other(os.getpid()):
+            return True
+        self.log.log("另一任务正在下载实测，暂停探测，对方完成后自动继续")
+        while lock.download_active_by_other(os.getpid()):
+            if self.stop_event.is_set():
+                return False
+            time.sleep(0.5)
+        self.log.log("对方下载完成，继续探测")
+        return True
+
     # ── setup ────────────────────────────────────────────────────────────
     def _nodes(self):
         nodes = []
@@ -122,6 +146,21 @@ class Engine:
             raise EngineError(
                 "没有可用的节点：请在「节点」页添加至少一条可用分享链接；"
                 "当前内核 %s 也可能不支持这些节点的协议" % self.core_type)
+        if self.node_names:
+            available = {node["name"] for node in nodes}
+            missing = [name for name in self.node_names if name not in available]
+            if missing:
+                self.log.log("所选节点不存在、未启用或与内核不兼容，已跳过: %s"
+                             % "、".join(missing))
+            nodes = [node for node in nodes if node["name"] in self.node_names]
+            # Renumber slots so SOCKS ports and work directories stay dense.
+            for slot, node in enumerate(nodes, start=1):
+                node["slot"] = slot
+            if not nodes:
+                raise EngineError(
+                    "所选节点没有可运行的项：%s；请检查节点是否已启用、"
+                    "名称是否被修改，以及当前内核 %s 是否支持这些协议"
+                    % ("、".join(self.node_names), self.core_type))
         return nodes
 
     def _assign_ports(self, nodes):
@@ -362,6 +401,8 @@ class Engine:
                 self.log.log("worker [%s] 收到停止信号，跑完当前 IP 即停（已完成 %d/%d）" % (
                     node["name"], index - 1, total))
                 break
+            if not self._wait_for_download():
+                break
             self.log.size_guard()
             probed = index
             keep, sent, recv, loss, avg, reason = self._probe_ip(
@@ -413,6 +454,8 @@ class Engine:
                     break
                 if time.time() >= self.deadline:
                     self.log.log("迭代 [%s] 到达时长上限，跑完当前 IP 即停" % name)
+                    break
+                if not self._wait_for_download():
                     break
                 self.log.size_guard()
                 probed.add(ip)
@@ -595,10 +638,17 @@ class Engine:
 
         when = result.now_text()
         result.append_history(merged, when)
-        result.rotate_results()
-        result.write_result(paths.RESULT_FILE, merged, when)
+        # Full runs replace the whole file (and rotate history); partial runs
+        # replace only their own nodes and keep the other nodes' rows.
+        if self.full_run:
+            result.rotate_results()
+        node_names = [node["name"] for node in nodes]
+        combined = result.merge_result(merged, node_names)
+        if not combined:
+            combined = merged
+        result.write_result(paths.RESULT_FILE, combined, when)
         if self.cfg.get("export", {}).get("json", True):
-            result.export_json(merged, when)
+            result.export_json(combined, when)
 
         # DDNS is opt-in and isolated: a DNS failure must never turn a
         # successful speed test into a failed run.
@@ -614,21 +664,22 @@ class Engine:
                 }
                 self.log.log("DDNS 写入异常: %s" % exc)
 
+        best = combined[0]
         state_fields = {
             "phase": "done",
             "finished_at": int(time.time()),
-            "best_ip": merged[0].ip,
-            "best_latency": round(merged[0].latency, 2),
-            "best_speed": round(merged[0].speed, 2),
+            "best_ip": best.ip,
+            "best_latency": round(best.latency, 2),
+            "best_speed": round(best.speed, 2),
             "last_time": when,
             "error": "",
         }
         if ddns_report is not None:
             state_fields["ddns"] = ddns_report
         lock.write_state(**state_fields)
-        suffix = " %.2f MB/s" % merged[0].speed if merged[0].speed > 0 else ""
+        suffix = " %.2f MB/s" % best.speed if best.speed > 0 else ""
         self.log.log("全部完成，全局最优 IP %s（延迟 %.2fms%s），结果已导出到 %s" % (
-            merged[0].ip, merged[0].latency, suffix, paths.STATE_DIR))
+            best.ip, best.latency, suffix, paths.STATE_DIR))
         return True
 
     # ── entry ───────────────────────────────────────────────────────────
@@ -656,8 +707,18 @@ class Engine:
             self._start_stop_watcher()
             try:
                 rows_by_node = self._run_workers(nodes, candidates)
-                self._download_stage(nodes, rows_by_node)
-                ok = self._commit(nodes, rows_by_node)
+                # Download + write-back is globally serialized.  A run that
+                # already finished probing still waits here after a stop; it
+                # must complete its own download list.
+                if not lock.acquire_commit(self.log):
+                    self.log.log("未拿到下载锁，本次放弃（保留上一次结果）")
+                    ok = False
+                else:
+                    try:
+                        self._download_stage(nodes, rows_by_node)
+                        ok = self._commit(nodes, rows_by_node)
+                    finally:
+                        lock.release_commit()
             finally:
                 self.stop_all_cores()
                 self._stop_watcher()
@@ -680,18 +741,29 @@ class Engine:
                          self.cfg["download_time"]))
 
 
-def run(mode="start"):
-    """Run one full test.  Returns a process exit code."""
+def run(mode="start", node_names=None):
+    """Run one full test.  Returns a process exit code.
+
+    ``node_names`` limits the run to those configured nodes; empty/None keeps
+    the default of testing every enabled node.
+    """
     mode = mode if mode in ("start", "test", "retest") else "start"
+    node_names = [str(name).strip() for name in (node_names or [])
+                  if str(name).strip()]
     cfg = config.load()
     paths.ensure_dirs()
     logger = Logger(paths.RUN_LOG)
 
-    # Do not touch the log of a run that is already active (especially do not
-    # rotate or overwrite last.log with it).
-    if lock.is_running():
-        logger.log("已有测速在运行（PID %s），本次 %s 跳过" % (lock.current_run_pid(), mode))
-        return 1
+    enabled = [node for node in cfg.get("nodes", [])
+               if node.get("enabled", True)]
+    enabled_names = [node.get("name", "") for node in enabled]
+    if node_names:
+        missing = [name for name in node_names if name not in enabled_names]
+        if missing:
+            logger.log("所选节点不存在或未启用，已忽略: %s" % "、".join(missing))
+        requested = [name for name in enabled_names if name in node_names]
+    else:
+        requested = list(enabled_names)
 
     try:
         binary, core_type = core.ensure_core(cfg)
@@ -708,13 +780,19 @@ def run(mode="start"):
 
     run_lock = lock.RunLock(logger)
     if not run_lock.acquire(iterate=cfg["iterate_enabled"],
-                            iterate_minutes=cfg["iterate_minutes"]):
+                            iterate_minutes=cfg["iterate_minutes"],
+                            nodes=requested):
         return 1
+    acquired = list(run_lock.node_names)
+    full_run = (not node_names) and set(acquired) == set(enabled_names)
 
-    logger.rotate()
+    # Shared log: do not rotate/clear the stop flag of another active run.
+    other = lock.other_runs_active()
+    if not other:
+        logger.rotate()
+        lock.clear_stop()
     label = "复测现有最优 IP" if mode == "retest" else "Cloudflare IP 测速"
     logger.log("════ %s 开始 ════" % label)
-    lock.clear_stop()
     lock.write_state(
         running=True,
         pid=os.getpid(),
@@ -725,11 +803,13 @@ def run(mode="start"):
         stop_requested=False,
         error="",
         iterate=bool(cfg["iterate_enabled"]),
-        node_count=len([n for n in cfg.get("nodes", []) if n.get("enabled", True)]),
+        node_count=len(acquired),
+        nodes=acquired if not full_run else [],
         core_type=core_type,
     )
 
-    engine = Engine(cfg, logger, mode, binary, core_type, run_lock.run_dir)
+    engine = Engine(cfg, logger, mode, binary, core_type, run_lock.run_dir,
+                    node_names=acquired, full_run=full_run)
     ok = False
     try:
         ok = engine.execute() == 0

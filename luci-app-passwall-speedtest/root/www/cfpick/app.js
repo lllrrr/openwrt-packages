@@ -695,7 +695,7 @@
 	// line, so the task column can offer an editable mode dropdown.
 	function taskMode(command) {
 		const match = String(command || '').trim()
-			.match(/^(\S*cfpick(?:\.sh)?)[ \t]+(start|retest|test|replace)$/);
+			.match(/^(\S*cfpick(?:\.sh)?)[ \t]+(start|retest|test|replace)([ \t]|$)/);
 
 		return match ? { prefix: match[1], mode: match[2] } : null;
 	}
@@ -794,7 +794,177 @@
 			? host._scheduleValue() : '';
 	}
 
-	async function saveTask(entry, schedule, enabled, mode) {
+	// A task command may carry a node selection as repeated --node=<id> flags;
+	// no flags means every worker node runs (the old behaviour).
+	function taskNodes(command) {
+		const nodes = [];
+
+		String(command || '').trim().split(/\s+/).forEach((token) => {
+			if (token.indexOf('--node=') != 0)
+				return;
+
+			const name = token.slice('--node='.length).trim();
+
+			if (name && nodes.indexOf(name) < 0)
+				nodes.push(name);
+		});
+
+		return nodes;
+	}
+
+	function passwallNode(id) {
+		const nodes = providerNodes('passwall');
+
+		for (let i = 0; i < nodes.length; i++)
+			if (nodes[i].value === id)
+				return nodes[i];
+
+		return null;
+	}
+
+	// A scheduled run is limited by worker, not by every PassWall node: the
+	// workers configured on the 节点 page are the only units the shell tests.
+	function workerLabel(id, worker) {
+		const node = passwallNode(id);
+		let label = node ? (node.label || id) : id;
+
+		if (worker && worker.ip_list)
+			label += ' · ' + worker.ip_list;
+		if (worker && worker.ddns_domain)
+			label += ' · DDNS';
+		if (node && String(node.type || '').toLowerCase() === 'socks')
+			label += '（socks，不能测速）';
+
+		return label;
+	}
+
+	function configuredWorkers() {
+		const list = [];
+		const seen = {};
+
+		(state.workers || []).forEach((worker) => {
+			const id = String(worker.node || '').trim();
+
+			if (!id || seen[id])
+				return;
+
+			seen[id] = true;
+			list.push({
+				id: id,
+				ip_list: worker.ip_list || '',
+				ddns_domain: worker.ddns_domain || ''
+			});
+		});
+
+		return list;
+	}
+
+	function nodeLabel(id) {
+		const workers = state.workers || [];
+
+		for (let i = 0; i < workers.length; i++)
+			if (String(workers[i].node || '') === id)
+				return workerLabel(id, workers[i]);
+
+		return id;
+	}
+
+	function nodeChoices(selected) {
+		const seen = {};
+		const list = [];
+
+		configuredWorkers().forEach((worker) => {
+			seen[worker.id] = true;
+			list.push({ value: worker.id, label: workerLabel(worker.id, worker),
+				type: '', stale: false });
+		});
+
+		(selected || []).forEach((name) => {
+			if (!name || seen[name])
+				return;
+
+			seen[name] = true;
+			list.push({ value: name, label: name, type: '', stale: true });
+		});
+
+		return list;
+	}
+
+	// Collapsible checkbox list for the node selection.  Like the CLI, an
+	// empty selection means every enabled worker node.
+	function buildNodePicker(selected, disabled) {
+		const details = el('details', { class: 'node-picker' });
+		const summary = el('summary');
+		const list = el('div', { class: 'node-picker-list' });
+		const chosen = {};
+
+		(selected || []).forEach((name) => { chosen[name] = true; });
+
+		nodeChoices(selected).forEach((node) => {
+			const box = el('input', {
+				type: 'checkbox',
+				value: node.value,
+				checked: !!chosen[node.value]
+			});
+
+			if (disabled)
+				box.disabled = true;
+
+			const suffix = node.stale
+				? '（已删除）'
+				: (String(node.type || '').toLowerCase() === 'socks'
+					? '（socks，不能测速）' : '');
+
+			list.appendChild(el('label', { class: 'check' }, [
+				box,
+				el('span', {}, node.label + suffix)
+			]));
+		});
+
+		if (!list.childNodes.length)
+			list.appendChild(el('span', { class: 'muted' }, '还没有配置 worker；请先在「节点」页添加'));
+
+		details.appendChild(summary);
+		details.appendChild(list);
+
+		details._nodeValues = () => Array.prototype.slice.call(
+			list.querySelectorAll('input[type="checkbox"]:checked'))
+			.map((box) => box.value);
+
+		function sync() {
+			const values = details._nodeValues();
+
+			summary.textContent = values.length
+				? values.map(nodeLabel).join('、') : '全部节点';
+			summary.title = values.length
+				? summary.textContent : '全部待测节点';
+		}
+
+		list.addEventListener('change', sync);
+		sync();
+
+		return details;
+	}
+
+	function mountNodePicker(id, selected) {
+		const host = $('#' + id);
+
+		if (!host)
+			return;
+
+		const picker = buildNodePicker(selected || []);
+		host.replaceChildren(picker);
+		host._nodeValues = picker._nodeValues;
+	}
+
+	function addNodePickerValues() {
+		const host = $('#cfg-task-add-nodes');
+
+		return (host && typeof host._nodeValues === 'function')
+			? host._nodeValues() : [];
+	}
+
+	async function saveTask(entry, schedule, enabled, mode, nodes) {
 		try {
 			state.tasks = await api('task_save', {
 				method: 'POST',
@@ -803,7 +973,8 @@
 					line: entry.line,
 					schedule: schedule,
 					enabled: enabled,
-					mode: mode || ''
+					mode: mode || '',
+					nodes: nodes || []
 				}
 			});
 			renderTasks();
@@ -852,7 +1023,8 @@
 				body: {
 					source: (state.tasks && state.tasks.writable) || '/etc/crontabs/root',
 					schedule: schedule,
-					command: script + ' ' + mode
+					command: script + ' ' + mode,
+					nodes: addNodePickerValues()
 				}
 			});
 			renderTasks();
@@ -877,14 +1049,13 @@
 		if (!body)
 			return;
 
-		const entries = ((state.tasks && state.tasks.entries) || [])
-			.filter((entry) => !entry.managed);
+		const entries = (state.tasks && state.tasks.entries) || [];
 
 		body.replaceChildren();
 
 		if (!entries.length) {
 			body.appendChild(el('tr', {}, [
-				el('td', { colspan: editable ? '5' : '4', class: 'empty' }, '暂无其他定时任务')
+				el('td', { colspan: editable ? '6' : '5', class: 'empty' }, '暂无定时任务')
 			]));
 			return;
 		}
@@ -894,6 +1065,8 @@
 			// are still shown read-only because that file has a user column.
 			const writable = editable && !!entry.writable;
 			const label = taskLabel(entry.command);
+			const nodes = taskNodes(entry.command);
+			const isRun = !!taskMode(entry.command);
 
 			if (!editable) {
 				const toggle = el('button', {
@@ -902,11 +1075,14 @@
 				}, entry.disabled ? '停用' : '启用');
 				toggle.disabled = !entry.writable;
 				toggle.addEventListener('click', () =>
-					saveTask(entry, entry.schedule, entry.disabled, ''));
+					saveTask(entry, entry.schedule, entry.disabled, '', nodes));
 				body.appendChild(el('tr', {}, [
 					el('td', {}, toggle),
 					el('td', {}, describeSchedule(entry.schedule || '0 3 * * *')),
 					el('td', {}, label),
+					el('td', { class: isRun ? '' : 'muted' }, isRun
+						? (nodes.length ? nodes.map(nodeLabel).join('、') : '全部节点')
+						: '—'),
 					el('td', { class: 'cmd' }, entry.command || '')
 				]));
 				return;
@@ -924,9 +1100,10 @@
 			let taskSelect = null;
 			let taskCell;
 
-			if (detected && detected.mode !== 'start') {
+			if (detected) {
 				taskSelect = el('select', { class: 'task-mode' });
 				[
+					['start', '完整测速并写回（start）'],
 					['retest', '复测现有最优并写回（retest）'],
 					['test', '仅测速，不写回（test）'],
 					['replace', '仅写回现有结果（replace）']
@@ -941,21 +1118,37 @@
 				taskCell = el('td', {}, label);
 			}
 
+			let nodePicker = null;
+			let nodeCell;
+
+			if (detected) {
+				nodePicker = buildNodePicker(nodes, !writable);
+				nodeCell = el('td', {}, nodePicker);
+			}
+			else {
+				nodeCell = el('td', { class: 'muted' }, '—');
+			}
+
+			const actions = el('div', { class: 'task-actions' });
 			const save = el('button', { type: 'button', class: 'btn small primary' }, '保存');
 			save.disabled = !writable;
 			save.addEventListener('click', () => saveTask(entry, schedule._scheduleValue(),
-				enabled.checked, taskSelect ? taskSelect.value : ''));
+				enabled.checked, taskSelect ? taskSelect.value : '',
+				nodePicker ? nodePicker._nodeValues() : null));
+			actions.appendChild(save);
 
 			const remove = el('button', { type: 'button', class: 'btn small danger' }, '删除');
 			remove.disabled = !writable;
 			remove.addEventListener('click', () => deleteTask(entry));
+			actions.appendChild(remove);
 
 			body.appendChild(el('tr', {}, [
 				el('td', {}, enabled),
 				el('td', {}, schedule),
 				taskCell,
+				nodeCell,
 				el('td', { class: 'cmd' }, entry.command || ''),
-				el('td', {}, [el('div', { class: 'task-actions' }, [save, remove])])
+				el('td', {}, actions)
 			]));
 		});
 	}
@@ -1043,6 +1236,16 @@
 		fillNodeSelects(g.node_test_node || '', g.stable_node || '');
 		renderWorkers();
 		fillThirdParty();
+
+		// Task rows render whatever nodes were known when they were drawn; the
+		// first load races this API, so redraw now that the list is available.
+		if (state.tasks)
+			renderTasks();
+
+		const host = $('#cfg-task-add-nodes');
+		const selected = (host && typeof host._nodeValues === 'function')
+			? host._nodeValues() : [];
+		mountNodePicker('cfg-task-add-nodes', selected);
 	}
 
 	function fillNodeSelects(testValue, stableValue) {
@@ -1297,6 +1500,12 @@
 		renderWorkers();
 		fillThirdParty();
 		updateSourceVisibility();
+
+		// Worker rows are the selectable units for scheduled tasks; redraw the
+		// task list and add form both after the worker table is rebuilt.
+		if (state.tasks)
+			renderTasks();
+		mountNodePicker('cfg-task-add-nodes', addNodePickerValues());
 	}
 
 	// Normalize full-width digits/spaces from Chinese IMEs before sending a
@@ -1373,21 +1582,19 @@
 		if (!stableNode)
 			throw new Error('请选择稳定节点（测速期间用于承载实流量）');
 
-		// The schedule is edited in the task list, which writes UCI for the
-		// managed "start" line.  Reuse its current values so saving the rest
-		// of the settings page does not restore a stale schedule.
+		// Scheduled tasks are ordinary crontab lines now.  The UCI cron fields
+		// below are legacy (kept so old configs round-trip); they no longer
+		// generate or own any task.
 		const globalCfg = (state.config && state.config.global) || {};
-		const managed = (state.tasks && state.tasks.managed) || null;
-		const cron = normalizeCronText((managed && managed.schedule) ||
-			globalCfg.custom_cron || '0 3 * * *');
+		const cron = normalizeCronText(globalCfg.custom_cron || '0 3 * * *');
 
 		if (!/^([0-9A-Za-z*,/-]+\s+){4}[0-9A-Za-z*,/-]+$/.test(cron) &&
 			!/^@(reboot|hourly|daily|weekly|monthly|yearly|annually|midnight)$/.test(cron))
-			throw new Error('主任务计划无效，请在定时任务列表中修正');
+			throw new Error('定时任务计划无效');
 
 		return {
 			global: {
-				enabled: managed ? managed.enabled : (globalCfg.enabled === '1'),
+				enabled: globalCfg.enabled === '1',
 				ip_source: textValue('cfg-ip-source') || 'builtin_ipv4',
 				ip_online_url: textValue('cfg-ip-online-url'),
 				custom_ip_file: textValue('cfg-custom-ip-file'),
@@ -1466,12 +1673,19 @@
 	async function saveConfig() {
 		try {
 			const body = collectConfig();
-			await api('config', { method: 'POST', body: body });
+			const saved = await api('config', { method: 'POST', body: body });
 			await loadConfig();
 			await refreshNodes();
 			await refreshStatus();
 			await refreshTasks();
-			toast('配置已保存');
+
+			const prune = (saved && saved.cron_prune) || null;
+
+			if (prune && ((prune.deleted && prune.deleted.length) ||
+				(prune.removed && prune.removed.length)))
+				toast('配置已保存；已同步清理定时任务里的节点引用');
+			else
+				toast('配置已保存');
 		}
 		catch (e) {
 			// DDNS validation failed: clear the token field so the user must
@@ -1566,7 +1780,8 @@
 
 		$('#btn-start').addEventListener('click', () => runAction('start', '已开始测速'));
 		$('#btn-retest').addEventListener('click', () => runAction('retest', '已开始复测'));
-		$('#btn-stop').addEventListener('click', () => runAction('stop', '已请求停止'));
+		$('#btn-stop').addEventListener('click', () => runAction('stop',
+			'已请求停止：各任务停止探测，随后按各自候选完成下载与写回'));
 
 		$('#btn-sa-refresh').addEventListener('click', () => {
 			refreshStandalone().catch((e) => toast(e.message || '刷新失败', true));
@@ -1574,6 +1789,7 @@
 		$('#btn-sa-save').addEventListener('click', saveStandalone);
 
 		mountScheduleEditor('cfg-task-add-schedule', '0 3 * * *');
+		mountNodePicker('cfg-task-add-nodes', []);
 
 		$('#btn-add-worker').addEventListener('click', addWorker);
 		$('#btn-cfg-task-add').addEventListener('click',

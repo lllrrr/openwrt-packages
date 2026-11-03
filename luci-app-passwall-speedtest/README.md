@@ -131,8 +131,8 @@ rpcd 对象 `cfpick` 同时提供两套方法：
 | `api_nodes` | read | — | 本机各代理软件的节点列表 |
 | `api_log` | read | `pos` | 增量日志，`pos` 为上次返回的位置 |
 | `api_tasks` | read | — | 只列出与本插件相关的 crontab 任务（`/etc/crontabs/root`、`/etc/crontab`），含计划、命令与启用状态 |
-| `api_task_save` | write | `source` `line` `schedule` `enabled` | 修改相关任务的计划或启用/停用；`start` 主任务同步到 UCI |
-| `api_task_delete` | write | `source` `line` | 删除相关任务；`start` 主任务通过关闭 UCI 定时移除 |
+| `api_task_save` | write | `source` `line` `schedule` `enabled` `mode` `nodes` | 修改相关任务的计划、类型、节点或启用/停用（普通 crontab 行） |
+| `api_task_delete` | write | `source` `line` | 删除相关任务（普通 crontab 行） |
 | `api_task_add` | write | `source` `schedule` `command` | 添加相关任务（命令必须指向本插件） |
 | `api_run_start` | write | — | 开始一轮完整测速 |
 | `api_run_retest` | write | — | 复测现有最优 IP |
@@ -177,11 +177,25 @@ ubus call cfpick api_tasks
 
 ## 定时任务
 
-内置 cron 调度，支持按 1~24 小时间隔运行，或填写自定义 cron 表达式。`init.d` 脚本以幂等方式按需更新 crontab，不会重复写入。
+定时任务就是普通的 crontab 行（`/etc/crontabs/root`），由操作台维护；`init.d` 不再根据 UCI 生成或重写任何任务，因此没有单独的“主任务”概念。`start` / `retest` / `test` / `replace` 都只是普通任务类型。
 
-操作台「概览 → 定时任务」只显示与本插件相关的 crontab 行，可直接修改五段计划、启用/停用、删除，或添加 `start` / `retest` / `test` / `replace` 任务。`start` 主任务仍由设置页与 UCI 维护，改它会同步回设置；其余相关任务直接写入 `/etc/crontabs/root`。停用不会删除该行，而是加上 `# [cfpick-disabled]` 前缀注释，随时可以恢复。
+操作台「概览 → 定时任务」显示与本插件相关的 crontab 行。所有任务一视同仁：可改计划、切换类型、勾选 worker、启用/停用、删除。停用不会删除该行，而是加上 `# [cfpick-disabled]` 前缀注释，随时可以恢复。添加与已有行完全相同的任务会被拒绝，并提示直接修改列表里的那一行。旧的 UCI `enabled` / `custom_cron` 字段只作为兼容保留，不再产生任务。
 
-每次整跑在入口持有一把单实例锁：同一时刻只允许一次完整运行，重叠触发（定时任务重叠、页面连点、SSH 手敲）会被**跳过并记一行日志**，不会两套 worker 去抢同一批 passwall 节点、互删中间状态。锁的持有者被 kill -9 / 断电带走时留下的残留锁，会在下次运行时自动接管。自定义 cron 注意分钟字段别写 `*`（`* 19 * * 4` 是「周四 19 点内每分钟一次」，要一次请写 `0 19 * * 4`）。
+任务可以勾选只跑部分 worker（只列「节点」页已配置的 worker），命令会写成
+`/usr/lib/cfpick/bin/cfpick.sh retest --node=<passwall section> ...`；
+**不勾选 = 全部待测节点**（与不带 `--node` 等价）。在「节点」页删除 worker 并保存配置时，
+本插件会同步从所有任务里移除该节点；如果某个任务因此不再剩任何节点，会直接删除该任务，
+不会悄悄变成“跑全部节点”。
+
+并发按 worker 区分：同一个 worker 同时只允许一个任务；两个任务有重叠 worker 时，后启动
+的任务**只跳过被占用的 worker**，任务里其余 worker 继续执行（一个都没抢到才整任务跳过）。
+下载实测和写回阶段全局串行（后到者排队等待），并且**下载期间其他任务的探测会暂停**，
+等对方下载完自动继续，避免互相抢带宽把速度测偏。停止按钮只停止各 worker 的**探测**：
+已经跑完探测的任务仍会按它自己的候选/下载列表排队完成下载和写回，不会被停止请求丢掉。
+每次提交只把本次 worker 的行合并进 `result.csv`，写回/回滚也只改本次 worker 的 `address`，
+不会动别的任务正在测的节点。
+
+整跑入口按 worker 加锁：同一 worker 同时只允许一个任务；重叠 worker 的后来者只跳过冲突的那几个，其余继续。锁的持有者被 kill -9 / 断电带走时留下的残留锁（worker 锁、下载锁、运行登记），会在下次运行时按 PID 判死并自动接管。自定义 cron 注意分钟字段别写 `*`（`* 19 * * 4` 是「周四 19 点内每分钟一次」，要一次请写 `0 19 * * 4`）。
 
 ## 结果与历史
 

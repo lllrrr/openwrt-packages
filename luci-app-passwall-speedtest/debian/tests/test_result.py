@@ -53,6 +53,15 @@ class FileTests(unittest.TestCase):
         self.assertAlmostEqual(read[0].speed, 8.25)
         self.assertEqual(read[1].node, "node-b")
 
+    def test_merge_result_replaces_only_its_nodes(self):
+        result.write_result(self.result_file, self.make_rows(), "old")
+        new_rows = [result.Row(ip="9.9.9.9", latency=5, speed=9.0,
+                               node="node-a")]
+        merged = result.merge_result(new_rows, ["node-a"], self.result_file)
+        self.assertEqual([row.node for row in merged], ["node-a", "node-b"])
+        self.assertEqual(merged[0].ip, "9.9.9.9")
+        self.assertEqual(merged[1].ip, "2.2.2.2")
+
     def test_legacy_seven_columns(self):
         self.result_file.write_text(
             "IP 地址,已发送,已接收,丢包率,平均延迟,下载速度(MB/s),地区码\n"

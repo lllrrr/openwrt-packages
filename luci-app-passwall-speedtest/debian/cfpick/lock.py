@@ -1,11 +1,16 @@
-"""Single-run lock and shared run state.
+"""Per-node run locks, run registry and the global download queue.
 
-Only one full run may be active at a time: cron overlap, repeated UI clicks and
-a manual SSH run would otherwise fight over the same proxy ports and result
-files.  A stale lock (kill -9 / power loss) is taken over when its PID is gone
-or its age exceeds the configured budget.
+A run locks only the nodes it will test.  Two runs may probe disjoint nodes at
+the same time; a node already in use is skipped (the rest of the run continues).
+The download/write-back stage is serialized by one global commit lock, so two
+downloads never fight over the same WAN bandwidth.
+
+Every lock is a directory holding ``pid`` (and ``started``); the owner is
+considered alive only when its process is a ``cfpick run`` process.  A lock
+whose owner is gone (kill -9 / power loss) is taken over by the next run.
 """
 
+import hashlib
 import json
 import os
 import shutil
@@ -13,6 +18,12 @@ import time
 from pathlib import Path
 
 from . import paths
+
+WORKER_LOCK_DIR = paths.STATE_DIR / ".worker-locks"
+RUN_REGISTRY = paths.STATE_DIR / ".runs"
+COMMIT_LOCK_DIR = paths.STATE_DIR / ".commit.lock"
+RUN_PID_FILE = paths.STATE_DIR / "current_run"
+COMMIT_WAIT_SECONDS = 4 * 3600
 
 
 def _pid_alive(pid):
@@ -36,22 +47,103 @@ def _pid_alive(pid):
             return True
         except OSError:
             return False
-    # The web server also runs as ``python3 -m cfpick serve``; only a
-    # process with the ``run`` sub-command is an actual speed test.
+    # Only an actual ``cfpick run`` process owns a lock; the web server also
+    # runs as ``python3 -m cfpick serve``.
     return b"cfpick" in cmdline and b" run " in (cmdline + b" ")
 
 
-def current_run_pid():
-    pid_file = paths.RUN_LOCK_DIR / "pid"
+def _lock_owner(path):
     try:
-        pid = int(pid_file.read_text(encoding="utf-8").strip())
+        return int((path / "pid").read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return 0
+
+
+def _lock_started(path):
+    try:
+        return int((path / "started").read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return 0
+
+
+def _owner_alive(path):
+    return _pid_alive(_lock_owner(path))
+
+
+def _take_lock(path, cap, log, label):
+    """Atomically take a mkdir lock.  Returns False when a live owner holds it."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    attempts = 0
+    while True:
+        try:
+            path.mkdir()
+            (path / "pid").write_text(str(os.getpid()), encoding="utf-8")
+            (path / "started").write_text(str(int(time.time())), encoding="utf-8")
+            return True
+        except FileExistsError:
+            pass
+        except OSError:
+            return False
+
+        pid = _lock_owner(path)
+        if _owner_alive(path):
+            started = _lock_started(path)
+            age = int(time.time()) - started if started else 0
+            if started and age > cap:
+                log.log("%s 的锁已持有 %ds 超过上限 %ds（PID %s 疑似僵死），接管" % (
+                    label, age, cap, pid))
+            else:
+                return False
+        else:
+            log.log("%s 的锁为残留（PID %s 已不存在），接管" % (label, pid or "未知"))
+
+        shutil.rmtree(path, ignore_errors=True)
+        attempts += 1
+        if attempts >= 3:
+            return False
+
+
+def _lock_id(name):
+    return hashlib.sha1(str(name).encode("utf-8")).hexdigest()[:16]
+
+
+def _legacy_pid():
+    """PID of a run from before per-node locks (global .run.lock)."""
+    try:
+        pid = int((paths.RUN_LOCK_DIR / "pid").read_text(encoding="utf-8").strip())
     except (OSError, ValueError):
         return None
     return pid if _pid_alive(pid) else None
 
 
+def run_pids():
+    """All live cfpick run PIDs, including legacy global-lock runs."""
+    pids = []
+    if RUN_REGISTRY.is_dir():
+        for entry in RUN_REGISTRY.iterdir():
+            try:
+                pid = int(entry.name)
+            except ValueError:
+                continue
+            if _pid_alive(pid) and pid not in pids:
+                pids.append(pid)
+    legacy = _legacy_pid()
+    if legacy and legacy not in pids:
+        pids.append(legacy)
+    return pids
+
+
+def other_runs_active():
+    return any(pid != os.getpid() for pid in run_pids())
+
+
+def current_run_pid():
+    pids = run_pids()
+    return pids[0] if pids else None
+
+
 def is_running():
-    return current_run_pid() is not None
+    return bool(run_pids())
 
 
 class RunLock:
@@ -59,62 +151,80 @@ class RunLock:
         self.log = logger
         self.pid = os.getpid()
         self.run_dir = None
+        self.node_names = []
+        self._locks = []
 
-    def acquire(self, iterate=False, iterate_minutes=30):
+    def acquire(self, iterate=False, iterate_minutes=30, nodes=None):
         paths.STATE_DIR.mkdir(parents=True, exist_ok=True)
-        attempts = 0
-        while True:
-            try:
-                paths.RUN_LOCK_DIR.mkdir()
-                (paths.RUN_LOCK_DIR / "pid").write_text(str(self.pid), encoding="utf-8")
-                (paths.RUN_LOCK_DIR / "started").write_text(str(int(time.time())), encoding="utf-8")
-                self.run_dir = paths.STATE_DIR / ("run.%d" % self.pid)
-                shutil.rmtree(self.run_dir, ignore_errors=True)
-                self.run_dir.mkdir(parents=True, exist_ok=True)
-                self._reap_stale_run_dirs()
-                return True
-            except FileExistsError:
-                pass
-            except OSError:
-                shutil.rmtree(paths.RUN_LOCK_DIR, ignore_errors=True)
-                return False
+        requested = []
+        for name in nodes or []:
+            name = str(name or "").strip()
+            if name and name not in requested:
+                requested.append(name)
+        if not requested:
+            self.log.log("没有可用的待测节点，本次跳过")
+            return False
 
-            try:
-                pid = int((paths.RUN_LOCK_DIR / "pid").read_text(encoding="utf-8").strip())
-            except (OSError, ValueError):
-                pid = 0
-            if _pid_alive(pid):
+        cap = iterate_minutes * 60 + 1800 if iterate else 43200
+        acquired = []
+        for name in sorted(requested):
+            path = WORKER_LOCK_DIR / (_lock_id(name) + ".lock")
+            if _take_lock(path, cap, self.log, "节点 %s" % name):
                 try:
-                    started = int((paths.RUN_LOCK_DIR / "started").read_text(encoding="utf-8").strip())
-                except (OSError, ValueError):
-                    started = 0
-                cap = iterate_minutes * 60 + 1800 if iterate else 43200
-                age = int(time.time()) - started
-                if started and age > cap:
-                    self.log.log("运行锁已持有 %ds 超过上限 %ds（PID %s 疑似僵死），接管" % (age, cap, pid))
-                else:
-                    self.log.log("已有测速在运行（PID %s），本次跳过" % pid)
-                    return False
+                    (path / "name").write_text(name, encoding="utf-8")
+                except OSError:
+                    pass
+                acquired.append(name)
             else:
-                self.log.log("运行锁为残留（PID %s 已不存在），接管" % (pid or "未知"))
+                self.log.log("节点 %s 正在被另一个任务使用，本次跳过该节点（其余节点继续）" % name)
 
-            shutil.rmtree(paths.RUN_LOCK_DIR, ignore_errors=True)
-            attempts += 1
-            if attempts >= 3:
-                self.log.log("运行锁接管失败，本次跳过")
-                return False
+        if not acquired:
+            self.log.log("所选节点都在使用，本次跳过")
+            return False
+
+        self.node_names = acquired
+        self._locks = [WORKER_LOCK_DIR / (_lock_id(name) + ".lock") for name in acquired]
+        self.run_dir = paths.STATE_DIR / ("run.%d" % self.pid)
+        shutil.rmtree(self.run_dir, ignore_errors=True)
+        try:
+            self.run_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            self._release_node_locks()
+            return False
+
+        self._reap_stale_run_dirs()
+        try:
+            RUN_REGISTRY.mkdir(parents=True, exist_ok=True)
+            (RUN_REGISTRY / str(self.pid)).write_text(
+                "dir=%s\nnodes=%s\nstarted=%d\n" % (
+                    self.run_dir, ",".join(acquired), int(time.time())),
+                encoding="utf-8")
+            RUN_PID_FILE.write_text(str(self.pid), encoding="utf-8")
+        except OSError:
+            pass
+        return True
+
+    def _release_node_locks(self):
+        for path in self._locks:
+            if _lock_owner(path) == self.pid:
+                shutil.rmtree(path, ignore_errors=True)
+        self._locks = []
+        self.node_names = []
 
     def release(self):
-        try:
-            owner = (paths.RUN_LOCK_DIR / "pid").read_text(encoding="utf-8").strip()
-        except OSError:
-            owner = ""
-        if owner and owner != str(self.pid):
-            return
+        self._release_node_locks()
         if self.run_dir:
             shutil.rmtree(self.run_dir, ignore_errors=True)
-        shutil.rmtree(paths.RUN_LOCK_DIR, ignore_errors=True)
         self.run_dir = None
+        try:
+            (RUN_REGISTRY / str(self.pid)).unlink()
+        except OSError:
+            pass
+        try:
+            if RUN_PID_FILE.read_text(encoding="utf-8").strip() == str(self.pid):
+                RUN_PID_FILE.unlink()
+        except OSError:
+            pass
 
     def _reap_stale_run_dirs(self):
         for directory in paths.STATE_DIR.glob("run.*"):
@@ -128,6 +238,58 @@ class RunLock:
                 shutil.rmtree(directory, ignore_errors=True)
 
 
+# ── download / write-back queue ──────────────────────────────────────────
+def acquire_commit(logger, timeout=COMMIT_WAIT_SECONDS):
+    """Wait for the global download slot.  Stop does not abort this wait:
+    a run that finished probing still completes its own download."""
+    paths.STATE_DIR.mkdir(parents=True, exist_ok=True)
+    waited = 0
+    while True:
+        try:
+            COMMIT_LOCK_DIR.mkdir()
+            (COMMIT_LOCK_DIR / "pid").write_text(str(os.getpid()), encoding="utf-8")
+            (COMMIT_LOCK_DIR / "started").write_text(str(int(time.time())), encoding="utf-8")
+            return True
+        except FileExistsError:
+            pass
+        except OSError:
+            return False
+
+        pid = _lock_owner(COMMIT_LOCK_DIR)
+        if _owner_alive(COMMIT_LOCK_DIR):
+            started = _lock_started(COMMIT_LOCK_DIR)
+            age = int(time.time()) - started if started else 0
+            if started and age > 43200:
+                logger.log("下载锁已持有 %ds（PID %s 疑似僵死），接管" % (age, pid))
+            else:
+                waited += 1
+                if waited % 30 == 0:
+                    logger.log("等待其他任务完成下载/写回（已等待 %ds，PID %s）" % (waited, pid))
+                if waited >= timeout:
+                    logger.log("等待下载锁超过 %d 秒，本次放弃" % timeout)
+                    return False
+                time.sleep(1)
+                continue
+        else:
+            logger.log("下载锁为残留（PID %s 已不存在），接管" % (pid or "未知"))
+        shutil.rmtree(COMMIT_LOCK_DIR, ignore_errors=True)
+
+
+def release_commit():
+    if _lock_owner(COMMIT_LOCK_DIR) == os.getpid():
+        shutil.rmtree(COMMIT_LOCK_DIR, ignore_errors=True)
+
+
+def download_active_by_other(pid=None):
+    """True while another run holds the download slot (probes should pause)."""
+    if not COMMIT_LOCK_DIR.exists():
+        return False
+    pid = os.getpid() if pid is None else pid
+    owner = _lock_owner(COMMIT_LOCK_DIR)
+    return bool(owner and owner != pid and _owner_alive(COMMIT_LOCK_DIR))
+
+
+# ── shared state ─────────────────────────────────────────────────────────
 def read_state():
     try:
         with open(paths.STATE_FILE, "r", encoding="utf-8") as handle:

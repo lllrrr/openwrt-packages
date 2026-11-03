@@ -212,6 +212,39 @@ def _config_warnings(cfg):
     return warnings
 
 
+def _node_changes(previous, current):
+    """Deleted and renamed nodes between two normalized configs.
+
+    A rename is detected by an unchanged share link, so a scheduled task that
+    selected the old name keeps working after the node is renamed.
+    """
+    previous_nodes = [item for item in (previous.get("nodes") or [])
+                      if isinstance(item, dict)]
+    current_nodes = [item for item in (current.get("nodes") or [])
+                     if isinstance(item, dict)]
+    current_names = {item.get("name", "") for item in current_nodes}
+    removed = []
+    for item in previous_nodes:
+        name = item.get("name", "")
+        if name and name not in current_names and name not in removed:
+            removed.append(name)
+
+    by_link = {}
+    for item in current_nodes:
+        link = (item.get("link") or "").strip()
+        if link:
+            by_link.setdefault(link, []).append(item.get("name", ""))
+    renames = {}
+    for item in previous_nodes:
+        name = item.get("name", "")
+        if not name or name in current_names:
+            continue
+        targets = by_link.get((item.get("link") or "").strip()) or []
+        if len(targets) == 1 and targets[0] and targets[0] != name:
+            renames[name] = targets[0]
+    return removed, renames
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "cfpick/%s" % __version__
 
@@ -496,6 +529,12 @@ class Handler(BaseHTTPRequestHandler):
             self._save_config(body)
         elif route == "/api/core/update":
             self._update_core(body)
+        elif route == "/api/cron/task/save":
+            self._cron_task(body, "save")
+        elif route == "/api/cron/task/delete":
+            self._cron_task(body, "delete")
+        elif route == "/api/cron/task/add":
+            self._cron_task(body, "add")
         elif route == "/api/ddns/apply":
             self._apply_ddns()
         elif route == "/api/update-app":
@@ -580,6 +619,36 @@ class Handler(BaseHTTPRequestHandler):
             "message": "已请求停止：各 worker 跑完当前 IP 即停，随后完成下载实测并导出结果",
         })
 
+    def _cron_task(self, body, action):
+        """Add / edit / delete one related crontab task."""
+        # ``nodes`` is only sent by the UI for tasks that support a selection;
+        # an absent key means "leave the command's node flags untouched".
+        nodes = body.get("nodes") if "nodes" in body else None
+        try:
+            if nodes is not None and not isinstance(nodes, list):
+                raise cron.CronError("nodes 必须是节点名称数组")
+            if action == "save":
+                enabled = body.get("enabled", True)
+                if isinstance(enabled, str):
+                    enabled = enabled.strip().lower() not in ("0", "false", "no", "off", "")
+                cron.save_task(
+                    body.get("line", ""),
+                    body.get("schedule", ""),
+                    enabled=bool(enabled),
+                    mode=body.get("mode", "") or "",
+                    nodes=nodes)
+            elif action == "delete":
+                cron.delete_task(body.get("line", ""))
+            else:
+                cron.add_task(body.get("schedule", ""),
+                              body.get("mode", "") or "retest",
+                              nodes=nodes)
+        except cron.CronError as exc:
+            self._send_error(400, str(exc))
+            return
+        _cron_cache["ts"] = 0
+        self._send_json(cron.list_tasks())
+
     def _save_config(self, body):
         cfg = body.get("config", body)
         if not isinstance(cfg, dict):
@@ -595,20 +664,31 @@ class Handler(BaseHTTPRequestHandler):
             cloudflare["api_token"] = (
                 ((previous.get("ddns") or {}).get("cloudflare") or {}).get("api_token", ""))
         normalized = config.normalize(incoming)
+        removed_nodes, node_renames = _node_changes(previous, normalized)
+
         warnings = _config_warnings(normalized)
-        incoming_schedule = incoming.get("schedule") if isinstance(incoming.get("schedule"), dict) else {}
-        incoming_cron = str(incoming_schedule.get("custom_cron") or "").strip()
-        if (incoming_schedule.get("custom_enabled") and incoming_cron
-                and not config.valid_cron(incoming_cron)):
-            warnings.append(
-                "定时 cron 表达式「%s」无效，已回退为 %s；格式为 分 时 日 月 星期"
-                % (incoming_cron, normalized["schedule"]["custom_cron"]))
         saved = config.save(normalized)
+        # Scheduled tasks are ordinary crontab lines; the old UCI/JSON
+        # schedule fields are legacy and no longer generate a task.
         cron_error = ""
-        try:
-            cron.apply(saved.get("schedule", {}))
-        except cron.CronError as exc:
-            cron_error = str(exc)
+        # Mirror the same cleanup in the editable related tasks, so no task
+        # silently keeps a reference to a node that no longer exists.
+        if removed_nodes or node_renames:
+            try:
+                report = cron.prune_nodes(removed_nodes, node_renames)
+            except cron.CronError as exc:
+                if not cron_error:
+                    cron_error = str(exc)
+            else:
+                if report["deleted"]:
+                    warnings.append("已删除 %d 个引用被删节点的定时任务"
+                                    % len(report["deleted"]))
+                if report["renamed"]:
+                    warnings.append("已同步重命名节点的定时任务：%s"
+                                    % "、".join(report["renamed"]))
+                if report["removed"]:
+                    warnings.append("已从定时任务中移除已删除的节点：%s"
+                                    % "、".join(report["removed"]))
         _cron_cache["ts"] = 0
         self._send_json({
             "config": _masked_config(saved),

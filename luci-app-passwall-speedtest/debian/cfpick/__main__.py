@@ -274,7 +274,7 @@ def cmd_run(args):
         result.export_json(rows, when)
         _print_json({"exported": str(paths.STATE_DIR), "rows": len(rows)})
         return 0
-    return engine.run(mode)
+    return engine.run(mode, node_names=getattr(args, "node", None))
 
 
 def build_parser():
@@ -288,6 +288,9 @@ def build_parser():
     run_parser = sub.add_parser("run", help="run one full test")
     run_parser.add_argument("mode", nargs="?", default="start",
                             choices=["start", "test", "retest", "replace"])
+    run_parser.add_argument(
+        "--node", action="append", default=[], metavar="NAME",
+        help="only test the named node (repeatable); omit to test every node")
     run_parser.set_defaults(func=cmd_run)
 
     status_parser = sub.add_parser("status", help="show run status")

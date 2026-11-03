@@ -13,11 +13,28 @@ IP_FILE="$RESULT_DIR/result.csv"
 # 共享产物(result.csv / result.csv.N / history.csv / 日志)是给 UI 看的，仍留在原路径。
 RUN_LOCK_DIR="$RESULT_DIR/.run.lock"
 RUN_PID_FILE="$RESULT_DIR/current_run"
+# 按 worker 的运行锁：同一 worker 同时只允许一个任务，不同 worker 可并行探测。
+# 全量任务（未选节点）和 replace 额外持有 __all__，与所有任务互斥。
+WORKER_LOCK_ROOT="$RESULT_DIR/.worker-locks"
+COMMIT_LOCK_DIR="$RESULT_DIR/.commit.lock"
+RUN_REGISTRY="$RESULT_DIR/.runs"
+NT_RELOAD_PENDING="$RESULT_DIR/.passwall.reload"
 RUN_DIR=""
 IPV4_TXT='/usr/share/cfpick/ip.txt'
 IPV6_TXT='/usr/share/cfpick/ipv6.txt'
 
 SCRIPT_DIR='/usr/lib/cfpick/bin'
+
+# 定时任务可只跑部分节点：cfpick.sh <mode> --node=<passwall section> [...]
+# 为空 = 全部待测节点（保持旧行为）。
+NODE_FILTER=""
+node_selected() {
+    [ -z "$NODE_FILTER" ] && return 0
+    case " $NODE_FILTER " in
+        *" $1 "*) return 0 ;;
+    esac
+    return 1
+}
 
 # 迭代模式：单节点候选收敛到 ≤ 此数量即保存结果提前结束（继续复测收益小）。
 # 由独立参数 iterate_converge_count（迭代收敛阈值）配置，与下载实测候选数
@@ -53,70 +70,248 @@ echolog() {
     echo -e "$d: $*" >>$LOG_FILE
 }
 
-# 抢整跑单实例锁。成功返回 0 并建好会话目录 RUN_DIR；已有整跑在跑则返回 1（调用方跳过本次）。
-# 会话目录名用主进程 PID：worker 都是 fork 出来的子 shell，$$ 仍是主进程 PID
-# （NODE_TEST_FLAG_BASE 也依赖这一点），故整个会话内取值稳定。
-run_lock_acquire() {
-    local _pid _alive _started _now _cap _tries=0
-    mkdir -p "$RESULT_DIR" 2>/dev/null || { echolog "无法创建 $RESULT_DIR，本次跳过"; return 1; }
+# ── 按 worker 的运行锁 ────────────────────────────────────────────────
+# 任务勾选哪些 worker，就只锁哪些；没勾选（= 全部）或 replace 额外锁 __all__，
+# 与任何任务互斥。同一 worker 冲突时后到者直接跳过（不排队）；不同 worker 的
+# 任务可以同时探测，下载/写回阶段再用 commit 锁全局排队。
+LOCK_CAP=43200
+
+lock_owner_alive() {
+    local _pid
+    _pid="$(cat "$1/pid" 2>/dev/null)"
+    [ -n "$_pid" ] && [ -d "/proc/$_pid" ] && \
+        grep -q 'cfpick\.sh' "/proc/$_pid/cmdline" 2>/dev/null
+}
+
+# 原子抢一个 mkdir 锁；活着的持有者未超时则返回 1（调用方跳过），死锁/超时自动接管。
+lock_take() {
+    local _dir="$1" _cap="${2:-$LOCK_CAP}" _pid _started _now _tries=0
+    mkdir -p "$(dirname "$_dir")" 2>/dev/null
     while :; do
-        if mkdir "$RUN_LOCK_DIR" 2>/dev/null; then
-            echo "$$" > "$RUN_LOCK_DIR/pid"
-            date +%s > "$RUN_LOCK_DIR/started"
-            RUN_DIR="$RESULT_DIR/run.$$"
-            rm -rf "$RUN_DIR" 2>/dev/null
-            if ! mkdir -p "$RUN_DIR" 2>/dev/null; then
-                echolog "创建会话目录 $RUN_DIR 失败，本次跳过"
-                rm -rf "$RUN_LOCK_DIR"; RUN_DIR=""
-                return 1
-            fi
-            echo "$$" > "$RUN_PID_FILE"
-            reap_stale_run_dirs
+        if mkdir "$_dir" 2>/dev/null; then
+            echo "$$" > "$_dir/pid"
+            date +%s > "$_dir/started"
             return 0
         fi
-        # 锁已存在：持有者还活着就谦让；已被 kill -9 / 断电 / 崩溃带走时接管。
-        # cmdline 比对既排除「PID 被无关进程复用」的假存活，也让未被收尸的僵尸
-        # (kill -9 后父进程还没 wait) 被正确判为已死——僵尸的 cmdline 是空的。
-        # 前提：脚本按本名调用（cron/SSH/UI 都是全路径调用），不要改名或换成别名。
-        _pid="$(cat "$RUN_LOCK_DIR/pid" 2>/dev/null)"
-        _alive=0
-        if [ -n "$_pid" ] && [ -d "/proc/$_pid" ] && \
-           grep -q 'cfpick\.sh' "/proc/$_pid/cmdline" 2>/dev/null; then
-            _alive=1
-        fi
-        if [ "$_alive" = "1" ]; then
-            # 兜底：锁龄超过该配置允许的最长运行时间仍不释放 → 视为僵死会话接管。
-            # 迭代模式有硬上限 iterate_minutes；普通模式无硬上限，给 12 小时。
-            _started="$(cat "$RUN_LOCK_DIR/started" 2>/dev/null)"
+        _pid="$(cat "$_dir/pid" 2>/dev/null)"
+        if lock_owner_alive "$_dir"; then
+            _started="$(cat "$_dir/started" 2>/dev/null)"
             case "$_started" in ''|*[!0-9]*) _started=0 ;; esac
             _now="$(date +%s)"
-            if [ "${iterate_enabled:-0}" = "1" ] && [ "${iterate_minutes:-0}" -ge 1 ] 2>/dev/null; then
-                _cap=$(( iterate_minutes * 60 + 1800 ))
-            else
-                _cap=43200
-            fi
             if [ "$_started" -gt 0 ] && [ $((_now - _started)) -gt "$_cap" ]; then
-                echolog "运行锁已持有 $((_now - _started))s 超过上限 ${_cap}s（PID ${_pid} 疑似僵死），接管"
+                echolog "锁 ${_dir##*/} 已持有 $((_now - _started))s 超过上限 ${_cap}s（PID ${_pid} 疑似僵死），接管"
             else
                 return 1
             fi
         else
-            echolog "运行锁为残留（PID ${_pid:-未知} 已不存在），接管"
+            echolog "锁 ${_dir##*/} 为残留（PID ${_pid:-未知} 已不存在），接管"
         fi
-        rm -rf "$RUN_LOCK_DIR"
+        rm -rf "$_dir"
         _tries=$((_tries + 1))
-        [ "$_tries" -lt 3 ] || { echolog "运行锁接管失败，本次跳过"; return 1; }
+        [ "$_tries" -lt 3 ] || return 1
     done
 }
 
-# 释放运行锁并删掉本会话目录。非持有者调用是 no-op（避免误删接管者的锁）。
-run_lock_release() {
-    [ "$(cat "$RUN_LOCK_DIR/pid" 2>/dev/null)" = "$$" ] || { RUN_DIR=""; return 0; }
-    [ -n "$RUN_DIR" ] && rm -rf "$RUN_DIR" 2>/dev/null
-    rm -f "$RUN_PID_FILE" 2>/dev/null
-    rm -rf "$RUN_LOCK_DIR" 2>/dev/null
-    RUN_DIR=""
+lock_drop() {
+    [ "$(cat "$1/pid" 2>/dev/null)" = "$$" ] || return 0
+    rm -rf "$1" 2>/dev/null
     return 0
+}
+
+WORKER_LOCKS_ACQUIRED=""
+ACQUIRED_WORKERS=""
+worker_locks_acquire() {
+    local _ids="$1" _id
+    ACQUIRED_WORKERS=""
+    # 固定顺序逐个抢；已被别的任务占用的 worker 只跳过它自己，任务里其余的
+    # worker 继续执行。一个都没抢到才整体放弃。
+    for _id in $(printf '%s\n' $_ids | sort -u); do
+        if lock_take "$WORKER_LOCK_ROOT/$_id.lock" "$LOCK_CAP"; then
+            WORKER_LOCKS_ACQUIRED="$WORKER_LOCKS_ACQUIRED $_id"
+            ACQUIRED_WORKERS="$ACQUIRED_WORKERS $_id"
+        else
+            echolog "worker ${_id} 正在被另一个任务使用，本次跳过该 worker（任务里的其余 worker 继续）"
+        fi
+    done
+    WORKER_LOCKS_ACQUIRED="${WORKER_LOCKS_ACQUIRED# }"
+    ACQUIRED_WORKERS="${ACQUIRED_WORKERS# }"
+    [ -n "$ACQUIRED_WORKERS" ]
+}
+
+worker_locks_release() {
+    local _id
+    for _id in $WORKER_LOCKS_ACQUIRED; do
+        lock_drop "$WORKER_LOCK_ROOT/$_id.lock"
+    done
+    WORKER_LOCKS_ACQUIRED=""
+    ACQUIRED_WORKERS=""
+}
+
+# 下载实测 + 写回阶段的全局队列：两个不同 worker 的任务可以同时探测，但同一时刻
+# 只允许一个做下载/写回，避免互相抢带宽把速度测偏。后到者阻塞等待（A 方案）；
+# 停止按钮只停止探测，已经跑完探测的任务仍会排队完成自己的下载和写回。
+COMMIT_LOCK_HELD=0
+commit_lock_acquire() {
+    local _waited=0 _pid _started _now
+    [ "$COMMIT_LOCK_HELD" = "1" ] && return 0
+    mkdir -p "$RESULT_DIR" 2>/dev/null || return 1
+    while :; do
+        if mkdir "$COMMIT_LOCK_DIR" 2>/dev/null; then
+            echo "$$" > "$COMMIT_LOCK_DIR/pid"
+            date +%s > "$COMMIT_LOCK_DIR/started"
+            COMMIT_LOCK_HELD=1
+            return 0
+        fi
+        _pid="$(cat "$COMMIT_LOCK_DIR/pid" 2>/dev/null)"
+        if lock_owner_alive "$COMMIT_LOCK_DIR"; then
+            _started="$(cat "$COMMIT_LOCK_DIR/started" 2>/dev/null)"
+            case "$_started" in ''|*[!0-9]*) _started=0 ;; esac
+            _now="$(date +%s)"
+            if [ "$_started" -gt 0 ] && [ $((_now - _started)) -gt "$LOCK_CAP" ]; then
+                echolog "下载锁已持有 $((_now - _started))s 超过上限（PID ${_pid} 疑似僵死），接管"
+            else
+                _waited=$((_waited + 1))
+                if [ $((_waited % 30)) -eq 0 ]; then
+                    echolog "等待其他任务完成下载/写回（已等待 ${_waited}s，PID ${_pid}）"
+                fi
+                [ "$_waited" -ge 14400 ] && {
+                    echolog "等待下载锁超过 4 小时，本次放弃"
+                    return 1
+                }
+                sleep 1
+                continue
+            fi
+        else
+            echolog "下载锁为残留（PID ${_pid:-未知} 已不存在），接管"
+        fi
+        rm -rf "$COMMIT_LOCK_DIR"
+    done
+}
+
+commit_lock_release() {
+    [ "$COMMIT_LOCK_HELD" = "1" ] || return 0
+    lock_drop "$COMMIT_LOCK_DIR"
+    COMMIT_LOCK_HELD=0
+    nt_maybe_passwall_reload
+}
+
+# 是否还有别的任务在跑（不含自己）。用于 restart 合并与共享日志轮转。
+nt_other_runs_active() {
+    local _m _pid
+    for _m in "$RUN_REGISTRY"/*; do
+        [ -e "$_m" ] || continue
+        _pid="${_m##*/}"
+        [ "$_pid" = "$$" ] && continue
+        if [ -d "/proc/$_pid" ] && grep -q 'cfpick\.sh' "/proc/$_pid/cmdline" 2>/dev/null; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# passwall restart 会中断其他任务正在用的 run_socks，所以只要还有别的任务在跑就
+# 先记一个 pending，等最后一个任务收尾时统一 restart 一次。
+nt_maybe_passwall_reload() {
+    [ -f "$NT_RELOAD_PENDING" ] || return 0
+    nt_other_runs_active && return 0
+    rm -f "$NT_RELOAD_PENDING" 2>/dev/null
+    /etc/init.d/passwall restart >/dev/null 2>&1 || echolog "警告：passwall restart 失败，配置可能未实时生效"
+}
+
+nt_request_passwall_reload() {
+    : > "$NT_RELOAD_PENDING" 2>/dev/null
+    nt_maybe_passwall_reload
+}
+
+# 下载实测期间暂停其他任务的探测：下载会互相抢带宽，对方在下载时本任务的
+# worker 在每次探测前先等一等，对方释放 commit 锁后自动继续。
+DOWNLOAD_WAIT_LOGGED=0
+wait_while_downloading() {
+    local _pid
+    [ -d "$COMMIT_LOCK_DIR" ] || { DOWNLOAD_WAIT_LOGGED=0; return 0; }
+    _pid="$(cat "$COMMIT_LOCK_DIR/pid" 2>/dev/null)"
+    [ -n "$_pid" ] && [ "$_pid" != "$$" ] || { DOWNLOAD_WAIT_LOGGED=0; return 0; }
+    lock_owner_alive "$COMMIT_LOCK_DIR" || { DOWNLOAD_WAIT_LOGGED=0; return 0; }
+    if [ "$DOWNLOAD_WAIT_LOGGED" = "0" ]; then
+        echolog "另一任务正在下载实测，暂停探测，对方完成后自动继续"
+        DOWNLOAD_WAIT_LOGGED=1
+    fi
+    while [ -d "$COMMIT_LOCK_DIR" ] && lock_owner_alive "$COMMIT_LOCK_DIR"; do
+        [ -f "${RUN_DIR}/.nt_stop" ] && return 1
+        sleep 1
+    done
+    DOWNLOAD_WAIT_LOGGED=0
+    echolog "对方下载完成，继续探测"
+    return 0
+}
+
+# ── 会话目录与活动任务登记 ────────────────────────────────────────────
+# 会话目录名用主进程 PID：worker 都是 fork 出来的子 shell，$$ 仍是主进程 PID。
+register_run() {
+    mkdir -p "$RUN_REGISTRY" 2>/dev/null || return 0
+    {
+        printf 'pid=%s\n' "$$"
+        printf 'dir=%s\n' "$RUN_DIR"
+        printf 'mode=%s\n' "$ACTION"
+        printf 'started=%s\n' "$(date +%s)"
+        printf 'workers=%s\n' "$(echo $RUN_WORKERS | tr ' ' ',')"
+    } > "$RUN_REGISTRY/$$"
+}
+
+unregister_run() {
+    rm -f "$RUN_REGISTRY/$$" 2>/dev/null
+}
+
+run_session_create() {
+    mkdir -p "$RESULT_DIR" 2>/dev/null || { echolog "无法创建 $RESULT_DIR，本次跳过"; return 1; }
+    RUN_DIR="$RESULT_DIR/run.$$"
+    rm -rf "$RUN_DIR" 2>/dev/null
+    if ! mkdir -p "$RUN_DIR" 2>/dev/null; then
+        echolog "创建会话目录 $RUN_DIR 失败，本次跳过"
+        RUN_DIR=""
+        return 1
+    fi
+    echo "$$" > "$RUN_PID_FILE"
+    reap_stale_run_dirs
+    # 清掉上次被 kill -9 留下的死登记/死 worker 锁，避免面板显示幽灵任务。
+    local _m _pid _d
+    for _m in "$RUN_REGISTRY"/*; do
+        [ -e "$_m" ] || continue
+        _pid="${_m##*/}"
+        if [ ! -d "/proc/$_pid" ] || ! grep -q 'cfpick\.sh' "/proc/$_pid/cmdline" 2>/dev/null; then
+            rm -f "$_m" 2>/dev/null
+        fi
+    done
+    for _d in "$WORKER_LOCK_ROOT"/*.lock; do
+        [ -d "$_d" ] || continue
+        lock_owner_alive "$_d" || rm -rf "$_d" 2>/dev/null
+    done
+    register_run
+    return 0
+}
+
+run_session_destroy() {
+    [ -n "$RUN_DIR" ] && rm -rf "$RUN_DIR" 2>/dev/null
+    unregister_run
+    rm -f "$RUN_PID_FILE" 2>/dev/null
+    RUN_DIR=""
+}
+
+# 本次任务实际要测的 worker 集合（已应用 --node 过滤）。为空时回退单节点，
+# 但回退节点也必须落在所选范围内，绝不偷偷改测用户没选的节点。
+run_worker_ids() {
+    read_node_ip_map
+    local _w _out="" _seen=""
+    for _w in ${NODE_IP_WORKERS:-} ${passwall_services:-}; do
+        [ -n "$_w" ] || continue
+        node_selected "$_w" || continue
+        case " $_seen " in *" $_w "*) continue ;; esac
+        _seen="$_seen $_w"; _out="$_out $_w"
+    done
+    if [ -z "$_out" ] && [ -n "${node_test_node:-}" ] && node_selected "$node_test_node"; then
+        _out="$node_test_node"
+    fi
+    echo "${_out# }"
 }
 
 # 清掉上次异常退出留下的会话目录（进程已不在），防 /tmp 内存盘被 IP 列表/结果文件撑满。
@@ -318,6 +513,7 @@ build_retest_ip_lists() {
     local maxn="$1" _w _seen="" _any=0
     for _w in ${NODE_IP_WORKERS:-} ${passwall_services:-} ${node_test_node:-}; do
         [ -n "$_w" ] || continue
+        node_selected "$_w" || continue
         case " $_seen " in *" $_w "*) continue ;; esac
         _seen="$_seen $_w"
         build_retest_list_one "$_w" "$maxn" && _any=1
@@ -383,6 +579,47 @@ function sort_result(){
             }'
     } > "${file}.sorted" 2>/dev/null
     [ -s "${file}.sorted" ] && mv -f "${file}.sorted" "$file" || rm -f "${file}.sorted"
+}
+
+# 并发任务共享 result.csv：每次提交只替换本次 worker 的行，其他 worker 的行原样保留。
+# 调用方必须已持有 commit 锁（避免两次 awk+mv 互相覆盖）。
+# 参数: $1=本次运行的 merged 文件（含表头/数据/时间行） $2=本次 worker 列表
+function merge_run_result(){
+    local _merged="$1" _workers="$2"
+    local _tmp="${RESULT_DIR}/result.csv.merge.$$"
+    local _old="${RESULT_DIR}/result.csv.old.$$"
+    local _map="${RUN_DIR}/merge_map.$$"
+    local _w _name
+    : > "$_map"
+    for _w in $_workers; do
+        _name="$(uci -q get "passwall.${_w}.remarks" 2>/dev/null)"; _name="${_name:-$_w}"
+        _name="${_name//,/ }"
+        printf '%s,%s\n' "$_w" "$_name" >> "$_map"
+    done
+    rm -f "$_old"
+    if [ -s "$IP_FILE" ]; then
+        sed '1d' "$IP_FILE" 2>/dev/null | grep -av '^#' > "$_old"
+    fi
+    {
+        if [ -s "$IP_FILE" ]; then
+            sed -n '1p' "$IP_FILE"
+        else
+            echo "IP 地址,已发送,已接收,丢包率,平均延迟,下载速度(MB/s),地区码,节点,节点ID"
+        fi
+        [ -s "$_old" ] && awk -F, '
+            NR==FNR { ids[$1]=1; names[$2]=1; next }
+            { if (($9 != "" && ($9 in ids)) || ($9 == "" && ($8 in names))) next; print }
+        ' "$_map" "$_old"
+        sed '1d' "$_merged" 2>/dev/null | grep -av '^#'
+    } > "$_tmp"
+    sort_result "$_tmp"
+    echo "# Speed test time: $(date +'%Y-%m-%d %H:%M:%S')" >> "$_tmp"
+    if [ -s "$_tmp" ] && mv -f "$_tmp" "$IP_FILE" 2>/dev/null; then
+        rm -f "$_old" "$_map"
+        return 0
+    fi
+    rm -f "$_tmp" "$_old" "$_map"
+    return 1
 }
 
 # 从在线 CM 源下载原始候选列表。源格式: IP:PORT#国家码 (如 1.2.3.4:443#JP)
@@ -503,9 +740,12 @@ function speed_test(){
     # 会话目录由运行锁建立（run_lock_acquire）；此处只做防御性检查，
     # 避免 RUN_DIR 为空时中间状态落到根目录下。
     [ -n "$RUN_DIR" ] || { echolog "内部错误：未持有运行锁就调用 speed_test，中止"; return 1; }
-    # 日志只在整次测速入口处理一次：上次运行日志滚动归档为 .log.1~.log.5
-    # （须在拿到运行锁之后再轮转：否则被跳过的本次会把在跑会话的日志轮转走）
-    rotate_log_files
+    # 另一个任务正在下载实测时，先别开始探测/拉候选，避免抢带宽把对方测速测偏。
+    wait_while_downloading || { echolog "等待对方下载时收到停止，本次中止"; return 1; }
+    # 日志只在整次测速入口处理一次：上次运行日志滚动归档为 .log.1~.log.5。
+    # 并发任务共用 /tmp/cfpick.log，还有别的任务在跑时不能轮转，否则会把对方
+    # 正在写的日志挪走；单任务时保持原来的滚动行为。
+    nt_other_runs_active || rotate_log_files
     # 节点 -> DDNS 域名映射：配置了域名的节点只写 DNS、不回写 passwall。
     nt_build_ddns_map
     # 走节点测速：把候选 CF IP 写进 passwall 节点 address，用 passwall app.sh run_socks
@@ -581,84 +821,16 @@ nt_snapshot() {
     cp /etc/config/passwall "${NT_SNAP_FILE}" 2>/dev/null || { echolog "快照 /etc/config/passwall 失败"; rm -f "${NT_SNAP_FILE}"; NT_SNAP_FILE=""; return 1; }
 }
 
-# 整份还原快照（不重放任何 address）：用于失败/中断/结果为空路径，回滚本次测速所有改动。
-nt_rollback() {
-    [ -n "${NT_SNAP_FILE}" ] && [ -f "${NT_SNAP_FILE}" ] || return 0
-    # 直写文件前先丢掉残留的 session delta（worker 被 kill 在 uci set 与 commit 之间会留下），
-    # 否则之后任何 uci commit 都会把陈旧 address 刷回文件，破坏这份刚还原的快照
+# 把 node→IP 映射写进 /etc/config/passwall：只改映射里出现的节点，其余行原样输出。
+# 并发任务共享 /etc/config/passwall，绝不能整份还原/覆盖别人正在测的节点。
+# 调用方须持有 uci 锁。参数: $1 = map 文件（node<TAB>ip）
+nt_write_address_map() {
+    local _edits="$1" _tmp _um
+    [ -s "$_edits" ] || return 1
+    # 直写文件前丢掉残留 session delta，否则之后的 uci commit 会把陈旧 address 刷回来。
     uci -q revert passwall 2>/dev/null
-    cp "${NT_SNAP_FILE}" /etc/config/passwall 2>/dev/null || echolog "警告：还原 passwall 快照失败"
-    /etc/init.d/passwall restart >/dev/null 2>&1 || echolog "警告：passwall restart 失败，回滚可能未实时生效"
-    echolog "已还原 passwall 配置到测速前快照（回滚本次测速所有改动，清理中途新增的异常节点）"
-}
-
-# 把各 worker 最优 IP 一次性写进 /etc/config/passwall：以测前快照为底，只替换/补写各 worker
-# 段（config nodes/socks '<id>'）里的 option address，其余行原样输出（文件含凭据，格式绝不改），
-# 先写同目录临时文件再 mv 覆盖 —— 同目录 rename 是原子的，所以任何时刻被 kill -9，配置要么是
-# 测前快照、要么是完整结果，不会再留下「一部分节点写了新 IP、一部分还是旧 IP」的半成品
-# （历史事故：停止时进程被杀在 `cp 快照` 与逐节点 `uci set` 之间，5 个节点只写进 2 个）。
-# 直写文件绕过了 uci，故写前必须 uci revert 丢掉可能残留的 session delta：否则之后任何
-# uci commit（我们自己的、或 passwall 自身的 uci -q commit passwall）都会把陈旧 delta
-# 刷回文件，覆盖掉刚写的 IP。
-# 参数: $1 = reapply 文件（每行 node<TAB>最优IP）
-# 返回 0 = 已按预期落盘（含读回校验后的补写）；1 = 未写入（无快照兜底也失败 / 快照里已无该节点）
-nt_apply_best_addresses() {
-    local _rf="$1"
-    local _mw _ip _tmp _edits _um _mismatch="" _count=0
-    if [ ! -s "$_rf" ]; then
-        # 空清单：所有待测节点都配置了 DDNS，不需要写回 passwall。仍要用测前快照
-        # 还原测速期间为 run_socks 改写的 address（独立内核模式本来就没改，等价）。
-        if [ -n "${NT_SNAP_FILE}" ] && [ -f "${NT_SNAP_FILE}" ]; then
-            if cmp -s "${NT_SNAP_FILE}" /etc/config/passwall; then
-                NT_SNAPSHOT_REAPPLIED=1
-                NT_NO_PASSWALL_RESTART=1
-                echolog "本次无需写回 passwall（节点均已配置 DDNS），配置未变化，跳过 passwall 重启"
-                return 0
-            fi
-            uci -q revert passwall 2>/dev/null
-            if cp "${NT_SNAP_FILE}" /etc/config/passwall 2>/dev/null; then
-                NT_SNAPSHOT_REAPPLIED=1
-                NT_NO_PASSWALL_RESTART=0
-                echolog "本次无需写回 passwall（节点均已配置 DDNS），已还原测前配置"
-                return 0
-            fi
-            echolog "警告：还原 passwall 快照失败"
-            return 1
-        fi
-        return 1
-    fi
-    NT_NO_PASSWALL_RESTART=0
-    if [ -z "${NT_SNAP_FILE}" ] || [ ! -f "${NT_SNAP_FILE}" ]; then
-        # 无快照兜底（正常不可达：两条调用路径都在 nt_snapshot 失败时中止）
-        echolog "警告：无测前快照，退化为逐节点 uci set 写回"
-        while read -r _mw _ip; do
-            [ -n "$_mw" ] && [ -n "$_ip" ] || continue
-            uci set passwall.${_mw}.address="${_ip}" 2>/dev/null
-        done < "$_rf"
-        uci commit passwall 2>/dev/null
-        NT_SNAPSHOT_REAPPLIED=1
-        return 0
-    fi
-    _edits="$(mktemp "${RUN_DIR}/node_test_edits.XXXXXX")" || { echolog "创建写回清单失败"; return 1; }
-    # 守护：被测 worker 须仍在快照里（防订阅更新重排后把 address 写进空段）。此处按快照文本
-    # 判断而非 uci -q get —— 残留 delta 会让 uci 读到与文件不一致的值。
-    while read -r _mw _ip; do
-        [ -n "$_mw" ] && [ -n "$_ip" ] || continue
-        if grep -q "^config [A-Za-z0-9_]* '${_mw}'" "${NT_SNAP_FILE}" 2>/dev/null; then
-            printf '%s\t%s\n' "$_mw" "$_ip" >> "$_edits"
-            _count=$((_count + 1))
-        else
-            echolog "worker ${_mw} 在快照中已不存在，跳过写回"
-        fi
-    done < "$_rf"
-    if [ "$_count" -eq 0 ]; then
-        rm -f "$_edits"
-        return 1
-    fi
-    uci -q revert passwall 2>/dev/null
-    # 清掉上一次运行被强杀时可能留在 /etc/config 的临时文件（本次若也被强杀，留给下一次清）
     rm -f /etc/config/.cfpick.* 2>/dev/null
-    _tmp="$(mktemp /etc/config/.cfpick.XXXXXX)" || { rm -f "$_edits"; echolog "创建配置临时文件失败"; return 1; }
+    _tmp="$(mktemp /etc/config/.cfpick.XXXXXX)" || { echolog "创建配置临时文件失败"; return 1; }
     _um="$(umask)"; umask 077
     busybox awk 'BEGIN{q=sprintf("%c",39)}
         NR==FNR { ip[$1]=$2; next }
@@ -676,11 +848,98 @@ nt_apply_best_addresses() {
         }
         { print }
         END { if (cur != "" && (cur in ip) && !done[cur]) print "\toption address " q ip[cur] q }' \
-        "$_edits" "${NT_SNAP_FILE}" > "$_tmp"
+        "$_edits" /etc/config/passwall > "$_tmp"
     umask "$_um"
     chmod 600 "$_tmp" 2>/dev/null
     if [ ! -s "$_tmp" ] || ! mv -f "$_tmp" /etc/config/passwall 2>/dev/null; then
-        rm -f "$_tmp" "$_edits"
+        rm -f "$_tmp"
+        echolog "警告：写回 /etc/config/passwall 失败"
+        return 1
+    fi
+    return 0
+}
+
+# 只还原本次运行的 worker 到测前 address（从 NT_ORIG_FILE 的第三列取原值）。
+nt_restore_orig_addresses() {
+    local _map _idx _mw _orig _rc
+    _map="$(mktemp "${RUN_DIR}/restore_orig.XXXXXX")" || return 1
+    if [ -n "${NT_ORIG_FILE}" ] && [ -s "${NT_ORIG_FILE}" ]; then
+        while read -r _idx _mw _orig; do
+            [ -n "$_mw" ] || continue
+            printf '%s\t%s\n' "$_mw" "$_orig" >> "$_map"
+        done < "$NT_ORIG_FILE"
+    elif [ -n "${NODE_TEST_NODE}" ] && [ -n "${NODE_TEST_ORIG_ADDR}" ]; then
+        printf '%s\t%s\n' "$NODE_TEST_NODE" "$NODE_TEST_ORIG_ADDR" > "$_map"
+    else
+        rm -f "$_map"
+        return 1
+    fi
+    nt_lock_acquire
+    nt_write_address_map "$_map"
+    _rc=$?
+    nt_lock_release
+    rm -f "$_map"
+    return $_rc
+}
+
+# 失败/中断/结果为空：只回滚本次 worker，别的任务正在测的节点不动。
+nt_rollback() {
+    if { [ -z "${NT_ORIG_FILE}" ] || [ ! -s "${NT_ORIG_FILE}" ]; } &&
+       { [ -z "${NODE_TEST_NODE}" ] || [ -z "${NODE_TEST_ORIG_ADDR}" ]; }; then
+        return 0
+    fi
+    # 只取 uci 锁（写文件本身的互斥），不排 commit 队列：被停止的任务不能为了回滚
+    # 去等另一个任务几分钟的下载。
+    if nt_restore_orig_addresses; then
+        echolog "已回滚本次 worker 的 passwall address（其余 worker 不动）"
+        nt_request_passwall_reload
+    else
+        echolog "警告：回滚本次 worker 的 address 失败"
+    fi
+}
+
+# 把各 worker 最优 IP 一次性写进 /etc/config/passwall：以测前快照为底，只替换/补写各 worker
+# 段（config nodes/socks '<id>'）里的 option address，其余行原样输出（文件含凭据，格式绝不改），
+# 先写同目录临时文件再 mv 覆盖 —— 同目录 rename 是原子的，所以任何时刻被 kill -9，配置要么是
+# 测前快照、要么是完整结果，不会再留下「一部分节点写了新 IP、一部分还是旧 IP」的半成品
+# （历史事故：停止时进程被杀在 `cp 快照` 与逐节点 `uci set` 之间，5 个节点只写进 2 个）。
+# 直写文件绕过了 uci，故写前必须 uci revert 丢掉可能残留的 session delta：否则之后任何
+# uci commit（我们自己的、或 passwall 自身的 uci -q commit passwall）都会把陈旧 delta
+# 刷回文件，覆盖掉刚写的 IP。
+# 参数: $1 = reapply 文件（每行 node<TAB>最优IP）
+# 返回 0 = 已按预期落盘（含读回校验后的补写）；1 = 未写入（无快照兜底也失败 / 快照里已无该节点）
+nt_apply_best_addresses() {
+    local _rf="$1"
+    local _mw _ip _edits _mismatch="" _count=0
+    NT_NO_PASSWALL_RESTART=0
+    _edits="$(mktemp "${RUN_DIR}/node_test_edits.XXXXXX")" || { echolog "创建写回清单失败"; return 1; }
+    # 守护：被测 worker 须仍在当前 passwall 配置里（防订阅更新重排后把 address 写进空段）。
+    # 用当前文件而不是测前快照判断——并发任务可能已经改过其他节点。
+    if [ -s "$_rf" ]; then
+        while read -r _mw _ip; do
+            [ -n "$_mw" ] && [ -n "$_ip" ] || continue
+            if grep -q "^config [A-Za-z0-9_]* '${_mw}'" /etc/config/passwall 2>/dev/null; then
+                printf '%s\t%s\n' "$_mw" "$_ip" >> "$_edits"
+                _count=$((_count + 1))
+            else
+                echolog "worker ${_mw} 在 passwall 配置中已不存在，跳过写回"
+            fi
+        done < "$_rf"
+    fi
+    if [ "$_count" -eq 0 ]; then
+        # 没有要写回的节点（全部走 DDNS）：只把本次 worker 的 address 还原到测前值。
+        rm -f "$_edits"
+        if nt_restore_orig_addresses; then
+            NT_SNAPSHOT_REAPPLIED=1
+            echolog "本次无需写回 passwall（节点均已配置 DDNS），已还原本次 worker 的测前 address"
+            return 0
+        fi
+        return 1
+    fi
+    nt_lock_acquire
+    if ! nt_write_address_map "$_edits"; then
+        nt_lock_release
+        rm -f "$_edits"
         echolog "警告：写回 /etc/config/passwall 失败，配置保持测前状态"
         return 1
     fi
@@ -697,6 +956,7 @@ nt_apply_best_addresses() {
         done < "$_edits"
         uci commit passwall 2>/dev/null
     fi
+    nt_lock_release
     rm -f "$_edits"
     return 0
 }
@@ -713,35 +973,48 @@ node_test_cleanup() {
         busybox pgrep -af "${NODE_TEST_FLAG_BASE}" 2>/dev/null | awk '! /cfpick\.sh/{print $1}' | xargs kill -9 >/dev/null 2>&1
         rm -rf /tmp/etc/passwall/*"${NODE_TEST_FLAG_BASE}"* 2>/dev/null
     fi
-    rmdir "${NT_LOCKDIR}" 2>/dev/null
+    nt_lock_release
     # 成功路径已由 success 代码自行「还原快照 + 重放 address + restart」并置
     # NT_SNAPSHOT_REAPPLIED=1，此处跳过；失败/中断/结果为空路径走整份回滚（含 address 与全局节点 node/tcp_node）。
     if [ "${NT_SNAPSHOT_REAPPLIED:-0}" != "1" ]; then
         nt_rollback
     fi
+    nt_restore_global_node
+    commit_lock_release
     rm -f "${NT_SNAP_FILE}" "${NT_ORIG_FILE}" 2>/dev/null
     # 清理首完成即停用的完成标记、迭代轮次临时结果、轮次 meta 与停止标志（含中断退出残留）；
     # .nt_committing 是「提交阶段勿强杀」标记，正常路径收尾已删，这里兜底中途退出的残留
     rm -f "${RUN_DIR}"/result.csv.tmp.*.done "${RUN_DIR}"/result.csv.tmp.*.end "${RUN_DIR}"/result.csv.tmp.*.pass "${RUN_DIR}"/result.csv.tmp.*.probed "${RUN_DIR}"/result.csv.tmp.*.carry "${RUN_DIR}"/result.csv.tmp.*.union "${RUN_DIR}"/result.csv.tmp.*.meta "${RUN_DIR}/.nt_stop" "${RUN_DIR}/.nt_committing" "${RUN_DIR}/.user_stop" 2>/dev/null
 }
 
-# 锁目录在会话目录内，随会话创建/销毁；原实现是死循环等待，一旦残留就把整个会话卡死。
+# uci staging 是跨进程共享的，这里用一把全局锁（不再放在会话目录里）。
 nt_lock_acquire() {
-    local _i=0
+    local _i=0 _pid
     while ! mkdir "${NT_LOCKDIR}" 2>/dev/null; do
+        _pid="$(cat "${NT_LOCKDIR}/pid" 2>/dev/null)"
+        if [ -z "$_pid" ]; then
+            # 旧版本留下的无主目录，或进程在 mkdir 与写 pid 之间被杀。
+            rm -rf "${NT_LOCKDIR}" 2>/dev/null
+            continue
+        fi
         _i=$((_i + 1))
         if [ "$_i" -ge 30 ]; then
             echolog "警告：uci 串行锁等待超 30s，强制接管（疑有 worker 僵死）"
             rm -rf "${NT_LOCKDIR}" 2>/dev/null
             mkdir "${NT_LOCKDIR}" 2>/dev/null
+            echo "$$" > "${NT_LOCKDIR}/pid" 2>/dev/null
             return 0
         fi
         # 用整数秒：部分 busybox 未启用浮点 sleep（LEDE 24.10 实测 `sleep 0.1` 直接报错
         # 且不睡眠），会让锁超时瞬间触发。30 次 × 1s = 30s，与提示一致。
         sleep 1
     done
+    echo "$$" > "${NT_LOCKDIR}/pid" 2>/dev/null
 }
-nt_lock_release() { rmdir "${NT_LOCKDIR}" 2>/dev/null; }
+nt_lock_release() {
+    [ "$(cat "${NT_LOCKDIR}/pid" 2>/dev/null)" = "$$" ] || return 0
+    rm -rf "${NT_LOCKDIR}" 2>/dev/null
+}
 
 # ── 独立内核 / DDNS 辅助 ────────────────────────────────────────────────
 # 独立内核模式（设置页「独立测速」启用）：用本机 mihomo/Xray 拉起候选 IP 的
@@ -798,12 +1071,24 @@ nt_node_ddns_domain() {
 }
 
 # 下载实测的串行性由结构保证：所有 worker 停止后，主进程按 worker 顺序逐个执行
-# nt_download_stage，不存在跨进程并发下载，故不再需要下载串行锁。
+# nt_download_stage；跨任务的下载/写回由 commit_lock 全局排队（后到者等待）。
 
-# 测速前把 passwall 全局主节点切到稳定节点；还原由 node_test_cleanup 兜底。
-# 节点变更需 /etc/init.d/passwall restart 才能实时生效；切换在拉起 worker 之前、
-# 还原在所有 worker 结束之后，故 restart 不与 worker 的 app.sh run_socks 并发。
-# 调用前须已通过必填与冲突校验（stable_node 非空且不在待测集合内）。
+# 测速前把 passwall 全局主节点切到稳定节点，结束时还原。并发任务共用同一个稳定
+# 节点，用引用计数：第一个切换并记下原值，最后一个结束时才还原，避免先结束的
+# 任务把仍在运行的任务的全局节点改回去。
+STABLE_DIR="$RESULT_DIR/.stable"
+
+nt_stable_cleanup_markers() {
+    local _m _pid
+    for _m in "$STABLE_DIR"/pid.*; do
+        [ -e "$_m" ] || continue
+        _pid="${_m##*/pid.}"
+        if [ ! -d "/proc/$_pid" ] || ! grep -q 'cfpick\.sh' "/proc/$_pid/cmdline" 2>/dev/null; then
+            rm -f "$_m"
+        fi
+    done
+}
+
 # 返回 1 = 稳定节点不存在（无 type），调用方应中止。
 nt_switch_tcp_node() {
     local _s="${stable_node:-}"
@@ -814,15 +1099,37 @@ nt_switch_tcp_node() {
     local _st
     _st=$(config_n_get "$_s" type)
     [ -n "$_st" ] || { echolog "稳定节点 ${_s} 不存在或无 type，中止"; return 1; }
-    # passwall 26.10.x 起全局主节点键由 tcp_node 迁到 node：app.sh get_config() 读
-    # @global[0].node，tcp_node 只剩 footer.htm 显示用（那里的 tcp_node|udp_node 正则
-    # 已被注释掉、换成 node.main）。老版本读 tcp_node。故两键同写，谁生效由所装版本
-    # 决定；还原统一走测前快照（成功路径 cp 快照 / 失败路径 nt_rollback），不逐键回滚。
+
+    nt_lock_acquire
+    mkdir -p "$STABLE_DIR" 2>/dev/null
+    nt_stable_cleanup_markers
+    local _eff
+    _eff="$(uci -q get passwall.@global[0].node 2>/dev/null)"
+    [ -n "$_eff" ] || _eff="$(uci -q get passwall.@global[0].tcp_node 2>/dev/null)"
+
+    if [ -f "$STABLE_DIR/orig" ]; then
+        # 已有任务切换过：只登记引用，让最后一个任务负责还原。
+        touch "$STABLE_DIR/pid.$$"
+        [ "$_eff" = "$_s" ] || {
+            uci set passwall.@global[0].node="${_s}"
+            uci set passwall.@global[0].tcp_node="${_s}"
+            uci commit passwall
+        }
+        nt_lock_release
+        NT_TCP_SWITCHED=1
+        return 0
+    fi
+
+    if [ "$_eff" = "$_s" ]; then
+        # 用户本来就把全局节点设成了稳定节点：无需切换，也无需还原。
+        nt_lock_release
+        return 0
+    fi
+
     NT_ORIG_NODE="$(uci -q get passwall.@global[0].node 2>/dev/null)"
     NT_ORIG_TCP_NODE="$(uci -q get passwall.@global[0].tcp_node 2>/dev/null)"
-    # 生效键已是稳定节点则无需切换（也不置 SWITCHED，cleanup 跳过还原）：node 优先，空则回落 tcp_node
-    local _eff="${NT_ORIG_NODE:-$NT_ORIG_TCP_NODE}"
-    [ "$_eff" = "$_s" ] && { NT_ORIG_NODE=""; NT_ORIG_TCP_NODE=""; NT_TCP_SWITCHED=0; return 0; }
+    printf 'node=%s\ntcp_node=%s\n' "$NT_ORIG_NODE" "$NT_ORIG_TCP_NODE" > "$STABLE_DIR/orig"
+    touch "$STABLE_DIR/pid.$$"
     local _warn=""
     if [ -n "$NT_ORIG_NODE" ] && [ "$(config_n_get "$NT_ORIG_NODE" protocol)" = "_shunt" ]; then
         _warn="；原主节点 ${NT_ORIG_NODE} 是分流节点，测速期间分流规则暂停、流量全走稳定节点"
@@ -831,8 +1138,35 @@ nt_switch_tcp_node() {
     uci set passwall.@global[0].node="${_s}"
     uci set passwall.@global[0].tcp_node="${_s}"
     uci commit passwall
+    nt_lock_release
     /etc/init.d/passwall restart >/dev/null 2>&1 || echolog "警告：passwall restart 失败，节点切换可能未实时生效"
     NT_TCP_SWITCHED=1
+}
+
+nt_restore_global_node() {
+    [ "${NT_TCP_SWITCHED:-0}" = "1" ] || return 0
+    NT_TCP_SWITCHED=0
+    nt_lock_acquire
+    rm -f "$STABLE_DIR/pid.$$" 2>/dev/null
+    nt_stable_cleanup_markers
+    local _m _left=0
+    for _m in "$STABLE_DIR"/pid.*; do
+        [ -e "$_m" ] && { _left=1; break; }
+    done
+    if [ "$_left" = "1" ] || [ ! -f "$STABLE_DIR/orig" ]; then
+        nt_lock_release
+        return 0
+    fi
+    local _on _ot
+    _on="$(sed -n 's/^node=//p' "$STABLE_DIR/orig" 2>/dev/null)"
+    _ot="$(sed -n 's/^tcp_node=//p' "$STABLE_DIR/orig" 2>/dev/null)"
+    uci set passwall.@global[0].node="${_on}"
+    uci set passwall.@global[0].tcp_node="${_ot}"
+    uci commit passwall
+    rm -f "$STABLE_DIR/orig" 2>/dev/null
+    nt_lock_release
+    echolog "恢复 passwall 全局节点（node=${_on:-无} / tcp_node=${_ot:-无}）"
+    nt_request_passwall_reload
 }
 
 # 扫描进行中的 worker（全局 NT_RUNNING = 空格分隔的 pid:worker 列表）：
@@ -1154,6 +1488,7 @@ node_test_worker() {
         # 协作式提前停止：主循环首个有效结果完成后写 .nt_stop，本 worker 跑完当前 IP 即停
         log_size_guard
         [ -f "${RUN_DIR}/.nt_stop" ] && { echolog "worker [${_Wn}] 收到停止信号，跑完当前 IP 即停（已完成 ${_idx2}/${_total}）"; break; }
+        wait_while_downloading || { echolog "worker [${_Wn}] 等待下载时收到停止"; break; }
         _idx2=$((_idx2 + 1))
         local _out _keep _sent _recv _loss _avg
         _out=$(nt_probe_one_ip "$_W" "$_ip" "$_purl" "$_tmo" "$_probes" "$_port" "$_flag")
@@ -1271,6 +1606,7 @@ node_iterate_worker() {
             [ -f "${RUN_DIR}/.nt_stop" ] && { echolog "迭代 [${_Wn}] 第 ${_pass} 轮收到停止信号，跑完当前 IP 即停"; break; }
             [ -f "${RUN_DIR}/.iter_stop" ] && break
             [ "$(date +%s)" -ge "$_deadline" ] && { echolog "迭代 [${_Wn}] 到达时长上限，跑完当前 IP 即停"; break; }
+            wait_while_downloading || { echolog "迭代 [${_Wn}] 等待下载时收到停止"; break; }
             _idx2=$((_idx2 + 1))
             echo "$_ip" >> "$_probedfile"
             local _out _keep _sent _recv _loss _avg
@@ -1483,6 +1819,7 @@ node_speed_test() {
         local _w _seen=""
         for _w in ${NODE_IP_WORKERS:-} ${passwall_services:-}; do
             [ -n "$_w" ] || continue
+            node_selected "$_w" || continue
             case " $_seen " in *" $_w "*) ;; *) _seen="$_seen $_w"; workers_raw="$workers_raw $_w"; ;; esac
         done
     fi
@@ -1491,7 +1828,8 @@ node_speed_test() {
         # ── 多节点并行路径 ──
         # 校验每个 worker，建 idx→node→origaddr 映射文件
         NT_ORIG_FILE="$(mktemp "${RUN_DIR}/node_test_orig.XXXXXX")" || { echolog "创建 worker 映射文件失败"; return 1; }
-        NT_LOCKDIR="${RUN_DIR}/.node_test_lock"
+        # uci staging（/tmp/.uci/passwall）是跨进程共享的，并发任务必须共用一把锁。
+        NT_LOCKDIR="$RESULT_DIR/.uci.lock"
         local valid_workers="" widx=0
         for _w in $workers_raw; do
             local wt wa
@@ -1602,6 +1940,16 @@ node_speed_test() {
             rm -f "${RUN_DIR}"/result.csv.tmp.*.done "${RUN_DIR}"/result.csv.tmp.*.end "${RUN_DIR}"/result.csv.tmp.*.pass "${RUN_DIR}"/result.csv.tmp.*.probed "${RUN_DIR}/.nt_stop" 2>/dev/null
             # 所有 worker 已停止探测 → 进入下载实测阶段（主进程串行，逐 worker 逐 IP）。
             # 必须放在合并/写回之前：下载结果决定各节点写回哪个最优 IP。
+            # 下载会互相抢带宽，跨任务也全局串行：后到者在 commit 锁上排队（A 方案）。
+            # 排队期间也算「提交阶段」，停止按钮不会强杀，等它完成自己的下载。
+            : > "${RUN_DIR}/.nt_committing" 2>/dev/null
+            if ! commit_lock_acquire; then
+                echolog "未拿到下载锁，本次放弃（保留上一次结果）"
+                rm -f "${RUN_DIR}/.nt_stop" 2>/dev/null
+                trap node_test_cleanup EXIT INT TERM
+                node_test_cleanup; trap - EXIT INT TERM
+                return 1
+            fi
             nt_download_stage "$NT_ORIG_FILE"
             # ── 提交阶段开始：不可中断 ──
             # 从这里到写回完成是本次运行的「提交点」：此刻若被 SIGINT 打断，EXIT/INT trap 会走
@@ -1668,9 +2016,7 @@ node_speed_test() {
             # 在快照里就是测前原值，一次 restart 同时让各 worker 最优 IP + 原始全局节点生效。
             echolog "开始写回：各节点最优 IP 写入 passwall 配置（原子替换，此阶段不可中断，请稍候）"
             if nt_apply_best_addresses "$reapply"; then
-                [ "${NT_NO_PASSWALL_RESTART:-0}" = "1" ] || \
-                    /etc/init.d/passwall restart >/dev/null 2>&1 || \
-                    echolog "警告：passwall restart 失败，最优 IP 可能未实时生效"
+                nt_request_passwall_reload
             else
                 echolog "警告：最优 IP 未写入 passwall 配置，收尾按测前配置回滚"
             fi
@@ -1681,8 +2027,14 @@ node_speed_test() {
                 /usr/bin/cfpick ddns uci-apply --result "$merged" >>"$LOG_FILE" 2>&1 || \
                     echolog "警告：DDNS 有节点未完成（明细见上，不影响测速结果）"
             fi
-            rotate_result_files
-            mv -f "$merged" "$IP_FILE"
+            # 全量任务才滚动历史；局部任务只替换自己 worker 的行，避免把别的 worker 的结果滚进 .1。
+            # 只有本次真正覆盖了全部 worker 才滚动历史；被占用的 worker 跳过后
+            # 结果是局部的，滚动会把上一次的完整结果挪进 .1。
+            [ "$RUN_IS_FULL" = "1" ] && rotate_result_files
+            if ! merge_run_result "$merged" "$NODE_TESTED_WORKERS"; then
+                echolog "警告：合并 result.csv 失败，保留上一次结果"
+            fi
+            rm -f "$merged"
             bestip=$(first_result_ip "$IP_FILE")
             rm -f "$reapply" "${RUN_DIR}/.nt_committing" 2>/dev/null
             trap node_test_cleanup EXIT INT TERM
@@ -1700,6 +2052,12 @@ node_speed_test() {
 
     # ── 单节点串行路径（无第三方 passwall worker 时回退）──
     NODE_TEST_NODE="${node_test_node:-}"
+    # 定时任务按节点过滤时，回退的单节点也必须落在所选范围内，否则宁可不跑，
+    # 也不能悄悄改测一个用户没选的节点。
+    if [ -n "$NODE_FILTER" ] && ! node_selected "$NODE_TEST_NODE"; then
+        echolog "所选节点没有可用的 worker（单节点回退 ${NODE_TEST_NODE:-未配置} 不在所选范围），本次跳过"
+        return 1
+    fi
     [ -n "${NODE_TEST_NODE}" ] || { echolog "未选择 passwall 节点，无法走节点测速"; return 1; }
     local node_type
     node_type=$(echo $(config_n_get ${NODE_TEST_NODE} type) | tr 'A-Z' 'a-z')
@@ -1718,7 +2076,7 @@ node_speed_test() {
 
     # uci 串行锁目录：多 worker 路径已在分支内设置；单节点路径此前遗漏，导致
     # nt_lock_acquire 对着空路径 mkdir 失败、每次都空等 30s 才强制接管（每 IP 多 30s）。
-    NT_LOCKDIR="${RUN_DIR}/.node_test_lock"
+    NT_LOCKDIR="$RESULT_DIR/.uci.lock"
 
     # 单节点候选 IP（按其 node_ip 指派或默认列表；非在线模式共享 selected_ip_file）
     local ip_list total
@@ -1750,6 +2108,16 @@ node_speed_test() {
     # 放在写回/摘要之前——下载结果决定写回哪个最优 IP，迭代摘要也要带上实测速度。
     local _dmap="${RUN_DIR}/download_map"
     printf '1\t%s\t\n' "$NODE_TEST_NODE" > "$_dmap" 2>/dev/null
+    # 下载/写回阶段全局串行（跨任务排队），避免互抢带宽把速度测偏。
+    # 排队期间也算提交阶段，停止不会强杀，仍会完成本次候选的下载。
+    : > "${RUN_DIR}/.nt_committing" 2>/dev/null
+    if ! commit_lock_acquire; then
+        echolog "未拿到下载锁，本次放弃（保留上一次结果）"
+        rm -f "$_dmap" "$result_tmp"
+        trap node_test_cleanup EXIT INT TERM
+        node_test_cleanup; trap - EXIT INT TERM
+        return 1
+    fi
     [ -s "$_dmap" ] && nt_download_stage "$_dmap"
     rm -f "$_dmap"
 
@@ -1795,9 +2163,7 @@ node_speed_test() {
         echolog "开始写回：节点 ${NODE_TEST_NODE} 最优 IP ${bestip} 写入 passwall 配置（原子替换，此阶段不可中断，请稍候）"
     fi
     if nt_apply_best_addresses "$_reapply"; then
-        [ "${NT_NO_PASSWALL_RESTART:-0}" = "1" ] || \
-            /etc/init.d/passwall restart >/dev/null 2>&1 || \
-            echolog "警告：passwall restart 失败，最优 IP 可能未实时生效"
+        nt_request_passwall_reload
         [ "$_ddns_node" = "1" ] || \
             echolog "走节点测速完成，最优 IP ${bestip} 已写入 passwall 节点 ${NODE_TEST_NODE}（已清理测速期间 passwall 新增的异常节点）"
     else
@@ -1809,8 +2175,11 @@ node_speed_test() {
         /usr/bin/cfpick ddns uci-apply --result "$result_tmp" >>"$LOG_FILE" 2>&1 || \
             echolog "警告：DDNS 有节点未完成（明细见上，不影响测速结果）"
     fi
-    rotate_result_files
-    mv -f "$result_tmp" "$IP_FILE"
+    [ "$RUN_IS_FULL" = "1" ] && rotate_result_files
+    if ! merge_run_result "$result_tmp" "$NODE_TESTED_WORKERS"; then
+        echolog "警告：合并 result.csv 失败，保留上一次结果"
+    fi
+    rm -f "$result_tmp"
     rm -f "${RUN_DIR}/.nt_committing" 2>/dev/null
     trap node_test_cleanup EXIT INT TERM
 
@@ -1819,8 +2188,10 @@ node_speed_test() {
 }
 
 function ip_replace(){
-
-    # 获取最快 IP（从 result.csv 结果文件中获取第一个 IP）
+    # 全局集成（hosts/DNS/其他代理）是共享配置，和下载/写回共用同一把 commit 锁，
+    # 避免两个任务同时改 hosts 或 DNS。
+    commit_lock_acquire || return 1
+    # 获取最快 IP（从合并后的 result.csv 中获取第一个 IP）
     bestip=$(first_result_ip "$IP_FILE")
     if [[ -z "${bestip}" ]]; then
         echolog "走节点测速结果 IP 数量为 0,跳过下面步骤..."
@@ -1835,6 +2206,8 @@ function ip_replace(){
         passwall_best_ip
         passwall2_best_ip
     fi
+    commit_lock_release
+    return 0
 }
 
 function host_ip() {
@@ -2013,20 +2386,76 @@ function alidns_ip(){
 
 read_config
 
-# 启动参数
-if [ "$1" ] ;then
-    # 整跑入口的单实例锁：start/test/replace 都算一次完整运行。抢不到说明已有整跑在跑
-    # （定时任务重叠、UI 连点、SSH 手敲），直接退出——两套 worker 会抢同一批 passwall 节点
-    # 并互删中间状态，跑出来的结果是脏的。
+# 启动参数: <mode> [--node=<passwall section> ...]
+# 兼容 `--node=id` 与 `--node id` 两种写法；没有 --node 时保持旧行为（全部节点）。
+ACTION=""
+while [ "$#" -gt 0 ]; do
     case "$1" in
         start|test|replace|retest)
-            run_lock_acquire || { echolog "已有测速在运行（PID $(cat "$RUN_LOCK_DIR/pid" 2>/dev/null)），本次 $1 跳过"; exit 1; }
+            [ -n "$ACTION" ] || ACTION="$1"
+            ;;
+        --node=*)
+            _node_id="${1#--node=}"
+            [ -n "$_node_id" ] && NODE_FILTER="$NODE_FILTER $_node_id"
+            ;;
+        --node)
+            shift
+            [ -n "${1:-}" ] && NODE_FILTER="$NODE_FILTER $1"
             ;;
     esac
-    [ $1 == "start" ] && speed_test && ip_replace
-    [ $1 == "test" ] && speed_test
-    [ $1 == "retest" ] && { RETEST_FROM_RESULT=1; speed_test && ip_replace; }
-    [ $1 == "replace" ] && ip_replace
-    run_lock_release
+    shift
+done
+NODE_FILTER="${NODE_FILTER# }"
+
+if [ -n "$ACTION" ] ;then
+    # 按 worker 抢锁：同一 worker 只允许一个任务；不同 worker 可并行。
+    LOCK_CAP=43200
+    if [ "${iterate_enabled:-0}" = "1" ] && [ "${iterate_minutes:-0}" -ge 1 ] 2>/dev/null; then
+        LOCK_CAP=$(( iterate_minutes * 60 + 1800 ))
+    fi
+
+    RUN_IS_FULL=0
+    if [ "$ACTION" = "replace" ]; then
+        # replace 不测节点，只读结果、写全局集成；ip_replace 自己拿 commit 锁。
+        _saved_filter="$NODE_FILTER"
+        NODE_FILTER=""
+        RUN_WORKERS="$(run_worker_ids)"
+        NODE_FILTER="$_saved_filter"
+    else
+        _requested_filter="$NODE_FILTER"
+        RUN_WORKERS="$(run_worker_ids)"
+        if [ -z "$RUN_WORKERS" ]; then
+            echolog "没有可用的待测 worker（检查「节点」页配置和任务选择的节点），本次跳过"
+            exit 1
+        fi
+        # 逐个抢 worker：被别的任务占用的只跳过它自己，任务里其余 worker 继续。
+        if ! worker_locks_acquire "$RUN_WORKERS"; then
+            echolog "所选 worker 都在被其他任务使用，本次 $ACTION 跳过"
+            exit 1
+        fi
+        _want=$(printf '%s\n' $RUN_WORKERS | grep -c .)
+        _got=$(printf '%s\n' $ACQUIRED_WORKERS | grep -c .)
+        if [ -z "$_requested_filter" ] && [ "$_want" = "$_got" ]; then
+            RUN_IS_FULL=1
+        fi
+        RUN_WORKERS="$ACQUIRED_WORKERS"
+        NODE_FILTER="$ACQUIRED_WORKERS"
+        echolog "本次实际测试 worker: ${ACQUIRED_WORKERS}"
+    fi
+
+    if ! run_session_create; then
+        worker_locks_release
+        exit 1
+    fi
+    trap 'worker_locks_release; commit_lock_release; run_session_destroy' EXIT INT TERM
+
+    [ "$ACTION" == "start" ] && speed_test && ip_replace
+    [ "$ACTION" == "test" ] && speed_test
+    [ "$ACTION" == "retest" ] && { RETEST_FROM_RESULT=1; speed_test && ip_replace; }
+    [ "$ACTION" == "replace" ] && ip_replace
+    worker_locks_release
+    commit_lock_release
+    run_session_destroy
+    trap - EXIT INT TERM
     exit
 fi

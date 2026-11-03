@@ -89,6 +89,9 @@ msgstr "禁用所有声音输出"
 msgid "Terminal"
 msgstr "终端"
 
+msgid "Terminal height"
+msgstr "终端高度"
+
 msgid "Unable to read the CSS style file"
 msgstr "无法读取 CSS 样式文件"
 

@@ -340,6 +340,28 @@ function clean_text(value, maxlen) {
 	return length(text) > maxlen ? substr(text, 0, maxlen) : text;
 }
 
+// Node selection arrives as a JSON array from the console (or as a plain
+// string from older pages); rpcd expects a whitespace-separated string.
+function nodes_text(value) {
+	if (type(value) == 'array') {
+		let out = [];
+		let seen = {};
+
+		for (let i = 0; i < length(value); i++) {
+			let name = clean_text(value[i], 64);
+
+			if (name != '' && !seen[name]) {
+				seen[name] = true;
+				push(out, name);
+			}
+		}
+
+		return join(' ', out);
+	}
+
+	return clean_text(value, 256);
+}
+
 function valid_cron(expr) {
 	let parts = split(trim(expr || ''), ' ');
 
@@ -697,22 +719,64 @@ function save_config(req) {
 		changed = true;
 	}
 
+	let removed_nodes = [];
+
 	if (type(body.workers) == 'array') {
+		let old_nodes = [];
+
+		cur.foreach(CONFIG, 'node_ip', function(section) {
+			let node = clean_text(section.node, 64);
+
+			if (node != '' && index(old_nodes, node) < 0)
+				push(old_nodes, node);
+		});
+
 		let error = save_workers(cur, body.workers);
 
 		if (error != '')
 			return send(req, fail(error), '400 Bad Request');
 
+		let kept_nodes = [];
+
+		for (let i = 0; i < length(body.workers); i++) {
+			let node = clean_text((body.workers[i] || {}).node, 64);
+
+			if (node != '' && index(kept_nodes, node) < 0)
+				push(kept_nodes, node);
+		}
+
+		for (let i = 0; i < length(old_nodes); i++)
+			if (index(kept_nodes, old_nodes[i]) < 0)
+				push(removed_nodes, old_nodes[i]);
+
 		changed = true;
 	}
 
+	let prune_report = null;
+
 	if (changed) {
 		cur.commit(CONFIG);
-		// The shell script owns the crontab line; reload rewrites it from UCI.
-		system('/etc/init.d/cfpick reload >/dev/null 2>&1');
+		// Scheduled tasks are ordinary crontab lines; no service reload needed.
+		// Removing a node from the worker table must also clear it from every
+		// scheduled task; a task left with an empty selection is deleted.
+		if (length(removed_nodes) > 0) {
+			try {
+				prune_report = ubus_call('api_task_prune', {
+					nodes: join(' ', removed_nodes)
+				});
+			}
+			catch (e) {
+				prune_report = null;
+			}
+		}
 	}
 
-	send(req, ok(read_config()));
+	let payload = read_config();
+
+	if (prune_report != null)
+		payload.cron_prune = prune_report;
+
+	send(req, ok(payload));
 }
 
 function dispatch(req) {
@@ -816,14 +880,20 @@ function dispatch(req) {
 		let body = body_json() || {};
 		let enabled = (body.enabled === true || body.enabled === 1 ||
 			body.enabled == '1') ? '1' : '0';
-
-		send(req, ubus_call('api_task_save', {
+		let args = {
 			source: clean_text(body.source, 64),
 			line: clean_text(body.line, 1024),
 			schedule: clean_text(body.schedule, 128),
 			enabled: enabled,
 			mode: clean_text(body.mode, 16)
-		}));
+		};
+
+		// Only send the selection when the page actually carries one: an
+		// older cached page must not silently clear existing --node flags.
+		if (body.nodes != null)
+			args.nodes = nodes_text(body.nodes);
+
+		send(req, ubus_call('api_task_save', args));
 	}
 	else if (action == 'task_delete' && method == 'POST') {
 		let body = body_json() || {};
@@ -835,12 +905,16 @@ function dispatch(req) {
 	}
 	else if (action == 'task_add' && method == 'POST') {
 		let body = body_json() || {};
-
-		send(req, ubus_call('api_task_add', {
+		let args = {
 			source: clean_text(body.source, 64),
 			schedule: clean_text(body.schedule, 128),
 			command: clean_text(body.command, 512)
-		}));
+		};
+
+		if (body.nodes != null)
+			args.nodes = nodes_text(body.nodes);
+
+		send(req, ubus_call('api_task_add', args));
 	}
 	else if (action == 'nodes') {
 		send(req, ubus_call('api_nodes', {}));

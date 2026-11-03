@@ -71,6 +71,14 @@ def sort_rows(rows, mode="speed"):
     return sorted(rows, key=lambda row: (-row.speed, row.latency, row.ip))
 
 
+def merge_result(rows, node_names, path=None):
+    """Replace only the given nodes' rows, keeping other concurrent runs' rows."""
+    existing, _ = read_result(path)
+    names = {str(name) for name in node_names if name}
+    kept = [row for row in existing if row.node not in names]
+    return sort_rows(kept + list(rows), "speed")
+
+
 def _parse_row(parts):
     if len(parts) < 7:
         return None

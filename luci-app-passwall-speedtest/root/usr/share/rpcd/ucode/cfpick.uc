@@ -8,6 +8,8 @@ const RESULT_DIR = '/tmp/cfpick';
 const RESULT_FILE = RESULT_DIR + '/result.csv';
 const RUN_PID_FILE = RESULT_DIR + '/current_run';
 const RUN_LOCK_DIR = RESULT_DIR + '/.run.lock';
+// 按 worker 并发的任务登记表：每个运行写一个 /tmp/cfpick/.runs/<pid>。
+const RUN_REGISTRY = RESULT_DIR + '/.runs';
 const HISTORY_FILE = '/etc/cfpick/history.csv';
 const RUN_SCRIPT = '/usr/lib/cfpick/bin/cfpick.sh';
 
@@ -125,21 +127,28 @@ function run_script_pattern() {
 }
 
 function status() {
-	let cur = uci.cursor();
-	let enabled = '0';
+	// 定时任务现在就是普通的 crontab 行；状态以 crontab 里是否存在启用的
+	// 本插件任务为准，不再看 UCI 的旧 enabled 字段。
+	let cron = false;
+	let lines = split(read_file('/etc/crontabs/root') || '', '\n');
 
-	try {
-		cur.load('cfpick');
-		enabled = cur.get('cfpick', 'global', 'enabled') || '0';
+	for (let i = 0; i < length(lines); i++) {
+		let line = trim(lines[i]);
+
+		if (line == '' || substr(line, 0, 1) == '#')
+			continue;
+		if (index(line, 'cfpick') >= 0) {
+			cron = true;
+			break;
+		}
 	}
-	catch (e) {}
 
 	// 走节点测速无独立二进制进程，用脚本主进程判定运行中
 	let running = (command('pgrep -f "' + run_script_pattern() + '" >/dev/null 2>&1').code == 0);
 
 	return {
 		running: running,
-		cron: enabled == '1'
+		cron: cron
 	};
 }
 
@@ -172,10 +181,24 @@ function run_pid_alive(pid) {
 	return command('[ -d /proc/' + pid + ' ] && grep -q "cfpick\\.sh" /proc/' + pid + '/cmdline 2>/dev/null').code == 0;
 }
 
-// 本次运行的主进程 PID：脚本在整跑入口把 PID 写进 current_run。取不到、不是纯数字、
-// 或进程已不在（上一次运行被强杀留下的 current_run）时返回 null —— 死 PID 的会话目录
-// 不能当成本次会话，否则停止标志会写进没人看的目录。
-function run_pid() {
+// 所有活动运行的主进程 PID。按 worker 并发后可能同时有多个任务；先扫登记表，
+// 再兼容旧版的 current_run。
+function run_pids() {
+	let out = [];
+	let seen = {};
+	let text = command_output('ls -1 ' + shquote(RUN_REGISTRY) + ' 2>/dev/null').stdout || '';
+	let lines = split(text, '\n');
+
+	for (let i = 0; i < length(lines); i++) {
+		let pid = trim(lines[i]);
+
+		if (!match(pid, /^[0-9]+$/) || seen[pid] || !run_pid_alive(pid))
+			continue;
+
+		seen[pid] = true;
+		push(out, pid);
+	}
+
 	let pid = '';
 
 	try {
@@ -185,7 +208,19 @@ function run_pid() {
 		pid = '';
 	}
 
-	return (match(pid, /^[0-9]+$/) && run_pid_alive(pid)) ? pid : null;
+	if (match(pid, /^[0-9]+$/) && !seen[pid] && run_pid_alive(pid)) {
+		seen[pid] = true;
+		push(out, pid);
+	}
+
+	return out;
+}
+
+// 保留单 PID 接口给状态展示：取最早登记的一个运行。
+function run_pid() {
+	let pids = run_pids();
+
+	return length(pids) ? pids[0] : null;
 }
 
 // 当前会话目录：本次运行的全部中间状态（含 .nt_stop / .iter_stop 停止标志）都在 run.<PID>/ 下，
@@ -207,21 +242,23 @@ function run_dir() {
 // 收尾阶段（.nt_committing）则放宽到 ~1200s 才兜底。强杀只针对记录的 PID 本身，不再
 // pgrep 通杀 —— 否则会误杀随后新起的那次运行。
 function stop() {
-	let dir = run_dir();
-	let pid = run_pid();
+	let pids = run_pids();
 
-	if (dir == null || pid == null)
-		return {};
+	// 按 worker 并发时可能有多个任务同时运行：停止按钮通知全部，各自完成下载/写回后退。
+	for (let i = 0; i < length(pids); i++) {
+		let pid = pids[i];
+		let dir = RESULT_DIR + '/run.' + pid;
 
-	command('touch ' + shquote(dir + '/.nt_stop') + ' ' + shquote(dir + '/.iter_stop') + ' ' + shquote(dir + '/.user_stop') + ' 2>/dev/null');
-	command('( _w=0; while kill -0 ' + pid + ' 2>/dev/null; do' +
-		' if [ -f ' + shquote(dir + '/.nt_committing') + ' ]; then [ "$_w" -ge 1200 ] && break; else [ "$_w" -ge 120 ] && break; fi;' +
-		' sleep 3; _w=$((_w + 3));' +
-		' done;' +
-		' kill -0 ' + pid + ' 2>/dev/null || exit 0;' +
-		' kill -INT ' + pid + ' 2>/dev/null;' +
-		' sleep 15;' +
-		' kill -9 ' + pid + ' 2>/dev/null ) >/dev/null 2>&1 &');
+		command('touch ' + shquote(dir + '/.nt_stop') + ' ' + shquote(dir + '/.iter_stop') + ' ' + shquote(dir + '/.user_stop') + ' 2>/dev/null');
+		command('( _w=0; while kill -0 ' + pid + ' 2>/dev/null; do' +
+			' if [ -f ' + shquote(dir + '/.nt_committing') + ' ]; then [ "$_w" -ge 1200 ] && break; else [ "$_w" -ge 120 ] && break; fi;' +
+			' sleep 3; _w=$((_w + 3));' +
+			' done;' +
+			' kill -0 ' + pid + ' 2>/dev/null || exit 0;' +
+			' kill -INT ' + pid + ' 2>/dev/null;' +
+			' sleep 15;' +
+			' kill -9 ' + pid + ' 2>/dev/null ) >/dev/null 2>&1 &');
+	}
 
 	return {};
 }
@@ -788,9 +825,31 @@ function parse_result_status() {
 }
 
 function run_started() {
-	let text = trim(read_file(RUN_LOCK_DIR + '/started') || '');
+	let pids = run_pids();
+	let best = 0;
 
-	return match(text, /^[0-9]+$/) ? int(text) : 0;
+	for (let i = 0; i < length(pids); i++) {
+		let lines = split(read_file(RUN_REGISTRY + '/' + pids[i]) || '', '\n');
+
+		for (let j = 0; j < length(lines); j++) {
+			let m = match(trim(lines[j]), /^started=([0-9]+)$/);
+
+			if (m != null) {
+				let started = int(m[1]);
+
+				if (started > 0 && (best == 0 || started < best))
+					best = started;
+			}
+		}
+	}
+
+	if (best == 0) {
+		let text = trim(read_file(RUN_LOCK_DIR + '/started') || '');
+
+		best = match(text, /^[0-9]+$/) ? int(text) : 0;
+	}
+
+	return best;
 }
 
 function run_mode(pid) {
@@ -803,18 +862,23 @@ function run_mode(pid) {
 // .nt_committing during the final write-back, .nt_stop / .iter_stop while
 // stopping.  Anything else means probing or downloading.
 function run_phase() {
-	let dir = run_dir();
+	let pids = run_pids();
+	let stopping = false;
 
-	if (dir == null)
+	if (length(pids) == 0)
 		return 'idle';
 
-	if (fs.access(dir + '/.nt_committing', 'f'))
-		return 'committing';
+	for (let i = 0; i < length(pids); i++) {
+		let dir = RESULT_DIR + '/run.' + pids[i];
 
-	if (fs.access(dir + '/.nt_stop', 'f') || fs.access(dir + '/.iter_stop', 'f'))
-		return 'stopping';
+		if (fs.access(dir + '/.nt_committing', 'f'))
+			return 'committing';
 
-	return 'testing';
+		if (fs.access(dir + '/.nt_stop', 'f') || fs.access(dir + '/.iter_stop', 'f'))
+			stopping = true;
+	}
+
+	return stopping ? 'stopping' : 'testing';
 }
 
 function api_status_data() {
@@ -836,6 +900,7 @@ function api_status_data() {
 
 	return {
 		running: running,
+		runs: length(run_pids()),
 		cron: base.cron,
 		pid: pid ? int(pid) : 0,
 		mode: mode,
@@ -917,6 +982,70 @@ const CRON_WRITABLE = '/etc/crontabs/root';
 // Marker for a task disabled from the console.  The original schedule and
 // command stay on the line, so the panel can show and re-enable it.
 const CRON_DISABLED_PREFIX = '# [cfpick-disabled] ';
+// A run can be limited to specific PassWall node sections.  The selection is
+// stored in the command so the task stays self-contained in the crontab:
+//   /usr/lib/cfpick/bin/cfpick.sh retest --node=cfg0a1b2c --node=cfg0a1b2d
+const CRON_NODE_FLAG = '--node=';
+
+function cron_command_nodes(command) {
+	let parts = split_ws(command);
+	let nodes = [];
+
+	for (let i = 0; i < length(parts); i++) {
+		if (substr(parts[i], 0, length(CRON_NODE_FLAG)) != CRON_NODE_FLAG)
+			continue;
+
+		let name = trim(substr(parts[i], length(CRON_NODE_FLAG)));
+
+		if (name != '' && index(nodes, name) < 0)
+			push(nodes, name);
+	}
+
+	return nodes;
+}
+
+// Normalize the console's selection (array or whitespace/comma string) into
+// " --node=id" flags.  Junk is dropped rather than written into crontab.
+function cron_node_flags(nodes) {
+	let list = [];
+
+	if (type(nodes) == 'array') {
+		for (let i = 0; i < length(nodes); i++)
+			push(list, trim('' + (nodes[i] ?? '')));
+	}
+	else if (nodes != null) {
+		let parts = split_ws(replace('' + nodes, /,/g, ' '));
+
+		for (let i = 0; i < length(parts); i++)
+			push(list, parts[i]);
+	}
+
+	let flags = '';
+
+	for (let i = 0; i < length(list); i++) {
+		let name = list[i];
+
+		if (!match(name, /^[A-Za-z0-9_]+$/))
+			continue;
+		if (index(flags, ' ' + CRON_NODE_FLAG + name) >= 0)
+			continue;
+
+		flags += ' ' + CRON_NODE_FLAG + name;
+	}
+
+	return flags;
+}
+
+// Rewrite just the node selection, keeping paths and redirections byte-for-byte.
+function cron_set_nodes(command, nodes) {
+	return trim(replace(command, /[ \t]+--node=[^ \t]*/g, '')) +
+		cron_node_flags(nodes);
+}
+
+function cron_is_run_command(command) {
+	// POSIX ERE (ucode): no "(?:...)" non-capturing groups.
+	return match(command, /^\S*cfpick(\.sh)?[ \t]+(start|retest|test|replace)([ \t]|$)/) != null;
+}
 
 // A task belongs to this plugin when its command references the run script,
 // one of its helper scripts (aliddns.sh, astra-dns.sh) or the standalone
@@ -1018,7 +1147,7 @@ function cron_parse_line(raw, source, index) {
 		command: command,
 		line: disabled ? CRON_DISABLED_PREFIX + line : line,
 		related: cron_related(command),
-		managed: command == RUN_SCRIPT + ' start',
+		nodes: cron_command_nodes(command),
 		disabled: disabled,
 		writable: source == CRON_WRITABLE
 	};
@@ -1076,7 +1205,6 @@ function cron_find_line(lines, target) {
 function api_tasks_data() {
 	let sources = [];
 	let entries = [];
-	let managed = { enabled: false, line: '', schedule: '' };
 
 	for (let i = 0; i < length(CRON_FILES); i++) {
 		let path = CRON_FILES[i];
@@ -1094,38 +1222,17 @@ function api_tasks_data() {
 
 			push(parsed, entry);
 			push(entries, entry);
-
-			if (entry.managed && !managed.enabled) {
-				managed.enabled = !entry.disabled;
-				managed.line = entry.line;
-				managed.schedule = entry.schedule;
-			}
 		}
 
 		push(sources, { source: path, exists: exists, entries: parsed });
 	}
 
 	return {
-		managed: managed,
 		sources: sources,
 		entries: entries,
 		run_script: RUN_SCRIPT,
 		writable: CRON_WRITABLE
 	};
-}
-
-// The canonical "start" line is owned by init.d: it is generated from UCI on
-// every reload/save.  Edits to it must go through UCI, or the next settings
-// save would silently restore the old schedule.
-function cron_managed_save(schedule, enabled) {
-	let cur = uci.cursor();
-
-	cur.load('cfpick');
-	cur.set('cfpick', 'global', 'enabled', enabled ? '1' : '0');
-	cur.set('cfpick', 'global', 'custom_cron_enabled', '1');
-	cur.set('cfpick', 'global', 'custom_cron', schedule);
-	cur.commit('cfpick');
-	system('/etc/init.d/cfpick reload >/dev/null 2>&1');
 }
 
 function cron_task_source(args) {
@@ -1170,54 +1277,52 @@ function api_task_save_data(req) {
 		die('计划必须是合法的五段 cron 表达式或 @reboot 等简写');
 
 	if (mode != '') {
-		let found = match(command, /^(\S*cfpick(?:\.sh)?)[ \t]+(start|retest|test|replace)$/);
+		// Group 1 = runner prefix, group 2 = optional ".sh", group 3 = mode,
+		// group 4 = trailing args (node flags / redirection).
+		let found = match(command, /^(\S*cfpick(\.sh)?)[ \t]+(start|retest|test|replace)(.*)$/);
 
 		if (found == null)
 			die('该任务不支持修改任务类型');
-		if (mode != 'retest' && mode != 'test' && mode != 'replace')
+		if (mode != 'start' && mode != 'retest' && mode != 'test' && mode != 'replace')
 			die('不支持的任务类型');
 
-		command = found[1] + ' ' + mode;
+		// Keep the trailing args (node selection / redirection) when swapping
+		// the task type.
+		command = found[1] + ' ' + mode + found[4];
 	}
 
-	if (task.entry.managed) {
-		cron_managed_save(schedule, enabled);
-	}
-	else {
-		let line = schedule + ' ' + command;
+	// An explicit nodes value (even empty) rewrites the selection; leaving the
+	// field out keeps whatever the task already had.
+	if (task.args.nodes != null && cron_is_run_command(command))
+		command = cron_set_nodes(command, task.args.nodes);
 
-		if (!enabled)
-			line = CRON_DISABLED_PREFIX + line;
+	let line = schedule + ' ' + command;
 
-		task.lines[task.index] = line;
+	if (!enabled)
+		line = CRON_DISABLED_PREFIX + line;
 
-		if (!cron_write_lines(task.source, task.lines))
-			die('写入 crontab 失败');
+	task.lines[task.index] = line;
 
-		system('/etc/init.d/cron restart >/dev/null 2>&1');
-	}
+	if (!cron_write_lines(task.source, task.lines))
+		die('写入 crontab 失败');
+
+	system('/etc/init.d/cron restart >/dev/null 2>&1');
 
 	return api_tasks_data();
 }
 
 function api_task_delete_data(req) {
 	let task = cron_task_entry(req);
+	let kept = [];
 
-	if (task.entry.managed) {
-		cron_managed_save(task.entry.schedule, false);
-	}
-	else {
-		let kept = [];
+	for (let i = 0; i < length(task.lines); i++)
+		if (i != task.index)
+			push(kept, task.lines[i]);
 
-		for (let i = 0; i < length(task.lines); i++)
-			if (i != task.index)
-				push(kept, task.lines[i]);
+	if (!cron_write_lines(task.source, kept))
+		die('写入 crontab 失败');
 
-		if (!cron_write_lines(task.source, kept))
-			die('写入 crontab 失败');
-
-		system('/etc/init.d/cron restart >/dev/null 2>&1');
-	}
+	system('/etc/init.d/cron restart >/dev/null 2>&1');
 
 	return api_tasks_data();
 }
@@ -1240,39 +1345,110 @@ function api_task_add_data(req) {
 	if (!cron_related(command))
 		die('只能添加本插件相关的命令');
 
+	if (args.nodes != null && cron_is_run_command(command))
+		command = cron_set_nodes(command, args.nodes);
+
 	let line = schedule + ' ' + command;
 
-	// Adding the canonical start line directly would duplicate the one init.d
-	// generates, so enable the UCI schedule instead.
-	if (command == RUN_SCRIPT + ' start') {
-		cron_managed_save(schedule, true);
-	}
-	else {
-		let lines = cron_file_lines(source);
-		let kept = [];
-		let count = length(lines);
+	// Every task is a normal crontab line now, including start.  An identical
+	// line is rejected as a duplicate below.
+	let lines = cron_file_lines(source);
+	let kept = [];
+	let count = length(lines);
 
-		// Drop the trailing empty element produced by the file's final newline
-		// before appending, otherwise every add leaves a blank separator line.
-		while (count > 0 && trim(lines[count - 1]) == '')
-			count--;
+	// Drop the trailing empty element produced by the file's final newline
+	// before appending, otherwise every add leaves a blank separator line.
+	while (count > 0 && trim(lines[count - 1]) == '')
+		count--;
 
-		for (let i = 0; i < count; i++) {
-			if (trim(lines[i]) == line)
-				die('相同任务已存在');
-
-			push(kept, lines[i]);
+	for (let i = 0; i < count; i++) {
+		if (trim(lines[i]) == line) {
+			if (command == RUN_SCRIPT + ' start')
+				die('已存在相同的完整测速任务，请直接修改列表中的那一行');
+			die('相同任务已存在');
 		}
 
-		push(kept, line);
-
-		if (!cron_write_lines(source, kept))
-			die('写入 crontab 失败');
-
-		system('/etc/init.d/cron restart >/dev/null 2>&1');
+		push(kept, lines[i]);
 	}
 
+	push(kept, line);
+
+	if (!cron_write_lines(source, kept))
+		die('写入 crontab 失败');
+
+	system('/etc/init.d/cron restart >/dev/null 2>&1');
+
 	return api_tasks_data();
+}
+
+// Called after the console removes nodes from its worker table: drop those
+// names from task selections so no task keeps a reference to a gone node.
+// A task whose selection becomes empty is deleted instead of silently
+// widening to "run every node".
+function api_task_prune_data(req) {
+	let args = (req && req.args) || {};
+	let removed = split_ws(replace('' + (args.nodes ?? ''), /,/g, ' '));
+	let report = { removed: [], deleted: [] };
+
+	if (length(removed) == 0 || !fs.access(CRON_WRITABLE, 'f'))
+		return report;
+
+	let lines = cron_file_lines(CRON_WRITABLE);
+	let kept = [];
+	let changed = false;
+
+	for (let i = 0; i < length(lines); i++) {
+		let entry = cron_parse_line(lines[i], CRON_WRITABLE, i);
+
+		if (entry == null || !entry.related || length(entry.nodes) == 0) {
+			push(kept, lines[i]);
+			continue;
+		}
+
+		let remaining = [];
+		let dropped = [];
+
+		for (let j = 0; j < length(entry.nodes); j++) {
+			let name = entry.nodes[j];
+
+			if (index(removed, name) >= 0) {
+				if (index(dropped, name) < 0)
+					push(dropped, name);
+				continue;
+			}
+
+			if (index(remaining, name) < 0)
+				push(remaining, name);
+		}
+
+		if (length(dropped) == 0) {
+			push(kept, lines[i]);
+			continue;
+		}
+
+		for (let j = 0; j < length(dropped); j++)
+			if (index(report.removed, dropped[j]) < 0)
+				push(report.removed, dropped[j]);
+
+		if (length(remaining) == 0) {
+			push(report.deleted, trim(lines[i]));
+			changed = true;
+			continue;
+		}
+
+		let line = entry.schedule + ' ' + cron_set_nodes(entry.command, remaining);
+
+		if (entry.disabled)
+			line = CRON_DISABLED_PREFIX + line;
+
+		push(kept, line);
+		changed = true;
+	}
+
+	if (changed && cron_write_lines(CRON_WRITABLE, kept))
+		system('/etc/init.d/cron restart >/dev/null 2>&1');
+
+	return report;
 }
 
 // Called from LuCI's minimal Settings page: forget the console password and
@@ -1586,7 +1762,7 @@ return {
 		// be introduced through these methods.
 		api_task_save: api(function(req) {
 			return api_task_save_data(req);
-		}, { source: '', line: '', schedule: '', enabled: '', mode: '' }),
+		}, { source: '', line: '', schedule: '', enabled: '', mode: '', nodes: '' }),
 
 		api_task_delete: api(function(req) {
 			return api_task_delete_data(req);
@@ -1594,7 +1770,11 @@ return {
 
 		api_task_add: api(function(req) {
 			return api_task_add_data(req);
-		}, { source: '', schedule: '', command: '' }),
+		}, { source: '', schedule: '', command: '', nodes: '' }),
+
+		api_task_prune: api(function(req) {
+			return api_task_prune_data(req);
+		}, { nodes: '' }),
 
 		api_update_start: api(function() {
 			return app_update_start_data();
