@@ -634,6 +634,72 @@
 		return { mode: 'custom', raw: parts.join(' ') };
 	}
 
+	function describeSchedule(expression) {
+		const detected = detectSchedule(expression);
+		const clock = (hour, minute) =>
+			pad2(parseInt(hour, 10)) + ':' + pad2(parseInt(minute, 10));
+
+		switch (detected.mode) {
+		case 'hourly': return '每小时';
+		case 'half-hourly': return '每 30 分钟';
+		case '6h': return '每 6 小时';
+		case '12h': return '每 12 小时';
+		case 'daily': return '每天 ' + clock(detected.hour, detected.minute);
+		case 'weekly': {
+			const week = ['日', '一', '二', '三', '四', '五', '六'];
+			return '每周' + (week[parseInt(detected.weekday, 10)] || detected.weekday) +
+				' ' + clock(detected.hour, detected.minute);
+		}
+		case 'monthly':
+			return '每月 ' + parseInt(detected.day, 10) + ' 日 ' +
+				clock(detected.hour, detected.minute);
+		default:
+			return detected.raw || normalizeCronText(expression).trim() || '—';
+		}
+	}
+
+	// Turn a crontab command into the task it performs.  The raw command is
+	// still shown in its own column; this is only the friendly label.
+	function taskLabel(command) {
+		const cmd = String(command || '').trim();
+
+		if (!cmd)
+			return '—';
+
+		let match = cmd.match(/\b(?:cfpick|cfpick\.sh|passwall-speedtest\.sh)\s+(start|retest|test|replace)\b/);
+
+		if (match) {
+			return {
+				start: '完整测速并写回',
+				retest: '复测现有最优并写回',
+				test: '仅测速，不写回',
+				replace: '仅写回现有结果'
+			}[match[1]];
+		}
+
+		if (/\baliddns\.sh\b/.test(cmd))
+			return '阿里云 DDNS';
+		if (/\bastra-dns\.sh\b/.test(cmd))
+			return 'Astra DNS';
+		if (/\bcfpick\s+run\b/.test(cmd))
+			return '独立内核测速';
+		if (/\bcfpick\s+ddns\b/.test(cmd))
+			return 'DDNS 写回';
+		if (/\bcfpick\s+update-core\b/.test(cmd))
+			return '内核更新';
+
+		return '自定义';
+	}
+
+	// Return the runner prefix and mode when the command is a cfpick runner
+	// line, so the task column can offer an editable mode dropdown.
+	function taskMode(command) {
+		const match = String(command || '').trim()
+			.match(/^(\S*cfpick(?:\.sh)?)[ \t]+(start|retest|test|replace)$/);
+
+		return match ? { prefix: match[1], mode: match[2] } : null;
+	}
+
 	function buildScheduleEditor(expression) {
 		const detected = detectSchedule(expression);
 		const editor = el('span', { class: 'schedule-editor' });
@@ -728,7 +794,7 @@
 			? host._scheduleValue() : '';
 	}
 
-	async function saveTask(entry, schedule, enabled) {
+	async function saveTask(entry, schedule, enabled, mode) {
 		try {
 			state.tasks = await api('task_save', {
 				method: 'POST',
@@ -736,7 +802,8 @@
 					source: entry.source,
 					line: entry.line,
 					schedule: schedule,
-					enabled: enabled
+					enabled: enabled,
+					mode: mode || ''
 				}
 			});
 			renderTasks();
@@ -798,56 +865,96 @@
 	}
 
 	// The same task list is shown on the Overview and Settings tabs; keep both
-	// in sync after any save/delete/add.
+	// in sync after any save/delete.  The Overview copy is read-only apart from
+	// the enable/disable checkbox.
 	function renderTasks() {
-		['#task-body', '#cfg-task-body'].forEach(renderTaskBody);
+		renderTaskBody('#task-body', false);
+		renderTaskBody('#cfg-task-body', true);
 	}
 
-	function renderTaskBody(selector) {
+	function renderTaskBody(selector, editable) {
 		const body = $(selector);
 		if (!body)
 			return;
 
-		const entries = (state.tasks && state.tasks.entries) || [];
+		const entries = ((state.tasks && state.tasks.entries) || [])
+			.filter((entry) => !entry.managed);
 
 		body.replaceChildren();
 
 		if (!entries.length) {
-			body.appendChild(el('tr', {}, [el('td', { colspan: '5', class: 'empty' }, '暂无本插件相关的定时任务')]));
+			body.appendChild(el('tr', {}, [
+				el('td', { colspan: editable ? '5' : '4', class: 'empty' }, '暂无其他定时任务')
+			]));
 			return;
 		}
 
 		entries.forEach((entry) => {
 			// The list only carries this plugin's lines; /etc/crontab entries
 			// are still shown read-only because that file has a user column.
-			const editable = !!entry.writable;
+			const writable = editable && !!entry.writable;
+			const label = taskLabel(entry.command);
+
+			if (!editable) {
+				const toggle = el('button', {
+					type: 'button',
+					class: 'task-state ' + (entry.disabled ? 'off' : 'on')
+				}, entry.disabled ? '停用' : '启用');
+				toggle.disabled = !entry.writable;
+				toggle.addEventListener('click', () =>
+					saveTask(entry, entry.schedule, entry.disabled, ''));
+				body.appendChild(el('tr', {}, [
+					el('td', {}, toggle),
+					el('td', {}, describeSchedule(entry.schedule || '0 3 * * *')),
+					el('td', {}, label),
+					el('td', { class: 'cmd' }, entry.command || '')
+				]));
+				return;
+			}
 
 			const enabled = el('input', { type: 'checkbox', checked: !entry.disabled });
-			enabled.disabled = !editable;
+			enabled.disabled = !writable;
 
 			const schedule = buildScheduleEditor(entry.schedule || '0 3 * * *');
 			schedule.querySelectorAll('select, input').forEach((node) => {
-				node.disabled = !editable;
+				node.disabled = !writable;
 			});
 
+			const detected = taskMode(entry.command);
+			let taskSelect = null;
+			let taskCell;
+
+			if (detected && detected.mode !== 'start') {
+				taskSelect = el('select', { class: 'task-mode' });
+				[
+					['retest', '复测现有最优并写回（retest）'],
+					['test', '仅测速，不写回（test）'],
+					['replace', '仅写回现有结果（replace）']
+				].forEach(([value, name]) => {
+					taskSelect.appendChild(el('option', { value: value }, name));
+				});
+				taskSelect.value = detected.mode;
+				taskSelect.disabled = !writable;
+				taskCell = el('td', {}, taskSelect);
+			}
+			else {
+				taskCell = el('td', {}, label);
+			}
+
 			const save = el('button', { type: 'button', class: 'btn small primary' }, '保存');
-			save.disabled = !editable;
-			save.addEventListener('click', () => saveTask(entry, schedule._scheduleValue(), enabled.checked));
+			save.disabled = !writable;
+			save.addEventListener('click', () => saveTask(entry, schedule._scheduleValue(),
+				enabled.checked, taskSelect ? taskSelect.value : ''));
 
 			const remove = el('button', { type: 'button', class: 'btn small danger' }, '删除');
-			remove.disabled = !editable;
+			remove.disabled = !writable;
 			remove.addEventListener('click', () => deleteTask(entry));
 
-			const badge = entry.managed ? '设置页维护' : '';
-
-			body.appendChild(el('tr', { class: entry.managed ? 'best' : '' }, [
+			body.appendChild(el('tr', {}, [
 				el('td', {}, enabled),
 				el('td', {}, schedule),
-				el('td', { class: 'cmd' }, [
-					entry.command || '',
-					badge ? el('span', { class: 'task-badge' }, badge) : null
-				]),
-				el('td', {}, entry.source || ''),
+				taskCell,
+				el('td', { class: 'cmd' }, entry.command || ''),
 				el('td', {}, [el('div', { class: 'task-actions' }, [save, remove])])
 			]));
 		});
@@ -1177,6 +1284,7 @@
 		setValue('cfg-dl-time', g.download_test_time);
 		setCheck('cfg-iter-enabled', g.iterate_enabled);
 		setValue('cfg-iter-minutes', g.iterate_minutes);
+		setValue('cfg-iter-converge', g.iterate_converge_count);
 		setCheck('cfg-ddns-enabled', g.ddns_enabled);
 		setValue('cfg-ddns-count', g.ddns_ip_count);
 		setValue('cfg-ddns-ttl', g.ddns_ttl);
@@ -1298,6 +1406,7 @@
 				download_test_time: intValue('cfg-dl-time', 10),
 				iterate_enabled: checkValue('cfg-iter-enabled'),
 				iterate_minutes: intValue('cfg-iter-minutes', 30),
+				iterate_converge_count: intValue('cfg-iter-converge', 5),
 				ddns_enabled: checkValue('cfg-ddns-enabled'),
 				ddns_ip_count: intValue('cfg-ddns-count', 1),
 				ddns_ttl: intValue('cfg-ddns-ttl', 300),
@@ -1464,16 +1573,11 @@
 		});
 		$('#btn-sa-save').addEventListener('click', saveStandalone);
 
-		mountScheduleEditor('task-add-schedule', '0 3 * * *');
 		mountScheduleEditor('cfg-task-add-schedule', '0 3 * * *');
 
 		$('#btn-add-worker').addEventListener('click', addWorker);
-		$('#btn-task-add').addEventListener('click',
-			() => addTask('task-add-schedule', 'task-add-mode'));
 		$('#btn-cfg-task-add').addEventListener('click',
 			() => addTask('cfg-task-add-schedule', 'cfg-task-add-mode'));
-		$('#btn-cfg-task-add-toggle').addEventListener('click',
-			() => $('#cfg-task-add-form').classList.toggle('hidden'));
 		$('#btn-log-clear').addEventListener('click', () => { $('#log-view').textContent = ''; });
 
 		$$('.save-config').forEach((button) => {

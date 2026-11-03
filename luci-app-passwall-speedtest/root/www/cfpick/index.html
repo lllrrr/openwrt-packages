@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CFPick 操作台</title>
-<link rel="icon" href="favicon.ico" sizes="any">
-<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="icon" type="image/svg+xml" href="favicon.svg?v=1.0.9">
+<link rel="icon" href="favicon.ico?v=1.0.9" sizes="any">
 <meta name="theme-color" content="#2563eb">
 <link rel="stylesheet" href="style.css">
 </head>
@@ -113,26 +113,12 @@
 
       <div class="card">
         <div class="card-head"><h2>定时任务</h2></div>
-        <p class="muted">只显示与 cfpick 相关的 crontab 任务，可直接修改计划、启用/停用或删除。</p>
         <div class="table-wrap">
           <table class="data">
-            <thead><tr><th>启用</th><th>计划</th><th>命令</th><th>来源</th><th>操作</th></tr></thead>
-            <tbody id="task-body"><tr><td colspan="5" class="empty">加载中…</td></tr></tbody>
+            <thead><tr><th>状态</th><th>计划</th><th>任务</th><th>命令</th></tr></thead>
+            <tbody id="task-body"><tr><td colspan="4" class="empty">加载中…</td></tr></tbody>
           </table>
         </div>
-        <div class="grid task-add">
-          <label>计划 <span id="task-add-schedule" class="schedule-host"></span></label>
-          <label>任务
-            <select id="task-add-mode">
-              <option value="retest">复测现有最优并写回（retest）</option>
-              <option value="test">仅测速，不写回（test）</option>
-              <option value="replace">仅写回现有结果（replace）</option>
-              <option value="start">完整测速并写回（start，会修改主任务）</option>
-            </select>
-          </label>
-          <label>&nbsp;<button id="btn-task-add" type="button" class="btn primary">添加任务</button></label>
-        </div>
-        <p class="muted">「start」是设置页维护的主定时任务，在此修改会同步到设置；其他任务直接写入 crontab。</p>
       </div>
     </section>
 
@@ -278,34 +264,30 @@
         <div class="grid three">
           <label class="check"><input id="cfg-iter-enabled" type="checkbox"> 启用限时迭代收敛</label>
           <label>迭代时长（分钟） <input id="cfg-iter-minutes" type="number" min="1" step="1"></label>
+          <label>迭代收敛阈值 <input id="cfg-iter-converge" type="number" min="1" max="100" step="1" title="剩余候选 ≤ N 个即停止迭代，与下载测速候选数无关"></label>
         </div>
       </div>
 
       <div class="card">
         <div class="card-head">
           <h2>定时任务</h2>
-          <div class="card-actions">
-            <button id="btn-cfg-task-add-toggle" type="button" class="btn small primary">新增任务</button>
-          </div>
         </div>
-        <p class="muted">显示已有的相关任务，行内「保存」立即生效；「start」主任务会同步到本页配置。</p>
         <div class="table-wrap">
           <table class="data">
-            <thead><tr><th>启用</th><th>计划</th><th>命令</th><th>来源</th><th>操作</th></tr></thead>
+            <thead><tr><th>启用</th><th>计划</th><th>任务</th><th>命令</th><th>操作</th></tr></thead>
             <tbody id="cfg-task-body"><tr><td colspan="5" class="empty">加载中…</td></tr></tbody>
           </table>
         </div>
-        <div id="cfg-task-add-form" class="grid task-add hidden">
+        <div id="cfg-task-add-form" class="grid task-add">
           <label>计划 <span id="cfg-task-add-schedule" class="schedule-host"></span></label>
           <label>任务
             <select id="cfg-task-add-mode">
               <option value="retest">复测现有最优并写回（retest）</option>
               <option value="test">仅测速，不写回（test）</option>
               <option value="replace">仅写回现有结果（replace）</option>
-              <option value="start">完整测速并写回（start，会修改主任务）</option>
             </select>
           </label>
-          <label>&nbsp;<button id="btn-cfg-task-add" type="button" class="btn primary">添加</button></label>
+          <label>&nbsp;<button id="btn-cfg-task-add" type="button" class="btn primary">添加任务</button></label>
         </div>
       </div>
 

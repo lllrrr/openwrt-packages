@@ -10,8 +10,9 @@ Two stages, like the OpenWrt version:
    best IP is chosen by measured throughput.
 
 Time-boxed iterative mode runs an independent convergence loop per node until
-the deadline.  Retest mode reuses the current result.csv candidates instead of
-downloading the online list.
+the deadline or the pool shrinks to ``iterate_converge_count`` candidates.
+Retest mode reuses the current result.csv candidates instead of downloading the
+online list.
 """
 
 import os
@@ -36,7 +37,6 @@ ACCEPT_CODES = {"200", "204", "301", "302", "307", "308",
                 "414", "415", "416", "417", "418", "421", "422",
                 "423", "424", "425", "426", "428", "429", "431",
                 "451"}
-ITERATE_KEEP_MAX = 3
 
 
 class EngineError(RuntimeError):
@@ -397,7 +397,7 @@ class Engine:
             self.log.log("迭代 [%s] 初始候选为空，跳过" % name)
             return current
 
-        keep_max = (self.cfg["download_count"] if self.dl_enabled else ITERATE_KEEP_MAX)
+        keep_max = self.cfg["iterate_converge_count"]
         passed_any = False
         round_no = 0
         while True:
@@ -441,7 +441,8 @@ class Engine:
                 self.log.log("迭代 [%s] 第 %d 轮完成，通过 %d/%d，下一轮候选 %d 个" % (
                     name, round_no, passed_now, total, len(ips)))
                 if not truncated and 0 < len(ips) <= keep_max:
-                    self.log.log("迭代 [%s] 候选收敛至 %d 个，保存结果，该节点提前结束" % (name, len(ips)))
+                    self.log.log("迭代 [%s] 候选收敛至 %d 个（阈值 %d），保存结果，该节点提前结束" % (
+                        name, len(ips), keep_max))
                     break
                 if not ips:
                     break

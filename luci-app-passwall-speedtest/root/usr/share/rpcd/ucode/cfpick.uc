@@ -1163,15 +1163,28 @@ function api_task_save_data(req) {
 	let task = cron_task_entry(req);
 	let schedule = cron_normalize_schedule(task.args.schedule);
 	let enabled = ('' + (task.args.enabled ?? '1')) != '0';
+	let command = task.entry.command;
+	let mode = trim('' + (task.args.mode ?? ''));
 
 	if (!cron_valid_schedule(schedule))
 		die('计划必须是合法的五段 cron 表达式或 @reboot 等简写');
+
+	if (mode != '') {
+		let found = match(command, /^(\S*cfpick(?:\.sh)?)[ \t]+(start|retest|test|replace)$/);
+
+		if (found == null)
+			die('该任务不支持修改任务类型');
+		if (mode != 'retest' && mode != 'test' && mode != 'replace')
+			die('不支持的任务类型');
+
+		command = found[1] + ' ' + mode;
+	}
 
 	if (task.entry.managed) {
 		cron_managed_save(schedule, enabled);
 	}
 	else {
-		let line = schedule + ' ' + task.entry.command;
+		let line = schedule + ' ' + command;
 
 		if (!enabled)
 			line = CRON_DISABLED_PREFIX + line;
@@ -1573,7 +1586,7 @@ return {
 		// be introduced through these methods.
 		api_task_save: api(function(req) {
 			return api_task_save_data(req);
-		}, { source: '', line: '', schedule: '', enabled: '' }),
+		}, { source: '', line: '', schedule: '', enabled: '', mode: '' }),
 
 		api_task_delete: api(function(req) {
 			return api_task_delete_data(req);

@@ -49,6 +49,9 @@ DEFAULT_CONFIG = {
     "download_time": 10,
     "iterate_enabled": False,
     "iterate_minutes": 30,
+    # 每轮收敛后剩余候选 ≤ 此数量即保存结果、该节点提前结束。
+    # 与 download_count 相互独立：下载实测仍按自己的候选数执行。
+    "iterate_converge_count": 5,
     "nodes": [],
     "core": {
         "type": "mihomo",
@@ -316,6 +319,8 @@ def normalize(data):
     cfg["download_time"] = _as_int(cfg.get("download_time"), 10, 1, 60)
     cfg["iterate_enabled"] = _as_bool(cfg.get("iterate_enabled"), False)
     cfg["iterate_minutes"] = _as_int(cfg.get("iterate_minutes"), 30, 1, 10080)
+    cfg["iterate_converge_count"] = _as_int(
+        cfg.get("iterate_converge_count"), 5, 1, 100)
 
     cfg["nodes"] = _normalize_nodes(data.get("nodes") if isinstance(data, dict) else None)
 

@@ -1,7 +1,7 @@
 #!/bin/sh
-# One-time migration: add the independent-core and per-node DDNS options to
-# an existing /etc/config/cfpick (upgrades keep user config).
-# Existing values are never overwritten, including empty strings.
+# One-time migration: add the independent-core, per-node DDNS and iterative
+# convergence options to an existing /etc/config/cfpick (upgrades keep user
+# config).  Existing values are never overwritten, including empty strings.
 
 [ -f /etc/config/cfpick ] || exit 0
 
@@ -12,6 +12,7 @@ set_default() {
 
 set_default standalone_enabled 0
 set_default standalone_core xray
+set_default iterate_converge_count 5
 set_default ddns_enabled 0
 set_default ddns_ip_count 1
 set_default ddns_ttl 300

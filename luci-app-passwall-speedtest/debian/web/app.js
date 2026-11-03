@@ -879,6 +879,7 @@
 		set('download_time', cfg.download_time);
 		check('iterate_enabled', cfg.iterate_enabled);
 		set('iterate_minutes', cfg.iterate_minutes);
+		set('iterate_converge_count', cfg.iterate_converge_count);
 		const ddns = cfg.ddns || {};
 		const cloudflare = ddns.cloudflare || {};
 		check('ddns_enabled', ddns.enabled);
@@ -937,6 +938,7 @@
 		cfg.download_time = integer('download_time', 10, 1, 60);
 		cfg.iterate_enabled = check('iterate_enabled');
 		cfg.iterate_minutes = integer('iterate_minutes', 30, 1, 10080);
+		cfg.iterate_converge_count = integer('iterate_converge_count', 5, 1, 100);
 		const oldDdns = cfg.ddns || {};
 		cfg.ddns = Object.assign({}, oldDdns, {
 			enabled: check('ddns_enabled'),

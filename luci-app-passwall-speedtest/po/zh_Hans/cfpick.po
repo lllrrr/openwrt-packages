@@ -26,14 +26,23 @@ msgstr "插件设置"
 msgid "Time-boxed iterative test"
 msgstr "限时迭代测速"
 
-msgid "Run the test in time-boxed mode: each tested node runs its own independent loop until the duration elapses. After its first pass, a node only re-tests the IPs that passed its previous pass, so its candidate pool shrinks toward the most stable, lowest-latency IPs. Nothing is written to result.csv or passwall during the run; when the timer ends, each node's best remaining IP is written back. A node exits early once its pool converges to the download-test candidate count (download_test_count) — further passes cannot change the final download list; the threshold is 3 when the download test is off."
-msgstr "计时模式：每个待测节点跑独立的收敛循环，直到累计时长达配置的时长——第 1 遍测完自己的候选后，此后每遍只测上一遍通过的 IP，候选池逐遍收敛到最稳定、延迟最低的 IP。运行期间不写 result.csv、不写回 passwall；计时结束后一次性把各节点剩余通过集中的最优 IP 写回。候选收敛到「每 worker 下载测速候选数」（download_test_count）即提前结束——再迭代也不会改变最终下载名单；下载实测关闭时该阈值为 3。"
+msgid "Run the test in time-boxed mode: each tested node runs its own independent loop until the duration elapses. After its first pass, a node only re-tests the IPs that passed its previous pass, so its candidate pool shrinks toward the most stable, lowest-latency IPs. Nothing is written to result.csv or passwall during the run; when the timer ends, each node's best remaining IP is written back. A node exits early once its pool converges to the iterative convergence threshold below — further passes only re-test IPs that already passed."
+msgstr "计时模式：每个待测节点跑独立的收敛循环，直到累计时长达配置的时长——第 1 遍测完自己的候选后，此后每遍只测上一遍通过的 IP，候选池逐遍收敛到最稳定、延迟最低的 IP。运行期间不写 result.csv、不写回 passwall；计时结束后一次性把各节点剩余通过集中的最优 IP 写回。候选数收敛到下方「迭代收敛阈值」即提前结束——再迭代也只是复测已经通过的 IP。"
 
 msgid "Iterative test duration (minutes)"
 msgstr "迭代测速时长（分钟）"
 
 msgid "Total wall-clock budget for the iterative test. The run stops after the round that is in progress when the deadline passes."
 msgstr "迭代测速的总时长预算。到达时限后，正在运行的一轮跑完即停，不再开始新一轮。"
+
+msgid "Iterative convergence threshold"
+msgstr "迭代收敛阈值"
+
+msgid "Stop a node's iterative loop early once its candidate pool shrinks to at most this many IPs (default 5, max 100). This is independent of the download-test candidate count: it only decides when to stop re-testing, while the download test still measures its own number of candidates."
+msgstr "每轮收敛后剩余候选 ≤ 此数量即保存结果、该节点提前结束（默认 5，最多 100）。该阈值与「每 worker 下载测速候选数」相互独立：它只决定何时停止复测，下载实测仍按自己的候选数执行。"
+
+msgid "The convergence threshold must not exceed 100 candidate IPs"
+msgstr "迭代收敛阈值最多 100 个候选 IP"
 
 msgid "Duration must be at least 1 minute when the iterative test is enabled"
 msgstr "启用迭代测速时时长至少为 1 分钟"
@@ -744,3 +753,15 @@ msgstr "检查更新失败"
 
 msgid "Check the latest GitHub release; the update button is enabled only when a newer version is available."
 msgstr "检查 GitHub 最新 Release；只有存在新版本时「在线更新」才可用。"
+
+msgid "Not checked yet."
+msgstr "尚未检查"
+
+msgid "Update finished"
+msgstr "更新完成"
+
+msgid "Refresh the page to use the new version."
+msgstr "刷新页面以使用新版本。"
+
+msgid "Update failed"
+msgstr "更新失败"

@@ -22,6 +22,9 @@ config global 'global'
 	option download_test_time '10'
 	option iterate_enabled '0'
 	option iterate_minutes '30'
+	# 迭代收敛阈值：每轮收敛后剩余候选 ≤ N 个即保存结果、该节点提前结束。
+	# 独立于 download_test_count（下载实测候选数），两者互不覆盖。
+	option iterate_converge_count '5'
 	# 独立测速：启用后统一测速改用本机 mihomo/Xray 内核（cfpick core），
 	# 不再调用 PassWall 的 run_socks；关闭则保持原 PassWall 行为。
 	option standalone_enabled '0'

@@ -12,6 +12,7 @@ class NormalizeTests(unittest.TestCase):
         self.assertEqual(cfg["ip_source"], "builtin_ipv4")
         self.assertEqual(cfg["probes"], 3)
         self.assertEqual(cfg["download_count"], 5)
+        self.assertEqual(cfg["iterate_converge_count"], 5)
         # 延迟含节点自身 RTT，默认不设上限，避免远端节点全被丢弃。
         self.assertEqual(cfg["latency_max"], 0)
         self.assertEqual(len(cfg["ip_lists"]), 5)
@@ -23,12 +24,15 @@ class NormalizeTests(unittest.TestCase):
         cfg = config.normalize({
             "probes": 99,
             "download_count": 0,
+            "iterate_converge_count": 999,
             "test_count": 0,
             "loss_max": 5,
             "web": {"port": 99999},
         })
         self.assertEqual(cfg["probes"], 5)
         self.assertEqual(cfg["download_count"], 1)
+        # Convergence threshold is independent of download_count and capped at 100.
+        self.assertEqual(cfg["iterate_converge_count"], 100)
         self.assertEqual(cfg["test_count"], 1)
         self.assertEqual(cfg["loss_max"], 1.0)
         self.assertEqual(cfg["web"]["port"], 65535)

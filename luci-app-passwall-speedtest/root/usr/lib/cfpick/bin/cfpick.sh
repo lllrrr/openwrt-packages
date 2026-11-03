@@ -20,9 +20,9 @@ IPV6_TXT='/usr/share/cfpick/ipv6.txt'
 SCRIPT_DIR='/usr/lib/cfpick/bin'
 
 # 迭代模式：单节点候选收敛到 ≤ 此数量即保存结果提前结束（继续复测收益小）。
-# 这是「下载实测关闭」时的兜底值；开启下载实测后会在 node_speed_test 里改成
-# download_test_count（收敛到 ≤ N 后再迭代不影响最终下载名单）。
-ITERATE_KEEP_MAX=3
+# 由独立参数 iterate_converge_count（迭代收敛阈值）配置，与下载实测候选数
+# download_test_count 无关；node_speed_test 会按配置覆写（缺省 5，上限 100）。
+ITERATE_KEEP_MAX=5
 
 # 下载实测快速死亡：起测后 DL_FAST_FAIL_TIME 秒内平均下载不足 DL_FAST_FAIL_BYTES
 # 即中止并判失败（curl --speed-limit/--speed-time），别让慢/死 IP 白等满单 IP 时限。
@@ -133,7 +133,7 @@ reap_stale_run_dirs() {
 }
 
 function read_config(){
-    get_global_config "enabled" "custom_cron_enabled" "custom_cron" "tl" "tll" "tlr" "ip_source" "custom_ip_file" "custom_allip" "ip_online_url" "ip_online_regions" "node_test_node" "stable_node" "node_test_url" "node_test_count" "node_test_timeout" "node_test_probes" "node_test_threads" "download_test_enabled" "download_test_count" "download_test_url" "download_test_time" "iterate_enabled" "iterate_minutes" "standalone_enabled" "standalone_core"
+    get_global_config "enabled" "custom_cron_enabled" "custom_cron" "tl" "tll" "tlr" "ip_source" "custom_ip_file" "custom_allip" "ip_online_url" "ip_online_regions" "node_test_node" "stable_node" "node_test_url" "node_test_count" "node_test_timeout" "node_test_probes" "node_test_threads" "download_test_enabled" "download_test_count" "download_test_url" "download_test_time" "iterate_enabled" "iterate_minutes" "iterate_converge_count" "standalone_enabled" "standalone_core"
     get_servers_config "ssr_services" "ssr_enabled" "passwall_enabled" "passwall_services" "passwall2_enabled" "passwall2_services" "bypass_enabled" "bypass_services" "vssr_enabled" "vssr_services" "DNS_enabled" "AliDNS_ip_count" "HOST_enabled" "MosDNS_enabled" "MosDNS_ip_count" "openclash_restart" "AstraDNS_enabled" "AstraDNS_config" "AstraDNS_bin"
     # 五个 CM 备选 IP 列表（ip_list 命名段 list1..list5）
     local _n
@@ -1212,7 +1212,7 @@ iterate_log_final_summary(){
 # 结果文件 $3 启动时先写表头（截断上次运行残留），每轮完成时原子覆盖（首行=该节点当前最优）；
 # 中途不写 result.csv、不动 passwall。
 # 终止条件：到点 / 停止标志 / 本轮通过数为 0（保留上一轮结果）/ 候选收敛到 ≤ITERATE_KEEP_MAX
-# （开启下载实测时该阈值 = download_test_count，否则为 3）。
+# （该阈值来自独立参数 iterate_converge_count，与 download_test_count 无关）。
 # 每 IP 之间也检查 deadline/停止标志，到点跑完当前 IP 即停，无全局轮次同步。
 # 结束时把最终轮次号写入 $3.meta；最终轮完整测速结果由合并段统一打出（收尾日志逐节点汇总）。
 # 参数: $1=idx $2=node $3=result_file $4=ip_list $5=probe_url $6=timeout $7=probes $8=socks_port $9=flag $10=deadline(epoch)
@@ -1320,11 +1320,10 @@ node_iterate_worker() {
             _kept=$(wc -l < "$_cand" | tr -d ' ')
             echolog "迭代 [${_Wn}] 第 ${_pass} 轮完成，通过 ${_passed}/${_total}，下一轮候选 ${_kept} 个"
             # 收敛终止：剩余 ≤ ITERATE_KEEP_MAX 个时不再复测，保存当前结果提前结束。
-            # 开启下载实测时该阈值 = download_test_count（最终只会对延迟最优的 N 个做下载实测，
-            # 再往下收敛不会改变下载名单和写回的最优 IP）。
+            # 阈值来自独立的 iterate_converge_count，不随 download_test_count 变化。
             # 仅整轮测完时才判断 —— 被停止/到点截断的轮次候选数偏小，不代表收敛
             if [ "$_truncated" = "0" ] && [ "$_kept" -le "$ITERATE_KEEP_MAX" ]; then
-                echolog "迭代 [${_Wn}] 候选收敛至 ${_kept} 个，保存结果，该节点提前结束"
+                echolog "迭代 [${_Wn}] 候选收敛至 ${_kept} 个（阈值 ${ITERATE_KEEP_MAX}），保存结果，该节点提前结束"
                 break
             fi
         else
@@ -1407,10 +1406,14 @@ node_speed_test() {
     # 下载实测不在各 worker 内执行：等所有 worker 停止探测后，由主进程按 worker 顺序
     # 逐 IP 串行实测（nt_download_stage），避免下载与仍在探测的 worker 争抢 WAN 带宽。
 
-    # 迭代收敛阈值复用下载实测候选数：收敛到 ≤ N 后，只有延迟最优的 N 个会进入下载实测，
-    # 再往下迭代既不会改变下载名单，也不会改变写回的最优 IP，纯耗时不产出。
-    # 下载实测关闭时没有下载候选可复用，沿用常量 3。
-    [ "$DL_TEST_ENABLED" = "1" ] && ITERATE_KEEP_MAX="$DL_TEST_COUNT"
+    # 迭代收敛阈值：独立参数（iterate_converge_count），与下载实测候选数无关。
+    # 候选收敛到 ≤ N 个即保存结果、该节点提前结束；下载实测仍按 download_test_count
+    # 对延迟最优的那批 IP 单独执行，两者互不覆盖。
+    ITERATE_KEEP_MAX="${iterate_converge_count:-5}"
+    case "$ITERATE_KEEP_MAX" in ''|*[!0-9]*) ITERATE_KEEP_MAX=5 ;; esac
+    [ "$ITERATE_KEEP_MAX" -ge 1 ] 2>/dev/null || ITERATE_KEEP_MAX=1
+    [ "$ITERATE_KEEP_MAX" -le 100 ] 2>/dev/null || ITERATE_KEEP_MAX=100
+    [ "${ITERATE_MODE:-0}" = "1" ] && echolog "迭代收敛阈值：候选 ≤ ${ITERATE_KEEP_MAX} 个即提前结束（与下载实测候选数 ${DL_TEST_COUNT} 相互独立）"
 
     # ── 候选 IP 来源 ──
     local count="${node_test_count:-30}"

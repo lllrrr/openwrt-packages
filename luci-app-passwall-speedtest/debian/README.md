@@ -31,7 +31,7 @@ Python3 标准库实现的 Web 可视化页面。
 * **多 worker 调度**：并发上限可配；首个 worker 完成全部候选且取得有效结果时，其余 worker
   跑完当前 IP 即停（与 OpenWrt 版一致）。
 * **限时迭代收敛**：每个节点独立循环，每遍只复测上一遍通过的 IP，直到时长结束或候选收敛到
-  ≤ 下载候选数（关闭下载实测时为 3）。
+  ≤ `iterate_converge_count`（迭代收敛阈值，默认 5、最多 100，独立于下载候选数）。
 * **复测现有最优**：`cfpick run retest` 只使用当前 `result.csv` 中该节点的行与链接里的原始 IP，
   不重新下载在线列表。
 * **候选 IP 来源**：内置 IPv4/IPv6 CIDR 列表（每个 /24 取样，可选扫描整个 /24）、在线 CM 源
@@ -281,6 +281,7 @@ cfpick serve              # 前台启动 Web（--listen 0.0.0.0 --port 8787）
 | `download_time` | `10` | 单 IP 下载时限（秒），截断部分仍按已下载字节算平均速度 |
 | `iterate_enabled` | `false` | 限时迭代 |
 | `iterate_minutes` | `30` | 迭代时长（分钟） |
+| `iterate_converge_count` | `5` | 迭代收敛阈值：剩余候选 ≤ N 个即停止该节点迭代（1–100，独立于 `download_count`） |
 | `nodes` | `[]` | `{name, link, ip_list, ddns_domain, enabled}` 数组；`ddns_domain` 可填完整主机名或裸子域名（配合 `zone_name`），留空表示该节点只测速 |
 | `ddns.enabled` | `false` | 是否启用 Cloudflare DDNS 写回 |
 | `ddns.provider` | `cloudflare` | 目前仅支持 Cloudflare |

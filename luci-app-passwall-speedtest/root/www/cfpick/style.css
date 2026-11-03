@@ -181,6 +181,15 @@ table.data td input.regions { min-width: 150px; font-family: var(--mono); }
 }
 .task-add { margin-top: 12px; align-items: end; }
 .task-add label.check { align-self: center; }
+.task-mode { min-width: 220px; min-height: 32px; padding: 5px 8px; font-size: 0.8rem; }
+.task-state {
+	display: inline-block; padding: 2px 10px; border-radius: 999px;
+	border: 1px solid transparent; font: inherit; font-size: 0.72rem;
+	cursor: pointer; white-space: nowrap;
+}
+.task-state.on { background: rgba(22, 163, 74, 0.12); color: var(--ok); }
+.task-state.off { background: var(--bg-soft); color: var(--muted); }
+.task-state:disabled { cursor: not-allowed; opacity: 0.6; }
 
 /* structured schedule editor (frequency + fixed time) */
 .schedule-host { display: block; }

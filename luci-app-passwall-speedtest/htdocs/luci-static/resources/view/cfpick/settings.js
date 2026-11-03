@@ -37,58 +37,67 @@ const callUpdateCheck = rpc.declare({
 });
 
 function updateSection(initialStatus, initialUpdate) {
+	const initial = initialUpdate || {};
 	const state = {
 		running: !!(initialStatus && initialStatus.running),
-		update: initialUpdate || {},
-		checking: false,
-		check: { checked: false, latest: '', available: false, error: '' }
+		stage: initial.updating ? 'updating' : 'idle',
+		current: initial.current_version || '',
+		latest: '',
+		justUpdated: false,
+		error: ''
 	};
 
-	const statusText = E('span', {}, _('Ready to update.'));
-	const versionText = E('span', { 'class': 'cbi-value-description' }, '');
-	const checkButton = E('button', {
-		type: 'button',
-		'class': 'btn cbi-button'
-	}, _('Check for updates'));
-	const button = E('button', {
+	const currentText = E('span', { style: 'font-variant-numeric:tabular-nums' }, state.current || '—');
+	const latestText = E('span', { style: 'font-variant-numeric:tabular-nums' }, '—');
+	const actionButton = E('button', {
 		type: 'button',
 		'class': 'btn cbi-button cbi-button-apply'
-	}, _('Online update'));
-	const reloadButton = E('button', {
-		type: 'button',
-		'class': 'btn cbi-button',
-		style: 'display:none'
-	}, _('Refresh page'));
-
-	reloadButton.addEventListener('click', function() {
-		window.location.reload();
-	});
+	}, _('Check for updates'));
+	const hintText = E('span', { 'class': 'cbi-value-description' });
+	hintText.hidden = true;
 
 	function render() {
-		const update = state.update || {};
-		const busy = !!update.updating;
-		const current = update.current_version || '';
+		const busy = state.stage === 'checking' || state.stage === 'updating';
+		let label = '';
+		let disabled = busy || state.stage === 'done';
+		let hint = '';
 
-		button.disabled = state.running || busy || !state.check.available;
-		button.textContent = busy ? _('Updating…') : _('Online update');
-		checkButton.disabled = state.running || busy || state.checking;
-		checkButton.textContent = state.checking ? _('Checking…') : _('Check for updates');
-
-		statusText.textContent = update.message
-			|| (state.running
-				? _('A speed test is running; stop it before updating.')
-				: _('Ready to update.'));
-
-		let info = _('Current version') + ': ' + (current || '—');
-		if (state.check.checked) {
-			if (state.check.error)
-				info += ' · ' + state.check.error;
-			else
-				info += ' · ' + _('Latest version') + ': ' + (state.check.latest || '—') +
-					' · ' + (state.check.available ? _('Update available') : _('Already up to date'));
+		switch (state.stage) {
+		case 'idle':
+			label = _('Check for updates');
+			break;
+		case 'checking':
+			label = _('Checking…');
+			break;
+		case 'available':
+			label = _('Online update');
+			if (state.running) {
+				hint = _('A speed test is running; stop it before updating.');
+				disabled = true;
+			}
+			break;
+		case 'updating':
+			label = _('Updating…');
+			break;
+		case 'done':
+			label = _('Update finished');
+			hint = state.justUpdated ? _('Refresh the page to use the new version.') : '';
+			break;
+		case 'error':
+			label = _('Check for updates');
+			hint = state.error || _('Check failed');
+			break;
 		}
-		versionText.textContent = info;
-		reloadButton.style.display = (!busy && update.ok === true) ? '' : 'none';
+
+		currentText.textContent = state.current || '—';
+		latestText.textContent = state.latest || '—';
+		actionButton.textContent = label;
+		actionButton.disabled = disabled;
+		actionButton.className = 'btn cbi-button ' +
+			((state.stage === 'idle' || state.stage === 'available' || state.stage === 'error')
+				? 'cbi-button-apply' : '');
+		hintText.textContent = hint;
+		hintText.hidden = !hint;
 	}
 
 	function refresh() {
@@ -98,16 +107,27 @@ function updateSection(initialStatus, initialUpdate) {
 		]).then(function(results) {
 			const status = results[0] || {};
 			const update = results[1] || {};
-			const wasUpdating = !!(state.update && state.update.updating);
+			const data = (update.ok === true && update.data) ? update.data : {};
 
 			state.running = !!(status.ok === true && status.data && status.data.running);
-			state.update = (update.ok === true && update.data) ? update.data : {};
+			if (data.current_version)
+				state.current = data.current_version;
 
-			if (wasUpdating && !state.update.updating && state.update.ok) {
-				state.check = { checked: false, latest: '', available: false, error: '' };
-				ui.addNotification(null, E('p', {},
-					_('Update finished. Refresh the page to use the new version.')));
-				runCheck();
+			if (data.updating) {
+				state.stage = 'updating';
+			}
+			else if (state.stage === 'updating') {
+				if (data.ok) {
+					state.stage = 'done';
+					state.justUpdated = true;
+					state.latest = state.latest || state.current;
+					ui.addNotification(null, E('p', {},
+						_('Update finished. Refresh the page to use the new version.')));
+				}
+				else {
+					state.stage = 'error';
+					state.error = data.message || _('Update failed');
+				}
 			}
 
 			render();
@@ -115,11 +135,11 @@ function updateSection(initialStatus, initialUpdate) {
 	}
 
 	function runCheck() {
-		if (state.running || state.checking || (state.update && state.update.updating))
+		if (state.stage !== 'idle' && state.stage !== 'error')
 			return Promise.resolve();
 
-		state.checking = true;
-		state.check = { checked: false, latest: '', available: false, error: '' };
+		state.stage = 'checking';
+		state.error = '';
 		render();
 
 		return callUpdateCheck().then(function(result) {
@@ -130,49 +150,49 @@ function updateSection(initialStatus, initialUpdate) {
 			if (data.ok === false)
 				throw new Error(data.error || _('Check failed'));
 
-			state.check = {
-				checked: true,
-				latest: data.latest || '',
-				available: !!data.available,
-				error: ''
-			};
+			state.latest = data.latest || '';
+			if (data.current)
+				state.current = data.current;
+			state.justUpdated = false;
+			state.stage = data.available ? 'available' : 'done';
 		}).catch(function(e) {
-			state.check = {
-				checked: true,
-				latest: '',
-				available: false,
-				error: (e && e.message) || _('Check failed')
-			};
+			state.stage = 'error';
+			state.error = (e && e.message) || _('Check failed');
 		}).then(function() {
-			state.checking = false;
 			render();
 		});
 	}
 
-	checkButton.addEventListener('click', runCheck);
-
-	button.addEventListener('click', function() {
-		if (!state.check.available || state.running || (state.update && state.update.updating))
-			return;
+	function startUpdate() {
+		if (state.stage !== 'available' || state.running)
+			return Promise.resolve();
 
 		if (!confirm(_('Download and install the latest GitHub release? The page may reload after the update.')))
-			return;
+			return Promise.resolve();
 
-		button.disabled = true;
-		callUpdateStart().then(function(result) {
+		state.stage = 'updating';
+		render();
+
+		return callUpdateStart().then(function(result) {
 			if (!result || result.ok !== true)
 				throw new Error((result && result.error) || _('Request failed'));
 			if (result.data && result.data.started === false)
 				throw new Error(result.data.error || _('Update refused'));
 
 			ui.addNotification(null, E('p', {}, _('Update started.')));
-			state.update = { updating: true, message: _('Starting…') };
-			render();
 			return refresh();
 		}).catch(function(e) {
-			ui.addNotification(null, E('p', {}, e.message || _('Request failed')));
+			state.stage = 'error';
+			state.error = (e && e.message) || _('Update failed');
 			render();
 		});
+	}
+
+	actionButton.addEventListener('click', function() {
+		if (state.stage === 'available')
+			return startUpdate();
+
+		return runCheck();
 	});
 
 	poll.add(refresh, 3);
@@ -180,20 +200,19 @@ function updateSection(initialStatus, initialUpdate) {
 
 	return E('div', { 'class': 'cbi-section' }, [
 		E('h3', {}, _('Online update')),
-		E('p', { 'class': 'cbi-section-descr', style: 'margin-bottom:8px' },
-			_('Check the latest GitHub release; the update button is enabled only when a newer version is available.')),
+		E('div', { 'class': 'cbi-value' }, [
+			E('label', { 'class': 'cbi-value-title' }, _('Current version')),
+			E('div', { 'class': 'cbi-value-field' }, [ currentText ])
+		]),
+		E('div', { 'class': 'cbi-value' }, [
+			E('label', { 'class': 'cbi-value-title' }, _('Latest version')),
+			E('div', { 'class': 'cbi-value-field' }, [ latestText ])
+		]),
 		E('div', { 'class': 'cbi-value' }, [
 			E('label', { 'class': 'cbi-value-title' }, _('Update status')),
 			E('div', { 'class': 'cbi-value-field' }, [
-				E('div', { style: 'display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px' }, [
-					statusText,
-					versionText
-				]),
-				E('div', { style: 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px' }, [
-					checkButton,
-					button,
-					reloadButton
-				])
+				actionButton,
+				hintText
 			])
 		])
 	]);
