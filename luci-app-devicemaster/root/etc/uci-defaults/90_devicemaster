@@ -44,6 +44,33 @@ fi
 chmod +x /usr/libexec/devicemaster/*.sh 2>/dev/null
 chmod +x /etc/init.d/devicemaster 2>/dev/null
 
+# Self-heal dhcp reservations BEFORE dnsmasq starts (boot is S10, dnsmasq S19).
+# A sysupgrade-restored /etc/config/dhcp may contain the fatal "same IP for two
+# MACs" pair; without this, dnsmasq refuses to start and no client gets an IP.
+DHCP_GUARD="/usr/libexec/devicemaster/dhcp_guard.sh"
+if [ -f "$DHCP_GUARD" ]; then
+	. "$DHCP_GUARD"
+	if dm_lock_acquire; then
+		uci -q revert dhcp 2>/dev/null
+		if ! dm_dhcp_backup; then
+			logger -t devicemaster "boot self-heal: cannot back up /etc/config/dhcp; skipped" 2>/dev/null
+			dm_lock_release
+		else
+			dm_dhcp_dedup_hosts
+			_rc=$?
+			dm_lock_release
+			case "$_rc" in
+				1) logger -t devicemaster "boot self-heal: duplicate dhcp host entries fixed" 2>/dev/null
+				   dm_dhcp_backup_discard ;;
+				2) logger -t devicemaster "boot self-heal: no valid dhcp config produced; previous file kept" 2>/dev/null ;;
+				*) dm_dhcp_backup_discard ;;
+			esac
+		fi
+	fi
+else
+	logger -t devicemaster "WARN: $DHCP_GUARD missing; dhcp self-heal skipped" 2>/dev/null
+fi
+
 # Enable the service
 /etc/init.d/devicemaster enable 2>/dev/null
 

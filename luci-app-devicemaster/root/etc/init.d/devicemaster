@@ -10,11 +10,13 @@ USE_PROCD=1
 NAME="devicemaster"
 EVENT_HANDLER="/usr/libexec/devicemaster/event_handler.sh"
 UCI_INIT="/usr/libexec/devicemaster/uci_init.sh"
+DHCP_GUARD="/usr/libexec/devicemaster/dhcp_guard.sh"
 
 # Shared, idempotent UCI bootstrap (global/settings sections, template cleanup,
 # built-in groups). Sourced here as well as from 90_devicemaster so the two
 # entry points can never drift apart again.
 [ -f "$UCI_INIT" ] && . "$UCI_INIT"
+[ -f "$DHCP_GUARD" ] && . "$DHCP_GUARD"
 
 start_service() {
 	# Create runtime directories
@@ -396,38 +398,60 @@ flush_session_to_uci() {
 	rm -f "$lock"
 }
 
-# Remove duplicate dhcp host entries for the same MAC
-# Previous bug in sync_to_dnsmasq created multiple entries per MAC
+# Remove duplicate dhcp host entries:
+#  1. same MAC appearing more than once (previous sync_to_dnsmasq bug)
+#  2. same IP reserved by different MACs (sync_hostname used to write the
+#     device's current pool IP without checking for an existing reservation;
+#     when the pool later reassigned that IP, a second entry for another MAC
+#     was born). dnsmasq treats BOTH as fatal and refuses to start, which
+#     takes down DHCP for the whole network - the "no IP after sysupgrade"
+#     outage. For duplicate IPs the first entry keeps the reservation, later
+#     ones are degraded to hostname-only (name binding preserved).
+# Runs at every boot; restart dnsmasq when changed so a config restored from
+# an old backup self-heals instead of leaving procd's crashloop verdict.
 cleanup_duplicate_hosts() {
 	# Skip on mesh child nodes
 	is_mesh_child_node && return
 
-	local changed=0
-	# Collect all MACs that appear more than once
-	local macs=$(uci -q show dhcp | grep '@host\[' | grep '\.mac=' | sed "s/.*mac='//;s/'//" | sort | uniq -d)
-	[ -z "$macs" ] && return
+	[ -f "$DHCP_GUARD" ] || {
+		logger -t devicemaster "WARN: $DHCP_GUARD missing; skipping dhcp cleanup"
+		return 0
+	}
+	command -v dm_dhcp_dedup_hosts >/dev/null 2>&1 || . "$DHCP_GUARD"
 
-	for mac in $macs; do
-		local count=0
-		local idx=0
-		while uci -q get "dhcp.@host[$idx].mac" >/dev/null 2>&1; do
-			local hm=$(uci -q get "dhcp.@host[$idx].mac")
-			if [ "$hm" = "$mac" ]; then
-				count=$((count + 1))
-				if [ "$count" -gt 1 ]; then
-					uci -q delete "dhcp.@host[$idx]"
-					changed=1
-					continue  # Don't increment idx after delete
-				fi
+	dm_lock_acquire || {
+		logger -t devicemaster "ERROR: dhcp lock busy; skipping dhcp cleanup"
+		return 1
+	}
+	uci -q revert dhcp 2>/dev/null
+	dm_dhcp_backup || {
+		logger -t devicemaster "ERROR: cannot back up /etc/config/dhcp; skipping dhcp cleanup"
+		dm_lock_release
+		return 1
+	}
+	dm_dhcp_dedup_hosts
+	local _rc=$?
+	dm_lock_release
+
+	case "$_rc" in
+		1)
+			# Deduplicated, validated and committed: restart once to clear a
+			# possible procd crashloop verdict.
+			logger -t devicemaster "Cleaned up duplicate dhcp host entries, restarting dnsmasq"
+			if dm_dnsmasq_restart_safe; then
+				dm_dhcp_backup_discard
 			fi
-			idx=$((idx + 1))
-		done
-	done
-
-	if [ "$changed" = "1" ]; then
-		uci -q commit dhcp
-		logger -t devicemaster "Cleaned up duplicate dhcp host entries"
-	fi
+			;;
+		2)
+			# dm_dhcp_validate already restored the pre-change file when it
+			# could; if it could not, keep the snapshot for manual recovery
+			# instead of deleting the last known-good copy.
+			logger -t devicemaster "ERROR: dhcp cleanup could not produce a valid config; previous file kept"
+			;;
+		*)
+			dm_dhcp_backup_discard
+			;;
+	esac
 }
 
 reload_service() {

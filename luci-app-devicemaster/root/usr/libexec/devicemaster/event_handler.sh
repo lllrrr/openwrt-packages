@@ -38,6 +38,10 @@ HTTP_HINT_CACHE="/tmp/devicemaster_http_hint_cache"
 FULL_IDENTIFY="${FULL_IDENTIFY:-0}"
 REGISTER_LIGHT_ONLY="${REGISTER_LIGHT_ONLY:-0}"
 
+# Shared dhcp writer (flock + conflict-free upsert + dnsmasq --test).
+DHCP_GUARD="/usr/libexec/devicemaster/dhcp_guard.sh"
+[ -f "$DHCP_GUARD" ] && . "$DHCP_GUARD"
+
 is_full_identify_enabled() {
     [ "$FULL_IDENTIFY" = "1" ] && return 0
     local mode=$(cat /tmp/dm_mode 2>/dev/null | tr -d '\n\r')
@@ -133,8 +137,10 @@ primary_reserved_ip() {
     local pri="$1"
     local ip=""
     local dhcp_idx=0
-    while uci -q get "dhcp.@host[$dhcp_idx].mac" >/dev/null 2>&1; do
-        local dhcp_mac=$(uci -q get "dhcp.@host[$dhcp_idx].mac" | tr 'a-f' 'A-F')
+    # Check section existence, not its mac option: a mac-less stanza used to
+    # hide every later reservation from this lookup.
+    while uci -q get "dhcp.@host[$dhcp_idx]" >/dev/null 2>&1; do
+        local dhcp_mac=$(uci -q get "dhcp.@host[$dhcp_idx].mac" 2>/dev/null | tr 'a-f' 'A-F')
         if [ "$dhcp_mac" = "$pri" ]; then
             ip=$(uci -q get "dhcp.@host[$dhcp_idx].ip" 2>/dev/null)
             [ -n "$ip" ] && break
@@ -1828,25 +1834,60 @@ remove_dhcp_host() {
     [ -z "$mac" ] && return
     local mac_lower=$(echo "$mac" | tr 'A-F' 'a-f')
     local changed=0
-    while true; do
-        local found=0
-        local idx=0
-        while uci -q get "dhcp.@host[$idx].mac" >/dev/null 2>&1; do
-            local hm=$(uci -q get "dhcp.@host[$idx].mac")
-            local hm_lower=$(echo "$hm" | tr 'A-F' 'a-f')
-            if [ "$hm_lower" = "$mac_lower" ]; then
-                uci -q delete "dhcp.@host[$idx]"
-                changed=1
-                found=1
-                break
+    local _guard_locked=0
+    local _bk_before="${DM_DHCP_BACKUP:-}"
+    if command -v dm_lock_acquire >/dev/null 2>&1; then
+        if dm_lock_acquire; then
+            _guard_locked=1
+            uci -q revert dhcp 2>/dev/null
+            if ! dm_dhcp_backup; then
+                log_msg "ERROR: cannot back up dhcp config; skipping removal for $mac"
+                dm_lock_release
+                return 1
             fi
-            idx=$((idx + 1))
+        else
+            log_msg "ERROR: dhcp lock busy; skipping removal for $mac"
+            return 1
+        fi
+    fi
+    if command -v dm_purge_mac >/dev/null 2>&1; then
+        local _n=$(dm_purge_mac "$mac_lower")
+        [ "${_n:-0}" -gt 0 ] 2>/dev/null && changed=1
+    else
+        while true; do
+            local found=0
+            local idx=0
+            while uci -q get "dhcp.@host[$idx]" >/dev/null 2>&1; do
+                local hm=$(uci -q get "dhcp.@host[$idx].mac" 2>/dev/null)
+                local hm_lower=$(echo "$hm" | tr 'A-F' 'a-f')
+                if [ "$hm_lower" = "$mac_lower" ]; then
+                    uci -q delete "dhcp.@host[$idx]"
+                    changed=1
+                    found=1
+                    break
+                fi
+                idx=$((idx + 1))
+            done
+            [ "$found" = "0" ] && break
         done
-        [ "$found" = "0" ] && break
-    done
+    fi
     if [ "$changed" = "1" ]; then
         uci -q commit dhcp
+        if command -v dm_dhcp_validate >/dev/null 2>&1; then
+            if ! dm_dhcp_validate; then
+                log_msg "ERROR: dhcp config rejected after removing $mac; rolled back"
+                [ "$_guard_locked" = "1" ] && dm_lock_release
+                return 1
+            fi
+            # Only drop the snapshot this call created. In a batch the caller
+            # holds one backup across many writes; discarding it here would
+            # leave the batch with no way to roll back.
+            [ -z "$_bk_before" ] && dm_dhcp_backup_discard
+        fi
+    else
+        [ -z "$_bk_before" ] && command -v dm_dhcp_backup_discard >/dev/null 2>&1 && dm_dhcp_backup_discard
     fi
+    [ "$_guard_locked" = "1" ] && dm_lock_release
     # Update /tmp/dhcp.leases hostname for this MAC.
     # If new_hostname is provided, set it; otherwise set to "*" (no name).
     # This keeps the IP in the lease file but ensures the DHCP list
@@ -2862,6 +2903,12 @@ discover_all() {
     #   * Restart dnsmasq ONCE at the end, not N times.
     if [ "$REGISTER_LIGHT_ONLY" != "1" ] && is_mesh_main_router && [ -x "/usr/libexec/devicemaster/sync_hostname.sh" ]; then
         local need_dnsmasq_restart=0
+        local _old_skip="${SKIP_DNSMASQ_RESTART:-0}"
+        SKIP_DNSMASQ_RESTART=1
+        export SKIP_DNSMASQ_RESTART
+        # One rollback snapshot for the whole batch; dnsmasq is validated and
+        # restarted once at the end instead of once per device.
+        command -v dm_dhcp_backup >/dev/null 2>&1 && dm_dhcp_backup
         local idx=0
         while uci -q get "devicemaster.@device[$idx].mac" >/dev/null 2>&1; do
             local s_mac=$(uci -q get "devicemaster.@device[$idx].mac")
@@ -2890,8 +2937,16 @@ discover_all() {
             fi
             idx=$((idx + 1))
         done
-        if [ "$need_dnsmasq_restart" = "1" ]; then
+        SKIP_DNSMASQ_RESTART="$_old_skip"
+        export SKIP_DNSMASQ_RESTART
+        if [ "$need_dnsmasq_restart" = "1" ] && command -v dm_dhcp_finish >/dev/null 2>&1; then
+            if dm_dhcp_finish 1; then
+                command -v dm_dhcp_backup_discard >/dev/null 2>&1 && dm_dhcp_backup_discard
+            fi
+        elif [ "$need_dnsmasq_restart" = "1" ]; then
             /etc/init.d/dnsmasq restart >/dev/null 2>&1
+        else
+            command -v dm_dhcp_backup_discard >/dev/null 2>&1 && dm_dhcp_backup_discard
         fi
     fi
 
@@ -3057,6 +3112,10 @@ reidentify_all() {
     #   * Restart dnsmasq once at the end.
     if is_mesh_main_router && [ -x "/usr/libexec/devicemaster/sync_hostname.sh" ]; then
         local need_dnsmasq_restart=0
+        local _old_skip="${SKIP_DNSMASQ_RESTART:-0}"
+        SKIP_DNSMASQ_RESTART=1
+        export SKIP_DNSMASQ_RESTART
+        command -v dm_dhcp_backup >/dev/null 2>&1 && dm_dhcp_backup
         local s_idx=0
         while uci -q get "devicemaster.@device[$s_idx].mac" >/dev/null 2>&1; do
             local s_mac=$(uci -q get "devicemaster.@device[$s_idx].mac")
@@ -3099,8 +3158,16 @@ reidentify_all() {
             fi
             s_idx=$((s_idx + 1))
         done
-        if [ "$need_dnsmasq_restart" = "1" ]; then
+        SKIP_DNSMASQ_RESTART="$_old_skip"
+        export SKIP_DNSMASQ_RESTART
+        if [ "$need_dnsmasq_restart" = "1" ] && command -v dm_dhcp_finish >/dev/null 2>&1; then
+            if dm_dhcp_finish 1; then
+                command -v dm_dhcp_backup_discard >/dev/null 2>&1 && dm_dhcp_backup_discard
+            fi
+        elif [ "$need_dnsmasq_restart" = "1" ]; then
             /etc/init.d/dnsmasq restart >/dev/null 2>&1
+        else
+            command -v dm_dhcp_backup_discard >/dev/null 2>&1 && dm_dhcp_backup_discard
         fi
     fi
 

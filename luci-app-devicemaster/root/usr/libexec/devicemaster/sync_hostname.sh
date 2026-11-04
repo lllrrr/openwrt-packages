@@ -15,12 +15,33 @@
 MAC="$1"
 NAME="$2"
 IP="$3"
+# --no-ip: write a hostname-only binding (merged devices / offline primary).
+# Offline MACs must never take a fixed IP away from the device that really
+# holds it; that is what produced duplicate dhcp-host IPs in the past.
+NO_IP=0
+case "${3:-}" in
+    --no-ip|--noip) NO_IP=1; IP="" ;;
+esac
+[ "${4:-}" = "--no-ip" ] && NO_IP=1
+[ "$NO_IP" = "1" ] && IP=""
 
 LOG_TAG="devicemaster-sync"
 
 log_msg() {
     logger -t "$LOG_TAG" "$1"
 }
+
+# Single authoritative dhcp writer: flock-protected upsert + dedupe +
+# dnsmasq --test validation. Refuse to run if it is missing rather than
+# writing dhcp-host entries without the uniqueness guarantee.
+DHCP_GUARD="/usr/libexec/devicemaster/dhcp_guard.sh"
+if [ -f "$DHCP_GUARD" ]; then
+    . "$DHCP_GUARD"
+else
+    log_msg "ERROR: $DHCP_GUARD missing; refusing to modify dhcp config"
+    echo "ERROR: dhcp_guard.sh missing"
+    exit 1
+fi
 
 # Return all MACs (primary + alt_macs) of the devicemaster device that
 # contains the given MAC. Space-separated, lowercased. Empty if not found.
@@ -61,6 +82,16 @@ fi
 if [ -z "$NAME" ]; then
     log_msg "ERROR: Missing NAME argument"
     echo "ERROR: Missing NAME"
+    exit 1
+fi
+
+# All dhcp-host writes use lowercase MACs. Previously the event handler fed
+# uppercase MACs while LuCI fed lowercase, which defeated the case-sensitive
+# duplicate scans and let the same MAC be written twice.
+MAC=$(dm_mac_lc "$MAC")
+if ! dm_valid_mac "$MAC"; then
+    log_msg "ERROR: Invalid MAC '$MAC'"
+    echo "ERROR: Invalid MAC"
     exit 1
 fi
 
@@ -132,21 +163,19 @@ if [ -n "$_alt_primary" ]; then
     # just patch /tmp/dhcp.leases.
     _alt_existing_ok=0
     _alt_existing_count=0
-    _alt_idx2=0
-    while uci -q get "dhcp.@host[$_alt_idx2].mac" >/dev/null 2>&1; do
-        _ehm=$(uci -q get "dhcp.@host[$_alt_idx2].mac")
-        _ehm_l=$(echo "$_ehm" | tr 'A-F' 'a-f')
+    for _alt_idx2 in $(dm_host_indices); do
+        _ehm=$(dm_host_field "$_alt_idx2" mac)
+        _ehm_l=$(dm_mac_lc "$_ehm")
         if [ "$_ehm_l" = "$MAC_LOWER" ]; then
             _alt_existing_count=$((_alt_existing_count + 1))
-            _eip=$(uci -q get "dhcp.@host[$_alt_idx2].ip" 2>/dev/null)
-            _enm=$(uci -q get "dhcp.@host[$_alt_idx2].name" 2>/dev/null)
+            _eip=$(dm_host_field "$_alt_idx2" ip)
+            _enm=$(dm_host_field "$_alt_idx2" name)
             if [ -z "$_eip" ] && [ "$_enm" = "$_alt_display" ]; then
                 _alt_existing_ok=1
             else
                 _alt_existing_ok=0
             fi
         fi
-        _alt_idx2=$((_alt_idx2 + 1))
     done
     if [ "$_alt_existing_count" -eq 1 ] && [ "$_alt_existing_ok" = "1" ]; then
         if [ -f "/tmp/dhcp.leases" ]; then
@@ -161,37 +190,39 @@ if [ -n "$_alt_primary" ]; then
         exit 0
     fi
 
+    # Serialize against every other dhcp writer (event handler, LuCI merge,
+    # cron) before touching the config, and keep a rollback copy.
+    dm_lock_acquire || { log_msg "ERROR: dhcp lock unavailable for alt_mac $MAC"; echo "ERROR: busy"; exit 1; }
+    trap 'dm_lock_release; dm_dhcp_backup_discard' EXIT INT TERM
+    uci -q revert dhcp 2>/dev/null
+    dm_dhcp_backup || {
+        log_msg "ERROR: cannot back up /etc/config/dhcp for alt_mac $MAC"
+        echo "ERROR: backup failed"
+        exit 1
+    }
+
     # Clean up any stale dhcp.@host entry for this alt_mac.  Previously merged
     # devices may have a fixed-IP entry from before merge; dnsmasq refuses to
     # start if two entries share the same IP, so these must be removed.
-    _deleted=0
-    while true; do
-        _found=0
-        _idx=0
-        while uci -q get "dhcp.@host[$_idx].mac" >/dev/null 2>&1; do
-            _hm=$(uci -q get "dhcp.@host[$_idx].mac")
-            _hm_l=$(echo "$_hm" | tr 'A-F' 'a-f')
-            if [ "$_hm_l" = "$MAC_LOWER" ]; then
-                uci -q delete "dhcp.@host[$_idx]"
-                _deleted=$((_deleted + 1))
-                _found=1
-                break
-            fi
-            _idx=$((_idx + 1))
-        done
-        [ "$_found" = "0" ] && break
-    done
+    _deleted=$(dm_purge_mac "$MAC_LOWER")
 
     # For alt_macs we cannot reserve a fixed IP (it would conflict with the
     # primary MAC's lease), but we CAN pin the hostname via a hostname-only
     # dhcp-host entry.  This makes dnsmasq report the merged device's name for
     # the alt_mac's lease on every renewal, instead of '*'/'-'.
-    _alt_need_commit=$_deleted
+    _alt_need_commit=0
+    [ "$_deleted" -gt 0 ] && _alt_need_commit=1
     _alt_entry_added=0
     if [ "$_alt_display" != "*" ]; then
-        uci -q add dhcp host >/dev/null
-        uci -q set "dhcp.@host[-1].mac=$MAC"
-        uci -q set "dhcp.@host[-1].name=$_alt_display"
+        _alt_sec=$(uci add dhcp host 2>/dev/null)
+        if [ -z "$_alt_sec" ]; then
+            log_msg "ERROR: uci add dhcp host failed for alt_mac $MAC"
+            dm_dhcp_restore
+            echo "ERROR: add failed"
+            exit 1
+        fi
+        uci -q set "dhcp.$_alt_sec.mac=$MAC_LOWER"
+        uci -q set "dhcp.$_alt_sec.name=$_alt_display"
         # Do NOT set ip -> dynamic IP, hostname fixed
         _alt_need_commit=1
         _alt_entry_added=1
@@ -211,8 +242,12 @@ if [ -n "$_alt_primary" ]; then
         ' /tmp/dhcp.leases > /tmp/dhcp.leases.dmtmp && mv /tmp/dhcp.leases.dmtmp /tmp/dhcp.leases
     fi
 
-    if [ "$_alt_need_commit" -gt 0 ] && [ "${SKIP_DNSMASQ_RESTART:-0}" != "1" ]; then
-        /etc/init.d/dnsmasq restart >/dev/null 2>&1
+    if [ "$_alt_need_commit" -gt 0 ]; then
+        dm_dhcp_finish "$_alt_need_commit" || {
+            log_msg "ERROR: dnsmasq validation failed for alt_mac $MAC"
+            echo "ERROR: validation failed"
+            exit 1
+        }
     fi
     log_msg "ALT_MAC done: $MAC -> $_alt_display (deleted $_deleted old entries, hostname-only added: $_alt_entry_added)."
     echo "OK: alt_mac synced (display: $_alt_display, hostname-only added: $_alt_entry_added)"
@@ -233,12 +268,24 @@ if [ "$SAFE_NAME" != "$NAME" ]; then
     NAME="$SAFE_NAME"
 fi
 
-# If IP not provided, look it up from ARP
-if [ -z "$IP" ]; then
-    IP=$(grep -i "$MAC" /proc/net/arp 2>/dev/null | awk '{print $1}' | head -1)
+# IP resolution order when the caller did not supply one:
+#   1. this MAC's existing reservation  -> renaming an offline device keeps it
+#   2. live lease (factual evidence)
+#   3. ARP entry (factual, shorter-lived)
+# Never use devicemaster's last_ip: it goes stale and was the source of
+# "offline device steals the IP another device is using".
+if [ "$NO_IP" != "1" ] && [ -z "$IP" ]; then
+    for _r_i in $(dm_host_indices); do
+        [ "$(dm_mac_lc "$(dm_host_field "$_r_i" mac)")" = "$MAC" ] || continue
+        _r_ip=$(dm_host_field "$_r_i" ip)
+        [ -n "$_r_ip" ] && { IP="$_r_ip"; break; }
+    done
 fi
-if [ -z "$IP" ]; then
-    log_msg "ERROR: Cannot find IP for $MAC in ARP table (device may be offline)"
+if [ "$NO_IP" != "1" ] && [ -z "$IP" ]; then
+    IP=$(dm_mac_live_ip "$MAC")
+fi
+if [ "$NO_IP" != "1" ] && [ -z "$IP" ]; then
+    log_msg "ERROR: Cannot find IP for $MAC in leases/ARP (device may be offline)"
     echo "ERROR: No IP found for $MAC"
     exit 1
 fi
@@ -273,54 +320,67 @@ if echo "$NAME" | grep -qiE '^[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0
     exit 0
 fi
 
-# Concurrent lock (atomic mkdir).
-#
-# The lock is released by the EXIT trap, which does NOT run when the process is
-# killed. A leftover lock used to make every later sync abort immediately, and
-# this script sits on the critical path of register_device / discover_all - so
-# DHCP hostname synchronisation stayed broken until the next reboot. Wait a
-# little, and steal the lock once it is clearly abandoned.
-LOCK="/tmp/dm_sync_hostname.lock"
-_lock_wait=0
-while ! mkdir "$LOCK" 2>/dev/null; do
-    _lock_mtime=$(stat -c %Y "$LOCK" 2>/dev/null)
-    _lock_age=""
-    [ -n "$_lock_mtime" ] && _lock_age=$(( $(date +%s) - _lock_mtime ))
-    if [ -n "$_lock_age" ] && [ "$_lock_age" -gt 30 ] 2>/dev/null; then
-        log_msg "WARN: removing stale sync lock (age ${_lock_age}s)"
-        rmdir "$LOCK" 2>/dev/null
-    fi
-    # BusyBox sleep has no fractional support; usleep is the portable sub-second wait.
-    usleep 100000 2>/dev/null || sleep 1
-    _lock_wait=$((_lock_wait + 1))
-    if [ "$_lock_wait" -ge 30 ]; then
-        log_msg "ERROR: Another sync in progress, aborting"
-        echo "ERROR: Another sync in progress"
-        exit 1
-    fi
-done
-trap 'rmdir "$LOCK" 2>/dev/null' EXIT
+# One flock-protected critical section for "check + allocate + write".
+# flock is released by the kernel even if the process is SIGKILLed, so the
+# abandoned-mkdir-lock problem (every later sync aborting until reboot)
+# cannot happen. All other dhcp writers use the same lock file.
+dm_lock_acquire || {
+    log_msg "ERROR: Another dhcp writer holds the lock, aborting"
+    echo "ERROR: Another sync in progress"
+    exit 1
+}
+trap 'dm_lock_release; dm_dhcp_backup_discard' EXIT INT TERM
 
-log_msg "START: $MAC -> $NAME ($IP)"
+# Drop any orphaned pending delta left by a killed process; the committed
+# /etc/config/dhcp is untouched. Prevents a later commit from applying
+# half-finished edits made by a previous crashed sync.
+uci -q revert dhcp 2>/dev/null
+
+dm_dhcp_backup || {
+    log_msg "ERROR: cannot back up /etc/config/dhcp, aborting"
+    echo "ERROR: backup failed"
+    exit 1
+}
+
+log_msg "START: $MAC -> $NAME (${IP:-hostname-only})"
 
 # Optimization: if the exact desired dhcp-host entry already exists, do not
 # delete/re-add/restart dnsmasq.  Just patch /tmp/dhcp.leases in case dnsmasq
 # overwrote it since our last run (e.g. after a DHCP renewal).
-MAC_LOWER=$(echo "$MAC" | tr 'A-F' 'a-f')
+MAC_LOWER="$MAC"
+# An entry only counts as "already configured" when it is the ONLY stanza for
+# this MAC and its IP is a usable LAN address. Otherwise we fall through to the
+# purge/rewrite path: a second stanza for the same MAC (legacy uppercase twin)
+# or an out-of-LAN reservation left by an older plugin version must be repaired
+# here, not preserved until the next reboot.
 _desired_exists=0
-_desired_idx=0
-while uci -q get "dhcp.@host[$_desired_idx].mac" >/dev/null 2>&1; do
-    _dhm=$(uci -q get "dhcp.@host[$_desired_idx].mac")
-    _dhip=$(uci -q get "dhcp.@host[$_desired_idx].ip")
-    _dhn=$(uci -q get "dhcp.@host[$_desired_idx].name")
-    _dhm_l=$(echo "$_dhm" | tr 'A-F' 'a-f')
-    if [ "$_dhm_l" = "$MAC_LOWER" ] && [ "$_dhip" = "$IP" ] && [ "$_dhn" = "$NAME" ]; then
+_mac_sections=0
+for _desired_idx in $(dm_host_indices); do
+    _dhm=$(dm_host_field "$_desired_idx" mac)
+    _dhm_l=$(dm_mac_lc "$_dhm")
+    [ "$_dhm_l" = "$MAC_LOWER" ] || continue
+    _mac_sections=$((_mac_sections + 1))
+    _dhip=$(dm_host_field "$_desired_idx" ip)
+    _dhn=$(dm_host_field "$_desired_idx" name)
+    if [ "$_dhip" = "$IP" ] && [ "$_dhn" = "$NAME" ] \
+        && { [ -z "$_dhip" ] || dm_ip_valid_for_lan "$_dhip"; }; then
         _desired_exists=1
-        break
     fi
-    _desired_idx=$((_desired_idx + 1))
 done
+[ "$_mac_sections" -eq 1 ] || _desired_exists=0
 if [ "$_desired_exists" = "1" ]; then
+    # An already-correct entry does not excuse stale duplicates elsewhere:
+    # heal them before returning, otherwise dnsmasq may still refuse to start.
+    _inv=$(dm_dhcp_fix_duplicate_ips)
+    if [ "$_inv" = "1" ]; then
+        uci -q commit dhcp
+        dm_dhcp_finish 1 || {
+            log_msg "ERROR: duplicate heal failed validation for $MAC"
+            echo "ERROR: validation failed"
+            exit 1
+        }
+        log_msg "Self-heal: duplicate IP reservations fixed while checking $MAC"
+    fi
     if [ -f "/tmp/dhcp.leases" ]; then
         awk -v m="$MAC_LOWER" -v name="$NAME" '
             tolower($2) == m { $4 = name; found = 1 }
@@ -328,41 +388,16 @@ if [ "$_desired_exists" = "1" ]; then
             END { exit 0 }
         ' /tmp/dhcp.leases > /tmp/dhcp.leases.dmtmp && mv /tmp/dhcp.leases.dmtmp /tmp/dhcp.leases
     fi
-    log_msg "Entry already exists for $MAC -> $NAME ($IP); lease file patched, no restart needed."
+    log_msg "Entry already exists for $MAC -> $NAME (${IP:-hostname-only}); lease file patched."
     echo "OK: already configured"
     exit 0
 fi
 
-# Step 1: Remove ALL existing host entries for this MAC
-# Handle index shifting: after delete, indices change
-# Strategy: keep scanning from 0, break and restart after each deletion
-# IMPORTANT: Compare MACs case-insensitively (UCI may store in different cases)
-deleted=0
-while true; do
-    found=0
-    idx=0
-    while uci -q get "dhcp.@host[$idx].mac" >/dev/null 2>&1; do
-        hm=$(uci -q get "dhcp.@host[$idx].mac")
-        hm_lower=$(echo "$hm" | tr 'A-F' 'a-f')
-        if [ "$hm_lower" = "$MAC_LOWER" ]; then
-            uci -q delete "dhcp.@host[$idx]"
-            deleted=$((deleted + 1))
-            found=1
-            break  # Restart scan from 0 (indices shifted)
-        fi
-        idx=$((idx + 1))
-    done
-    [ "$found" = "0" ] && break
-done
+# Step 1: Remove ALL existing host entries for this MAC.
+# dm_purge_mac enumerates every @host section (including mac-less ones) and
+# compares MACs case-insensitively, so no stale twin can survive.
+deleted=$(dm_purge_mac "$MAC_LOWER")
 log_msg "Deleted $deleted old host entries for $MAC"
-
-# 修复：删除后立即 commit，确保检测时旧条目已清除。
-# 但只在真的删掉了条目时才提交——本脚本会被 discover_all / reidentify 逐个设备
-# 调用，无条件 commit 意味着每个设备至少两次 flash 写（这里一次、Step 3 一次），
-# 对绝大多数（deleted=0）的调用完全是无谓消耗。
-if [ "$deleted" -gt 0 ]; then
-    uci -q commit dhcp
-fi
 
 # Step 2: Check for duplicate hostnames and add suffix if needed
 # 修复：检查 devicemaster 和 dhcp 中的名称，与 LuCI unique_name 保持一致
@@ -438,15 +473,78 @@ if [ "$final_name" != "$NAME" ]; then
     NAME="$final_name"
 fi
 
-# Step 3: Add new host entry
-uci -q add dhcp host >/dev/null
-uci -q set "dhcp.@host[-1].mac=$MAC"
-uci -q set "dhcp.@host[-1].ip=$IP"
-uci -q set "dhcp.@host[-1].name=$NAME"
+# Step 2.5: authoritative IP decision.
+# dnsmasq REFUSES TO START when two dhcp-host entries share the same IP
+# (fatal even if the MACs differ) -> crashloop -> DHCP down for the whole
+# network. The decision below is the ONLY place a reservation is granted:
+#   * the IP must be a usable LAN address (not router/local/network/broadcast)
+#   * if live evidence (lease/ARP) says another MAC holds it, this MAC gets no IP
+#   * if another MAC owns the static entry and this MAC has no live evidence,
+#     the existing reservation wins and this MAC gets a hostname-only binding.
+#     (Previously the caller's stale last_ip stole it back and forth.)
+#   * if this MAC really holds it (live lease/ARP), the other reservation is
+#     provably stale and is stripped.
+_use_ip="$IP"
+_ip_conflict=0
+if [ -n "$_use_ip" ] && ! dm_ip_valid_for_lan "$_use_ip"; then
+    log_msg "WARN: IP $_use_ip for $MAC is outside the LAN (router $(dm_lan_ip)); writing hostname-only binding"
+    _use_ip=""
+fi
+if [ -n "$_use_ip" ]; then
+    _live_owner=$(dm_live_owner "$_use_ip")
+    if [ -n "$_live_owner" ] && [ "$_live_owner" != "$MAC_LOWER" ]; then
+        log_msg "WARN: IP $_use_ip is currently held by $_live_owner (lease/ARP); $MAC gets hostname-only binding"
+        _use_ip=""
+    fi
+fi
+if [ -n "$_use_ip" ]; then
+    _owners=$(dm_static_owners "$_use_ip")
+    if [ -n "$_owners" ]; then
+        _my_live=$(dm_mac_live_ip "$MAC_LOWER")
+        if [ "$_my_live" = "$_use_ip" ]; then
+            for _oi in $(echo "$_owners" | awk '{print $1}'); do
+                _om=$(dm_host_field "$_oi" mac)
+                _on=$(dm_host_field "$_oi" name)
+                log_msg "CONFLICT FIXED: IP $_use_ip was reserved by $_om ($_on); the live lease belongs to $MAC, stripping the stale reservation"
+                uci -q delete "dhcp.@host[$_oi].ip"
+                _ip_conflict=1
+            done
+        else
+            _owner_line=$(echo "$_owners" | head -1)
+            _om=$(echo "$_owner_line" | awk '{print $2}')
+            _on=$(echo "$_owner_line" | cut -d' ' -f3-)
+            log_msg "WARN: IP $_use_ip already reserved by $_om ($_on); $MAC has no live evidence for it, keeping the existing reservation (hostname-only binding)"
+            _use_ip=""
+        fi
+    fi
+fi
 
-# Step 3: Commit
+# Step 3: Add exactly one host entry for this MAC.
+_sec=$(uci add dhcp host 2>/dev/null)
+if [ -z "$_sec" ]; then
+    log_msg "ERROR: uci add dhcp host failed for $MAC"
+    dm_dhcp_restore
+    echo "ERROR: add failed"
+    exit 1
+fi
+uci -q set "dhcp.$_sec.mac=$MAC"
+uci -q set "dhcp.$_sec.name=$NAME"
+[ -n "$_use_ip" ] && uci -q set "dhcp.$_sec.ip=$_use_ip"
+
+# Final invariant scan (heals legacy duplicates elsewhere in the file too).
+_inv=$(dm_dhcp_fix_duplicate_ips)
+
+# Step 3b: one commit, then dnsmasq --test before any restart.
 uci -q commit dhcp
-log_msg "UCI committed: dhcp host $MAC -> $NAME ($IP)"
+if [ "$_inv" = "1" ]; then
+    log_msg "CONFLICT FIXED: duplicate IP reservation(s) healed while writing $MAC"
+fi
+dm_dhcp_finish 1 || {
+    log_msg "ERROR: dnsmasq rejected the new dhcp config; previous config restored for $MAC"
+    echo "ERROR: validation failed"
+    exit 1
+}
+log_msg "UCI committed: dhcp host $MAC -> $NAME (${_use_ip:-hostname-only})"
 
 # Step 4: Patch /tmp/dhcp.leases to update hostname in-place
 # This makes LuCI's DHCP lease page show the custom name immediately,
@@ -464,14 +562,9 @@ if [ -f "$DHCP_LEASES" ]; then
     log_msg "Patched dhcp.leases hostname for $MAC -> $NAME"
 fi
 
-# Step 5: Restart dnsmasq to apply all changes
-# Use restart instead of reload to flush DNS cache and pick up lease file changes
-# When called in batch mode (e.g. from reidentify/discover sync loops), caller
-# will restart dnsmasq once at the end to avoid N restarts for N devices.
+# Step 5: dnsmasq was already validated and restarted by dm_dhcp_finish()
+# (unless batch mode). Verify DNS resolution without restarting a second time.
 if [ "${SKIP_DNSMASQ_RESTART:-0}" != "1" ]; then
-    /etc/init.d/dnsmasq restart >/dev/null 2>&1
-
-    # Verify: use nslookup to confirm DNS resolution works
     sleep 1
     if nslookup "$NAME" 127.0.0.1 >/dev/null 2>&1; then
         log_msg "OK: DNS lookup for $NAME succeeded"
@@ -481,7 +574,7 @@ if [ "${SKIP_DNSMASQ_RESTART:-0}" != "1" ]; then
         echo "WARN: DNS verification failed"
     fi
 else
-    log_msg "Batch mode: skipping dnsmasq restart for $MAC"
+    log_msg "Batch mode: dhcp config validated, dnsmasq restart deferred for $MAC"
     echo "OK"
 fi
 
