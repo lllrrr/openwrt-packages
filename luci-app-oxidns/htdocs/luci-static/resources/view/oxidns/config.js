@@ -3,6 +3,7 @@
 'require rpc';
 'require ui';
 'require view.oxidns.upload as chunkedUpload';
+'require view.oxidns.cmeditor as cmeditor';
 
 var callConfigRead = rpc.declare({
 	object: 'luci.oxidns',
@@ -349,6 +350,14 @@ return view.extend({
 
 		editorState.buttons = buttons;
 
+		// 原生 textarea 只是兜底: cmeditor 会把它换成 CodeMirror, 编辑时只有
+		// 编辑器内部滚动, 页面不再跟着光标上下滑动 (参考 luci-app-mosdns)。
+		var editor = configTextarea(configContent);
+
+		cmeditor.load().then(function() {
+			cmeditor.defer(editor, { mode: 'text/x-yaml' });
+		});
+
 		return E('div', { 'class': 'cbi-map' }, [
 			E('h2', {}, _('OxiDNS Configuration')),
 			E('div', { 'class': 'cbi-map-descr' },
@@ -365,7 +374,7 @@ return view.extend({
 					'class': 'alert-message warning',
 					'style': 'margin: 1em 0;'
 				}, configMessage) : '',
-				configTextarea(configContent),
+				editor,
 				E('div', {
 					'class': 'cbi-button-row',
 					'style': 'display: flex; flex-wrap: wrap; gap: .5em; margin-top: 1em;'

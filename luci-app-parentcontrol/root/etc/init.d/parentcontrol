@@ -43,7 +43,7 @@ CRON_TAG_IP="#pc_ip_refresh"
 
 . "${PC_LIB:-/usr/lib/parentcontrol/common.sh}"
 
-EXTRA_COMMANDS="tick refresh_ip refresh_holiday stats_tsv reset_quota ai_http hosts_tsv ensure"
+EXTRA_COMMANDS="tick refresh_ip refresh_holiday stats_tsv reset_quota ai_http ai_stream_start ai_stream_state hosts_tsv ensure"
 EXTRA_HELP="
 	tick             Re-evaluate quota state and account usage (cron, every minute)
 	refresh_ip       Re-resolve domains and rebuild IP rules (cron)
@@ -52,6 +52,8 @@ EXTRA_HELP="
 	stats_tsv        Print full stats for the dashboard as TSV
 	reset_quota      Reset an entry's (or pool's) quota for today; logged to /etc/parentcontrol/resets.log
 	ai_http          GET/POST a URL via curl/uclient-fetch/wget (used by the AI domain helper)
+	ai_stream_start  Start a background SSE request: <key> <url> <infile> <ssefile> <idle> <max>
+	ai_stream_state  Print 'state TAB rc TAB elapsed TAB bytes TAB chunks' for <key>
 	hosts_tsv        Print LAN hosts as 'host <mac> <ip> <name> <online>' (binding health / diagnostics)
 	ensure           Lightweight repair: rebuild quota blocks + offload state only (hotplug iface events)"
 
@@ -299,13 +301,14 @@ EOF
 }
 
 refresh_ips() {
-	local _i _f _idx _mf _n _nl _RC
+	local _i _f _idx _mf _hf _hin _n _nl _RC
 	mkdir -p "$IPDIR"
 	command -v resolveip >/dev/null 2>&1 || return 0
 	PC_IPMASK=$(pc_uget "@basic[0].ip_mask"); [ -z "$PC_IPMASK" ] && PC_IPMASK=24
 	for _i in $(pc_ids_on weburl); do
 		_f="$IPDIR/weburl_$_i"
 		_mf="$_f.map"
+		_hf="$_f.hist"
 		# M1：一次解析，两份产物共用（目标文件 + .map）。解析次数 = 4×去重域名数，
 		# 与基线 refresh_ips 的并集解析**相同**（不得是 4D(K+1)）。
 		_RC=$(entry_resolve_cache weburl "$_i")
@@ -314,18 +317,41 @@ refresh_ips() {
 			| grep -v '^$' | sort -u > "$_f.new"
 		mv "$_f.new" "$_f"
 		# D2/P-C：旁路映射（原子替换）。先写各名称行的归属，再补上并集里没有归属的
-		# 目标（行号 0 = 未归类，例如域名换 IP 后残留的旧目标）—— 这样 .map 的目标
-		# 集合**恒等于** $_f，Lua 侧永远不会因为「映射缺失」而丢分钟数。
+		# 目标（行号 0 = 未归类，例如域名换 IP 后残留的旧目标）。
+		# R74-L1（round74b）：.map 的第一列**不是**「恒等于 $_f」—— 自 R74-B 起它还含
+		#   (a) 历史台账 $_hf 里、当前解析已不存在的目标（保留旧归属），以及
+		#   (b) 明文匹配串（域名本身，见 F-1）。
+		# 准确的不变式是三条并集：.map 第一列 = $_f ∪ 明文匹配串 ∪ $_hf 第一列；
+		# 其中 $_f ⊆ .map 这一侧仍由下面补 \t0 那步硬保证（缺了 Lua 侧就丢分钟）。
 		# L6：三步写入必须检查 rc —— 补 0 行那次 awk 失败（OOM/EIO/磁盘满）若照旧 mv，
 		# 会发布一个缺 \t0 行的半截 .map（目标集合 ⊊ $_f，Lua 侧丢分钟）。失败则保留旧
 		# .map、清掉 .new，并把失败写进日志（不退化成静默）。
 		_mf="$_f.map"
+		_hin="$_hf"
+		[ -f "$_hin" ] || _hin=/dev/null
+		# R74-B：归属历史台账 `weburl_<i>.hist`（目标 → 名称行号，格式同 .map）。
+		# 为什么要它：$_f 只增不减，域名换 IP 后老目标仍留在 $_f 里、但已不在当前解析结果里
+		# ⇒ 下面补 \t0 那一步会把它判成「未归类」，它历史上的分钟全部改判。hist 把「这个目标
+		# 曾经属于哪一行」同期下来，于是：当前解析优先 → 历史补 → 才落 0。
+		# hist 只记**真实归属**（nr ≥ 1），不写 0 行 —— 0 行的语义是「没有归属」，那不是历史。
+		# 注意 $_f 必须 ⊆ .map（下面第三条 awk 补 0 行）；反过来 .map 会多出历史目标与明文串，
+		# 那是设计使然（R74-L1），不是漏映射。
 		if entry_target_map "$_i" "$_RC" > "$_mf.new" 2>/dev/null \
-			&& awk -F'\t' 'NR == FNR { have[$1] = 1; next }
-				$1 != "" && !have[$1]++ { printf "%s\t0\n", $1 }' "$_mf.new" "$_f" >> "$_mf.new" 2>/dev/null; then
-			mv "$_mf.new" "$_mf"
+			&& awk -F'\t' 'FILENAME == ARGV[1] { if (NF >= 2 && $1 != "" && $2 + 0 > 0) m[$1] = $2; next }
+				NF >= 2 && $1 != "" && $2 + 0 > 0 { m[$1] = $2 }
+				END { for (t in m) printf "%s\t%s\n", t, m[t] }' "$_hin" "$_mf.new" 2>/dev/null \
+				| sort -t "$TAB" -k2,2n -k1,1 > "$_hf.new" 2>/dev/null \
+			&& awk -F'\t' 'FILENAME == ARGV[1] { h[$1] = $2; next }
+				NF >= 2 && $1 != "" { m[$1] = $2 }
+				END { for (t in h) if (!(t in m)) m[t] = h[t]
+					for (t in m) if (t != "") printf "%s\t%s\n", t, m[t] }' "$_hin" "$_mf.new" 2>/dev/null \
+				| sort -t "$TAB" -k2,2n -k1,1 > "$_mf.new2" 2>/dev/null \
+			&& awk -F'\t' 'FILENAME == ARGV[1] { have[$1] = 1; next }
+				$1 != "" && !have[$1]++ { printf "%s\t0\n", $1 }' "$_mf.new2" "$_f" >> "$_mf.new2" 2>/dev/null; then
+			# 先发布 hist 再发布 map：hist 是 .map 的输入，颠倒会出现「map 用了新 hist、hist 却没落地」。
+			mv "$_hf.new" "$_hf" && mv "$_mf.new2" "$_mf" && rm -f "$_mf.new"
 		else
-			rm -f "$_mf.new"
+			rm -f "$_mf.new" "$_mf.new2" "$_hf.new"
 			elog "refresh_ips: $_mf 生成失败，保留上一版映射"
 		fi
 	done
@@ -333,14 +359,14 @@ refresh_ips() {
 		[ -e "$_f" ] || continue
 		# L-4（round66）：只跳**真正的旁路产物** `*.map`。`*.new` / `*.map.new` 都是写到
 		# 一半的临时文件（崩溃残留），必须落到下面的孤儿回收分支，否则永久留在 overlay/flash。
-		case "$_f" in *.map) continue ;; esac
+		case "$_f" in *.map|*.hist) continue ;; esac
 		_idx=${_f##*weburl_}
-		pc_ids_on weburl | grep -qx "$_idx" || rm -f "$_f" "$IPDIR/weburl_$_idx.map"
+		pc_ids_on weburl | grep -qx "$_idx" || rm -f "$_f" "$IPDIR/weburl_$_idx.map" "$IPDIR/weburl_$_idx.hist"
 	done
 	# 日志里的条数只数目标文件（*.map/*.new 是旁路，数进去会让这个数字凭空变大）
 	_n=0
 	for _f in "$IPDIR"/weburl_*; do
-		case "$_f" in *.map|*.map.new) continue ;; esac
+		case "$_f" in *.map|*.map.new|*.hist|*.hist.new) continue ;; esac
 		[ -f "$_f" ] || continue
 		# 用 awk 数行：grep -c 在 0 行时既打印 0、又退出 1 —— 加 `|| echo 0` 会得到
 		# "0\n0"，进 $(( )) 直接算术报错（真机 dash 上报 arithmetic expression）。
@@ -1328,7 +1354,7 @@ diag_map_get() { _MV=${1#*"|$2|"}; [ "$_MV" = "$1" ] && { _MV=0; return 0; }; _M
 
 # 每分钟采样：目标维（PCAD → PCDT）与客户端维（PCDT → PCDC）各按同一阈值判一次。
 sample_diag_counters() { # $1=阈值（字节）
-	local _thr _key _m _i _n _v _bf _d _mac _tg _dump _tf _hosts _ip _hn _k _map _ln _map_c _map_t _b _r _NL _pak _dead _req _nr _rest _bumped
+	local _thr _key _m _i _n _v _bf _d _mac _tg _dump _tf _hosts _ip _hn _k _map _ln _map_c _map_t _b _r _NL _pak _dead _req _nr _rest _bumped _map_u _ex _exb _buf _d_unc _d_all
 	[ -n "$ipt" ] || return 0
 	# 没装诊断链（未启用 / 无未覆盖客户端）就不采样
 	$ipt -t mangle -n -L "$TAGD" >/dev/null 2>&1 || return 0
@@ -1337,14 +1363,30 @@ sample_diag_counters() { # $1=阈值（字节）
 	{ $ipt -t mangle -nvx -L 2>/dev/null; $ipt6 -t mangle -nvx -L 2>/dev/null; } > "$_dump"
 	# A83-1：单遍化的唯一一次 awk（默认 FS，容忍行首空格计数列）。c|<链>|<目标>|<和> 按 (链,目标)
 	# 累加；t|<目标>|<和> 按目标跨全部链累加（不得加 ^PC 过滤，否则非 PC* 链跳向 PCDC_* 时与旧算法分叉）。
+	# u|<PCDT 链>|<和>（round73）：PCDT_<key>_<n> 链内**只匹配 -m mac 规则**的字节和 = 未覆盖设备的流量。
+	# 必须按 mac 匹配过滤（R73-L1）：不过滤就把链内未来的任何非 mac 规则（-j RETURN、兜底、
+	# 调试规则）也当成「未覆盖流量」减掉 ⇒ 名称分钟静默偏小。两种列印形态都认：`-nvx -L` 把 mac
+	# 匹配印成末列 `MAC aa:bb:…`（真机实测，当前 dump 命令就是它）；`-S` 印 `--mac-source aa:bb:…`
+	# （当前是**死分支**，仅作兼容保留）。
+	# 注意：换 dump 命令不会「静默」失效 —— 改用 `-S` 时 c|/t|/u| 三张表会一起空，W259.1 当场打红。
+	# W259.6 另钉「PCDT_ 链规则数 == 未覆盖客户端数」这条不变式。
+	# 恒等式（名称分钟口径的唯一依据，与规则无关、不改规则文本）：
+	#     PCAD_<key> 中指向 PCDT_<key>_<n> 的跳转计数
+	#   == 本条目设备名单（clients）内设备的流量 + 未覆盖设备的流量（即本表 u|）
+	# 所以名称分钟取「跳转计数增量 − u| 增量」，**规则一条都不用改**（A8 逐字节不变）。
+	# v4/v6 同名 PCDT 链在此自然累加 —— 要的正是两族之和（与 c|/t| 同口径）。
 	awk '
 		/^Chain / { ch = $2; next }
-		$1 ~ /^[0-9]+$/ { s[ch "|" $3] += $2; t[$3] += $2 }
-		END { for (k in s) print "c|" k "|" s[k]; for (k in t) print "t|" k "|" t[k] }' "$_dump" > "$_map"
-	# A83-2：两表一次 read 循环读进变量并 `|` 串成 `…k|v|`（不得用 $(cat)，会多一个 fork）。
-	_map_c=; _map_t=
+		$1 ~ /^[0-9]+$/ { s[ch "|" $3] += $2; t[$3] += $2; if (ch ~ /^PCDT_/ && ($0 ~ /--mac-source/ || $0 ~ / MAC /)) u[ch] += $2 }
+		END { for (k in s) print "c|" k "|" s[k]; for (k in t) print "t|" k "|" t[k]; for (k in u) print "u|" k "|" u[k] }' "$_dump" > "$_map"
+	# A83-2：三表一次 read 循环读进变量并 `|` 串成 `…k|v|`（不得用 $(cat)，会多一个 fork）。
+	_map_c=; _map_t=; _map_u=
 	while IFS= read -r _ln; do
-		case "$_ln" in t*) _map_t="$_map_t$_ln|" ;; c*) _map_c="$_map_c$_ln|" ;; esac
+		case "$_ln" in
+		t*) _map_t="$_map_t$_ln|" ;;
+		c*) _map_c="$_map_c$_ln|" ;;
+		u*) _map_u="$_map_u$_ln|" ;;
+		esac
 	done < "$_map"
 	_NL='
 '
@@ -1375,8 +1417,34 @@ sample_diag_counters() { # $1=阈值（字节）
 			# A83-3：基线纯 shell（取代 $(diag_delta …)）；缺失/非法按 0；回零按 _v 计；无论是否命中都写回。
 			_b=0; [ -f "$_bf" ] && IFS= read -r _b < "$_bf" 2>/dev/null; case "$_b" in ''|*[!0-9]*) _b=0 ;; esac
 			if [ "$_v" -ge "$_b" ]; then _d=$((_v - _b)); else _d=$_v; fi; printf '%s\n' "$_v" > "$_bf"
+			# R73-M3：留一份**扣减前**的原始增量（整条目命中该目标）。`t` 行（诊断面板「命中过的
+			# 目标」）必须继续按它记，否则 t 行语义会变成「仅覆盖设备命中」——未覆盖设备独占流量时
+			# 该列印 `-` 而同行「今日分钟」有值，与面板脚注自相矛盾。名称分钟（n 行）才用扣减后的 _d。
+			_d_all=$_d
+			# round73（口径变更）：名称分钟**只算本条目设备名单内的设备**。
+			# 上面 _d_all 是「全部设备」的增量，这里减掉未覆盖设备的增量（u| 表：PCDT_ 链内
+			# -m mac 规则的字节和）。未覆盖设备的命中只留在「N 台未覆盖设备命中」
+			# 提醒（d 行）里，不再串进名称分钟。
+			# 条目设备名单为空、或名单已覆盖全部在线设备 ⇒ diag_clients 返空 ⇒ 该条目不装
+			# 诊断链（PCAD_/PCDT_ 一条都没有）⇒ 本循环不会跑到；即名称分钟只在该条目存在
+			# 「未覆盖设备」时才产生，空名单条目名称分钟恒 0（页面显示「-」）。
+			diag_map_get "$_map_u" "PCDT_${_key}_$_n"; _ex=$_MV
+			_buf="$STATE_DIR/dbase.${_key}.u$_n"
+			if [ -f "$_buf" ]; then
+				_exb=0; IFS= read -r _exb < "$_buf" 2>/dev/null
+				case "$_exb" in ''|*[!0-9]*) _exb=0 ;; esac
+				# 计数器回绕/重建（_ex < 基线）时按 _ex 全量计，不臆造负数。
+				if [ "$_ex" -ge "$_exb" ]; then _d_unc=$((_ex - _exb)); else _d_unc=$_ex; fi
+			else
+				# 升级后第一次：只建基线、本 tick 不扣 —— 宁可贵一分钟，也不倒扣出负数。
+				_d_unc=0
+			fi
+			printf '%s\n' "$_ex" > "$_buf"
+			_d=$((_d - _d_unc)); [ "$_d" -lt 0 ] && _d=0
+			# 顺序固定（R73-M3）：t 行先按**扣减前**的 _d_all 判（整条目命中该目标就记），
+			# n 行后按扣减后的 _d 判。W259.7 钉住「未覆盖设备独占该目标 ⇒ t 行有、名称分钟 0」。
+			[ "$_d_all" -gt 0 ] && [ "$_d_all" -ge "$_thr" ] && diag_bump_t "$_key" "$_tg"
 			[ "$_d" -gt 0 ] && [ "$_d" -ge "$_thr" ] || continue
-			diag_bump_t "$_key" "$_tg"
 			# D1-v2：名称维（同一 tick 同名只记 1 分钟）。目标不在映射里 ⇒ nr=0（未归类）。
 			_nr=0; _rest=${_req#*"|$_tg$TAB"}; [ "$_rest" = "$_req" ] || _nr=${_rest%%"|"*}
 			case "$_nr" in ''|*[!0-9]*) _nr=0 ;; esac
@@ -1645,6 +1713,202 @@ ai_http() {
 	pc_http "$1" "$2" "$4" "$3"
 }
 
+# ---------- AI 推测的后台流式任务（R77-E / round77b） ----------
+# 为什么要有这一层：一次推测在真机实测要 37~54 秒，CGI 里同步等这么久会被浏览器/网关掐断；
+# 而且「用总时长判结束」本身就是错的（模型慢 ≠ 失败）。所以改成：
+#   POST 只起后台任务并立即返回，结果靠 GET 轮询。
+#   ai_stream_start <key> <url> <infile> <ssefile> <idle> <max>
+#   ai_stream_state <key>   → 打印 "state<TAB>rc<TAB>elapsed<TAB>bytes<TAB>chunks"
+# 状态文件：$STATE_DIR/ai.job.<key>.{state,pid,worker}；SSE 正文写在调用方给的 ssefile 里。
+# 这两个子命令**绝不**挂进 tick / refresh_ip / start（稳态零写，W287.1）。
+ai_key_ok() { # 只接受 weburl_<纯数字>；其它一律拒（防 ../ 穿越与路径注入）
+	local _suf
+	_suf=${1#weburl_}
+	[ "$_suf" != "$1" ] || return 1
+	case "$_suf" in ''|*[!0-9]*) return 1 ;; esac
+	return 0
+}
+
+_ai_worker_text() {
+	cat <<'AIWK'
+#!/bin/sh
+# ai.job worker：跑一次流式请求，结束后写状态文件。argv:
+#   <url> <infile> <ssefile> <idle> <max> <statefile> <keyfile>
+# 退出码语义沿用 pc_http_stream：0 正常结束 / 3 客户端不支持 / 其它失败。
+# 注意：`curl -N` 在管道里仍可能被缓冲，pc_http_stream 内部直接 -o 写文件（handoff §7.8）。
+. "${PC_LIB:-/usr/lib/parentcontrol/common.sh}"
+# worker 体必须包进函数：busybox ash 对「函数外的 local」是致命错误（rc=2，脚本当场退出；真机实测）。
+_aiwk() {
+	local _u _i _o _idle _max _st _kf _start _first _got _cpid _rc _s _el _why _last _sz _now _cur _silent
+_u="$1"; _i="$2"; _o="$3"; _idle="$4"; _max="$5"; _st="$6"; _kf="$7"
+[ -n "$_kf" ] && PC_AI_KEY_FILE="$_kf"
+_start=$(date +%s)
+_first=""
+# _got：这次请求到底有没有收到过**任何**数据。只在循环内（curl 还活着、且文件非空）置 1。
+# 它是「零字节」与「有数据但停了」的唯一分界，也是 first 的可信来源。
+_got=0
+pc_http_stream "$_u" "$_i" "$_o" "$_idle" "$_max" &
+_cpid=$!
+# 顺手记「最后一次增长的时刻」：elapsed 只能回答「哪个计时器先到」，
+# 「数据到底有没有在流」必须由 _silent（距最后一次增长的秒数）回答。
+_last=$_start; _sz=0
+while kill -0 "$_cpid" 2>/dev/null; do
+	if [ -s "$_o" ]; then
+		_got=1
+		[ -z "$_first" ] && _first=$(( $(date +%s) - _start ))
+	fi
+	_now=$(date +%s)
+	_cur=$(wc -c < "$_o" 2>/dev/null | tr -d ' \t'); [ -n "$_cur" ] || _cur=0
+	case "$_cur" in ''|*[!0-9]*) _cur=0 ;; esac
+	if [ "$_cur" -gt "$_sz" ]; then _sz=$_cur; _last=$_now; fi
+	sleep 1
+done
+wait "$_cpid"; _rc=$?
+# round77i：**这里不许再补写 _first**。历史上 pc_http_stream 失败时会把可读原因写进同一个
+# $_o，于是「wait 返回时文件非空」被当成「收到首字节」⇒ 零字节场景 first=elapsed=30，
+# 意思是「第 30 秒收到第一个字节」，而它一个字节都没收到过。现在原因只写 $_o.err，
+# 且 _got 只在 curl 活着时置位，两个来源都干净了。
+_el=$(( $(date +%s) - _start ))
+_silent=$(( $(date +%s) - _last ))
+_why=""
+case "$_rc" in
+	0) _s=done ;;
+	28)
+		_s=stalled
+		# curl 对「速率不足被掐」和「撞上 --max-time 总时长墙」都返回 28，单看退出码分不开。
+		# 用「耗时 vs max」区分：停滞耗时 ≪ max（真机实测 idle=2/max=90 ⇒ 8 秒），
+		# 撞墙耗时 ≈ max（实测 max=5 且持续有输出 ⇒ 5 秒）。与 locale/curl 版本无关，
+		# 不依赖 curl 的错误文案（那会随版本与语言变）。
+		# 边界容忍 ±2 秒：curl 只在自身分块时才检查速率窗口（实测掐断时刻约 idle+6 秒）。
+		# 注意 why 只回答「哪个计时器先到」，**不回答「数据有没有在流」**：
+		# curl 速率检查有粒度（t_stall≈idle+6s），所以 idle >= max-8 时几乎必然落到
+		# maxtime —— max 下限 30 与 idle 上限 300 是**大面积重叠**（timeout=30 时
+		# stall>=22 全落进墙先到的区间），静默流也会被判成 maxtime 且 elapsed≈max。
+		# 「有没有在流」交给下面的 _silent，文案按它分档，不许用 elapsed 反推。
+		if [ "$_el" -ge "$(( _max - 2 ))" ]; then _why=maxtime; else _why=idle; fi
+		;;
+	*) _s=failed; _why=other ;;
+esac
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$_s" "$_rc" "$_el" "${_first:--1}" "$_why" "$_silent" "$_got" \
+	> "$_st.tmp" 2>/dev/null && mv "$_st.tmp" "$_st" 2>/dev/null
+rm -f "$_i"
+exit 0
+	}
+_aiwk "$@"
+AIWK
+}
+
+ai_stream_start() { # <key> <url> <infile> <ssefile> <idle> <max>
+	local _k _u _i _o _idle _max _pid _st _wk _p _age_min
+	_k="$1"; _u="$2"; _i="$3"; _o="$4"; _idle="$5"; _max="$6"
+	ai_key_ok "$_k" || { echo "badkey"; return 2; }
+	command -v curl >/dev/null 2>&1 || return 3     # 无 curl ⇒ 不支持流式，调用方降级到 pc_http
+	mkdir -p "$STATE_DIR"
+	_st="$STATE_DIR/ai.job.$_k.state"
+	_pid="$STATE_DIR/ai.job.$_k.pid"
+	_wk="$STATE_DIR/ai.job.$_k.worker"
+	# 同一 key 已有活任务 ⇒ busy（不重复烧额度）
+	# L-4（round77f）：只看 `kill -0` 不够 —— pidfile 里的 pid 可能早被系统复用给**同用户的
+	# 其它进程**（worker 被 SIGKILL 后 pidfile 会残留），那样 `kill -0` 恒真、该 key 永久 busy，
+	# 用户再也点不动「推测」。所以加一道**时效**兜底：pidfile 的 mtime 超过 max+120 秒就当陈旧。
+	# 阈值 = max + 120：max 是本任务允许的最长总时长（30–1800），120 秒留给建任务、收尾与
+	# mv 状态文件的余量；比 max 更短会把「真在跑的长任务」误杀。
+	# busybox 的「分钟」判定参数只有分钟粒度 ⇒ 向上取整（宁可晚判陈旧，不可误杀活任务）。
+	if [ -f "$_pid" ]; then
+		_p=$(cat "$_pid" 2>/dev/null)
+		_age_min=$(( (${_max%%[!0-9]*} + 120 + 59) / 60 ))
+		[ "$_age_min" -ge 1 ] 2>/dev/null || _age_min=1
+		case "$_p" in
+			''|*[!0-9]*) ;;
+			*) if kill -0 "$_p" 2>/dev/null; then
+				   # `-mmin +N` = 「超过 N 分钟」（严格大于）⇒ 用 ceil 后的 N 正好落在 max+120 之上。
+				   if find "$_pid" -mmin +"$_age_min" 2>/dev/null | grep -q .; then
+					   : # 陈旧：不 busy，往下走（下面会 rm -f 状态文件并重起）
+				   else
+					   echo "busy"; return 0
+				   fi
+			   fi ;;
+		esac
+		rm -f "$_pid"
+	fi
+	# 上一轮的残留物必须在这里清干净：本轮读它们的地方都不看 mtime，只看到「文件存在」。
+	#   ${_o}.err  —— pc_http_stream 失败时把可读原因写在这里，ai.lua 的 infer_state 就从这里
+	#                 取失败原因。不清 ⇒ 本轮的新失败会显示上一轮的原因（round77i 引入的
+	#                 假证据来源，正是为了消灭假数字才加的 .err 自己变成了假证据）。
+	#   .meta      —— meta_write 在 run_cmd 之后才写，rc~=0/busy 等提前返回的路径会留下上一轮
+	#                 的 sentmap；下一轮 infer_state 会拿它去 sanitize 新内容。同类残留，一并清。
+	# 其余 .state/.sse/.start 本就在清；.pid 由上面的 busy 分支 rm -f；.worker 每次 `>` 重写。
+	# （.logged/.key 在 job_cleanup 的扩展名列表里，但全仓没有写入点，属死条目，不动。）
+	rm -f "$_st" "$_o" "${_o}.err" "$STATE_DIR/ai.job.$_k.meta" "$STATE_DIR/ai.job.$_k.start"
+	date +%s > "$STATE_DIR/ai.job.$_k.start" 2>/dev/null
+	_ai_worker_text > "$_wk" 2>/dev/null || return 1
+	start-stop-daemon -S -b -m -p "$_pid" -x /bin/sh -- "$_wk" \
+		"$_u" "$_i" "$_o" "$_idle" "$_max" "$_st" "${PC_AI_KEY_FILE:-}" >/dev/null 2>&1 || return 1
+	echo "started"
+	return 0
+}
+
+# 从 .start 时间戳算到现在的秒数（只读；文件不存在或内容非法给 0）。
+ai_stream_elapsed() { # <key>
+	local _f _b _n
+	_f="$STATE_DIR/ai.job.$1.start"
+	[ -f "$_f" ] || { echo 0; return 0; }
+	_b=$(cat "$_f" 2>/dev/null)
+	case "$_b" in ''|*[!0-9]*) echo 0; return 0 ;; esac
+	_n=$(( $(date +%s) - _b ))
+	[ "$_n" -ge 0 ] 2>/dev/null || _n=0
+	echo "$_n"
+}
+
+ai_stream_state() { # <key> → 9 段：state/rc/elapsed/bytes/chunks/first/why/silent/got（只读，不建任何文件）
+	local _k _st _pid _sse _s _rc _el _by _ch _fi _wh _si _go _p
+	_k="$1"
+	ai_key_ok "$_k" || { echo "badkey"; return 2; }
+	_st="$STATE_DIR/ai.job.$_k.state"
+	_pid="$STATE_DIR/ai.job.$_k.pid"
+	_sse="$STATE_DIR/ai.job.$_k.sse"
+	_s=""; _rc=""; _el=""
+	if [ -f "$_st" ]; then
+		_s=$(awk -F'\t' 'NR == 1 { print $1 }' "$_st" 2>/dev/null)
+		_rc=$(awk -F'\t' 'NR == 1 { print $2 }' "$_st" 2>/dev/null)
+		_el=$(awk -F'\t' 'NR == 1 { print $3 }' "$_st" 2>/dev/null)
+		_fi=$(awk -F'\t' 'NR == 1 { print $4 }' "$_st" 2>/dev/null)
+		# 第 5 段 why（round77f）：区分 stalled 的两种真实原因（idle / maxtime）。
+		# 旧 4 段状态文件没有这一列 ⇒ awk 给空串，下游按空处理（向后兼容）。
+		_wh=$(awk -F'\t' 'NR == 1 { print $5 }' "$_st" 2>/dev/null)
+		# 第 6 段 silent（round77g）：距「最后一次输出增长」的秒数。它才是「数据有没有在流」
+		# 的证据；elapsed 只说明哪个计时器先到。旧 5 段状态文件没有这一列 ⇒ 空串，
+		# 下游必须按「无证据」处理（不许据此断言「一直在输出」）。
+		_si=$(awk -F'\t' 'NR == 1 { print $6 }' "$_st" 2>/dev/null)
+		# 第 7 段 got（round77i）：这次请求有没有收到过任何数据（0/1）。
+		# 旧 4/5/6 段状态文件没有这一列 ⇒ 空串，下游必须按「无证据」处理。
+		_go=$(awk -F'\t' 'NR == 1 { print $7 }' "$_st" 2>/dev/null)
+	fi
+	if [ -z "$_s" ]; then
+		# 还没写状态：进程活着就是 running，否则是被外力杀掉（页面关掉不影响 worker）
+		_p=$(cat "$_pid" 2>/dev/null)
+		case "$_p" in
+			''|*[!0-9]*) _s=failed ;;
+			*) kill -0 "$_p" 2>/dev/null && _s=running || _s=failed ;;
+		esac
+		# R77-F：running 期间没有 state 文件 ⇒ 用创建时间算「已等了多少秒」。
+		# 否则页面上的「等待模型响应… N 秒」永远是 0 秒，用户看不出是在等还是卡死。
+		_el=$(ai_stream_elapsed "$_k")
+	fi
+	if [ -f "$_sse" ]; then
+		_by=$(wc -c < "$_sse" 2>/dev/null | tr -d ' ')
+	else
+		_by=0
+	fi
+	case "$_by" in ''|*[!0-9]*) _by=0 ;; esac
+	_ch=$(grep -c '^data:' "$_sse" 2>/dev/null)
+	case "$_ch" in ''|*[!0-9]*) _ch=0 ;; esac
+	# 9 段：state / rc / elapsed / bytes / chunks / first / why / silent / got
+	# （round77i 起；旧 4/5/6/7/8 段状态文件都仍能解析，缺的段落空串）
+	printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+		"$_s" "${_rc:--}" "${_el:--}" "$_by" "$_ch" "${_fi:--}" "${_wh:-}" "${_si:-}" "${_go:-}"
+}
+
 # 绑定健康 / 诊断用的「在网设备清单」（第 8 轮 R10/D18/ADR-021）。
 # 每行：host <mac> <ip> <name> <online>（空格分隔；缺项以 - 占位）。
 #   online=1 ⇔ 该 MAC 在 `ip neigh` 里且状态 ∈ {REACHABLE, STALE, DELAY, PROBE}
@@ -1702,6 +1966,152 @@ hosts_tsv() {
 	return 0
 }
 
+# ============================================================================
+# R74-A：机械 ASN（Team Cymru 公共 TXT 库）—— 只在用户点开「（未归类）」明细时按需查
+# ============================================================================
+# 为什么走 TXT 而不只走 PTR：PTR 不可靠（23.11.207.1 直接 NXDOMAIN，但 Cymru 有记录），
+# 而且 PTR 只能给出反解名字，给不出「归属哪个 AS / 哪个组织」。反过来 PTR 能给 ASN 给不出的
+# 东西（具体主机名 ⇒ 可注册域，比 AS 组织名更像「服务」），所以 round76 起两条**都查**：
+#   PTR 命中 ⇒ 服务名用 PTR 的可注册域；没 PTR ⇒ 退 ASN 组织名第一段；都没 ⇒ 未知。
+# 设备上没有 whois/dig/host，只有 busybox nslookup（真机实测 -type=TXT 可用）：
+#   nslookup -type=TXT 207.11.23.1.origin.asn.cymru.com → text = "20940 | 23.11.207.0/24 | US | arin | …"
+#   nslookup -type=TXT AS20940.asn.cymru.com          → text = "20940 | NL | ripencc | 2001-07-10 | AKAMAI-ASN1, NL"
+#   nslookup -type=PTR 0.173.45.23.in-addr.arpa       → name = a23-45-173-0.deploy.static.akamaitechnologies.com.
+# 归属/反解信息只说明该目标落在哪个网络，**不代表我们识别出了它是什么服务**（页面必须这么写）。
+# 缓存：$STATE_DIR/asn.cache，一行 <target>\t<expiry_epoch>\t<asn>\t<org>\t<ptr>，有效期 7 天。
+# 第 5 段（ptr）是 round76 新增的 —— **4 段旧行必须照旧能读**（ptr 当空串，不重写不丢弃）。
+# 查过但没结果也要缓存（空 asn/org/ptr），否则每次点开都重跑一遍 DNS。
+# 绝不在 tick 路径上：默认 stats_tsv 输出里一个 asn 行都没有（见 stats_tsv_inner 的分发）。
+# R77-B（round77）：单次上限 12 ⇒ 24（真机上未归类目标常有二三十个，12 个要连点两三次）。
+# 超出的不写假「无结果」，下一次点开会接着查下一批（页面文案必须这么说）。
+PC_ASN_TTL=${PC_ASN_TTL:-604800}
+PC_ASN_MAX=${PC_ASN_MAX:-24}
+
+pc_asn_cache_line() { # $1=target → 打印 "<hit>\t<asn>\t<org>\t<ptr>"（hit=1 仅当缓存未过期）
+	local _cache _now
+	_cache="$STATE_DIR/asn.cache"
+	[ -f "$_cache" ] || { printf '0\t\t\t'; return 0; }
+	_now=$(date +%s)
+	# R76-A（round76）：第 5 段是 PTR 反查主机名。**向后兼容 4 段旧行**（读不到 $5 就当
+	# 空 PTR —— 不许报错、不许因为缓存是老格式就丢弃它，否则升级后要重查一遍全网）。
+	awk -F'\t' -v t="$1" -v now="$_now" '
+		$1 == t && NF >= 4 && $2 + 0 > now { h = 1; a = $3; o = $4; p = $5 }
+		END { printf "%s\t%s\t%s\t%s", (h ? 1 : 0), a, o, p }' "$_cache" 2>/dev/null
+}
+
+pc_asn_query() { # $1=IPv4（无掩码） → 打印 "<asn>\t<org>"（任何失败都给空串，绝不猜）
+	local _rev _raw _asn _org
+	command -v nslookup >/dev/null 2>&1 || { printf '\t'; return 0; }
+	_rev=$(printf '%s\n' "$1" | awk -F. 'NF >= 4 { printf "%s.%s.%s.%s", $4, $3, $2, $1 }')
+	[ -n "$_rev" ] || { printf '\t'; return 0; }
+	# busybox nslookup 的 TXT 输出形如 `<qname>\ttext = "…"`；只要引号里的那串。
+	_raw=$(nslookup -type=TXT "$_rev.origin.asn.cymru.com" 2>/dev/null | sed -n 's/.*text = "\(.*\)".*/\1/p' | head -1)
+	_asn=$(printf '%s\n' "$_raw" | awk -F'|' '{ v = $1; gsub(/^[ \t]+|[ \t]+$/, "", v); print v; exit }')
+	case "$_asn" in ''|*[!0-9]*) printf '\t'; return 0 ;; esac
+	_raw=$(nslookup -type=TXT "AS${_asn}.asn.cymru.com" 2>/dev/null | sed -n 's/.*text = "\(.*\)".*/\1/p' | head -1)
+	# 组织名在第 5 段（AKAMAI-ASN1, NL）。可能含逗号/&/' ⇒ 去掉 Tab/CR/LF 再落盘/输出。
+	_org=$(printf '%s\n' "$_raw" | awk -F'|' 'NF >= 5 { v = $5; gsub(/^[ \t]+|[ \t]+$/, "", v); print v; exit }' | tr -d '\t\r\n')
+	printf '%s\t%s' "$_asn" "$_org"
+}
+
+# R76-A（round76）：PTR 反查。只对**已通过 pc_asn_queryable 的公网 IPv4** 调用（私网/保留/
+# IPv6/域名一律不查，调用点如下 pc_asn_report 只传 $_q）。失败/无结果一律空串，**绝不猜**：
+# 页面的服务名是「PTR 的**可注册域** ⇒ 没有就 ASN 组织名第一段 ⇒ 都没有显示未知」，
+# 任何一环都不允许凭空造品牌名。busybox nslookup 默认就是 PTR 查询，两种输出形态都认：
+#   nslookup -type=PTR 0.173.45.23.in-addr.arpa → `0.173.45.23.in-addr.arpa\tname = host.example.com.`
+#   默认形态                                     → `Name:    host.example.com`
+pc_ptr_query() { # $1=IPv4（无掩码） → 打印 PTR 主机名（失败给空串）
+	local _rev _raw _ptr
+	command -v nslookup >/dev/null 2>&1 || return 0
+	_rev=$(printf '%s\n' "$1" | awk -F. 'NF >= 4 { printf "%s.%s.%s.%s", $4, $3, $2, $1 }')
+	[ -n "$_rev" ] || return 0
+	_raw=$(nslookup -type=PTR "$_rev.in-addr.arpa" 2>/dev/null)
+	_ptr=$(printf '%s\n' "$_raw" | sed -n 's/.*name = \(.*\)$/\1/p' | head -1)
+	[ -n "$_ptr" ] || _ptr=$(printf '%s\n' "$_raw" | sed -n 's/^[[:space:]]*[Nn]ame:[[:space:]]*\([^[:space:]]*\)$/\1/p' | head -1)
+	_ptr=${_ptr%.}
+	printf '%s' "$_ptr"
+}
+
+# 目标能不能查：只认「IPv4 或 IPv4/nn」，且**必须是公网地址**。IPv6 与域名串不查
+# （IPv6 显示「未查询」，绝不编）。
+# R74-M1（round74b）：这里原来只校验「形状像 a.b.c.d」⇒ 私网/保留地址会被反序拼成
+# `<rev>.origin.asn.cymru.com` 发给 Team Cymru，等于把用户内网编址泄露给第三方 DNS
+# （复审实测 18 个私网地址 18 个都被查）。下面按首/次八位组挡掉非公网段。
+pc_asn_queryable() { # $1=target → 打印要查询的 IPv4（不可查则空）
+	printf '%s\n' "$1" | awk '{
+		t = $0; sub(/\/[0-9]+$/, "", t)
+		if (t !~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) next
+		n = split(t, o, ".")
+		a = o[1] + 0; b = o[2] + 0
+		if (a == 0) next                      # 0.0.0.0/8   本网络
+		if (a == 10) next                     # 10/8        RFC1918
+		if (a == 127) next                    # 127/8       环回
+		if (a == 172 && b >= 16 && b <= 31) next   # 172.16/12  RFC1918
+		if (a == 192 && b == 168) next        # 192.168/16  RFC1918
+		if (a == 169 && b == 254) next        # 169.254/16  链路本地
+		if (a == 100 && b >= 64 && b <= 127) next  # 100.64/10  CGNAT
+		if (a == 192 && b == 0 && o[3] + 0 == 0) next      # 192.0.0/24  IETF 协议分配
+		if (a == 192 && b == 0 && o[3] + 0 == 2) next      # 192.0.2/24  TEST-NET-1
+		if (a == 198 && (b == 18 || b == 19)) next         # 198.18/15   基准测试
+		if (a == 198 && b == 51 && o[3] + 0 == 100) next   # 198.51.100/24 TEST-NET-2
+		if (a == 203 && b == 0 && o[3] + 0 == 113) next    # 203.0.113/24  TEST-NET-3
+		if (a >= 224) next                    # 224/4 及以上 组播 + 保留 + 广播
+		print t
+	}'
+}
+
+pc_asn_report() { # $@ = 目标列表 → 打印 `asn <target> <asn> <org> <ptr>`
+	local _t _rest _hit _asn _org _ptr _q _cnt _cache _now _exp
+	_cache="$STATE_DIR/asn.cache"
+	mkdir -p "$STATE_DIR"
+	_now=$(date +%s)
+	_cnt=0
+	for _t in "$@"; do
+		[ -n "$_t" ] || continue
+		# 目标串里出现分隔符就不处理：它会把 TSV 列数与缓存键搞乱（同 .map 的注入面）。
+		case "$_t" in *"|"*|*"$TAB"*) continue ;; esac
+		_rest=$(pc_asn_cache_line "$_t")
+		_hit=${_rest%%"$TAB"*}
+		_rest=${_rest#*"$TAB"}
+		_asn=${_rest%%"$TAB"*}
+		_rest=${_rest#*"$TAB"}
+		_org=${_rest%%"$TAB"*}
+		_ptr=${_rest#*"$TAB"}
+		if [ "$_hit" = "1" ]; then
+			printf 'asn\t%s\t%s\t%s\t%s\n' "$_t" "$_asn" "$_org" "$_ptr"
+			continue
+		fi
+		_q=$(pc_asn_queryable "$_t")
+		if [ -z "$_q" ]; then
+			# IPv6 / 域名串 / 私网 / 保留：不查询、不缓存，直接空票（页面渲染「未查询」）。
+			# PTR 同理 —— 它也只在这个分支之外被调用，绝不为不可查目标发 DNS。
+			printf 'asn\t%s\t\t\t\n' "$_t"
+			continue
+		fi
+		if [ "$_cnt" -ge "$PC_ASN_MAX" ]; then
+			# 配额用完：本次不查也不缓存，留给下一次点开（否则会写一条假「无结果」）。
+			printf 'asn\t%s\t\t\t\n' "$_t"
+			continue
+		fi
+		_cnt=$((_cnt + 1))
+		_rest=$(pc_asn_query "$_q")
+		_asn=${_rest%%"$TAB"*}
+		_org=${_rest#*"$TAB"}
+		# R76-A：同一个已过滤的 IPv4，最多再加 1 次 PTR 查询（每目标 ≤ 3 次 DNS：
+		# origin.asn + AS<asn>.asn + PTR）。ASN 查不到也照样试 PTR —— 反解名可能还在。
+		_ptr=$(pc_ptr_query "$_q")
+		_exp=$((_now + PC_ASN_TTL))
+		printf '%s\t%s\t%s\t%s\t%s\n' "$_t" "$_exp" "$_asn" "$_org" "$_ptr" >> "$_cache" 2>/dev/null
+		printf 'asn\t%s\t%s\t%s\t%s\n' "$_t" "$_asn" "$_org" "$_ptr"
+	done
+	# 紧凑化缓存（同一 target 后写覆盖先写；否则文件会随目标变动无限长）。
+	if [ -f "$_cache" ]; then
+		awk -F'\t' 'NF >= 4 { m[$1] = $0 } END { for (k in m) print m[k] }' "$_cache" > "$_cache.new" 2>/dev/null \
+			&& mv "$_cache.new" "$_cache" || rm -f "$_cache.new"
+	fi
+	return 0
+}
+
 # 看板/列表数据：结构化 TSV（Lua 侧解析；不在 shell 里手拼 JSON）。
 # 列定义同时写在 luasrc/model/cbi/parentcontrol/tsv.lua（唯一解析器），改列必须两边一起改。
 #   stats_tsv brief  只输出 meta + entry（列表页够用，跳过历史/池/重置/计数器）
@@ -1716,6 +2126,13 @@ stats_tsv() { pc_uci_snap_begin; stats_tsv_inner "$@"; pc_uci_snap_drop; }
 stats_tsv_inner() {
 	local _brief _tt _min_kb _keep _m _i _key _name _mac _q _u _pool _live _f _t _n _dump _unl _dd _hs _dtf _df _di _dname _donl _k _snap _amf _akey _aapps
 	_brief="${1:-}"
+	# R74-A：`stats_tsv asn <target>…` 是**独立子命令**，只输出 asn 行，早退 —— 默认
+	# stats_tsv 的输出里必须一行 asn 都没有（首屏不变慢，测试也不依赖环境有没有 nslookup）。
+	if [ "$_brief" = "asn" ]; then
+		shift
+		pc_asn_report "$@"
+		return 0
+	fi
 	_tt=$(pc_today_type)
 	_min_kb=$(pc_uget "@basic[0].usage_min_kb")
 	case "$_min_kb" in ''|*[!0-9]*) _min_kb=8 ;; esac

@@ -3,6 +3,7 @@
 'require rpc';
 'require ui';
 'require view.oxidns.upload as chunkedUpload';
+'require view.oxidns.cmeditor as cmeditor';
 
 var callRulesList = rpc.declare({
 	object: 'luci.oxidns',
@@ -312,7 +313,7 @@ function loadRuleFile(name) {
 
 		var textarea = document.getElementById('oxidns-rules-content');
 		if (textarea)
-			textarea.value = rulesState.loaded;
+			cmeditor.setValue(textarea, rulesState.loaded);
 
 		if (result.exists === false) {
 			renderResult('warning', _('The rule file does not exist yet. Save to create it.'), result.path);
@@ -896,6 +897,14 @@ return view.extend({
 
 		editorState.buttons = allButtons;
 
+		var editor = ruleTextarea(loadFailed ? '' : (file.content || ''));
+
+		// 规则文件是纯文本列表: 不指定 mode, 但要 CodeMirror 的固定视口,
+		// 否则编辑长列表时页面会跟着光标上下滚动。
+		cmeditor.load().then(function() {
+			cmeditor.defer(editor);
+		});
+
 		return E('div', { 'class': 'cbi-map' }, header.concat([
 			E('div', { 'class': 'cbi-section' }, [
 				E('div', { 'class': 'table cbi-section-table' }, dirRows.concat([
@@ -922,7 +931,7 @@ return view.extend({
 					'class': 'alert-message warning',
 					'style': 'margin: 1em 0;'
 				}, (file && (file.message || file.error)) || readErrorMessage(null)) : '',
-				ruleTextarea(loadFailed ? '' : (file.content || '')),
+				editor,
 				E('div', {
 					'class': 'cbi-button-row',
 					'style': 'display: flex; flex-wrap: wrap; gap: .5em; margin-top: 1em;'

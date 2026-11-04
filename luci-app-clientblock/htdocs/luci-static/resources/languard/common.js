@@ -25,7 +25,8 @@ var callUnblock = rpc.declare({
 
 var callUnblockAll = rpc.declare({
 	object: 'luci.languard',
-	method: 'unblock_all'
+	method: 'unblock_all',
+	params: [ 'confirm' ]
 });
 
 var callIpList = rpc.declare({
@@ -46,7 +47,7 @@ var callDomainHits = rpc.declare({ object: 'luci.languard', method: 'domainhits'
 var callDomainLog = rpc.declare({ object: 'luci.languard', method: 'domaintogglelog', params: ['on_'] });
 var callSigAdd = rpc.declare({ object: 'luci.languard', method: 'sigadd', params: ['name', 'proto', 'dport', 'host'] });
 var callSigDel = rpc.declare({ object: 'luci.languard', method: 'sigdel', params: ['name', 'idx'] });
-var callAppReset = rpc.declare({ object: 'luci.languard', method: 'appreset' });
+var callAppReset = rpc.declare({ object: 'luci.languard', method: 'appreset', params: [ 'confirm' ] });
 var callSampleStart = rpc.declare({ object: 'luci.languard', method: 'sample_start', params: ['duration'] });
 var callSampleStop = rpc.declare({ object: 'luci.languard', method: 'sample_stop' });
 var callSampleResult = rpc.declare({ object: 'luci.languard', method: 'sample_result' });
@@ -172,7 +173,8 @@ var callScan = rpc.declare({
 
 var callIpFlush = rpc.declare({
 	object: 'luci.languard',
-	method: 'ipflush'
+	method: 'ipflush',
+	params: [ 'confirm' ]
 });
 
 var callRename = rpc.declare({

@@ -1124,3 +1124,56 @@ pc_http() { # <GET|POST> <url> <outfile> [infile|-] [header]...
 		_pc_ai_fail "$_o" "wget 请求失败：${_r:-HTTP 错误或网络不可达}"
 	fi
 }
+
+# R77-E（round77b）：流式 HTTP —— 只给 AI 推测用（SSE）。
+# 与 pc_http 的区别：**判定模型不同**。
+#   pc_http：`--max-time T` 到点就杀 ⇒ 把「总时长」当结束条件，模型慢一点就假失败
+#            （真机实测一次推测 37 秒 / 54 秒，旧默认 15 秒必然 curl (28)）。
+#   本函数：完成 = curl 正常退出（流自己结束）；只有**连续 idle 秒平均速率 < 1B/s**
+#            才判停滞（`--speed-limit 1 --speed-time <idle>`）；`--max-time <max>` 只是
+#            最后防线（防对端无限挂），不参与「是否失败」的语义判断。
+# 只有 curl 支持增量输出：uclient-fetch / wget 一律 return 3（不支持），调用方据此降级到 pc_http。
+# 用法：pc_http_stream <url> <infile|-> <outfile> <idle> <max>
+#   exit 0 = 流正常结束（outfile 里是完整 SSE 文本）
+#   其它 = 失败，**透传 curl 的退出码**（28 = 停滞/过慢，7 = 连不上，22 = HTTP 错误……）。
+#          可读原因同时写入 outfile（调用方直接读它当文案）与 <outfile>.err。
+#   exit 3 由上层 `ai_stream_start` 表示「客户端不支持流式」，本函数不主动产生 3。
+# 为什么透传而不是统一 return 1（round77d 裁决）：worker 靠退出码区分
+#   `28 ⇒ stalled（没有任何输出，已中断）` 与 `其它 ⇒ failed（原样透出原因）`。
+#   统一 return 1 会把这个信息销毁 ⇒ stalled 永远走不到 ⇒ 页面显示 curl 原文而不是设计文案。
+pc_http_stream() {
+	local _u _i _o _idle _max _k _err _r _rc
+	_u="$1"; _i="$2"; _o="$3"; _idle="$4"; _max="$5"
+	# 参数卫生：idle/max 必须是纯数字，否则回落保守默认（绝不把非法串拼进命令行）。
+	case "$_idle" in ''|*[!0-9]*) _idle=60 ;; esac
+	case "$_max" in ''|*[!0-9]*) _max=900 ;; esac
+	_err="${_o}.err"
+	# 这里**不再**探测 curl：全仓「用哪个下载器」的探测阶梯只有 pc_http 一处
+	# （W60 断言 command -v curl 恰 1 次）。本函数只被 init.d 的 ai_stream_start 调用，
+	# 那里已经先 `command -v curl || return 3` 决定是否降级到同步路径；真缺 curl 时
+	# 下面的 curl 调用会以 127 失败，被 _pc_ai_fail 记成可读原因。
+	[ -z "$_i" ] || [ "$_i" = "-" ] || [ -f "$_i" ] || {
+		_pc_ai_fail "${_o}.err" "请求体临时文件不存在：$_i"; return 1
+	}
+	_k=$(_pc_ai_key)
+	set -- -sS -N --speed-limit 1 --speed-time "$_idle" --max-time "$_max" \
+		-H "Content-Type: application/json"
+	if [ -n "$_k" ]; then set -- "$@" -H "Authorization: Bearer $_k"; fi
+	if [ -n "$_i" ] && [ "$_i" != "-" ]; then set -- "$@" --data-binary "@$_i"; fi
+	# 直接写文件（-o）：`curl -N` 在管道里仍可能被缓冲（见 handoff §7 第 8 条）。
+	# round77i：失败原因只写 "$_o.err"，**绝不覆写 $_o** —— 覆写会让调用方把错误文本
+	# 当成 payload 量（bytes=错误文本长度、first=错误文本到达时刻、silent 被拉近 0），
+	# 这些数字都是假的。payload 文件从此只有真 payload，没有就根本不存在。
+	curl "$@" -o "$_o" "$_u" 2>"$_err"
+	# 退出码必须**当场**存下来：下面的 head/rm 会把 $? 覆盖掉。
+	_rc=$?
+	if [ "$_rc" -eq 0 ]; then rm -f "$_err"; return 0; fi
+	# 关键安全点：$_rc 非数字/为空时绝不能走到 `return "$_rc"` —— dash 对 `return ""` 是致命错误
+	# （整个调用方脚本会被打死），而其它 shell 上可能被当成 0 把失败读成成功。兜底成 1。
+	[ "$_rc" -ne 0 ] 2>/dev/null || _rc=1
+	_r=$(head -c 1024 "$_err" 2>/dev/null | tr '\n' ' ')
+	# 原因落 "$_o.err"（不是 "$_o"）：调用方靠「$_o 是否存在/多大」判断收到了多少数据，
+	# 把错误文本写进去等于伪造 payload（round77i 修的就是这个源头）。
+	_pc_ai_fail "${_o}.err" "${_r:-HTTP 错误或网络不可达}"
+	return "$_rc"
+}

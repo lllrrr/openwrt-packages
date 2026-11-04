@@ -131,7 +131,11 @@ function M.appstats(range)
 	         proxy = plist, proxy_total = ptotal, nodes = nlist, hosts = hlist }
 end
 
-function M.appreset()
+-- 破坏性:清空当日流量统计与流量账本,不可恢复
+function M.appreset(confirm)
+	if not (confirm == "yes" or confirm == true or confirm == 1 or confirm == "1" or confirm == "true") then
+		return D.err("refusing to reset counters without confirmation; pass {\"confirm\":\"yes\"}")
+	end
 	D.save_json_map(D.APPSTAT_FILE, { day = os.date("%Y-%m-%d"), apps = {}, dev = {} })
 	D.save_json_map(D.CT_SEEN_FILE, {})
 	return D.ok({})

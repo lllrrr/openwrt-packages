@@ -2622,7 +2622,20 @@ function methods.proxydel(ip)
 	return ok({})
 end
 
-function methods.ipflush()
+-- 破坏性操作:没有确认参数就拒绝。误点一次会清空所有 IP 封禁记录,
+-- 而这些记录无法从别处恢复(备份通常是在操作之后做的)。
+local function confirmed(v)
+	return v == "yes" or v == true or v == 1 or v == "1" or v == "true"
+end
+
+function methods.ipflush(confirm)
+	if not confirmed(confirm) then
+		local n = 0
+		for _ in pairs(load_ipstate()) do n = n + 1 end
+		return err(string.format(
+			"refusing to flush %d blocked address(es) without confirmation; " ..
+			"pass {\"confirm\":\"yes\"}", n))
+	end
 	save_ipstate({})
 	render_rules(load_state())
 	reload_firewall()
@@ -2885,7 +2898,14 @@ function methods.unblock(mac)
 	return ok({})
 end
 
-function methods.unblock_all()
+function methods.unblock_all(confirm)
+	if not confirmed(confirm) then
+		local n = 0
+		for _ in pairs(load_state()) do n = n + 1 end
+		return err(string.format(
+			"refusing to unblock %d device(s) without confirmation; " ..
+			"pass {\"confirm\":\"yes\"}", n))
+	end
 	save_state({})
 	local ips = load_ipstate()
 	if next(ips) == nil then
@@ -3886,13 +3906,13 @@ local HANDLERS = {
 	status             = { f = function() return methods.status() end },
 	block              = { f = function() return methods.block(req.mac, req.host, req.ip, req.source, req.minutes) end },
 	unblock            = { f = function() return methods.unblock(req.mac) end },
-	unblock_all        = { f = function() return methods.unblock_all() end },
+	unblock_all        = { f = function() return methods.unblock_all(req.confirm) end },
 	rename             = { f = function() return methods.rename(req.mac, req.name) end },
 	sync               = { f = function() return methods.sync() end },
 	iplist             = { f = function() return methods.iplist(req.limit, req.cat) end, arrays = { "ips" } },
 	ipadd              = { f = function() return methods.ipadd(req.ip, req.note, req.source, req.fast, req.evidence) end },
 	ipdel              = { f = function() return methods.ipdel(req.ip) end },
-	ipflush            = { f = function() return methods.ipflush() end },
+	ipflush            = { f = function() return methods.ipflush(req.confirm) end },
 	proxylist          = { f = function() return methods.proxylist() end, arrays = { "proxies" } },
 	proxyadd           = { f = function() return methods.proxyadd(req.ip) end },
 	proxydel           = { f = function() return methods.proxydel(req.ip) end },
@@ -3955,7 +3975,7 @@ local HANDLERS = {
 	sigadd             = { f = function() return methods.sigadd(req.name, req.proto, req.dport, req.host) end },
 	sigdel             = { f = function() return methods.sigdel(req.name, req.idx) end },
 	appdel             = { f = function() return methods.appdel(req.id) end },
-	appreset           = { f = function() return methods.appreset() end },
+	appreset           = { f = function() return methods.appreset(req.confirm) end },
 	devmerge           = { f = function() return methods.devmerge(req.mac, req.into) end },
 	devunmerge         = { f = function() return methods.devunmerge(req.mac) end },
 	domainlist         = { f = function() return methods.domainlist() end, arrays = { "domains" } },
@@ -3985,7 +4005,7 @@ if arg[1] == "list" then
 		status      = {},
 		block       = { mac = "", host = "", ip = "", source = "", minutes = "" },
 		unblock     = { mac = "" },
-		unblock_all = {},
+		unblock_all = { confirm = "" },
 		rename      = { mac = "", name = "" },
 		sync        = {},
 		iplist      = { limit = "", cat = "" },
@@ -3994,7 +4014,7 @@ if arg[1] == "list" then
 		proxydel    = { ip = "" },
 		ipadd       = { ip = "", note = "", source = "", fast = "", evidence = "" },
 		ipdel       = { ip = "" },
-		ipflush     = {},
+		ipflush     = { confirm = "" },
 		scan        = {},
 		geoinfo     = { ip = "" },
 		selfcheck   = {},
@@ -4030,7 +4050,7 @@ if arg[1] == "list" then
 		siglist     = { name = "" },
 		sigadd      = { name = "", proto = "", dport = "", host = "" },
 		sigdel      = { name = "", idx = "" },
-		appreset    = {},
+		appreset    = { confirm = "" },
 		devmerge    = { mac = "", into = "" },
 		devunmerge  = { mac = "" },
 		domainlist  = {},

@@ -105,6 +105,59 @@ function M.invariants(d)
 	return drift
 end
 
+-- R76-A（round76）：把「查到的实测数据」派生成一个**服务名**。
+-- 输入只能是 PTR 反查主机名 —— **不许**把 IP/目标串当服务名，也不许臆造品牌名。
+--   有 PTR ⇒ 取可注册域（去掉机器名前缀，末两段；末两段是 co.uk/com.cn 这类二级后缀时取三段）
+--              a23-45-173-0.deploy.static.akamaitechnologies.com ⇒ akamaitechnologies.com
+--              server-13-32-1-1.cloudfront.net                    ⇒ cloudfront.net
+--   无 PTR ⇒ **nil**（R77-C）。调用方据此显示「归属网络（org 原文）+ 基础设施，无法判断具体应用」。
+--
+-- R77-C（round77）：这里以前在没 PTR 时回落成 org 第一段（AKAMAI-ASN1, NL ⇒ AKAMAI-ASN1），
+-- 于是页面「服务」列把 ASN 组织代号当服务名展示，用户以为那就是应用名。
+-- 用户已明确否决「内置 ASN→服务名常识表」：**ASN 是托管方不是应用**（同一腾讯云/阿里云网段
+-- 上可能跑着别家的游戏），任何 ASN→应用映射都会误导。所以这里干脆**不回落**：没有域名证据
+-- 就老实地返回 nil。org 参数保留只为兼容调用签名（现有调用点都传两个参数），不再使用。
+-- 别把它改回去：改了就是又把代号冒充成服务名。
+local SLD2 = {
+	["co.uk"] = true, ["org.uk"] = true, ["ac.uk"] = true, ["gov.uk"] = true,
+	["com.cn"] = true, ["net.cn"] = true, ["org.cn"] = true, ["gov.cn"] = true,
+	["edu.cn"] = true, ["com.au"] = true, ["net.au"] = true, ["co.jp"] = true,
+	["co.kr"] = true, ["com.br"] = true, ["com.tw"] = true, ["com.hk"] = true,
+	["com.sg"] = true, ["co.nz"] = true, ["co.in"] = true, ["com.mx"] = true,
+	["com.tr"] = true, ["com.ru"] = true, ["co.za"] = true,
+}
+function M.service_name(ptr, org)
+	local p = tostring(ptr or ""):gsub("%s+$", ""):gsub("%.$", "")
+	p = p:lower()
+	if p ~= "" then
+		local lab = {}
+		for seg in p:gmatch("[^.]+") do lab[#lab + 1] = seg end
+		local n = #lab
+		if n >= 3 then
+			local two = lab[n - 1] .. "." .. lab[n]
+			if SLD2[two] then return lab[n - 2] .. "." .. two end
+			return two
+		end
+		return p   -- 1 或 2 段：本身已是可注册域（或单标签主机名），原样用
+	end
+	-- R77-C：只认 PTR。没有 PTR 就返回 nil（不回落到 ASN 组织名）。
+	-- org 参数刻意不使用 —— 保留它只为兼容调用签名，见函数上方注释。
+	return nil
+end
+
+-- R76-M2（round76b）：asn 行「到底查到了没有」的判定必须容忍 nil。
+-- 旧版 tsv.lua（<= v1.8.12）没有 ptr 字段，`asn <t> <空> <空>` 行也可能只切出 3 段
+-- ⇒ `a.ptr` 是 nil，而 `nil ~= ""` 为真 ⇒ 空票被当成「查到了」⇒ 服务名落到
+-- M.service_name("","") 的兜底「未知」（真机实测：`?asn=1` 时「未知」被预填进
+-- data-pc-name，用户点「归入条目」就把「未知」写进 uci apps）。所以这里统一取默认空串。
+local function asn_hit(a)
+	if not a then return false, nil, nil end
+	local asn, org, ptr = a.asn or "", a.org or "", a.ptr or ""
+	if asn == "" and org == "" and ptr == "" then return false, nil, nil end
+	return true, ptr, org
+end
+
+
 -- 采集 + 分析
 -- A38 惯例：raw 是**可选的测试缝**（直喂人造 TSV 跑归约）。生产调用一律不传参。
 function M.collect(raw)
@@ -410,6 +463,12 @@ function M.collect(raw)
 	-- 名称的多个目标都活跃也只 +1，故名称分钟不超 1440。
 	-- M-1（round66 裁决）：**不保证** Σ名称分钟 ≥ 条目分钟 —— 条目侧按合计字节过阈、
 	-- 名称侧按单目标过阈，合计过阈不蕴含任一目标过阈（见 design §7.2）。
+	-- round73（口径变更）：名称分钟只统计本条目设备名单内的设备（未覆盖设备的命中只留在
+	-- 「N 台未覆盖设备命中」提醒里）。设备名单为空、或名单覆盖全部在线设备的条目**不装诊断
+	-- 链**，因此根本没有名称分钟可算（页面显示「-」）。本文件只
+	-- 消费采样侧已算好的 n 行，口径全部落在 shell 侧（不改归约逻辑）。
+	-- 名称分钟是近似值：实现是「本条目打到该目标的总流量」减「最近一次构建时列出的未覆盖
+	-- 设备的流量」，快照之后新出现的未覆盖设备最多漏进一个采样周期。
 	-- 缺这两行（老 shell / 升级前的日文件）⇒ 该天名称列**无值**，模板印 `-`（不是 0，D7/L5）。
 	local kdayname = {}
 	local function bump(key, dt, nr, v)
@@ -464,10 +523,111 @@ function M.collect(raw)
 			-- D5：单条目但该条目 ≥2 个名称行 ⇒ 子行改成名称（两种子行互斥）
 			nmode = (name_n(keys[1].key) >= 2)
 		end
+		-- R76-D（round76）：「（未归类）」行 + 每目标明细（subs）**抽成共用逻辑**。
+		-- 之前它只在 `elseif nmode then`（单条目设备 + ≥2 个名称行）里算 ⇒ 多条目设备、
+		-- 单名称条目根本没有这一行（用户看到的「没有归入按钮」就是这个原因）。
+		-- 现在的规则：**只要该 (设备, 条目) 有未归类数据**（窗口内有 nr=0 的名称分钟，
+		-- 或该条目有 appmap 里 nr=0 的目标），就生成一行 kind="name"/nr=0 并挂 subs。
+		-- 具名名称行仍然**只在 nmode 为真时**出现（多条目设备只补「（未归类）」这一行，
+		-- 不把每个名称都铺开 —— 那会让表爆炸）。
+		local function unc_row(key)
+			local perday = kdayname[key] or {}
+			local has0 = false
+			for _, day in ipairs(d.days) do
+				if (perday[day.date] or {})[0] then has0 = true end
+			end
+			-- 明细数据全部来自已有 TSV 行（appmap + diagtgt/diagdaytgt），**不新增任何采样**；
+			-- 服务名来自 asn 行的 PTR/org（只在用户点「查 ASN / 服务」时才查，默认不查）。
+			local subs, subs_more = nil, 0
+			do
+				local amap = (d.app_map or {})[key] or {}
+				local tmin = {}
+				for _, r in ipairs(d.diag_tgt or {}) do
+					if r.key == key then tmin[r.target] = r.minutes end
+				end
+				local n0 = 0
+				if today then n0 = (perday[today] or {})[0] or 0 end
+				local acc = {}
+				for tgt, anr in pairs(amap) do
+					if (tonumber(anr) or 0) == 0 then
+						local sby, stot, sn = {}, 0, 0
+						for _, day in ipairs(d.days) do
+							local v = ((d.diag_day_tgt or {})[day.date] or {})[key .. "|" .. tgt]
+							if v then sby[day.date] = v; stot = stot + v; sn = sn + 1 end
+						end
+						local a = (d.asn or {})[tgt]
+						local tmv = tmin[tgt]
+						-- R76-A / R76-M2：服务名只能是「实测数据的派生」。
+						-- R76B-I1（round76c）路径口径：**生产不可达** —— 默认 `stats_tsv`
+						-- 不带 asn 行，`d.asn` 恒为空表，所以这里的 `hit` 恒为 false；真正
+						-- 回填服务名的是下面 `M.load_asn()`（`?asn=1` 时才跑）。这里保留
+						-- 同一判据的理由：`M.collect(raw)` 测试缝可直接喂 asn 行，两条路径
+						-- 必须同口径，否则测试缝与生产行为分叉（round76b 就是靠这条缝发现
+						-- `nil ~= ""` 的）。**不是死代码，别删。**
+						-- shell 对**不可查**的目标（IPv6 / 域名 / 私网保留）也发空票行
+						-- `asn <t> <空> <空> <空>`，所以 `a ~= nil` 不等于「查到了东西」。
+						-- 必须三段都空才算没查到：否则 queried 会把「没查」当成「查过了」，
+						-- 与页面「IPv6 显示「未查询」」的说明自相矛盾。
+						-- （R77-C 之后 service 在没有 PTR 时就是 nil，不再有「未知」兜底被
+						-- 预填成封锁名称的风险；但 queried 三态仍然依赖这个判定。）
+						local hit, hptr, horg = asn_hit(a)
+						local svc
+						if hit then svc = M.service_name(hptr, horg) end
+						acc[#acc + 1] = { target = tgt, today = tmv, by = sby,
+							total = (sn > 0) and stot or nil,
+							asn = (a and (a.asn or "") ~= "") and a.asn or nil,
+							org = (a and (a.org or "") ~= "") and a.org or nil,
+							ptr = (a and (a.ptr or "") ~= "") and a.ptr or nil,
+							service = svc,
+							queried = hit and true or nil,
+							-- design §4.2：未覆盖设备独占的目标有 t 行、但名称分钟只算名单内
+							-- 设备 ⇒ 不产生 n(0) 分钟。不标一句，用户看到「明细有 12 分钟、
+							-- 上面只有 3 分钟」会以为是 bug。
+							solo = ((tmv or 0) > 0 and n0 == 0) and true or nil }
+					end
+				end
+				-- 全序：今日分钟降序（无记录排最后），同分按目标名升序 —— 与其它表同口径。
+				table.sort(acc, function(a, b)
+					local am, bm = a.today or -1, b.today or -1
+					if am ~= bm then return am > bm end
+					return a.target < b.target
+				end)
+				-- R76-B：只渲染前 10 条（今日分钟降序），第 11 条起折叠成一行计数。
+				local TOP = 10
+				if #acc > TOP then
+					subs_more = #acc - TOP
+					for _ = #acc, TOP + 1, -1 do acc[_] = nil end
+				end
+				if #acc > 0 then
+					local m1 = kmeta[key]
+					subs = { head = { target = "目标", service = "服务",
+						today = "今天", total = "合计",
+						asn = "AS", org = "归属组织", note = "备注" },
+						keyname = (m1 and m1.name) or "（未知条目）",
+						key = key, device = dr.device, rows = acc }
+				end
+			end
+			-- 出现条件：有 nr=0 的名称分钟记录（has0），**或** 有 nr=0 目标的每目标分钟
+			-- （subs）。后者必须留着：未覆盖设备独占的目标永远不会有 n(0) 分钟，
+			-- 只看 has0 会让这些目标在页面上彻底消失。
+			if not (has0 or subs) then return nil end
+			local by, total, nrec = {}, 0, 0
+			for _, day in ipairs(d.days) do
+				local v = (perday[day.date] or {})[0]
+				if v then by[day.date] = v; total = total + v; nrec = nrec + 1 end
+			end
+			return { kind = "name", device = dr.device, key = key, nr = 0,
+				name = "（未归类）", total = (nrec > 0) and total or nil, by = by,
+				subs = subs, subs_more = subs_more }
+		end
+		-- 单条目设备的未归类行要在这里先算出来：它决定设备行是否可展开
+		-- （不可展开 ⇒ 那一行永远 display:none，等于看不到）。
+		local u1 = nil
+		if #keys == 1 then u1 = unc_row(keys[1].key) end
 		kdrows[#kdrows + 1] = { kind = "dev", device = dr.device,
 			total = dr.total, nkey = #keys, by = dr.by, only = only,
 			nname = nmode and name_n(keys[1].key) or 0,
-			expandable = ((#keys >= 2) or nmode) }
+			expandable = ((#keys >= 2) or nmode or (u1 ~= nil)) }
 		if #keys >= 2 then                      -- A3：单条目设备不产子行
 			for _, k in ipairs(keys) do
 				local m = kmeta[k.key]
@@ -478,41 +638,36 @@ function M.collect(raw)
 					name = m and m.name or "（未知条目）",
 					stale = (m and m.stale) or false,
 					total = k.total, by = k.by }
+				-- R76-D：多条目设备也补一行「（未归类）」（**每个**条目最多一行），
+				-- 否则这类设备的目标明细与归入按钮永远没有落点。
+				local u = unc_row(k.key)
+				if u then kdrows[#kdrows + 1] = u end
 			end
-		elseif nmode then
-			-- D5：单条目 ≥2 个名称行 ⇒ 子行改成「名称」（与条目子行互斥，不叠加）。
-			-- 行序 = apps 行序；未归类（nr 0，如目标已不在任何名称行）排最后。
-			-- L5：**没有记录的日期留空（模板印 `-`）**，不填 0 —— 与条目子行同口径，
-			-- 否则 30 列全 0 会把「哪天真的有量」淹掉。
+		else
 			local key = keys[1].key
-			local nm = nrnames[key] or {}
-			local perday = kdayname[key] or {}
-			local has0 = false
-			for _, day in ipairs(d.days) do
-				if (perday[day.date] or {})[0] then has0 = true end
-			end
-			-- F-2（round70）：整个窗口**一条记录都没有**的名称行，`total` 置 nil 而不是 0 ——
-			-- 模板据此印 `-`（与日格同口径）。写 0 会把「没有名称维度的记录」读成「用了 0 分钟」。
-			for nr = 1, name_n(key) do
-				local by, total, nrec = {}, 0, 0
-				for _, day in ipairs(d.days) do
-					local v = (perday[day.date] or {})[nr]
-					if v then by[day.date] = v; total = total + v; nrec = nrec + 1 end
+			if nmode then
+				-- D5：单条目 ≥2 个名称行 ⇒ 子行改成「名称」（与条目子行互斥，不叠加）。
+				-- 行序 = apps 行序；未归类（nr 0）排最后。
+				-- L5：**没有记录的日期留空（模板印 `-`）**，不填 0 —— 与条目子行同口径，
+				-- 否则 30 列全 0 会把「哪天真的有量」淹掉。
+				local nm = nrnames[key] or {}
+				local perday = kdayname[key] or {}
+				-- F-2（round70）：整个窗口**一条记录都没有**的名称行，`total` 置 nil 而不是 0 ——
+				-- 模板据此印 `-`（与日格同口径）。写 0 会把「没有名称维度的记录」读成「用了 0 分钟」。
+				for nr = 1, name_n(key) do
+					local by, total, nrec = {}, 0, 0
+					for _, day in ipairs(d.days) do
+						local v = (perday[day.date] or {})[nr]
+						if v then by[day.date] = v; total = total + v; nrec = nrec + 1 end
+					end
+					kdrows[#kdrows + 1] = { kind = "name", device = dr.device, key = key,
+						nr = nr, name = nm[nr] or ("名称 #" .. nr),
+						total = (nrec > 0) and total or nil, by = by }
 				end
-				kdrows[#kdrows + 1] = { kind = "name", device = dr.device, key = key,
-					nr = nr, name = nm[nr] or ("名称 #" .. nr),
-					total = (nrec > 0) and total or nil, by = by }
 			end
-			if has0 then
-				local by, total, nrec = {}, 0, 0
-				for _, day in ipairs(d.days) do
-					local v = (perday[day.date] or {})[0]
-					if v then by[day.date] = v; total = total + v; nrec = nrec + 1 end
-				end
-				kdrows[#kdrows + 1] = { kind = "name", device = dr.device, key = key,
-					nr = 0, name = "（未归类）",
-					total = (nrec > 0) and total or nil, by = by }
-			end
+			-- 具名名称行只在 nmode 为真时出现；未归类行只要有未归类数据就出现
+			-- （单名称条目以前完全没有这一行 ⇒ 也就没有明细与归入按钮）。
+			if u1 then kdrows[#kdrows + 1] = u1 end
 		end
 	end
 	d.dev_key_day_rows = kdrows
@@ -565,11 +720,26 @@ function M.collect(raw)
 	--    行 = (条目, MAC)：按今日命中分钟降序；每行带 30 天按天合计（与 d.days 对齐、缺日补零）。
 	--    目标列表**仅在**该条目只有一台未覆盖客户端有命中时内联；多台时标注「目标未区分设备」。
 	-- 诊断区沿用上面的 dlabel/dstate（已并入权威名单 d.names，含 off/gone）。
-	local tgt_by_key = {}
+	-- R76-L1：诊断面板的「命中过的目标」也必须受折叠口径约束 —— 它对每个条目把当天所有
+	-- 目标全列出来（实测 30+ 条），绕过了矩阵里「只列前 10、其余收起」。这里按与矩阵
+	-- 完全相同的规则截断：今日分钟降序、同分按目标名升序，第 11 条起只留计数。
+	local DIAG_TOP = 10
+	local tgt_by_key, tgt_more = {}, {}
 	for _, tg in ipairs(d.diag_tgt or {}) do
 		tgt_by_key[tg.key] = tgt_by_key[tg.key] or {}
 		local l = tgt_by_key[tg.key]
 		l[#l + 1] = { target = tg.target, minutes = tg.minutes }
+	end
+	for k, l in pairs(tgt_by_key) do
+		table.sort(l, function(a, b)
+			local am, bm = a.minutes or 0, b.minutes or 0
+			if am ~= bm then return am > bm end
+			return a.target < b.target
+		end)
+		if #l > DIAG_TOP then
+			tgt_more[k] = #l - DIAG_TOP
+			for _ = #l, DIAG_TOP + 1, -1 do l[_] = nil end
+		end
 	end
 	local drows = {}
 	for _, r in ipairs(d.diag or {}) do
@@ -611,6 +781,7 @@ function M.collect(raw)
 	for _, r in ipairs(drows) do
 		if perkey[r.key] == 1 then
 			r.targets = tgt_by_key[r.key] or {}
+			r.targets_more = tgt_more[r.key]
 		else
 			r.multi = true
 		end
@@ -664,6 +835,61 @@ function M.collect(raw)
 	for _, r in ipairs(d.key_rows or {}) do r.uncovered = uncbykey[r.key] or 0 end
 
 	return d
+end
+
+-- R74-A（round74）：机械 ASN 回填。**只在用户主动点开「（未归类）」明细时调用**
+-- （模板里看 `luci.http.formvalue("asn")`），走 `stats_tsv asn <target>…` 子命令：
+--   * 默认首屏 stats_tsv **不会**产生 asn 行，所以默认路径零 DNS、零延迟；
+--   * 7 天缓存落在 shell 侧 `$STATE_DIR/asn.cache`，Lua 不管缓存；
+--   * 归属信息来自 Team Cymru 公共 ASN 库，只说明「该目标落在哪个网络」，
+--     **不代表它是什么服务**（文案见 stats.htm）；
+--   * IPv6/域名串 shell 侧不查 ⇒ 本函数拿不到值 ⇒ 模板印「未查询」，绝不编。
+-- 返回填过的 target 个数（供模板/自检参考）。
+function M.load_asn(d)
+	if type(d) ~= "table" then return 0 end
+	local want, seen = {}, {}
+	for _, r in ipairs(d.dev_key_day_rows or {}) do
+		local subs = r.subs
+		if subs and subs.rows then
+			for _, s in ipairs(subs.rows) do
+				if s.target and not seen[s.target] then
+					seen[s.target] = true
+					want[#want + 1] = s.target
+				end
+			end
+		end
+	end
+	if #want == 0 then return 0 end
+	local asn = tsv.read_asn(want) or {}
+	local n = 0
+	for _, r in ipairs(d.dev_key_day_rows or {}) do
+		local subs = r.subs
+		if subs and subs.rows then
+			for _, s in ipairs(subs.rows) do
+				local a = asn[s.target]
+				if a then
+					local hit, hptr, horg = asn_hit(a)
+					s.asn = ((a.asn or "") ~= "") and a.asn or nil
+					s.org = ((a.org or "") ~= "") and a.org or nil
+					s.ptr = ((a.ptr or "") ~= "") and a.ptr or nil
+					-- R76B-I1（round76c）：这是服务名的**唯一生产路径**（`?asn=1` 时
+					-- tsv.read_asn 才有数据）。上面 `unc_row()` 那处同判据在生产不可达，
+					-- 两处刻意保持同一口径（asn_hit）以防漂移 —— 改一处必须改两处。
+					-- 服务名必须在拿到 ptr/org 之后重算：`unc_row()` 建行时 d.asn 还是空的
+					-- （read_asn 只在 `?asn=1` 才跑），那时 service 必然是 nil；
+					-- 不在这里回填，页面就会永远印「未查询」——实测真机就是这样。
+					-- R76-M2：但「空票」不算查到 —— shell 对 IPv6/域名/私网也发
+					-- `asn <t> <空> <空> <空>` 行，若在这里无条件算服务名，queried 会把
+					-- 「没查」当「查过了」，页面「IPv6 显示「未查询」」就成了假话。
+					-- （R77-C：没有 PTR 时 service 就是 nil，页面显示 org + 「无法判断具体应用」。）
+					s.queried = hit and true or nil
+					if hit then s.service = M.service_name(hptr, horg) end
+					n = n + 1
+				end
+			end
+		end
+	end
+	return n
 end
 
 return M

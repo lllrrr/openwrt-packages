@@ -143,7 +143,7 @@ return view.extend({
 			return;
 		var btn = ev.currentTarget;
 		btn.disabled = true;
-		return callUnblockAll().then(function () {
+		return callUnblockAll('yes').then(function () {
 			ui.addNotification(null, E('p', {}, _('All devices unblocked')), 'info');
 			return this.refresh();
 		}.bind(this)).catch(function (e) {
@@ -1174,7 +1174,7 @@ return view.extend({
 		if (!confirm(_('Reset the traffic counters?'))) return;
 		var btn = ev.currentTarget;
 		btn.disabled = true;
-		return callAppReset().then(function () { return self.refreshAppStats(); })
+		return callAppReset('yes').then(function () { return self.refreshAppStats(); })
 			.catch(common.fail)
 			.finally(function () { btn.disabled = false; });
 	},
@@ -2118,7 +2118,7 @@ return view.extend({
 			return;
 		var btn = ev.currentTarget;
 		btn.disabled = true;
-		return callIpFlush().then(function () {
+		return callIpFlush('yes').then(function () {
 			return self.refreshIps();
 		}).catch(function (e) {
 			ui.addNotification(null, E('p', {}, e.message || _('Failed')), 'error');

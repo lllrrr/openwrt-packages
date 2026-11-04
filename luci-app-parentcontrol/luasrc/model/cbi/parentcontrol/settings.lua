@@ -49,6 +49,25 @@ e = t:option(Value, "model", translate("模型名称"),
 	translate("点下方「获取模型列表」从 endpoint 拉取候选，或手动填写模型 id。"))
 e.rmempty = true
 
+-- R77-A（round77）：请求超时做成设置项。默认 60 秒 —— 一次推测要把该条目所有未归类目标
+-- 打包发一个请求（round75 的 ai.infer），15 秒在真机上经常不够（`curl: (28) ... 15001
+-- milliseconds`）。注意：common.sh 是禁改文件，但 ai.lua 通过 `PC_AI_TIMEOUT=<秒>` 环境变量
+-- 前缀把值传给 shell 的 `_pc_http_timeout()`，所以这里只存 uci 值即可。
+-- 留空 = 用默认值（60）；非数字/越界的值在 ai.lua 里一律回落默认值（不会拼进命令行）。
+-- R77-E（round77b）：语义从「超时判定」改成「兜底上限」—— 流式之后判结束靠的是
+-- 「流自己结束」与「连续 N 秒没有输出」，总时长只防对端无限挂。
+e = t:option(Value, "timeout", translate("总时长上限（秒）"),
+	translate("可选，默认 900。范围 30–1800。这是硬上限：到点就断，与当时有没有在收数据无关 —— 一直在输出、但总时长到了也会被截断（实测总时长上限设成 5 秒时，持续有输出的流照样在 5 秒被截断）。它防的是对端无限期占着一个连接。"))
+e.placeholder = "900"
+e.datatype = "or(\"\", range(30,1800))"
+e.rmempty = true
+
+e = t:option(Value, "stall", translate("停滞判定（秒）"),
+	translate("可选，默认 60。范围 10–300。判据是平均速率：连续这么久速率低于 1 字节/秒就中断。注意这只是判定窗口 —— curl 只在自身分块时才检查速率，所以实际的掐断时刻可能晚于这个值（实测设 2 秒时约 8 秒才断）。窗口内有零星字节也算「慢」，不等同于「完全没有输出」。另外停滞窗口与总时长上限会重叠：总时长设 30 秒而停滞设 22 秒以上时，静默流几乎总是先撞总时长墙（掐断时刻约晚 stall+6 秒），此时被掐断的原因是「总时长到了」，页面会据实写清期间数据是否已停止。"))
+e.placeholder = "60"
+e.datatype = "or(\"\", range(10,300))"
+e.rmempty = true
+
 e = t:option(DummyValue, "pc_ai_models", translate("模型列表"),
 	translate("从上面的 endpoint 拉取可用模型，填充「模型名称」的候选。"))
 e.template = "parentcontrol/ai_models"
