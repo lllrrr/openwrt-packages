@@ -1,0 +1,330 @@
+/*
+ * CodeMirror 5 主题：lucicode
+ *
+ * 目标：在 LuCI 亮色主题下阅读 YAML / shell 时层次清楚、不刺眼。
+ * 取色约束（每个都按 WCAG 对比度算过，见 scripts/cm-theme-check.mjs）：
+ *   - 正文与背景 ≥ 12:1，注释 ≥ 4.5:1（小字也要可读）
+ *   - 键（YAML 的 atom）用深蓝 + 半粗，是视线第一落点
+ *   - 值按类型分色：字符串绿、数字棕、布尔红，避免"满屏彩虹"
+ *   - 标点（`-` `:` `---`）压成中性灰，不参与竞争
+ *
+ * 深色：LuCI 用暗色主题时由 cmeditor.js 检测 body 背景亮度，给根节点加
+ * `.cm-dark`，这里用更高特异性覆盖，不改 HTML 结构。
+ */
+
+/* ------------------------------------------------------------ 基础版式 */
+.cm-s-lucicode.CodeMirror {
+	background: #fcfcfd;
+	color: #1f2328;
+	border: 1px solid #d8dee4;
+	border-radius: 6px;
+	/*
+	 * 顺序有讲究：**拉丁等宽必须排在中文字体之前**。
+	 * 微软雅黑这类字体自带拉丁字形，放在前面会让 a/i/M 都走比例字形 ——
+	 * 实测 12.5px 下 "iiiiiiiiii" 33.27px vs "MMMMMMMMMM" 122.14px，
+	 * 根本不是等宽；改成 Consolas 优先后两者都是 68.73px。
+	 * 中文字体只用来补 CJK 字形，所以放在拉丁等宽之后。
+	 */
+	font-family: ui-monospace, "Cascadia Mono", Consolas, "SF Mono", Menlo,
+	             "DejaVu Sans Mono", "Liberation Mono",
+	             "Sarasa Mono SC", "Sarasa Term SC", "Noto Sans Mono CJK SC",
+	             "Source Han Mono SC", monospace;
+	font-size: 12.5px;
+	line-height: 1.9;
+	letter-spacing: .01em;
+}
+
+.cm-s-lucicode .CodeMirror-lines {
+	padding: 9px 0;
+}
+
+/*
+ * CodeMirror 的每一行都是 <pre>，而它的自带 CSS 只给行设了 padding ——
+ * 字号/字体/行高全靠继承。bootstrap 主题有一条
+ *     code, pre { font-family: var(--font-mono); font-size: 12px; padding: 0 3px 2px }
+ * 直接命中这些 <pre>：正文被压成 12px，而行号是 <div>（12.5px），
+ * 于是一行里"字大大小小"、行距也跟着缩水（12 × 1.62 ≈ 19px）。
+ * 这里逐项显式接管，不让主题的 pre 规则漏进来。
+ */
+.cm-s-lucicode.CodeMirror pre.CodeMirror-line,
+.cm-s-lucicode.CodeMirror pre.CodeMirror-line-like {
+	font-family: inherit;
+	font-size: inherit;
+	line-height: inherit;
+	color: inherit;
+	background: transparent;
+	border: 0;
+	border-radius: 0;
+	padding: 0 9px 0 5px;
+}
+
+/* ------------------------------------------------------------ 行号槽 */
+.cm-s-lucicode .CodeMirror-gutters {
+	background: #f4f6f8;
+	border-right: 1px solid #e4e8ee;
+}
+
+.cm-s-lucicode .CodeMirror-linenumber {
+	font-size: 12.5px;
+	color: #8c959f;
+	padding: 0 8px 0 5px;
+}
+
+.cm-s-lucicode .CodeMirror-gutter-elt {
+	color: #8c959f;
+}
+
+/* 光标：细一点更像编辑器，两像素在密排文字里太重 */
+.cm-s-lucicode .CodeMirror-cursor {
+	border-left: 2px solid #1f2328;
+}
+
+.cm-s-lucicode .CodeMirror-secondarycursor {
+	border-left: 1px solid #8c959f;
+}
+
+/* ------------------------------------------------------------ 选择与高亮 */
+.cm-s-lucicode div.CodeMirror-selected {
+	background: rgba(56, 139, 253, .18);
+}
+
+.cm-s-lucicode .CodeMirror-line::selection,
+.cm-s-lucicode .CodeMirror-line > span::selection,
+.cm-s-lucicode .CodeMirror-line > span > span::selection {
+	background: rgba(56, 139, 253, .28);
+}
+
+.cm-s-lucicode .CodeMirror-line::-moz-selection,
+.cm-s-lucicode .CodeMirror-line > span::-moz-selection,
+.cm-s-lucicode .CodeMirror-line > span > span::-moz-selection {
+	background: rgba(56, 139, 253, .28);
+}
+
+.cm-s-lucicode .CodeMirror-activeline-background {
+	background: rgba(31, 35, 40, .035);
+}
+
+.cm-s-lucicode .CodeMirror-activeline-gutter {
+	background: #eef1f5;
+}
+
+.cm-s-lucicode .CodeMirror-matchingbracket {
+	color: #1f2328 !important;
+	background: rgba(255, 193, 7, .35);
+	border-radius: 2px;
+}
+
+.cm-s-lucicode .CodeMirror-nonmatchingbracket {
+	color: #cf222e !important;
+}
+
+.cm-s-lucicode .CodeMirror-selectedtext {
+	background: transparent;
+}
+
+/* ------------------------------------------------------------ 语法着色 */
+/* 键：YAML 模式下 map 的 key 走 atom */
+.cm-s-lucicode .cm-atom {
+	color: #0b5cad;
+}
+
+/* 注释：灰 + 斜体，退到背景层，但对比度仍达标 */
+.cm-s-lucicode .cm-comment {
+	color: #6a737d;
+	font-style: italic;
+}
+
+.cm-s-lucicode .cm-string,
+.cm-s-lucicode .cm-string-2 {
+	color: #0f7b3f;
+}
+
+.cm-s-lucicode .cm-number {
+	color: #a04100;
+}
+
+/* true / false / null */
+.cm-s-lucicode .cm-keyword {
+	color: #b3242c;
+}
+
+/* 列表符 `-`、分隔符 `:`、以及 --- 之外的标点 */
+.cm-s-lucicode .cm-meta {
+	color: #57606a;
+}
+
+/* --- / ... 文档标记 */
+.cm-s-lucicode .cm-def {
+	color: #6f42c1;
+}
+
+.cm-s-lucicode .cm-variable {
+	color: #1f2328;
+}
+
+.cm-s-lucicode .cm-variable-2 {
+	color: #0a3069;
+}
+
+.cm-s-lucicode .cm-variable-3,
+.cm-s-lucicode .cm-type {
+	color: #8250df;
+}
+
+.cm-s-lucicode .cm-property {
+	color: #0b5cad;
+}
+
+.cm-s-lucicode .cm-builtin {
+	color: #0550ae;
+}
+
+.cm-s-lucicode .cm-operator,
+.cm-s-lucicode .cm-bracket {
+	color: #57606a;
+}
+
+.cm-s-lucicode .cm-qualifier {
+	color: #0f7b3f;
+}
+
+.cm-s-lucicode .cm-tag {
+	color: #0b5cad;
+}
+
+.cm-s-lucicode .cm-attribute {
+	color: #a04100;
+}
+
+.cm-s-lucicode .cm-hr {
+	color: #6a737d;
+}
+
+.cm-s-lucicode .cm-link {
+	color: #0969da;
+	text-decoration: underline;
+}
+
+.cm-s-lucicode .cm-error {
+	color: #cf222e;
+	border-bottom: 1px dotted #cf222e;
+}
+
+/* ------------------------------------------------------------ 深色主题 */
+.cm-s-lucicode.cm-dark.CodeMirror {
+	background: #161b22;
+	color: #e6edf3;
+	border-color: #30363d;
+}
+
+.cm-s-lucicode.cm-dark .CodeMirror-gutters {
+	background: #0d1117;
+	border-right-color: #21262d;
+}
+
+.cm-s-lucicode.cm-dark .CodeMirror-linenumber,
+.cm-s-lucicode.cm-dark .CodeMirror-gutter-elt {
+	color: #6e7681;
+}
+
+.cm-s-lucicode.cm-dark .CodeMirror-cursor {
+	border-left-color: #e6edf3;
+}
+
+.cm-s-lucicode.cm-dark div.CodeMirror-selected {
+	background: rgba(56, 139, 253, .30);
+}
+
+.cm-s-lucicode.cm-dark .CodeMirror-line::selection,
+.cm-s-lucicode.cm-dark .CodeMirror-line > span::selection,
+.cm-s-lucicode.cm-dark .CodeMirror-line > span > span::selection {
+	background: rgba(56, 139, 253, .38);
+}
+
+.cm-s-lucicode.cm-dark .CodeMirror-activeline-background {
+	background: rgba(255, 255, 255, .045);
+}
+
+.cm-s-lucicode.cm-dark .CodeMirror-activeline-gutter {
+	background: #1b222c;
+}
+
+.cm-s-lucicode.cm-dark .cm-atom {
+	color: #79c0ff;
+}
+
+.cm-s-lucicode.cm-dark .cm-comment {
+	color: #9198a1;
+}
+
+.cm-s-lucicode.cm-dark .cm-string,
+.cm-s-lucicode.cm-dark .cm-string-2 {
+	color: #7ee787;
+}
+
+.cm-s-lucicode.cm-dark .cm-number {
+	color: #ffa657;
+}
+
+.cm-s-lucicode.cm-dark .cm-keyword {
+	color: #ff7b72;
+}
+
+.cm-s-lucicode.cm-dark .cm-meta {
+	color: #9198a1;
+}
+
+.cm-s-lucicode.cm-dark .cm-def {
+	color: #d2a8ff;
+}
+
+.cm-s-lucicode.cm-dark .cm-variable {
+	color: #e6edf3;
+}
+
+.cm-s-lucicode.cm-dark .cm-variable-2 {
+	color: #a5d6ff;
+}
+
+.cm-s-lucicode.cm-dark .cm-variable-3,
+.cm-s-lucicode.cm-dark .cm-type {
+	color: #d2a8ff;
+}
+
+.cm-s-lucicode.cm-dark .cm-property {
+	color: #79c0ff;
+}
+
+.cm-s-lucicode.cm-dark .cm-builtin {
+	color: #79c0ff;
+}
+
+.cm-s-lucicode.cm-dark .cm-operator,
+.cm-s-lucicode.cm-dark .cm-bracket {
+	color: #9198a1;
+}
+
+.cm-s-lucicode.cm-dark .cm-qualifier {
+	color: #7ee787;
+}
+
+.cm-s-lucicode.cm-dark .cm-tag {
+	color: #7ee787;
+}
+
+.cm-s-lucicode.cm-dark .cm-attribute {
+	color: #ffa657;
+}
+
+.cm-s-lucicode.cm-dark .cm-hr {
+	color: #9198a1;
+}
+
+.cm-s-lucicode.cm-dark .cm-link {
+	color: #79c0ff;
+}
+
+.cm-s-lucicode.cm-dark .cm-error {
+	color: #ff7b72;
+	border-bottom-color: #ff7b72;
+}

@@ -395,9 +395,6 @@ msgstr ""
 msgid "Rule directory"
 msgstr ""
 
-msgid "Rule file"
-msgstr ""
-
 msgid "Rule file saved and service restarted"
 msgstr ""
 

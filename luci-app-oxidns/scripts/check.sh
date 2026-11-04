@@ -149,7 +149,13 @@ node scripts/check-rule-args.mjs
 # 「立即重置」必须先落盘再触发（重置读 UCI，不读输入框）
 node scripts/learn-reset-check.mjs
 
-for script in scripts/po2lmo.mjs scripts/strip-tar-eof.mjs scripts/write-apk-data-tar.mjs scripts/write-ar-archive.mjs scripts/check-rule-args.mjs scripts/learn-reset-check.mjs; do
+# 规则页 UI 结构：标签条用原生 cbi-tabmenu、元信息压成一行且 id 齐全
+node scripts/rules-ui-check.mjs
+
+# CodeMirror 主题：CSS 被加载、token 全覆盖、对比度达标、深色判定正确
+node scripts/cm-theme-check.mjs
+
+for script in scripts/po2lmo.mjs scripts/strip-tar-eof.mjs scripts/write-apk-data-tar.mjs scripts/write-ar-archive.mjs scripts/check-rule-args.mjs scripts/learn-reset-check.mjs scripts/rules-ui-check.mjs scripts/cm-theme-check.mjs; do
 	node --check "$script"
 done
 node scripts/po2lmo.mjs po/zh_Hans/oxidns.po "${TMPDIR:-/tmp}/oxidns.zh-cn.lmo"

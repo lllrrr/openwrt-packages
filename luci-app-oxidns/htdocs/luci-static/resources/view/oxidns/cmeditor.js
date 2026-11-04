@@ -16,8 +16,90 @@
 
 var BASE = '/luci-static/resources/oxidns-codemirror/';
 
-var STYLES = [ 'codemirror.min.css' ];
+/* cmtheme.css 必须排在 codemirror.min.css 之后：后者自带 cm-s-default 的取色，
+   同名特异性下靠顺序覆盖。 */
+/* 资源版本：改动 cmtheme.css 或随包脚本时递增。
+   浏览器缓存的键是完整 URL，而 LuCI 的模块 URL 只带 luci-base 的
+   ?v=<luci-base 版本>，应用自己更新不会改变它 —— 不加这一层，
+   用户刷新页面也拿不到新样式（Firefox 尤其是）。 */
+var ASSET_VERSION = '20261104d';
+
+var STYLES = [ 'codemirror.min.css', 'cmtheme.css' ];
 var SCRIPTS = [ 'codemirror.min.js', 'yaml.min.js', 'autorefresh.min.js' ];
+
+/* 主题名，对应 cmtheme.css 里的 .cm-s-lucicode */
+var THEME = 'lucicode';
+
+/*
+ * 判断当前 LuCI 主题是深色还是浅色。
+ *
+ * 三条依据，按可靠性排序：
+ *   1. <html>/<body> 上的 data-darkmode="true" —— bootstrap 主题的显式信号；
+ *   2. 从编辑器自身往上找第一个不透明背景色（有的主题只给容器上色，body 是透明白）；
+ *   3. 以上都判不出来就按浅色。
+ *
+ * 不认具体主题的类名（bootstrap / argon / material 各有一套），换主题也不会误判。
+ */
+function preferDark(el) {
+	if (typeof window === 'undefined' || !window.getComputedStyle)
+		return false;
+
+	var attr = function(node) {
+		return (node && typeof node.getAttribute === 'function')
+			? node.getAttribute('data-darkmode') : null;
+	};
+
+	if (attr(document.documentElement) === 'true' || attr(document.body) === 'true')
+		return true;
+
+	for (var node = el || document.body; node && node.nodeType === 1; node = node.parentElement) {
+		var m = /^rgba?\(([^)]+)\)/.exec(window.getComputedStyle(node).backgroundColor || '');
+		if (!m)
+			continue;
+
+		var p = m[1].split(',').map(function(v) { return parseFloat(v); });
+
+		/* 完全透明 = 这一层没上色，继续往上 */
+		if (p.length >= 4 && p[3] === 0)
+			continue;
+
+		return (0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2]) / 255 < 0.5;
+	}
+
+	return false;
+}
+
+/*
+ * 主题可能在编辑器挂载之后才被切换（bootstrap 的深色按钮就是运行时改
+ * <html data-darkmode>，不刷新页面），所以挂载时判一次、之后持续跟随。
+ */
+function watchTheme(cm, el) {
+	var apply = function() {
+		if (!cm || !cm.getWrapperElement)
+			return;
+
+		cm.getWrapperElement().classList.toggle('cm-dark', preferDark(el));
+	};
+
+	apply();
+
+	if (typeof MutationObserver === 'function') {
+		var observer = new MutationObserver(apply);
+		var opts = { attributes: true, attributeFilter: [ 'data-darkmode', 'class', 'style' ] };
+
+		if (document.documentElement)
+			observer.observe(document.documentElement, opts);
+		if (document.body)
+			observer.observe(document.body, opts);
+	}
+
+	if (typeof window.matchMedia === 'function') {
+		var mq = window.matchMedia('(prefers-color-scheme: dark)');
+
+		if (typeof mq.addEventListener === 'function')
+			mq.addEventListener('change', apply);
+	}
+}
 
 return baseclass.extend({
 	_promise: null,
@@ -35,7 +117,7 @@ return baseclass.extend({
 		STYLES.forEach(function(name) {
 			var link = document.createElement('link');
 			link.rel = 'stylesheet';
-			link.href = BASE + name;
+			link.href = BASE + name + '?v=' + ASSET_VERSION;
 			document.head.appendChild(link);
 		});
 
@@ -43,7 +125,7 @@ return baseclass.extend({
 			return chain.then(function() {
 				return new Promise(function(resolve) {
 					var script = document.createElement('script');
-					script.src = BASE + name;
+					script.src = BASE + name + '?v=' + ASSET_VERSION;
 					script.onload = resolve;
 					script.onerror = resolve;
 					document.head.appendChild(script);
@@ -77,6 +159,7 @@ return baseclass.extend({
 
 		var cm = CodeMirror.fromTextArea(textarea, {
 			mode: opts.mode || null,
+			theme: THEME,
 			lineNumbers: true,
 			lineWrapping: true,
 			autoRefresh: true,
@@ -85,6 +168,8 @@ return baseclass.extend({
 			tabSize: 2,
 			viewportMargin: 12
 		});
+
+		watchTheme(cm, textarea.parentElement || document.body);
 
 		cm.setSize('100%', opts.height || this.defaultHeight());
 

@@ -288,6 +288,30 @@ function showFileInfo(file) {
 	setTextValue('oxidns-rules-file-mtime', known ? formatTime(info.mtime) : '-');
 }
 
+/* 编辑器下方的一行元信息。原来是四行表格，按 mosdns 那个规则栏的密度压成一行淡字，
+   四个 id 全部保留 —— showFileInfo() 靠它们更新。 */
+function ruleMetaLine(file, name, loadFailed) {
+	var info = file || {};
+	var known = !loadFailed && info.exists !== false;
+
+	var item = function(label, id, value) {
+		return E('span', { 'style': 'white-space: nowrap;' }, [
+			label + ' ',
+			E('span', { 'id': id }, value)
+		]);
+	};
+
+	return E('div', {
+		'class': 'cbi-value-description',
+		'style': 'margin-top: .35em; display: flex; flex-wrap: wrap; gap: 1.25em;'
+	}, [
+		item(_('Editing'), 'oxidns-rules-current', loadFailed ? '-' : (name || '-')),
+		item(_('Size'), 'oxidns-rules-file-size', known ? formatBytes(info.size) : '-'),
+		item(_('Lines'), 'oxidns-rules-file-lines', known ? formatCount(info.lines) : '-'),
+		item(_('Modified'), 'oxidns-rules-file-mtime', known ? formatTime(info.mtime) : '-')
+	]);
+}
+
 function applyLoadedFile(result) {
 	rulesState.current = result.name || rulesState.current;
 	rulesState.loaded = result.content || '';
@@ -463,36 +487,30 @@ function orderedFiles(files, dir) {
 	return ordered;
 }
 
-function tabStyle(active, missing) {
-	var base = 'display: inline-block; padding: 6px 14px; margin-bottom: -1px;'
-		+ ' border: 1px solid ' + (active ? 'rgba(0, 0, 0, .2)' : 'transparent') + ';'
-		+ ' border-bottom-color: ' + (active ? 'transparent' : 'rgba(0, 0, 0, .2)') + ';'
-		+ ' border-radius: 4px 4px 0 0; background: ' + (active ? 'rgba(0, 0, 0, .04)' : 'transparent') + ';'
-		+ ' font-weight: ' + (active ? 'bold' : 'normal') + '; cursor: pointer; user-select: none;';
-
-	if (missing)
-		base += ' font-style: italic; opacity: .6;';
-
-	return base;
+function applyMissingStyle(tab, missing) {
+	tab.style.fontStyle = missing ? 'italic' : '';
+	tab.style.opacity = missing ? '.6' : '';
 }
 
 /* 横向标签页：切换选中态只改样式，真正加载成功后才更新 data-active */
+/* 标签条用 LuCI 原生的 cbi-tabmenu 结构，样式跟着主题走（与 mosdns 的规则栏一致）。
+   「文件还不存在」这种状态用斜体 + 半透明表达，不额外造 class。 */
 function ruleTabs(files, current) {
 	var bar = E('ul', {
 		'id': 'oxidns-rules-tabs',
-		'style': 'display: flex; flex-wrap: wrap; gap: 2px; margin: 0; padding: 0 0 0 2px;'
-			+ ' list-style: none; border-bottom: 1px solid rgba(0, 0, 0, .2);'
+		'class': 'cbi-tabmenu'
 	});
 
 	files.forEach(function(file) {
 		var active = file.name === current;
 		var missing = file.exists === false;
 		var tab = E('li', {
+			'class': active ? 'cbi-tab' : 'cbi-tab-disabled',
 			'data-name': file.name,
-			'style': tabStyle(active, missing),
 			'title': missing ? _('The rule file does not exist yet. Save to create it.') : file.path
 		}, file.label);
 
+		applyMissingStyle(tab, missing);
 		tab.addEventListener('click', handleFileChange);
 		bar.appendChild(tab);
 	});
@@ -508,11 +526,13 @@ function setTabActive(name) {
 
 	Array.prototype.forEach.call(bar.children, function(tab) {
 		var tabName = tab.getAttribute('data-name');
+		var active = tabName === name;
 		var missing = rulesState.files.some(function(file) {
 			return file.name === tabName && file.exists === false;
 		});
 
-		tab.setAttribute('style', tabStyle(tabName === name, missing));
+		tab.className = active ? 'cbi-tab' : 'cbi-tab-disabled';
+		applyMissingStyle(tab, missing);
 	});
 }
 
@@ -907,31 +927,21 @@ return view.extend({
 
 		return E('div', { 'class': 'cbi-map' }, header.concat([
 			E('div', { 'class': 'cbi-section' }, [
-				E('div', { 'class': 'table cbi-section-table' }, dirRows.concat([
-					E('div', { 'class': 'tr' }, [
-						E('div', { 'class': 'td left', 'style': 'width: 240px' }, _('Rule file')),
-						E('div', { 'class': 'td left' }, [
-							ruleTabs(files, rulesState.current),
-							E('span', {
-								'class': 'cbi-value-description',
-								'style': 'display: block; margin-top: .35em;'
-							}, _('One rule per line. Lines starting with # are ignored.'))
-						])
-					]),
-					infoRow(_('Editing'), 'oxidns-rules-current',
-						loadFailed ? '-' : (rulesState.current || '-')),
-					infoRow(_('Size'), 'oxidns-rules-file-size',
-						loadFailed ? '-' : formatBytes(file.size)),
-					infoRow(_('Lines'), 'oxidns-rules-file-lines',
-						loadFailed ? '-' : formatCount(file.lines)),
-					infoRow(_('Modified'), 'oxidns-rules-file-mtime',
-						loadFailed ? '-' : formatTime(file.mtime))
-				])),
+				ruleTabs(files, rulesState.current),
+				E('div', {
+					'class': 'cbi-value-description',
+					'style': 'margin: .35em 0 .75em;'
+				}, [
+					E('span', { 'id': 'oxidns-rules-dir' }, rulesState.dir || '-'),
+					' — ',
+					_('One rule per line. Lines starting with # are ignored.')
+				]),
 				loadFailed ? E('div', {
 					'class': 'alert-message warning',
 					'style': 'margin: 1em 0;'
 				}, (file && (file.message || file.error)) || readErrorMessage(null)) : '',
 				editor,
+				ruleMetaLine(file, rulesState.current, loadFailed),
 				E('div', {
 					'class': 'cbi-button-row',
 					'style': 'display: flex; flex-wrap: wrap; gap: .5em; margin-top: 1em;'

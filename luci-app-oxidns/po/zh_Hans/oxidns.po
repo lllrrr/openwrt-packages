@@ -404,9 +404,6 @@ msgstr "继续"
 msgid "Rule directory"
 msgstr "规则目录"
 
-msgid "Rule file"
-msgstr "规则文件"
-
 msgid "Rule file saved and service restarted"
 msgstr "规则文件已保存，服务已重启"
 
