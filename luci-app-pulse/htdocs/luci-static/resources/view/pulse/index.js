@@ -159,7 +159,6 @@ function trafficScale(peak) {
  return {ceiling:step*ticks*divisor,step:step,ticks:ticks,unit:units[unit]};
 }
 function visualTraffic(samples) {
- // Centered three-point filter for drawing only; never modify measured samples.
  var result=samples.map(function(s){return Object.assign({},s);});
  ['up','down'].forEach(function(key){
   function valid(s){return Number.isFinite(s[key])&&s[key]>=0;}
@@ -217,7 +216,6 @@ function smoothPath(points) {
  }
  for(var i=0;i<points.length;i++){
   var left=slopes[i-1],right=slopes[i];
-  // Flatten turning points; bounded tangents avoid creating false peaks.
   tangents[i]=i===0?(right||0):i===points.length-1?(left||0):left*right>0?2*left*right/(left+right):0;
  }
  for(var i=1;i<points.length;i++){
@@ -457,7 +455,7 @@ return view.extend({
  githubIcon.appendChild(svg('path',{d:'M12 .297C5.37.297 0 5.67 0 12.297c0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.043-1.61-4.043-1.61-.546-1.387-1.333-1.756-1.333-1.756-1.09-.745.083-.73.083-.73 1.205.084 1.838 1.237 1.838 1.237 1.07 1.835 2.809 1.305 3.495.998.108-.776.418-1.305.762-1.605-2.665-.305-5.467-1.334-5.467-5.93 0-1.31.469-2.381 1.236-3.221-.124-.303-.536-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.52 11.52 0 0 1 12 6.097c1.02.005 2.045.138 3.003.405 2.291-1.552 3.297-1.23 3.297-1.23.655 1.652.243 2.873.12 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.621-5.479 5.921.43.372.823 1.102.823 2.222 0 1.606-.015 2.898-.015 3.293 0 .322.216.694.825.576C20.565 22.092 24 17.597 24 12.297c0-6.627-5.373-12-12-12'}));
  root.appendChild(E('small',{class:'hd-version'},E('a',{href:'https://github.com/w9315273/luci-app-pulse',target:'_blank',rel:'noopener noreferrer','aria-label':'GitHub · Pulse v'+VERSION},[githubIcon,E('span',{},'Pulse v'+VERSION)])));
  root.appendChild(copyNotice);
- var style=E('link',{rel:'stylesheet',href:L.resource('pulse/dashboard.css')+'?v=20261027-name-loop-1'});root.prepend(style);
+ var style=E('link',{rel:'stylesheet',href:L.resource('pulse/dashboard.css')+'?v=20261106-upload-teal-1'});root.prepend(style);
  function update(d){
  updateDocker(d[11]);
  latest=d;syncSelection(d[0],d[1]);var devices=d[0],ifs=d[1],info=d[2],dev=devices[selected],now=Date.now();

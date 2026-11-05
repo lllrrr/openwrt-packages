@@ -40,6 +40,10 @@ local NOTIFY_TMP = "/tmp/languard-notify.json"
 local LOG_FILE = STATE_DIR .. "/login.log"
 local LOG_MAX = 500
 local AUTOCFG_FILE = STATE_DIR .. "/auto.json"
+-- SOCKS5 代理的配置。以前硬编码在 init 脚本里,
+-- 密码对任何能读文件的人都可见;改存这里(600)并在界面上管理。
+local SOCKS_FILE = STATE_DIR .. "/socks.json"
+local SOCKS_INIT = "/etc/init.d/languard-socks"
 -- legacy data from luci-app-watchdog, imported once then ignored
 local WD_BLACKLIST = "/usr/share/watchdog/api/ip_blacklist"
 local RULE_FILE = "/etc/nftables.d/90-languard.nft"
@@ -52,6 +56,8 @@ local ok, err, read_all
 local load_ipstate, save_ipstate
 local is_trusted_proxy, extract_forwarded
 local render_rules, reload_firewall, nft_chunk, set_exists, rebuild_sets, unload_rules, set_element_live
+-- apply_qos / render_qos_rules 定义在文件后半,前面几个方法就要用
+local apply_qos, render_qos_rules
 local split_macs
 local notify_event
 local collect_devices
@@ -1054,16 +1060,18 @@ local function lan_prefix()
 	return ip
 end
 
--- Clash keeps the real hostname for every proxied connection and already
--- counts its bytes, so this is both cheaper and more accurate than guessing
--- from conntrack: the destination the router sees is a fake IP.
-local function clash_secret()
-	local s = trim(sys.exec("uci -q get openclash.config.dashboard_password 2>/dev/null") or "")
-	if s ~= "" then return s end
-	local y = read_all("/etc/openclash/config/default.yaml") or ""
-	return y:match("secret:%s*'([^']+)'") or y:match('secret:%s*"([^"]+)"')
-end
+-- honk 的 native API 直接给出真实客户端地址、域名和字节数,不需要像
+-- Clash 那样用 fake-ip 反查 conntrack。两件事要分开看:
+--
+--   /api/v1/connections  活跃用户态连接,带 upload_bytes/download_bytes,
+--                        但连接只活十秒左右,必须高频采样才不会漏
+--   /api/v1/flows        活跃及保留的终态决策,带 domain/chain/rule,但
+--                        没有字节数;用它补齐短命连接的名字
+--
+-- 采集器跑在 watcher 的 2 秒循环里,把增量累进 appstats.json。55 秒的
+-- tick 只做汇总,不再直接读 API。
 
+-- 一条流的字节记到应用和设备两个账本上
 local function record(st, app_name, dev_ip, bytes, conf)
 	st.apps[app_name] = (st.apps[app_name] or 0) + bytes
 	st.dev[dev_ip] = st.dev[dev_ip] or {}
@@ -1074,78 +1082,142 @@ local function record(st, app_name, dev_ip, bytes, conf)
 	end
 end
 
--- Clash reports sourceIP and sourcePort for every connection, and the router
--- keeps the corresponding flow. Joining on that pair yields the address the
--- client actually sent to, which for fake-ip mode is the only handle nft has.
--- The flow table is read twice per tick (once for the fake-address index,
--- once for the byte accounting). Reads are cheap but the popen is not, so
--- the text is fetched once and reused.
--- Parsing 5000 conntrack lines with Lua patterns cost more than everything
--- else in a tick. awk reduces each line to "proto src sport dst dport bytes",
--- so Lua does one match per line instead of six.
-local function conntrack_text()
-	if IDX.ct then return IDX.ct end
-	local out = sys.exec([[awk '/^ipv4/ { n=split($0,a," "); p=a[3]; s=""; d=""; sp=""; dp=""; b=0; c=0;
-	for(i=1;i<=n;i++){
-		if(a[i] ~ /^src=/){ c++; if(c==1) s=substr(a[i],5) }
-		else if(a[i] ~ /^dst=/){ if(c==1) d=substr(a[i],5) }
-		else if(a[i] ~ /^sport=/){ if(c==1) sp=substr(a[i],7) }
-		else if(a[i] ~ /^dport=/){ if(c==1) dp=substr(a[i],7) }
-		else if(a[i] ~ /^bytes=/){ b += substr(a[i],7) }
-	}
-	if(s != "") print p, s, sp, d, dp, b }' /proc/net/nf_conntrack 2>/dev/null]])
-	return out or ""
+local HONK_API = "127.0.0.1:9527"
+local HONK_SEEN = STATE_DIR .. "/honk_seen.json"
+
+-- secret 从 honk 自己的配置读,不再依赖 openclash
+-- clash API 端点:db 模式没有 9090,退到 native_api(9527)
+local clash_base = function()
+	if IDX.clash_base ~= nil then return IDX.clash_base end
+	local b = "http://127.0.0.1:9090"
+	local out = sys.exec("netstat -tln 2>/dev/null")
+	if not out:find("127.0.0.1:9090", 1, true) then b = "http://127.0.0.1:9527" end
+	IDX.clash_base = b
+	return b
 end
 
-local function fake_ip_index(prefix)
+local function honk_secret()
+	if IDX.honk_secret ~= nil then return IDX.honk_secret end
+	local s = trim(sys.exec("uci -q get honk.config.secret 2>/dev/null") or "")
+	if s == "" then
+		local y = read_all("/etc/honk/config.dae") or ""
+		-- native_api 的 secret 与 clash_api 的一致,两处都试
+		s = y:match("native_api%s*{[^}]*secret:%s*'([^']+)'")
+		if s == "" then
+			s = y:match("secret:%s*'([^']+)'")
+		end
+	end
+	IDX.honk_secret = s
+	return s
+end
+
+local function honk_get(path)
+	local secret = honk_secret()
+	if secret == "" then return nil end
+	local raw = sys.exec(string.format(
+		"curl -s -m 3 -H %s %s 2>/dev/null",
+		shq("Authorization: Bearer " .. secret),
+		shq("http://" .. HONK_API .. path)))
+	if not raw or raw == "" then return nil end
+	local ok_, doc = pcall(jsonc.parse, raw)
+	if not ok_ or type(doc) ~= "table" then return nil end
+	return doc
+end
+
+-- 一条连接的增量。honk 每次给出的是累计字节,拿上次的值做差才能得到
+-- 这一段窗口的流量;连接消失后它的 key 也要清掉,否则同一对端口复用
+-- 时会算出负数。
+-- rpcd 每次调用都 exec 一个新进程,所以增量不能只留在内存里。采集器把
+-- 每个连接的增量写进 honk_pending.json,tick 读出来归类后清空。
+local HONK_PENDING = STATE_DIR .. "/honk_pending.json"
+
+-- 原生 API 的 chain 字段目前为空,叶节点名只有 Clash 兼容层给得出。
+-- 两个接口的 id 是同一个 flow_id,用它把节点名接回来。
+local function honk_chains()
+	local secret = honk_secret()
+	if secret == "" then return {} end
+	local raw = sys.exec(string.format(
+		"curl -s -m 3 -H %s %s 2>/dev/null",
+		shq("Authorization: Bearer " .. secret),
+		shq(clash_base() .. "/connections")))
+	if not raw or raw == "" then return {} end
+	local ok_, doc = pcall(jsonc.parse, raw)
+	if not ok_ or type(doc) ~= "table" then return {} end
 	local map = {}
-	for line in conntrack_text():gmatch("[^\n]+") do
-		local _, src, sport, dst = line:match("^(%S+) (%S+) (%S+) (%S+) ")
-		if src and sport and src:sub(1, #prefix) == prefix and dst:sub(1, #prefix) ~= prefix then
-			map[src .. "|" .. sport] = dst
+	for _, c in ipairs(doc.connections or {}) do
+		local ch = c.chains or {}
+		local m = c.metadata or {}
+		if #ch > 0 and m.sourceIP and m.sourcePort and m.destinationIP then
+			-- 两个 API 的连接 id 不同,只有四元组对得上
+			local k = m.sourceIP .. ":" .. m.sourcePort .. "|" ..
+			          m.destinationIP .. ":" .. (m.destinationPort or "")
+			map[k] = { leaf = ch[1], group = ch[#ch] }
 		end
 	end
 	return map
 end
 
-local function collect_clash_stats(now, apps, st, seen)
-	local secret = clash_secret()
-	if not secret then return 0 end
-	local prefix = lan_prefix() or "192.168."
-	-- fake_ip_index 在下面按需调用一次;这里预先算一份只会重复解析
-	local raw = sys.exec(string.format(
-		"curl -s -m 5 -H %s http://127.0.0.1:9090/connections 2>/dev/null",
-		shq("Authorization: Bearer " .. secret)))
-	if not raw or raw == "" then return 0 end
-	local ok_, doc = pcall(jsonc.parse, raw)
-	if not ok_ or type(doc) ~= "table" then return 0 end
+local function honk_poll(now)
+	local doc = honk_get("/api/v1/connections?limit=1000&detail=full")
+	if not doc then return 0 end
 
-	-- `seen` belongs to the caller: both passes must write the same map, or
-	-- each save wipes the other's keys and every tick recounts whole flows
-	-- Clash is the only place a fake address is tied to a name. Keep that
-	-- mapping across ticks: the flow lingers in the conntrack table after it
-	-- closes, and that is where its bytes are counted - counting them here as
-	-- well would double every proxied byte.
-	local cache = load_json_map(STATE_DIR .. "/fakeip.json", function() return {} end)
-	local fakeip = fake_ip_index(prefix)
-	local fresh, n = {}, 0
-	for _, c in ipairs(doc.connections or {}) do
-		local m = c.metadata or {}
-		-- a Redir connection reports no destinationIP; the address the client
-		-- actually dialled is the far end of its own flow, found by source port
-		local host = m.host
-		local dip = fakeip[(m.sourceIP or "") .. "|" .. (m.sourcePort or "")]
-		if host and dip and host ~= dip then
-			local ch = c.chains or {}
-			fresh[dip] = { h = host, c = ch[#ch], o = ch[1] }
-			n = n + 1
+	local prev = load_json_map(HONK_SEEN, function() return {} end)
+	local pend = load_json_map(HONK_PENDING, function() return {} end)
+	local cur, added = {}, 0
+
+	local function take(c)
+		local id = c.id
+		if not id then return end
+		local src = c.src or ""
+		local ip = src:match("^(%d+%.%d+%.%d+%.%d+)")
+		if not ip then return end
+		local up = tonumber(c.upload_bytes or "0") or 0
+		local dn = tonumber(c.download_bytes or "0") or 0
+		local old = prev[id]
+		local du = up - (old and tonumber(old.u) or 0)
+		local dd = dn - (old and tonumber(old.d) or 0)
+		-- 计数器在连接重建时会归零,负增量按整段算
+		if du < 0 then du = up end
+		if dd < 0 then dd = dn end
+		cur[id] = { u = up, d = dn }
+		if du + dd <= 0 then return end
+
+		-- pending 以连接 id 为键累加,同一连接在多次采样之间保持名字和出口
+		local p = pend[id]
+		if not p then
+			-- 不要 c.chain:原生 API 那里是 UUID,不是节点名。
+			-- 叶节点名只从 Clash 兼容层取(下面按四元组 join)。
+			p = { ip = ip, up = 0, dn = 0, network = c.network or "tcp",
+			      domain = c.domain, outbound = c.outbound,
+			      dst = c.dst, src = src }
+			pend[id] = p
+		end
+		-- 名字和出口可能晚到(SNI 要等握手),一旦有了就补上
+		if c.domain and not p.domain then p.domain = c.domain end
+		if c.outbound then p.outbound = c.outbound end
+		if c.dst then p.dst = c.dst end
+		p.up = p.up + du
+		p.dn = p.dn + dd
+		added = added + du + dd
+	end
+
+	local chains = honk_chains()
+	for _, c in ipairs(doc.tcp or {}) do take(c) end
+	for _, c in ipairs(doc.udp or {}) do take(c) end
+
+	-- 把节点名挂到对应连接上;chain 字段本身在原生 API 里是空的
+	for id, p in pairs(pend) do
+		local ch = chains[(p.src or "") .. "|" .. (p.dst or "")]
+		if ch and ch.leaf then
+			p.chain = { ch.leaf }
+			if ch.group and ch.group ~= "" then p.outbound = p.outbound or ch.group end
 		end
 	end
-	for k, v in pairs(cache) do
-		if fresh[k] == nil and n < 60000 then fresh[k] = v; n = n + 1 end
-	end
-	save_json_map(STATE_DIR .. "/fakeip.json", fresh)
-	return fresh
+
+	-- 已经消失的连接从 prev 里去掉,否则同一 id 复用时增量会算错
+	save_json_map(HONK_SEEN, cur)
+	save_json_map(HONK_PENDING, pend)
+	return added
 end
 
 local function collect_app_stats(now)
@@ -1174,119 +1246,57 @@ local function collect_app_stats(now)
 		st.day, st.apps, st.dev, st.low, st.proxy, st.node, st.ph = today, {}, {}, nil, {}, {}, {}
 	end
 
-	-- one line per flow: json was 492 KB and cost more to parse than the
-	-- conntrack scan it exists to avoid
-	IDX.load_seen = IDX.load_seen or function()
-		local out, f = {}, io.open(CT_SEEN_FILE, "r")
-		if not f then return out end
-		for line in f:lines() do
-			local p_, s_, sp_, d_, dp_, b_ =
-				line:match("^(%S+) (%S+) (%S+) (%S+) (%S+) (%d+)")
-			if p_ then out[p_ .. "|" .. s_ .. "|" .. sp_ .. "|" .. d_ .. "|" .. dp_] = { b = b_ } end
-		end
-		f:close()
-		return out
-	end
-	local seen = IDX.load_seen()
-	local fresh = {}
-	local fake_cache = collect_clash_stats(now, apps, st, seen) or {}
+	-- 采集器每两秒把增量写进 honk_pending.json;这里只做归类和落盘,然后
+	-- 清空它。不再扫 conntrack - 被 TPROXY 接管的流根本不出现在那张表里。
 	local counted = 0
+	local flows = load_json_map(HONK_PENDING, function() return {} end)
 
-	for line in conntrack_text():gmatch("[^\n]+") do
-		local proto, src, sport, dst, dport, total =
-			line:match("^(%S+) (%S+) (%S+) (%S+) (%S+) (%d+)")
-		if proto then
-			do
-				total = tonumber(total)
-				local key = proto .. "|" .. src .. "|" .. sport .. "|" .. dst .. "|" .. dport
-				local prev = seen[key]
-				local delta = total - (prev and tonumber(prev.b) or 0)
-				if delta < 0 then delta = 0 end
-
-				-- the LAN side identifies the device, the other side the app.
-				-- a flow with no LAN end (router to internet) has no device and
-				-- must not be attributed to the WAN address
-				local src_lan = src:sub(1, #prefix) == prefix
-				local dst_lan = dst:sub(1, #prefix) == prefix
-				local dev_ip, remote_ip, remote_port
-				if src_lan and not dst_lan then
-					dev_ip, remote_ip, remote_port = src, dst, tonumber(dport)
-				elseif dst_lan and not src_lan then
-					dev_ip, remote_ip, remote_port = dst, src, tonumber(sport)
+	for key, f in pairs(flows) do
+		local delta = f.up + f.dn
+		-- 只记 LAN 侧发起的流:路由器自己出网的流量没有设备可归属
+		local dev_ip = f.ip
+		if not dev_ip or dev_ip:sub(1, #prefix) ~= prefix then dev_ip = nil end
+		local remote_ip = f.dst and tostring(f.dst):match("^(%d+%.%d+%.%d+%.%d+)") or nil
+		local host = f.domain
+		if delta > 0 and dev_ip then
+			-- 出口组:honk 直接给 outbound(组名或 direct/block),
+			-- chain 是 root-first 的路径,末位才是真正出线的叶节点
+			local ob = f.outbound
+			if ob and ob ~= "" and ob ~= "direct" and ob ~= "block" then
+				st.proxy = st.proxy or {}
+				st.proxy[ob] = (st.proxy[ob] or 0) + delta
+				local leaf = f.chain and f.chain[#f.chain]
+				if leaf then
+					st.node = st.node or {}
+					st.node[leaf] = (st.node[leaf] or 0) + delta
 				end
-
-				-- a port-only guess is not evidence: tcp/6000-9000 is used by
-				-- Home Assistant, access points and torrent clients, and they
-				-- were all being reported as a game. Only a hostname, an
-				-- address we learned, or a verified fingerprint counts.
-				if delta > 0 and dev_ip then
-					local fc = fake_cache[remote_ip]
-					local host = fc and fc.h
-					-- quota is spent whether or not we can name the app, so this
-					-- is counted before classification and independently of it
-					if fc and fc.o and fc.o ~= "DIRECT" then
-						st.proxy = st.proxy or {}
-						local g = fc.c or fc.o
-						st.proxy[g] = (st.proxy[g] or 0) + delta
-						st.node = st.node or {}
-						st.node[fc.o] = (st.node[fc.o] or 0) + delta
-						-- which names actually went out that way, so a group
-						-- can be traced back to the addresses behind it
-						if host and host ~= "" then
-							st.ph = st.ph or {}
-							local e = st.ph[host]
-							if not e then
-								if #st.ph > 4000 then st.ph = {} end
-								e = { b = 0, n = {}, g = {} }
-								st.ph[host] = e
-							elseif type(e.n) ~= "table" then
-								-- 早期版本把节点和分组各存成一个字符串;
-								-- 直接索引它会让整个 tick 抛错停摆
-								local on, og, ob = e.n, e.g, e.b or 0
-								e = { b = ob, n = {}, g = {} }
-								if on and on ~= "" then e.n[on] = ob end
-								if og and og ~= "" then e.g[og] = ob end
-								st.ph[host] = e
-							end
-							-- a name can leave through several nodes over a day;
-							-- keep every one of them with its own share
-							e.b = (e.b or 0) + delta
-							e.n[fc.o] = (e.n[fc.o] or 0) + delta
-							e.g[g] = (e.g[g] or 0) + delta
-						end
+				-- 哪个名字走了这条出口,把组和节点都挂在域名下
+				if host and host ~= "" then
+					st.ph = st.ph or {}
+					local e = st.ph[host]
+					if not e or type(e.n) ~= "table" then
+						if not e and #st.ph > 4000 then st.ph = {} end
+						e = { b = 0, n = {}, g = {} }
+						st.ph[host] = e
 					end
-					local app, conf = classify_flow(apps, proto, remote_port, remote_ip, host)
-					if app and conf == "high" then
-						learn_app_ip(app.name, remote_ip)
-						record(st, app.name, dev_ip, delta, conf)
-						counted = counted + delta
-					end
+					e.b = (e.b or 0) + delta
+					if leaf then e.n[leaf] = (e.n[leaf] or 0) + delta end
+					e.g[ob] = (e.g[ob] or 0) + delta
 				end
-				-- app 是上一个块里的局部变量,这里读不到;该字段也从未被
-				-- 读取或写回,直接去掉,别留下一个永远为 nil 的假数据
-				fresh[key] = { b = total }
+			end
+			-- 端口取自 dst 的尾部;honk 没有单独给 dport 字段
+			local dport = nil
+			if f.dst then dport = tonumber(tostring(f.dst):match(":(%d+)$")) end
+			local app, conf = classify_flow(apps, f.network or "tcp", dport, remote_ip, host)
+			if app and conf == "high" then
+				learn_app_ip(app.name, remote_ip)
+				record(st, app.name, dev_ip, delta, conf)
+				counted = counted + delta
 			end
 		end
 	end
 
-	-- keep only the keys touched in this tick; a flow that is gone
-	-- contributes nothing, and a dropped key would be recounted in full
-	local kept, n = {}, 0
-	for k, v in pairs(fresh) do
-		n = n + 1
-		if n <= 8000 then kept[k] = v end
-	end
-
-
-	fs.mkdirr(STATE_DIR)
-	local sf = io.open(CT_SEEN_FILE .. ".tmp", "w")
-	if sf then
-		for k, v in pairs(kept) do
-			sf:write((k:gsub("|", " ")), " ", tostring(v.b), "\n")
-		end
-		sf:close()
-		os.rename(CT_SEEN_FILE .. ".tmp", CT_SEEN_FILE)
-	end
+	save_json_map(HONK_PENDING, {})
 	save_json_map(APPSTAT_FILE, st)
 	return { bytes = counted, apps = (function()
 		local c = 0
@@ -1364,7 +1374,693 @@ local function set_name_for(app)
 	return "s_a" .. h
 end
 
-local function render_qos_rules()
+-- ---- 游戏提速 ------------------------------------------------------
+-- 机制说明(都是实测出来的,不是推测):
+--
+-- 1) DSCP 走不通。qosmate 在 prerouting 用 `meta priority set ip dscp map
+--    @priomap` 把 DSCP 映射成 hfsc classid,而它自己又有
+--    `oifname pppoe-wan jump mark_cs0` 把出 WAN 的 DSCP 全洗成 cs0。
+--    所以我们打什么 DSCP 都会变成 1:13。
+--
+-- 2) 必须用 meta priority 直接给 classid,而且必须挂在 postrouting。
+--    prerouting 设的值会被 qosmate 那条 -150 的映射覆盖;
+--    postrouting -140 是出队前最后一站,设完就直接进 hfsc。
+--
+-- 3) 只有走原生转发的流量才受控。honk 会把国外目标接走并在用户态重建
+--    连接,那些包不经过这里的链。国内目标(honk 的 dip(geoip: cn) -> direct)
+--    走原生转发,规则生效。
+
+-- hfsc 的 5 个档位。qosmate 只建了 1:11 / 1:13 / 1:15,这里补齐
+-- 1:12 和 1:14,让"视频"和"后台"有各自的队列,而不是全挤在默认类。
+local TIERS = {
+	realtime    = { cls = "1:11", m1 = "77600Kbit", m2 = "12400Kbit", rt = true },
+	video       = { cls = "1:12", m1 = "40000Kbit", m2 = "40000Kbit" },
+	normal      = { cls = "1:13", m1 = "67600Kbit", m2 = "67600Kbit" },
+	background  = { cls = "1:14", m1 = "8000Kbit",  m2 = "10000Kbit" },
+	bulk        = { cls = "1:15", m1 = "2400Kbit",  m2 = "8000Kbit"  },
+}
+local TIER_ORDER = { "realtime", "video", "normal", "background", "bulk" }
+
+local GAME_LEVEL = "1:11"     -- hfsc rt 类,实时优先
+
+-- 确保 5 个 hfsc 类存在。qosmate 重启会重建树,所以每次 apply 都补一遍;
+-- 已存在的不动(tc class replace 会重置计数器,没必要)。
+local function ensure_tiers()
+	local existing = {}
+	for line in (sys.exec("tc class show dev pppoe-wan 2>/dev/null") or ""):gmatch("[^\n]+") do
+		local c = line:match("class hfsc (1:%d+)")
+		if c then existing[c] = true end
+	end
+	for _, name in ipairs(TIER_ORDER) do
+		local t = TIERS[name]
+		if not existing[t.cls] then
+			local kind = t.rt and "rt" or "ls"
+			sys.call(string.format(
+				"tc class add dev pppoe-wan parent 1:1 classid %s hfsc %s m1 %s d 25ms m2 %s 2>/dev/null",
+				t.cls, kind, t.m1, t.m2))
+		end
+	end
+	-- 新类需要 leaf qdisc 才能收包
+	local have_q = {}
+	for line in (sys.exec("tc qdisc show dev pppoe-wan 2>/dev/null") or ""):gmatch("[^\n]+") do
+		local p = line:match("parent (1:%d+)")
+		if p then have_q[p] = true end
+	end
+	for _, name in ipairs(TIER_ORDER) do
+		local t = TIERS[name]
+		if not have_q[t.cls] then
+			sys.call(string.format(
+				"tc qdisc add dev pppoe-wan parent %s fq_codel 2>/dev/null", t.cls))
+		end
+	end
+	return true
+end
+
+-- ---- 按 honk 的分组给代理流量分档 --------------------------------
+-- honk 把每条流标成 direct / youtube / netflix / games / ai ...。这些标签
+-- 是"走哪条规则"的结果,不是队列档位。但 honk 代理出去的连接是它自己发的
+-- (源地址 = 本机 WAN 地址),所以可以在 postrouting 按目标地址匹配到。
+--
+-- 做法:从 /api/v1/flows 读出每个组最近出现的目标 IP,写成 ip daddr 集合。
+-- 地址会变(CDN),所以每次 apply 都重新采一次,只保留当前活跃的。
+
+local TIER_FOR_GROUP = {
+	youtube = "video", appletv = "video", netflix = "video",
+	disney = "video", hbo = "video", primevideo = "video",
+	bahamut = "video", media = "video", tiktok = "video",
+	spotify = "video", emby = "video",
+	github = "background", steam = "background", games = "background",
+	ecommerce = "background", speedtest = "bulk",
+	-- 交互类保持默认
+	ai = "normal", chatgpt = "normal", copilot = "normal",
+	social = "normal", telegram = "normal", google = "normal",
+	apple = "normal", microsoft = "normal", fcm = "normal",
+	proxy = "normal",
+}
+
+-- 从 honk 读每个组当前的目标地址
+local function honk_group_targets()
+	local secret = honk_secret()
+	if secret == "" then return {} end
+	local raw = sys.exec(string.format(
+		"curl -s -m 8 -H %s %s 2>/dev/null",
+		shq("Authorization: Bearer " .. secret),
+		shq("http://127.0.0.1:9527/api/v1/flows?limit=500&detail=full")))
+	if not raw or raw == "" then return {} end
+	local ok_, doc = pcall(jsonc.parse, raw)
+	if not ok_ or type(doc) ~= "table" then return {} end
+
+	local out = {}
+	for _, f in ipairs(doc.flows or {}) do
+		local ob = f.outbound
+		local i = f.input or {}
+		local dst = i.dst or ""
+		local ip = dst:match("^(%d+%.%d+%.%d+%.%d+)")
+		-- 只收代理流量;direct 走原生转发,不需要在这里处理
+		if ob and ob ~= "direct" and ob ~= "block" and ip then
+			out[ob] = out[ob] or {}
+			out[ob][ip] = true
+		end
+	end
+	return out
+end
+
+local function render_game_qos()
+	local cfg = load_json_map(STATE_DIR .. "/gameqos.json", function()
+		return { enabled = false, devices = {}, extra_ports = {} }
+	end)
+	if not cfg.enabled then return {} end
+
+	local apps = load_apps()
+	local lines = {}
+	lines[#lines + 1] = ""
+	lines[#lines + 1] = "\tchain post {"
+	lines[#lines + 1] = "\t\ttype filter hook postrouting priority -140; policy accept;"
+
+	-- 收集所有游戏端口
+	local udp_ports, tcp_ports = {}, {}
+	-- 80/443 是通用网页端口。游戏库里确实有走 443 的(网易版我的世界),
+	-- 但把它算进来等于给这两台设备的全部网页流量最高优先级,那不是
+	-- "让游戏更快",而是"让这台设备的一切更快"。只保留游戏专属端口。
+	local GENERIC = { ["80"] = true, ["443"] = true }
+	for _, a in ipairs(apps.apps or {}) do
+		if a.class == "game" then
+			for _, sig in ipairs(a.sigs or {}) do
+				local dp = sig.dport or ""
+				if dp ~= "" and not GENERIC[dp] then
+					local target = (sig.proto == "udp") and udp_ports or tcp_ports
+					target[dp] = true
+				end
+			end
+		end
+	end
+	for _, dp in ipairs(cfg.extra_ports or {}) do
+		udp_ports[dp] = true
+	end
+
+	local function port_expr(set, l4)
+		local list = {}
+		for p in pairs(set) do list[#list + 1] = p end
+		table.sort(list)
+		if #list == 0 then return nil end
+		-- nft 的 dport 支持 a-b 区间和单值
+		local parts = {}
+		for _, p in ipairs(list) do
+			if p:find("-", 1, true) then
+				local lo, hi = p:match("^(%d+)%-(%d+)$")
+				if lo then parts[#parts + 1] = lo .. "-" .. hi end
+			else
+				local n = tonumber(p)
+				if n then parts[#parts + 1] = tostring(n) end
+			end
+		end
+		if #parts == 0 then return nil end
+		-- 多值必须用集合语法;裸逗号列表在 nft 里是语法错误
+		if #parts == 1 then
+			return "meta l4proto " .. l4 .. " " .. l4 .. " dport " .. parts[1]
+		end
+		return "meta l4proto " .. l4 .. " " .. l4 .. " dport { " ..
+		       table.concat(parts, ", ") .. " }"
+	end
+
+	-- ---- 按用途分类 --------------------------------------------------
+	-- 只对能明确识别的端口下手。443/80 是通用端口,整段归到某一档会把
+	-- 网页、API、视频全搅在一起,所以不碰。
+	local CATS = {
+		-- 流媒体/大文件下载:让路,但保底带宽够用
+		{ tier = "video",  proto = "tcp", ports = { "1935", "8080" } },
+		-- 备份/同步/更新:最低档
+		{ tier = "bulk",   proto = "tcp", ports = { "873", "22", "21" } },
+		-- DNS 与 NTP:小包但要快
+		{ tier = "realtime", proto = "udp", ports = { "53", "123" } },
+	}
+	for _, c in ipairs(CATS) do
+		local t = TIERS[c.tier]
+		if t then
+			local parts = {}
+			for _, p in ipairs(c.ports) do parts[#parts + 1] = p end
+			lines[#lines + 1] = string.format(
+				"\t\tmeta l4proto %s %s dport { %s } meta priority set %s counter comment \"cat:%s\"",
+				c.proto, c.proto, table.concat(parts, ", "), t.cls, c.tier)
+		end
+	end
+
+	-- honk 分组 → 队列档位。目标地址按组聚合后写成 daddr 集合。
+	local targets = honk_group_targets()
+	local by_tier = {}
+	for grp, set in pairs(targets) do
+		local tier = TIER_FOR_GROUP[grp]
+		if tier and TIERS[tier] then
+			by_tier[tier] = by_tier[tier] or {}
+			for ip in pairs(set) do by_tier[tier][ip] = true end
+		end
+	end
+	for _, tier in ipairs(TIER_ORDER) do
+		local set = by_tier[tier]
+		if set then
+			local ips = {}
+			for ip in pairs(set) do ips[#ips + 1] = ip end
+			if #ips > 0 then
+				table.sort(ips)
+				-- 每个档位一条规则,地址用集合语法
+				local parts = {}
+				for i, ip in ipairs(ips) do
+					if i > 64 then break end
+					parts[#parts + 1] = ip
+				end
+				if #parts == 1 then
+					lines[#lines + 1] = string.format(
+						"\t\tip daddr %s meta priority set %s counter comment \"honk:%s\"",
+						parts[1], TIERS[tier].cls, tier)
+				else
+					lines[#lines + 1] = string.format(
+						"\t\tip daddr { %s } meta priority set %s counter comment \"honk:%s\"",
+						table.concat(parts, ", "), TIERS[tier].cls, tier)
+				end
+			end
+		end
+	end
+
+	local devs = cfg.devices or {}
+	for _, dev in ipairs(devs) do
+		local ip = dev.ip or ""
+		if ip ~= "" then
+			local u = port_expr(udp_ports, "udp")
+			local t = port_expr(tcp_ports, "tcp")
+			if u then
+				lines[#lines + 1] = string.format(
+					"\t\tip saddr %s %s meta priority set %s counter comment \"game:udp:%s\"",
+					ip, u, GAME_LEVEL, ip)
+			end
+			if t then
+				lines[#lines + 1] = string.format(
+					"\t\tip saddr %s %s meta priority set %s counter comment \"game:tcp:%s\"",
+					ip, t, GAME_LEVEL, ip)
+			end
+		end
+	end
+
+	lines[#lines + 1] = "\t}"
+	return lines
+end
+
+-- ---- 流量标记诊断 ----------------------------------------------------
+-- 把三处数据汇到一处,让"这条规则到底有没有生效"一眼可见:
+--   1. nft 规则计数器   —— 规则命中了多少包
+--   2. tc 类统计        —— 这些包最终进了哪个 hfsc 类
+--   3. conntrack mark   —— qosmate 记录的 DSCP(低 6 位),看出口实际值
+
+-- DSCP 的 21 个标准值。每个都带一个中文用途,这样界面不用看数字。
+local DSCP_NAMES = {
+	[0]  = "cs0",  [8]  = "cs1",  [10] = "af11", [12] = "af12", [14] = "af13",
+	[16] = "cs2",  [18] = "af21", [20] = "af22", [22] = "af23",
+	[24] = "cs3",  [26] = "af31", [28] = "af32", [30] = "af33",
+	[32] = "cs4",  [34] = "af41", [36] = "af42", [38] = "af43",
+	[40] = "cs5",  [44] = "cs6",  [46] = "ef",   [48] = "cs7",
+}
+local DSCP_ROLE = {
+	[46] = "realtime",   -- 语音、竞技游戏
+	[40] = "signalling", -- 控制信令
+	[48] = "network",    -- 网络控制
+	[44] = "network",
+	[32] = "video",      -- 视频
+	[34] = "video",
+	[36] = "video",
+	[38] = "video",
+	[24] = "streaming",  -- 流媒体
+	[26] = "streaming",
+	[28] = "streaming",
+	[30] = "streaming",
+	[16] = "interactive",-- 交互(网页、即时通讯)
+	[18] = "interactive",
+	[20] = "interactive",
+	[22] = "interactive",
+	[8]  = "background", -- 后台(备份、更新)
+	[10] = "background",
+	[12] = "background",
+	[14] = "background",
+	[0]  = "default",
+}
+
+local CLASS_NAMES = {
+	["1:11"] = "realtime (highest)",
+	["1:12"] = "high",
+	["1:13"] = "default",
+	["1:14"] = "low",
+	["1:15"] = "bulk (lowest)",
+}
+
+-- 每条活跃流的分流结果。honk 的 outbound 就是"这条流被打了什么 tag":
+-- direct 表示直连,其余是它选中的组(ai/github/hk/...)。
+-- 这里直接问 honk 要,比从 nft 反推准确得多 - qosmate 会把 DSCP 洗成 cs0,
+-- nft 里看不到原始标记。
+-- honk 的 /api/v1/flows 直接给出每条决策的 dscp 和 mark,不用再猜。
+-- 注意用 flows 而不是 connections:只有 flows 带 dscp/mark 字段,
+-- 而且它保留终态决策,短命连接也能看到。
+function methods.flows()
+	local secret = honk_secret()
+	if secret == "" then return { success = false, error = "no honk secret" } end
+	local raw = sys.exec(string.format(
+		"curl -s -m 8 -H %s %s 2>/dev/null",
+		shq("Authorization: Bearer " .. secret),
+		shq("http://127.0.0.1:9527/api/v1/flows?limit=300&detail=full")))
+	if not raw or raw == "" then return { success = true, running = true, flows = {}, by_outbound = {} } end
+	local ok_, doc = pcall(jsonc.parse, raw)
+	if not ok_ or type(doc) ~= "table" then
+		return { success = true, running = true, flows = {}, by_outbound = {} }
+	end
+
+	local out = {}
+	for _, f in ipairs(doc.flows or {}) do
+		local i = f.input or {}
+		local src = i.src or ""
+		local ip = src:match("^(%d+%.%d+%.%d+%.%d+)") or src
+		local dscp = tonumber(i.dscp or 0) or 0
+		out[#out + 1] = {
+			src = ip,
+			sport = src:match(":(%d+)$") or "",
+			dst = i.dst or "",
+			domain = i.domain,
+			outbound = f.outbound or "unknown",
+			dscp = dscp,
+			dscp_name = DSCP_NAMES[dscp] or ("0x" .. string.format("%02x", dscp)),
+			dscp_role = DSCP_ROLE[dscp] or "other",
+			mark = tonumber(i.mark or 0) or 0,
+			state = f.state,
+			rule = f.rule_expression,
+			network = f.network,
+		}
+	end
+
+	local agg = {}
+	for _, f in ipairs(out) do
+		local k = f.outbound
+		agg[k] = agg[k] or { outbound = k, flows = 0 }
+		agg[k].flows = agg[k].flows + 1
+	end
+	local alist = {}
+	for _, v in pairs(agg) do alist[#alist + 1] = v end
+	table.sort(alist, function(a, b) return a.flows > b.flows end)
+
+	-- DSCP 分布
+	local dm = {}
+	for _, f in ipairs(out) do
+		local k = f.dscp
+		dm[k] = dm[k] or { dscp = k, name = f.dscp_name, count = 0 }
+		dm[k].count = dm[k].count + 1
+	end
+	local dlist = {}
+	for _, v in pairs(dm) do dlist[#dlist + 1] = v end
+	table.sort(dlist, function(a, b) return a.count > b.count end)
+
+	return { success = true, running = true, flows = out,
+	         by_outbound = alist, by_dscp = dlist }
+end
+
+-- ---- 组与兜底链 ------------------------------------------------------
+-- Doona 的组列表读 Clash 协议,那里没有 final 字段,所以兜底链路不可见。
+-- honk 的原生 API 有:/api/v1/groups 给策略和当前选择,
+-- /api/v1/groups/{id}/config 给 final_outbound。这里把两者合到一张表,
+-- 让"WD 挂了落到哪个 backup"一眼可见。
+-- probeurl: 输入域名,观察 honk 实际路由归属
+-- 主动发起 https 连接,然后从 clash API 按主机名抓链路和规则
+function methods.probeurl(host)
+	if type(host) ~= "string" or host == "" or #host > 253 then
+		return err("invalid host")
+	end
+	if not host:match("^[%w%-%.]+$") then
+		return err("invalid characters in host")
+	end
+	local clean = host:lower()
+
+	local out = sys.exec("nslookup " .. shq(clean) .. " 127.0.0.1 2>/dev/null")
+	local ip_list = {}
+	for m in out:gmatch("Address:%s*([%d%.]+)") do
+		if m ~= "127.0.0.1" then ip_list[#ip_list + 1] = m end
+	end
+
+	local secret = IDX.clash_secret
+	if secret == nil then
+		local y = read_all("/etc/honk/config.dae") or ""
+		secret = y:match("native_api%s*{[^}]*secret:%s*'([^']+)'") or ""
+		IDX.clash_secret = secret
+	end
+	local chains, rule, rulep = nil, nil, nil
+	if secret ~= "" then
+		-- db 模式:一次连接 + native_api 的连接表
+		sys.exec("curl -s -m 3 -o /dev/null https://" .. shq(clean) .. " 2>/dev/null")
+		for i = 1, 3 do
+			local raw = sys.exec(string.format(
+				"curl -s -m 3 -H %s " .. shq(clash_base() .. "/api/v1/connections") .. " 2>/dev/null",
+				shq("Authorization: Bearer " .. secret)))
+			if raw and raw ~= "" then
+				local okj, doc = pcall(jsonc.parse, raw)
+				if okj and type(doc) == "table" then
+					for _, list in ipairs({ doc.tcp, doc.udp }) do
+						for _, c in ipairs(list or {}) do
+							local rex = tostring(c.rule_expression or "")
+							if rex:find(clean, 1, true) then
+								rule = rex
+								rulep = c.rule_source
+								chains = c.chain
+								break
+							end
+						end
+						if chains then break end
+					end
+				end
+			end
+			if chains then break end
+		end
+	end
+
+	-- chain 是 UUID 列表:映射回组名,顺序是 流量方向 -> 入站
+	local chains_list = {}
+	if type(chains) == "table" then
+		local names = {}
+		local function idmap(path)
+			local raw = sys.exec(string.format(
+				"curl -s -m 4 -H %s " .. shq(clash_base() .. path) .. " 2>/dev/null",
+				shq("Authorization: Bearer " .. (secret or ""))))
+			if raw and raw ~= "" then
+				local okd, dd = pcall(jsonc.parse, raw)
+				if okd and type(dd) == "table" then
+					for _, item in ipairs(dd.groups or dd.nodes or dd or {}) do
+						if type(item) == "table" and item.id and item.name then names[item.id] = item.name end
+					end
+				end
+			end
+		end
+		idmap("/api/v1/groups")
+		idmap("/api/v1/nodes")
+		for i = #chains, 1, -1 do
+			chains_list[#chains_list + 1] = names[chains[i]] or chains[i]
+		end
+	end
+
+	local direct_code = sys.exec("curl -s -m 4 -o /dev/null -w '%{http_code}' https://" .. shq(clean) .. " 2>/dev/null")
+	local proxy_code = "n/a"
+	local sd = load_json_map(SOCKS_FILE, function() return nil end)
+	if sd and sd.password then
+		proxy_code = sys.exec("curl -s -m 6 -o /dev/null -w '%{http_code}' -U " ..
+			shq((sd.user or "char") .. ":" .. sd.password) ..
+			" -x http://127.0.0.1:" .. tostring(sd.port or 8893) ..
+			" https://" .. shq(clean) .. " 2>/dev/null")
+	end
+
+	return ok({
+		host = clean,
+		dns = ip_list,
+		chains = chains_list,
+		rule = rule,
+		rulePayload = rulep,
+		captured = chains ~= nil,
+		direct = (direct_code or ""):match("%d+") or "",
+		proxy = (proxy_code or ""):match("%d+") or "",
+	})
+end
+
+function methods.groupfinals()
+	local secret = honk_secret()
+	if secret == "" then return { success = false, error = "no honk secret" } end
+
+	local raw = sys.exec(string.format(
+		"curl -s -m 8 -H %s %s 2>/dev/null",
+		shq("Authorization: Bearer " .. secret),
+		shq("http://127.0.0.1:9527/api/v1/groups")))
+	if not raw or raw == "" then return { success = true, running = true, groups = {} } end
+	local ok_, doc = pcall(jsonc.parse, raw)
+	if not ok_ or type(doc) ~= "table" then
+		return { success = true, running = true, groups = {} }
+	end
+	local groups = doc if type(doc) == "table" and doc.groups then groups = doc.groups end
+
+	local summary = {}
+	local byid = {}
+	for _, g in ipairs(groups or {}) do
+		byid[g.id] = g
+	end
+
+	-- 每个组拉一次 config 拿 final;顺带把 Clash 的 now 也带过来
+	local clash_now = {}
+	local craw = sys.exec(string.format(
+		"curl -s -m 8 -H %s " .. shq(clash_base() .. "/proxies") .. " 2>/dev/null",
+		shq("Authorization: Bearer " .. secret)))
+	if craw and craw ~= "" then
+		local okc, cdoc = pcall(jsonc.parse, craw)
+		if okc and type(cdoc) == "table" then
+			for name, v in pairs(cdoc.proxies or {}) do
+				clash_now[name] = v.now
+			end
+		end
+	end
+
+	local out = {}
+	for _, g in ipairs(groups or {}) do
+		local name = g.name or ""
+		local fin, cfg_ok = nil, false
+		local raw2 = sys.exec(string.format(
+			"curl -s -m 5 -H %s %s 2>/dev/null",
+			shq("Authorization: Bearer " .. secret),
+			shq("http://127.0.0.1:9527/api/v1/groups/" .. (g.id or "") .. "/config")))
+		if raw2 and raw2 ~= "" then
+			local ok2, cdoc = pcall(jsonc.parse, raw2)
+			if ok2 and type(cdoc) == "table" and type(cdoc.config) == "table" then
+				fin = cdoc.config.final_outbound
+				cfg_ok = true
+			end
+		end
+		out[#out + 1] = {
+			name = name,
+			policy = (g.policy and (g.policy.kind or g.policy.native)) or "selector",
+			members = g.member_count or 0,
+			final = fin,
+			now = clash_now[name],
+			has_config = cfg_ok,
+		}
+	end
+	table.sort(out, function(a, b) return a.name < b.name end)
+
+	-- 统计:多少组配了 final,多少是 direct 兜底
+	local n_final, n_direct = 0, 0
+	for _, g in ipairs(out) do
+		if g.final and g.final ~= "" then
+			n_final = n_final + 1
+			if g.final == "direct" then n_direct = n_direct + 1 end
+		end
+	end
+	return { success = true, running = true, groups = out,
+	         n_final = n_final, n_direct = n_direct }
+end
+
+function methods.tagview()
+	-- 1) nft 规则命中。counter 的输出是 "counter packets N bytes M"
+	local rules = {}
+	for line in (sys.exec("nft list table inet languard_qos 2>/dev/null") or ""):gmatch("[^\n]+") do
+		local cm = line:match('comment "([^"]*)"')
+		local pk, by = line:match("counter packets (%d+) bytes (%d+)")
+		if cm and pk then
+			rules[#rules + 1] = { tag = cm, packets = tonumber(pk),
+			                     bytes = tonumber(by or 0),
+			                     cls = line:match("meta priority set ([%d:]+)") }
+		end
+	end
+
+	-- 2) tc 类统计。class 行和紧随其后的 Sent 行成对出现。
+	local classes = {}
+	local pending = nil
+	for line in (sys.exec("tc -s class show dev pppoe-wan 2>/dev/null") or ""):gmatch("[^\n]+") do
+		local cls = line:match("class hfsc ([%d:]+)")
+		if cls then
+			pending = cls
+			if not classes[cls] then
+				classes[cls] = { name = CLASS_NAMES[cls] or cls, packets = 0, bytes = 0 }
+			end
+		else
+			local b, p = line:match("Sent (%d+) bytes (%d+) pkt")
+			if b and pending and classes[pending] then
+				classes[pending].bytes = tonumber(b)
+				classes[pending].packets = tonumber(p)
+				pending = nil
+			end
+		end
+	end
+
+	local clist = {}
+	for id, c in pairs(classes) do
+		if id ~= "1:" and id ~= "1:1" then
+			clist[#clist + 1] = { cls = id, name = c.name, packets = c.packets, bytes = c.bytes }
+		end
+	end
+	table.sort(clist, function(a, b) return a.cls < b.cls end)
+
+	-- 3) conntrack 的 DSCP 分布
+	local marks, total = {}, 0
+	for line in (sys.exec("grep -o 'mark=[0-9]*' /proc/net/nf_conntrack 2>/dev/null") or ""):gmatch("[^\n]+") do
+		local m = tonumber(line:match("mark=(%d+)"))
+		if m then
+			total = total + 1
+			local dscp = m % 64
+			local has = (m - dscp) >= 128
+			local key = tostring(dscp)
+			if not marks[key] then
+				marks[key] = { dscp = dscp, name = DSCP_NAMES[dscp] or ("0x" .. string.format("%02x", dscp)),
+				               marked = has, count = 0 }
+			end
+			marks[key].count = marks[key].count + 1
+		end
+	end
+	local mlist = {}
+	for _, v in pairs(marks) do mlist[#mlist + 1] = v end
+	table.sort(mlist, function(a, b) return a.count > b.count end)
+
+	return { success = true, running = true,
+	         rules = rules, classes = clist, dscp = mlist, total_flows = total }
+end
+
+-- 轻量的 QoS 刷新:只重采 honk 的分组目标并重写规则,不碰别的维护。
+-- watcher 每 10 秒调一次,让视频开起来之后尽快落到正确的类。
+function methods.qosrefresh()
+	local cfg = load_json_map(STATE_DIR .. "/gameqos.json", function()
+		return { enabled = false }
+	end)
+	if not cfg.enabled then return ok({ skipped = true }) end
+	-- 只有规则内容变了才重载,避免每 10 秒都去重建 nft 表
+	local before = read_all(QOS_RULE_FILE) or ""
+	render_qos_rules()
+	local after = read_all(QOS_RULE_FILE) or ""
+	if before == after then return ok({ unchanged = true }) end
+	apply_qos()
+	return ok({ refreshed = true })
+end
+
+local function load_gameqos()
+	local cfg = load_json_map(STATE_DIR .. "/gameqos.json", function()
+		return { enabled = false, devices = {}, extra_ports = {}, interval = 10 }
+	end)
+	if cfg.interval == nil then cfg.interval = 10 end
+	return cfg
+end
+
+function methods.gameqosget()
+	local cfg = load_gameqos()
+	local out_devs = {}
+	for _, d in ipairs(cfg.devices or {}) do
+		out_devs[#out_devs + 1] = { ip = d.ip, name = d.name }
+	end
+	-- 统计规则命中
+	local hits = {}
+	for line in (sys.exec("nft list chain inet languard_qos post 2>/dev/null") or ""):gmatch("[^\n]+") do
+		local c = line:match("comment \"game:([^\"]*)\"")
+		local p = line:match("counter packets (%d+)")
+		if c and p then hits[c] = tonumber(p) end
+	end
+	return { success = true, running = true, enabled = cfg.enabled == true,
+	         devices = out_devs, extra_ports = cfg.extra_ports or {},
+	         interval = cfg.interval or 10, hits = hits }
+end
+
+function methods.gameqosset(enabled, devices, extra_ports, interval)
+	local cfg = load_json_map(STATE_DIR .. "/gameqos.json", function()
+		return { enabled = false, devices = {}, extra_ports = {} }
+	end)
+	if enabled ~= nil and enabled ~= "" then
+		cfg.enabled = (enabled == true or enabled == "1" or enabled == 1 or enabled == "true")
+	end
+	if type(devices) == "table" then
+		cfg.devices = {}
+		for _, d in ipairs(devices) do
+			local ip = type(d) == "table" and d.ip or tostring(d)
+			if ip and ip ~= "" then
+				cfg.devices[#cfg.devices + 1] = { ip = ip, name = type(d) == "table" and d.name or nil }
+			end
+		end
+	elseif type(devices) == "string" and devices ~= "" then
+		cfg.devices = {}
+		for ip in devices:gmatch("[^,%s]+") do
+			cfg.devices[#cfg.devices + 1] = { ip = ip }
+		end
+	end
+	if type(extra_ports) == "string" then
+		cfg.extra_ports = {}
+		for p in extra_ports:gmatch("[^,%s]+") do
+			cfg.extra_ports[#cfg.extra_ports + 1] = p
+		end
+	end
+	local iv = tonumber(interval)
+	if iv and iv >= 3 and iv <= 300 then
+		cfg.interval = math.floor(iv)
+		-- shell 循环读一个纯文本文件,比 uci 简单可靠
+		local f = io.open(STATE_DIR .. "/qos_interval", "w")
+		if f then f:write(tostring(cfg.interval)) f:close() end
+	end
+	save_json_map(STATE_DIR .. "/gameqos.json", cfg)
+	-- 走统一的 apply_qos:它会同时写 per-app 规则和游戏链
+	apply_qos()
+	return ok({ enabled = cfg.enabled, devices = cfg.devices })
+end
+
+function render_qos_rules()
 	local d = load_qos()
 	local ips = load_appips()
 	local lines = { "# generated by languard - do not edit", "" }
@@ -1421,6 +2117,13 @@ local function render_qos_rules()
 		end
 	end
 	lines[#lines + 1] = "\t}"
+
+	-- 游戏提速链和 per-app 规则住在同一张表里,必须一起写,否则
+	-- apply_qos 会用空规则把游戏链冲掉
+	for _, l in ipairs(render_game_qos() or {}) do
+		lines[#lines + 1] = l
+	end
+
 	lines[#lines + 1] = "}"
 
 	local f = io.open(QOS_RULE_FILE, "w")
@@ -1434,8 +2137,11 @@ end
 -- DSCP we set on the client's packet never reaches the WAN. The only way to
 -- keep the mark is to make those addresses skip the redirect entirely.
 -- The bypass set is derived from the rules: when a rule is removed its app
--- stops being referenced and its addresses leave the set.
-local BYPASS_SET = "languard_bypass"
+-- 每条 QoS 规则要针对一个应用,而 honk 只按地址/域名分流。把学到的
+-- 应用地址写成 honk 的 include 规则,direct(must) 让这些流跳过代理,
+-- DSCP 标记才能活着到 WAN。旧实现往 OpenClash 的 nft 链里塞 return,
+-- honk 用 eBPF TPROXY,那条链已经不存在了。
+local BYPASS_INC = "/etc/honk/inc/languard.dae"
 
 local function bypass_addresses()
 	local d = load_qos()
@@ -1445,8 +2151,6 @@ local function bypass_addresses()
 		if r.app and r.app ~= "" and r.action ~= "block" and not seen[r.app] then
 			seen[r.app] = true
 			for _, ip in ipairs(ips[r.app] or {}) do
-				-- a fake address only means something inside Clash; routing
-				-- it directly would black-hole the connection
 				if not want[ip] and not cidr_match(ip, "198.18.0.0/15") then
 					want[ip] = true
 				end
@@ -1455,46 +2159,36 @@ local function bypass_addresses()
 	end
 	local list = {}
 	for ip in pairs(want) do list[#list + 1] = ip end
+	table.sort(list)
 	return list
 end
 
-local function bypass_rule_present()
-	local out = sys.exec("nft list chain inet fw4 openclash 2>/dev/null | grep -c '@" .. BYPASS_SET .. "'") or "0"
-	return (tonumber(trim(out)) or 0) > 0
-end
-
+-- 只在内容真的变了才重写,否则每次 tick 都会触发一次无谓的重载
 local function apply_bypass()
 	local list = bypass_addresses()
-	sys.call(string.format(
-		"nft list set inet fw4 %s >/dev/null 2>&1 || nft add set inet fw4 %s '{ type ipv4_addr; flags interval; }' 2>/dev/null",
-		BYPASS_SET, BYPASS_SET))
-	sys.call("nft flush set inet fw4 " .. BYPASS_SET .. " 2>/dev/null")
-	if #list > 0 then nft_chunk(BYPASS_SET, "add", list) end
-	if #list > 0 then
-		if not bypass_rule_present() then
-			-- fw4 reloads and OpenClash restarts rebuild this chain, so the
-			-- rule is re-inserted whenever it is missing
-			sys.call("nft insert rule inet fw4 openclash ip daddr @" .. BYPASS_SET .. " return 2>/dev/null")
-		end
-	elseif bypass_rule_present() then
-		-- nothing to bypass: do not leave a lookup in front of every packet
-		for _, h in ipairs((function()
-			local out = {}
-			for line in (sys.exec("nft -a list chain inet fw4 openclash 2>/dev/null") or ""):gmatch("[^\n]+") do
-				if line:find("@" .. BYPASS_SET, 1, true) then
-					local hh = line:match("handle (%d+)")
-					if hh then out[#out + 1] = hh end
-				end
-			end
-			return out
-		end)()) do
-			sys.call("nft delete rule inet fw4 openclash handle " .. h .. " 2>/dev/null")
-		end
+	local body
+	if #list == 0 then
+		body = "routing {\n    # languard: no per-app QoS addresses learned yet\n}\n"
+	else
+		local parts = {}
+		for _, ip in ipairs(list) do parts[#parts + 1] = ip end
+		body = "routing {\n    # languard: 每应用 QoS 需要这些地址直连\n    dip(" ..
+		       table.concat(parts, ", ") .. ") && !dport(53) -> direct(must)\n}\n"
 	end
+	local old = read_all(BYPASS_INC) or ""
+	if old == body then return #list end
+	fs.mkdirr("/etc/honk/inc")
+	local f = io.open(BYPASS_INC, "w")
+	if not f then return #list end
+	f:write(body)
+	f:close()
+	-- honk 只认 SIGHUP;它能保住现有连接,不像重启会断掉所有人的会话
+	sys.call("kill -HUP $(pidof honk-core) 2>/dev/null")
 	return #list
 end
 
-local function apply_qos()
+function apply_qos()
+	ensure_tiers()
 	render_qos_rules()
 	apply_bypass()
 	-- replace our table in place; fw4 reloads pick the file up afterwards
@@ -1717,6 +2411,8 @@ local CONFIG_FILES = {
 	domains = DOMAIN_FILE, known_devices = KNOWN_FILE, panic = PANIC_FILE,
 	tick = STATE_DIR .. "/tick.json", aliases = ALIAS_FILE,
 	fingerprint = FINGERPRINT_FILE,
+	-- 入站代理的账号密码:不带走的话恢复后又会退回默认值
+	socks = SOCKS_FILE,
 }
 -- 备份与恢复
 sysm = require "languard.system"
@@ -2827,6 +3523,424 @@ function methods.autoget()
 	         web_auth = cfg.web_auth, imported = imported }
 end
 
+-- DNAT 需要一个本机可达的地址。回环地址不行(route_localnet 默认关闭),
+-- 所以取 br-lan 上的那个。
+local function lan_ip()
+	local out = sys.exec("ip -4 addr show dev br-lan 2>/dev/null") or ""
+	return out:match("inet%s+(%d+%.%d+%.%d+%.%d+)")
+end
+
+-- ---- SOCKS5 代理 ----------------------------------------------------
+-- !! 临时代码。honk 计划后续加入入站(server)支持;一旦它提供了
+-- !! socks/http 入站,这一整块(socks* 函数、methods.socks*、LuCI 的
+-- !! SOCKS5 页、sing-box 依赖)都应该删掉,改用 honk 的原生配置。
+-- !! 保留的原因只是 honk 现在没有这个能力,而用户需要从外网连回家。
+--
+-- 一个独立的入站代理,和 honk 没有关系:honk 是透明网关,它自己没有
+-- 也不需要一个 socks 监听器。这里用 sing-box 的 mixed 入站,同一个端口
+-- 同时接受 SOCKS5 和 HTTP CONNECT,共用一套账号密码。
+--
+-- 可选 TLS:手机上的浏览器/系统代理多数不支持裸 SOCKS5,而 HTTPS 代理
+-- 能被系统直接认。用自签证书,所以首次连接要在客户端信任一次。
+--
+-- 它接受的流量按普通本机出站走,所以会经过 honk 的路由策略 - 但那是
+-- honk 处理"这台路由器发出的流量"的常规行为,不是这个服务的组成部分。
+
+local SOCKS_DIR = STATE_DIR .. "/tls"
+local SOCKS_CRT = SOCKS_DIR .. "/socks.crt"
+local SOCKS_KEY = SOCKS_DIR .. "/socks.key"
+local SOCKS_CONF = "/etc/sing-box/languard-in.json"
+local SOCKS_BIN = "/usr/bin/sing-box"
+
+local function load_socks()
+	local d = load_json_map(SOCKS_FILE, function() return nil end)
+	if type(d) ~= "table" then
+		-- 首次运行一律关闭。默认开着 + WAN 转发 + 源码里能查到的密码,
+		-- 等于给任何读过这个仓库的人留一个开放代理。
+		d = { enabled = false, port = 8893, user = "languard",
+		      password = "", listen = "0.0.0.0", fwd = false,
+		      tls = true, tlsport = 8894 }
+	end
+	if d.port == nil then d.port = 8893 end
+	if d.user == nil then d.user = "languard" end
+	if d.password == nil then d.password = "" end
+	if d.listen == nil then d.listen = "0.0.0.0" end
+	if d.fwd == nil then d.fwd = true end
+	if d.enabled == nil then d.enabled = true end
+	if d.tls == nil then d.tls = true end
+	if d.tlsport == nil then d.tlsport = 8894 end
+	return d
+end
+
+local function save_socks(d)
+	fs.mkdirr(STATE_DIR)
+	local f = io.open(SOCKS_FILE, "w")
+	if not f then return false end
+	f:write(jsonc.stringify(d))
+	f:close()
+	-- 里面有密码:只有 root 能读
+	if fs.chmod then fs.chmod(SOCKS_FILE, "0600") end
+	return true
+end
+
+-- 把配置写进 init 脚本。procd 只接受 argv,读不了 JSON,
+-- 所以这里生成一个最小脚本,参数从状态文件读出来。
+-- JSON 字符串转义。用户名密码会进 sing-box 配置,里面有引号和反斜杠
+-- 都是合法的,不转义就会破坏 JSON。
+local function json_str(v)
+	return '"' .. tostring(v):gsub('\\', '\\\\'):gsub('"', '\\"'):gsub('[%c]', '') .. '"'
+end
+
+-- 生成 sing-box 配置。mixed 入站一个端口同时吃 SOCKS5 和 HTTP CONNECT,
+-- 共用同一套凭据。TLS 打开时它就是 HTTPS 代理,手机系统代理能直接认。
+-- 两个 inbound,同一套凭据:
+--   d.port      裸 mixed(SOCKS5 + HTTP CONNECT),给 Loon 这类客户端
+--   d.tlsport   TLS 包住的 mixed,就是 HTTPS 代理,给手机系统代理/浏览器
+-- 不能合并成一个端口:TLS 在传输层包住整个会话,裸 SOCKS5 握手就没有
+-- 明文入口了,两者无法共存于同一端口。
+local function render_socks_conf(d)
+	local ins = {}
+	ins[#ins + 1] = string.format([[
+    {
+      "type": "mixed",
+      "tag": "plain",
+      "listen": %s,
+      "listen_port": %d,
+      "users": [ { "username": %s, "password": %s } ]
+    }]], json_str(d.listen), d.port, json_str(d.user), json_str(d.password))
+	if d.tls then
+		ins[#ins + 1] = string.format([[
+    {
+      "type": "mixed",
+      "tag": "tls",
+      "listen": %s,
+      "listen_port": %d,
+      "tls": {
+        "enabled": true,
+        "certificate_path": %s,
+        "key_path": %s
+      },
+      "users": [ { "username": %s, "password": %s } ]
+    }]], json_str(d.listen), d.tlsport,
+			json_str(SOCKS_CRT), json_str(SOCKS_KEY),
+			json_str(d.user), json_str(d.password))
+	end
+	local body = string.format([[
+{
+  "log": { "level": "warn" },
+  "inbounds": [
+%s
+  ],
+  "outbounds": [ { "type": "direct", "tag": "direct" } ]
+}
+]], table.concat(ins, ",\n"))
+	fs.mkdirr("/etc/sing-box")
+	local f = io.open(SOCKS_CONF, "w")
+	if not f then return false end
+	f:write(body)
+	f:close()
+	if fs.chmod then fs.chmod(SOCKS_CONF, "0600") end
+	return true
+end
+
+-- procd 只接受 argv,所以仍然生成一个极小的 init 脚本去跑 sing-box。
+local function render_socks_init(d)
+	local body = string.format([[
+#!/bin/sh /etc/rc.common
+# 由 luci.languard 生成。改配置请用 LAN Guard 界面,别手改这个文件:
+# 下一次保存会覆盖它。
+START=95
+STOP=10
+USE_PROCD=1
+
+start_service() {
+	procd_open_instance
+	procd_set_param command %s run -c %s
+	procd_set_param respawn
+	procd_close_instance
+}
+]], SOCKS_BIN, SOCKS_CONF)
+	fs.mkdirr("/etc/init.d")
+	local f = io.open(SOCKS_INIT, "w")
+	if not f then return false end
+	f:write(body)
+	f:close()
+	if fs.chmod then fs.chmod(SOCKS_INIT, "0755") end
+	return true
+end
+
+-- fw4 的 DNAT 规则。派生自上面的端口,所以端口一改转发跟着改。
+local function socks_fwd_name() return "languard-socks" end
+
+local function apply_socks_fwd(d)
+	local name = socks_fwd_name()
+	-- 先清掉旧的:改了端口之后旧规则会指向一个没人监听的端口。
+	-- 删掉后索引会前移,所以从大到小删,否则会漏掉后面的条目。
+	-- 也清掉改名前的旧名字,不然升级后两条规则会同时存在。
+	local out = sys.exec("uci show firewall 2>/dev/null") or ""
+	-- 只删自己写的。之前还列了两个历史名字,但它们从未存在过,
+	-- 留着只会误删别人恰好同名的规则。
+	local names = { [name] = true }
+	local idxs = {}
+	for idx, nm in out:gmatch("firewall%.@redirect%[(%d+)%]%.name='([^']*)'") do
+		if names[nm] then idxs[#idxs + 1] = tonumber(idx) end
+	end
+	table.sort(idxs, function(a, b) return a > b end)
+	for _, idx in ipairs(idxs) do
+		sys.call("uci delete firewall.@redirect[" .. idx .. "] 2>/dev/null")
+	end
+	if not d.enabled or not d.fwd then
+		sys.call("uci commit firewall 2>/dev/null")
+		sys.call("(fw4 reload >/dev/null 2>&1 &) 2>/dev/null")
+		return true
+	end
+	-- 每个监听端口一条 DNAT。dest_ip 必须指向 LAN 地址:route_localnet
+	-- 默认是 0,内核会直接丢掉 DNAT 到 127.0.0.1 的包,客户端只看到 timeout。
+	local lan = lan_ip() or "192.168.1.1"
+	local ports = { d.port }
+	if d.tls then ports[#ports + 1] = d.tlsport end
+	for _, p in ipairs(ports) do
+		sys.call(string.format(
+			"uci add firewall redirect >/dev/null 2>&1; " ..
+			"uci set firewall.@redirect[-1].name=%s; " ..
+			"uci set firewall.@redirect[-1].target='DNAT'; " ..
+			"uci set firewall.@redirect[-1].proto='tcp'; " ..
+			"uci set firewall.@redirect[-1].src='wan'; " ..
+			"uci set firewall.@redirect[-1].src_dport='%d'; " ..
+			"uci set firewall.@redirect[-1].dest_ip=%s; " ..
+			"uci set firewall.@redirect[-1].dest_port='%d'; " ..
+			"uci commit firewall",
+			shq(name), p, shq(lan), p))
+	end
+	-- fw4 reload 要几秒,而 rpcd 的调用超时是 30 秒。放后台跑,
+	-- 否则一次保存就会让界面收到 "No response"。
+	sys.call("(fw4 reload >/dev/null 2>&1 &) 2>/dev/null")
+	return true
+end
+
+local function socks_listening(port)
+	local out = sys.exec("netstat -ln 2>/dev/null") or ""
+	for line in out:gmatch("[^\n]+") do
+		if line:find(":" .. tostring(port) .. " ", 1, true) and line:find("LISTEN", 1, true) then
+			return true
+		end
+	end
+	return false
+end
+
+-- 端口在监听就是活的。pidof 在重启瞬间会漏(procd 还没 exec 完),
+-- 而端口一旦 bind 成功就说明进程已经起来了。
+-- wait 只给"刚 start 完"的路径用。socksget 是 GET 语义,不能为了等
+-- 一个没起来的服务把整个页面卡三四秒。
+local function socks_running(port, wait)
+	if port then
+		if socks_listening(port) then return true end
+		if not wait then return false end
+		for _ = 1, 15 do
+			sys.call("sleep 0.2")
+			if socks_listening(port) then return true end
+		end
+		return false
+	end
+	local out = sys.exec("pidof sing-box 2>/dev/null") or ""
+	return trim(out) ~= ""
+end
+
+
+local function socks_restart(d)
+	sys.call("/etc/init.d/languard-socks stop >/dev/null 2>&1")
+	-- procd 的 stop 是异步的:端口没释放就 start 会撞 EADDRINUSE,
+	-- 进程立刻退出、respawn 也救不回来。等到端口真的空出来。
+	for _ = 1, 25 do
+		if not socks_listening(d.port) then break end
+		sys.call("sleep 0.2")
+	end
+	if d.enabled then
+		-- 生成的脚本第一次出现时没有 rc.d 链接,不开机就不会自启
+		sys.call("/etc/init.d/languard-socks enable >/dev/null 2>&1")
+		sys.call("/etc/init.d/languard-socks start >/dev/null 2>&1")
+	else
+		sys.call("/etc/init.d/languard-socks disable >/dev/null 2>&1")
+	end
+	return true
+end
+
+-- TLS 开着但没有证书时 sing-box 会直接退出,而 procd 重试几次就放弃,
+-- 界面上只会显示"没在跑"。所以 apply 前先把证书补上。
+local function socks_ensure_cert(d)
+	if not d.tls then return true end
+	if fs.access(SOCKS_CRT) and fs.access(SOCKS_KEY) then return true end
+	-- 避免依赖 methods 表(它在文件后半才填充),直接内联生成
+	local ip = sys.exec("ip -4 addr show dev pppoe-wan 2>/dev/null") or ""
+	ip = ip:match("inet%s+(%d+%.%d+%.%d+%.%d+)") or ""
+	if ip == "" then return false end
+	fs.mkdirr(SOCKS_DIR)
+	local san = "IP:" .. ip
+	local lan = lan_ip() or ""
+	if lan ~= "" then san = san .. ",IP:" .. lan end
+	san = san .. ",DNS:localhost"
+	local cmd = string.format(
+		"openssl req -x509 -newkey rsa:2048 -sha256 -days 3650 -nodes " ..
+		"-keyout %s -out %s -subj '/CN=languard-socks' " ..
+		"-addext 'subjectAltName=%s' >/dev/null 2>&1",
+		shq(SOCKS_KEY), shq(SOCKS_CRT), san)
+	if sys.call(cmd) ~= 0 then return false end
+	sys.call("chmod 600 " .. shq(SOCKS_KEY))
+	return true
+end
+
+local function socks_apply(d)
+	-- 证书缺失时先关掉 TLS,而不是让 sing-box 起不来
+	if not socks_ensure_cert(d) then
+		d.tls = false
+	end
+	local ok_conf = render_socks_conf(d)
+	local ok_init = render_socks_init(d)
+	if not ok_conf or not ok_init then return false end
+	apply_socks_fwd(d)
+	socks_restart(d)
+	return true
+end
+
+function methods.socksget()
+	local d = load_socks()
+	-- 密码不下发到浏览器,只给一个"已设置"的标记
+	local has_pw = d.password ~= nil and d.password ~= ""
+	local fwd = false
+	local out = sys.exec("uci show firewall 2>/dev/null") or ""
+	if out:find("name='" .. socks_fwd_name() .. "'", 1, true) then fwd = true end
+	return { success = true, running = true,
+	         enabled = d.enabled, port = d.port, user = d.user,
+	         has_password = has_pw, listen = d.listen, fwd = fwd, tls = d.tls,
+	         tlsport = d.tlsport,
+	         active = socks_running(d.port, false), listening = socks_listening(d.port) }
+end
+
+function methods.socksset(enabled, port, user, password, listen, fwd, tls, tlsport)
+	local d = load_socks()
+	local function flag(v)
+		if v == nil or v == "" then return nil end
+		return v == true or v == "1" or v == 1 or v == "true"
+	end
+	local f
+	f = flag(enabled); if f ~= nil then d.enabled = f end
+	f = flag(fwd);     if f ~= nil then d.fwd = f end
+	f = flag(tls);     if f ~= nil then d.tls = f end
+	local want_tlsport = tonumber(tlsport)
+	if want_tlsport and (want_tlsport < 1 or want_tlsport > 65535) then
+		return err("HTTPS port out of range")
+	end
+	port = tonumber(port)
+	if port and port >= 1 and port <= 65535 then d.port = port end
+	if type(user) == "string" and user ~= "" and #user <= 64 then d.user = user end
+	if type(password) == "string" and password ~= "" then
+		if #password < 8 then
+			return err("password must be at least 8 characters")
+		end
+		if #password > 128 then
+			return err("password too long")
+		end
+		d.password = password
+	end
+	if type(listen) == "string" and listen ~= "" then d.listen = listen end
+	if want_tlsport then d.tlsport = want_tlsport end
+	-- 两个监听端口不能相同:同一地址同一端口 bind 两次,第二个会失败,
+	-- sing-box 直接退出,连本来能用的那个也一起带走。
+	if d.tls and d.tlsport == d.port then
+		return err("HTTPS port must differ from the SOCKS port")
+	end
+	if not d.enabled and d.fwd then d.fwd = false end
+	if d.enabled and (d.password == nil or d.password == "") then
+		return err("set a password before enabling the proxy")
+	end
+	save_socks(d)
+	if not socks_apply(d) then
+		return err("cannot write the proxy configuration")
+	end
+	local active = socks_running(d.port, true)
+	if d.enabled and not active then
+		return err("proxy did not start; check that sing-box is installed")
+	end
+	return ok({ enabled = d.enabled, port = d.port, user = d.user,
+	            fwd = d.fwd, active = active, tls = d.tls, tlsport = d.tlsport })
+end
+
+-- 自签证书。浏览器和手机系统对自签会报一次警告,信任之后就不再问。
+-- 证书里必须带上公网 IP,否则客户端会因为主机名不匹配而拒绝。
+function methods.sockscertregen()
+	local d = load_socks()
+	local ip = sys.exec("ip -4 addr show dev pppoe-wan 2>/dev/null") or ""
+	ip = ip:match("inet%s+(%d+%.%d+%.%d+%.%d+)") or ""
+	local lan = lan_ip() or ""
+	if ip == "" then return err("no public IPv4 address on pppoe-wan") end
+	fs.mkdirr(SOCKS_DIR)
+	local san = "IP:" .. ip
+	if lan ~= "" then san = san .. ",IP:" .. lan end
+	san = san .. ",DNS:localhost"
+	local cmd = string.format(
+		"openssl req -x509 -newkey rsa:2048 -sha256 -days 3650 -nodes " ..
+		"-keyout %s -out %s -subj '/CN=languard-socks' " ..
+		"-addext 'subjectAltName=%s' >/dev/null 2>&1",
+		shq(SOCKS_KEY), shq(SOCKS_CRT), san)
+	local rc = sys.call(cmd)
+	if rc ~= 0 then return err("openssl failed") end
+	sys.call("chmod 600 " .. shq(SOCKS_KEY))
+	socks_apply(d)
+	return ok({ regenerated = true, san = san, active = socks_running(d.port) })
+end
+
+function methods.sockscertinfo()
+	local out = sys.exec("openssl x509 -in " .. shq(SOCKS_CRT) ..
+		" -noout -subject -issuer -dates -ext subjectAltName 2>/dev/null") or ""
+	if out == "" then return { success = true, running = true, present = false } end
+	return { success = true, running = true, present = true,
+	         details = trim(out), path = SOCKS_CRT }
+end
+
+function methods.socksrestart()
+	local d = load_socks()
+	if not socks_apply(d) then
+		return err("cannot write the proxy configuration")
+	end
+	local active = socks_running(d.port, true)
+	if d.enabled and not active then
+		return err("proxy did not start")
+	end
+	return ok({ active = active })
+end
+
+function methods.socksgenpw()
+	-- 32 个可见 ASCII,够长且不含引号空白,可以直接进 argv
+	-- 这个密码是 WAN 暴露的代理的唯一凭据,不能来自 math.random
+	-- (Lua 5.1 的 LCG 由 os.time/os.clock 播种,可预测)。
+	local pw = ""
+	local raw = sys.exec("od -An -N32 -tx1 /dev/urandom 2>/dev/null") or ""
+	raw = raw:gsub("%s+", "")
+	if #raw >= 32 then
+		local chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
+		local out = {}
+		for i = 1, 32 do
+			local byte = tonumber(raw:sub(i * 2 - 1, i * 2), 16) or 0
+			out[#out + 1] = chars:sub((byte % #chars) + 1, (byte % #chars) + 1)
+		end
+		pw = table.concat(out)
+	end
+	if pw == "" then
+		local chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
+		local out = {}
+		math.randomseed(os.time())
+		for _ = 1, 32 do
+			out[#out + 1] = chars:sub(math.random(1, #chars), math.random(1, #chars))
+		end
+		pw = table.concat(out)
+	end
+	local d = load_socks()
+	d.password = pw
+	save_socks(d)
+	socks_apply(d)
+	return ok({ password = pw, active = socks_running(d.port) })
+end
+
 function methods.autoset(enabled, threshold, window, ttl, ssh_password, ssh_user, web_auth)
 	local cfg = load_autocfg()
 	if enabled ~= nil and enabled ~= "" then
@@ -3424,8 +4538,19 @@ function methods.tickset(on_)
 	return ok({ enabled = on })
 end
 
+-- 高频采集入口。连接只活十秒左右,55 秒的 tick 必然漏掉绝大多数流,
+-- 所以 watcher 每两秒调一次这个函数,它只做增量累加;tick 负责归类落盘。
+function methods.honkpoll()
+	local added = honk_poll(os.time())
+	local pend = load_json_map(HONK_PENDING, function() return {} end)
+	local c = 0
+	for _ in pairs(pend) do c = c + 1 end
+	return { success = true, running = true, bytes = added, flows = c }
+end
+
 function methods.tick()
 	local now = os.time()
+	honk_poll(now)
 	local cfg = load_json_map(STATE_DIR .. "/tick.json", function() return { enabled = true } end)
 	if cfg.enabled == false then
 		return { success = true, running = true, skipped = true }
@@ -3446,8 +4571,6 @@ function methods.tick()
 		save_json_map(FINGERPRINT_FILE, fst)
 	end
 	_qos_dirty = false
-	-- clear the shared copy so this tick rebuilds it from the current table
-	IDX.ct = nil
 	IDX.memo = {}
 	local apps, stat_err = pcall(collect_app_stats, now)
 	if not apps then
@@ -3457,7 +4580,7 @@ function methods.tick()
 	else
 		stat_err = nil
 	end
-	IDX.ct, IDX.memo = nil, nil
+	IDX.memo = nil
 	local stt = load_json_map(STATE_DIR .. "/tickstate.json", function() return {} end)
 	stt.last = now
 	if stat_err then
@@ -3475,8 +4598,7 @@ function methods.tick()
 	if _qos_dirty then apply_qos() end
 	-- keep the redirect chain in step with the rules: add the bypass return
 	-- when something needs it, remove it when nothing does
-	local want_bypass = bypass_addresses()
-	if (#want_bypass > 0) ~= bypass_rule_present() then apply_bypass() end
+	apply_bypass()
 	return { success = true, running = true,
 	         expired = e.expired, schedule_changed = sc.changed,
 	         active = sc.active, new_devices = nd, oui_lookups = oui,
@@ -3963,6 +5085,20 @@ local HANDLERS = {
 	feedset            = { f = function() return methods.feedset(req.id, req.interval) end },
 	applist            = { f = function() return methods.applist() end, arrays = { "apps" } },
 	appstats           = { f = function() return methods.appstats(req.range) end, arrays = { "apps", "dev" } },
+	honkpoll           = { f = function() return methods.honkpoll() end },
+	gameqosget       = { f = function() return methods.gameqosget() end, arrays = { "devices", "extra_ports" } },
+	qosrefresh       = { f = function() return methods.qosrefresh() end },
+	tagview          = { f = function() return methods.tagview() end, arrays = { "rules", "classes", "dscp" } },
+	flows            = { f = function() return methods.flows() end, arrays = { "flows", "by_outbound", "by_dscp" } },
+	groupfinals      = { f = function() return methods.groupfinals() end, arrays = { "groups" } },
+	probeurl         = { f = function() return methods.probeurl(req.host) end },
+	gameqosset       = { f = function() return methods.gameqosset(req.enabled, req.devices, req.extra_ports, req.interval) end },
+	socksget         = { f = function() return methods.socksget() end },
+	socksset         = { f = function() return methods.socksset(req.enabled, req.port, req.user, req.password, req.listen, req.fwd, req.tls, req.tlsport) end },
+	socksrestart     = { f = function() return methods.socksrestart() end },
+	socksgenpw       = { f = function() return methods.socksgenpw() end },
+	sockscertregen   = { f = function() return methods.sockscertregen() end },
+	sockscertinfo    = { f = function() return methods.sockscertinfo() end },
 	sample_start       = { f = function() return methods.sample_start(req.duration) end },
 	sample_stop        = { f = function() return methods.sample_stop() end },
 	sample_result      = { f = function() return methods.sample_result() end, arrays = { "groups" } },
@@ -4081,6 +5217,20 @@ if arg[1] == "list" then
 		notifyevents = { events = "" },
 		notifytest   = { id = "" },
 		expire      = {},
+		honkpoll    = {},
+		gameqosget = {},
+		qosrefresh = {},
+		tagview = {},
+		flows = {},
+		groupfinals = {},
+		probeurl = { host = "" },
+		gameqosset = { enabled = "", devices = "", extra_ports = "", interval = "" },
+		socksget  = {},
+		socksset  = { enabled = "", port = "", user = "", password = "", listen = "", fwd = "", tls = "", tlsport = "" },
+		socksrestart = {},
+		socksgenpw = {},
+		sockscertregen = {},
+		sockscertinfo = {},
 		tick        = {},
 		tickcfg     = {},
 		tickset     = { on_ = "" },

@@ -9,7 +9,7 @@ PKG_LICENSE_FILES:=LICENSE
 PKG_MAINTAINER:=rheatin
 
 LUCI_TITLE:=LuCI app for LAN access control
-LUCI_DEPENDS:=+luci-base +rpcd +nftables +firewall4 +coreutils +coreutils-sleep +bash
+LUCI_DEPENDS:=+luci-base +rpcd +nftables +firewall4 +coreutils +coreutils-sleep +bash +sing-box +openssl-util
 LUCI_PKGARCH:=all
 
 define Package/luci-app-languard/conffiles

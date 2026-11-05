@@ -81,6 +81,17 @@ var callCurfew = common.callCurfew;
 var callPortList = common.callPortList;
 var callPortAdd = common.callPortAdd;
 var callPortDel = common.callPortDel;
+var callGameQosGet = common.callGameQosGet;
+var callGameQosSet = common.callGameQosSet;
+var callTagView = common.callTagView;
+var callFlows = common.callFlows;
+var callGroupFinals = common.callGroupFinals;
+var callSocksGet = common.callSocksGet;
+var callSocksSet = common.callSocksSet;
+var callSocksRestart = common.callSocksRestart;
+var callSocksCertRegen = common.callSocksCertRegen;
+var callSocksCertInfo = common.callSocksCertInfo;
+var callSocksGenPw = common.callSocksGenPw;
 var callNotifyGet = common.callNotifyGet;
 var callNotifyAdd = common.callNotifyAdd;
 var callNotifyDel = common.callNotifyDel;
@@ -208,6 +219,8 @@ return view.extend({
 		return callNotifyGet().then(function (res) {
 			self.notify = res || {};
 			self.renderNotify();
+			self.renderSocks();
+			self.renderFlows();
 		}).catch(function () { self.renderNotify(); });
 	},
 
@@ -263,6 +276,536 @@ return view.extend({
 		}).catch(function (e) {
 			ui.addNotification(null, E('p', {}, e.message || _('Failed')), 'error');
 		});
+	},
+
+	// ---- 入站 SOCKS5 反代 ------------------------------------------
+	// ---- 流量标记诊断 ------------------------------------------------
+	renderFlows: function () {
+		var self = this;
+		callGameQosGet().then(function (r) {
+			self.qosInterval = (r && r.interval) || 10;
+			var el = document.getElementById('cb-flow-interval');
+			if (el && document.activeElement !== el) el.value = self.qosInterval;
+		}).catch(function () {});
+		var pf = callFlows().then(function (res) {
+			self.paintFlows(res || {});
+		}).catch(function () { self.paintFlows({}); });
+		this.renderGroupFinals();
+		return pf;
+	},
+
+	handleFlowInterval: function (ev) {
+		var self = this;
+		var v = parseInt(ev.currentTarget.value, 10);
+		if (!(v >= 3 && v <= 300)) return;
+		self.qosInterval = v;
+		return callGameQosSet('1', '', '', String(v)).catch(function () {});
+	},
+
+	// IPv6 太长会撑坏行。取前三段做标识,完整值放 title。
+	shortIp: function (x) {
+		if (!x) return '?';
+		if (x.charAt(0) === '[' && x.indexOf(']') > 0) {
+			var inner = x.slice(1, x.indexOf(']'));
+			var parts = inner.split(':').filter(function (p) { return p.length; });
+			if (parts.length > 3) return '[' + parts.slice(0, 3).join(':') + '\u2026]';
+			return x;
+		}
+		return x;
+	},
+
+	dscpBadge: function (dscp, name, mark, role) {
+		var ds = dscp || 0;
+		var cls = 'cb-badge cb-badge-dscp ';
+		if (ds === 0) cls += 'cb-dscp-none';
+		else if (ds >= 46) cls += 'cb-dscp-high';
+		else if (ds >= 32) cls += 'cb-dscp-mid';
+		else cls += 'cb-dscp-low';
+		// 只显示名字。数字对使用者没有意义,悬停才给细节。
+		return E('span', { 'class': cls,
+			'title': 'DSCP ' + ds + (role ? ' · ' + role : '') + ' · mark=' + (mark || 0) },
+			(name || 'cs0').toUpperCase());
+	},
+
+	tagBadge: function (tag) {
+		var t = tag || '?';
+		var cls = 'cb-badge ';
+		if (t === 'direct') cls += 'cb-badge-ok';
+		else if (t === 'block') cls += 'cb-badge-bad';
+		else cls += 'cb-badge-group';
+		return E('span', { 'class': cls }, t);
+	},
+
+	// 多个徽章用这个:一次构建一个扁平的节点列表
+	tagBadges: function (tags) {
+		var self = this;
+		var out = [];
+		tags.forEach(function (t) { out.push(self.tagBadge(t)); });
+		return out;
+	},
+
+	renderGroupFinals: function () {
+		return callGroupFinals().then(function (res) {
+			var tbody = document.getElementById('cb-gf-body');
+			if (!tbody) return;
+			tbody.innerHTML = '';
+			var gs = (res && res.groups) || [];
+			if (gs.length === 0) {
+				tbody.appendChild(E('div', { 'style': 'opacity:.6;font-size:.8rem' }, _('no groups')));
+				return;
+			}
+			gs.forEach(function (g) {
+				var fin = g.final;
+				var finEl;
+				if (fin === 'direct' || fin === 'block') {
+					finEl = E('span', { 'class': 'cb-badge ' + (fin === 'direct' ? 'cb-badge-ok' : 'cb-badge-bad') }, fin);
+				} else if (fin) {
+					// 指向另一个组:蓝色徽章,点开看那个组
+					finEl = E('span', { 'class': 'cb-badge cb-badge-group' }, fin);
+				} else {
+					finEl = E('span', { 'style': 'opacity:.5;font-size:.75rem' }, '\u2014');
+				}
+				var nowEl = (g.now && g.now !== '')
+					? E('span', { 'style': 'font-size:.75rem;opacity:.75;font-family:var(--font-mono,monospace)' }, g.now)
+					: E('span', { 'style': 'opacity:.4;font-size:.75rem' }, '\u2014');
+
+				tbody.appendChild(E('tr', {}, [
+					E('td', { 'class': 'cb-ft-ip' }, g.name),
+					E('td', {}, String(g.policy)),
+					E('td', { 'style': 'text-align:right;color:var(--text-muted)' }, String(g.members)),
+					E('td', {}, finEl),
+					E('td', {}, nowEl)
+				]));
+			});
+			var sum = document.getElementById('cb-gf-sum');
+			if (sum) sum.textContent = (res.n_final || 0) + ' ' + _('with final') + ' \u00b7 ' + (res.n_direct || 0) + ' ' + _('direct fallback');
+		}).catch(function () {});
+	},
+
+	paintFlows: function (d) {
+		if (d && d.flows) this.lastFlows = d;
+		var rows = d.flows || [];
+		var self = this;
+
+		// 概览
+		var st = document.getElementById('cb-flow-stats');
+		if (st) {
+			st.innerHTML = '';
+			var devs = {}, labels = {};
+			rows.forEach(function (f) {
+				devs[f.src] = 1;
+				labels[f.outbound || '?'] = 1;
+			});
+			var tagged = rows.filter(function (f) { return (f.dscp || 0) > 0; }).length;
+			var stats = [
+				[_('Active flows'), String(rows.length), false],
+				[_('Devices'), String(Object.keys(devs).length), false],
+				[_('DSCP tagged'), tagged + ' / ' + rows.length, tagged > 0],
+				[_('Labels'), String(Object.keys(labels).length), false]
+			];
+			stats.forEach(function (x) {
+				st.appendChild(E('div', { 'class': 'cb-stat' + (x[2] ? ' cb-stat-ok' : '') }, [
+					E('div', { 'class': 'cb-stat-k' }, x[0]),
+					E('div', { 'class': 'cb-stat-v' }, x[1])
+				]));
+			});
+		}
+
+		// DSCP 横条
+		var bars = document.getElementById('cb-flows-dscp');
+		if (bars) {
+			bars.innerHTML = '';
+			var dl = d.by_dscp || [];
+			var total = 0;
+			dl.forEach(function (x) { total += x.count; });
+			if (dl.length === 0) {
+				bars.appendChild(E('div', { 'style': 'opacity:.6;font-size:.8rem' }, _('no flows yet')));
+			}
+			dl.forEach(function (x) {
+				var pct = total ? (x.count * 100 / total) : 0;
+				var seg = (x.dscp === 0) ? 'cb-dseg-none' :
+					(x.dscp >= 46 ? 'cb-dseg-high' :
+					 (x.dscp >= 32 ? 'cb-dseg-mid' : 'cb-dseg-low'));
+				bars.appendChild(E('div', { 'class': 'cb-dbar' }, [
+					E('div', { 'class': 'cb-dlab' }, [
+						E('span', { 'class': 'cb-dval' }, String(x.dscp)),
+						E('span', { 'class': 'cb-dname' }, x.name || '')
+					]),
+					E('div', { 'class': 'cb-dtrack' }, [
+						E('div', { 'class': 'cb-dfill ' + seg,
+							'style': 'width:' + Math.max(Math.min(pct, 100), 0.4) + '%' })
+					]),
+					E('div', { 'class': 'cb-dnum' }, [
+						String(x.count),
+						E('span', { 'class': 'cb-dpct' }, pct.toFixed(1) + '%')
+					])
+				]));
+			});
+		}
+
+		// 按设备分组
+		var host = document.getElementById('cb-flows-body');
+		if (host) {
+			host.innerHTML = '';
+			if (rows.length === 0) {
+				host.appendChild(E('div', { 'style': 'opacity:.6;font-size:.8rem' }, _('no active flows')));
+				return;
+			}
+
+			var groups = {}, order = [];
+			rows.forEach(function (f) {
+				var k = f.src || '?';
+				if (!groups[k]) { groups[k] = []; order.push(k); }
+				groups[k].push(f);
+			});
+			order.sort(function (a, b) { return groups[b].length - groups[a].length; });
+
+			order.forEach(function (dev, idx) {
+				var list = groups[dev];
+
+				// 有域名按域名聚合;无域名按目标 IP 聚合,端口单独列
+				var agg = {}, korder = [];
+				list.forEach(function (f) {
+					var dom = f.domain;
+					var dst = f.dst || '';
+					var ip = dst.indexOf(':') >= 0 ? dst.split(':')[0] : dst;
+					var key = dom || ('ip:' + ip);
+					if (!agg[key]) {
+						agg[key] = { dom: dom, ip: ip, n: 0, tags: {}, dscps: {}, ports: {} };
+						korder.push(key);
+					}
+					var e = agg[key];
+					e.n++;
+					e.tags[f.outbound || '?'] = 1;
+					e.dscps[(f.dscp || 0) + '|' + (f.dscp_name || '') + '|' + (f.mark || 0) + '|' + (f.dscp_role || '')] = 1;
+					var p = dst.indexOf(':') >= 0 ? dst.split(':').pop() : '';
+					if (p) e.ports[p] = 1;
+				});
+
+				var tagset = {};
+				list.forEach(function (f) { tagset[f.outbound || '?'] = 1; });
+
+				var allItems = korder.sort(function (a, b) { return agg[b].n - agg[a].n; });
+				// 每台设备独立的展开计数,点一次多给 20 条
+				if (!self.flowPage) self.flowPage = {};
+				var page = self.flowPage[dev] || 20;
+				var shown = allItems.slice(0, page);
+				var rest = allItems.slice(page);
+
+				var body = E('div', { 'class': 'cb-devbody' }, [
+					E('table', { 'class': 'cb-flow-table' }, [
+						E('thead', {}, E('tr', {}, [
+							E('th', {}, _('Destination')),
+							E('th', { 'style': 'text-align:right' }, _('Flows')),
+							E('th', { 'class': 'cb-ft-lbl' }, _('Label')),
+							E('th', { 'class': 'cb-ft-dscp' }, _('DSCP')),
+							E('th', {}, _('Ports'))
+						])),
+						E('tbody', {}, shown.map(function (k) {
+							var e = agg[k];
+							var tags = Object.keys(e.tags).sort();
+							var dscps = Object.keys(e.dscps).sort();
+							var ports = Object.keys(e.ports).sort();
+							return E('tr', {}, [
+								E('td', { 'class': e.dom ? 'cb-ft-dom' : 'cb-ft-ip' },
+									e.dom || e.ip || '?'),
+								E('td', { 'style': 'text-align:right;color:var(--text-muted);font-size:.72rem' },
+									String(e.n)),
+								E('td', { 'class': 'cb-ft-lbl' }, tags.map(function (t) { return self.tagBadge(t); })),
+								E('td', { 'class': 'cb-ft-dscp' }, dscps.map(function (x) {
+									var p = x.split('|');
+									return self.dscpBadge(parseInt(p[0], 10), p[1], parseInt(p[2], 10), p[3]);
+								})),
+								E('td', { 'class': 'cb-ft-ports' },
+									ports.slice(0, 3).map(function (p) {
+										return E('span', { 'class': 'cb-port' }, ':' + p);
+									}).concat(ports.length > 3
+										? [E('span', { 'class': 'cb-port cb-port-more' }, '+' + (ports.length - 3))]
+										: []))
+							]);
+						}).concat(rest.length ? [
+							E('tr', { 'class': 'cb-ft-rest' }, E('td', { 'colspan': '5' },
+								E('button', { 'class': 'cb-loadmore',
+									'click': function (ev) {
+										ev.stopPropagation();
+										self.flowPage[dev] = page + 20;
+										self.paintFlows(self.lastFlows || {});
+									} },
+									_('Show') + ' ' + Math.min(20, rest.length) + ' ' + _('more') +
+									' \u00b7 ' + rest.reduce(function (a, k) { return a + agg[k].n; }, 0) + ' ' + _('flows')
+								))
+							)
+						] : []))
+					])
+				]);
+
+				// 默认全部折叠。展开状态只由用户点击决定,刷新不重置,
+				// 否则正在看的那台会被挤掉。
+				var open = !!(self.flowsOpen && self.flowsOpen[dev]);
+				body.style.display = open ? '' : 'none';
+
+				// 折叠时把每个标签的数量标出来,不用展开也知道这台设备在跑什么。
+				// 注意:E() 的子节点必须是扁平的 DOM 节点数组 —— 嵌套数组会被
+				// 当成文本拼进去,null 会渲染成字面量 "null"。
+				var tagCount = {};
+				list.forEach(function (f) {
+					var t = f.outbound || '?';
+					tagCount[t] = (tagCount[t] || 0) + 1;
+				});
+				// E() 只接受 3 个参数(标签、属性、内容),多传的会被丢掉。
+				// 所以子节点一律包成数组。
+				var badgeKids = [];
+				Object.keys(tagCount).sort(function (a, b) { return tagCount[b] - tagCount[a]; })
+					.forEach(function (t) {
+						badgeKids.push(E('span', { 'class': 'cb-badgewrap' }, [
+							self.tagBadge(t),
+							E('span', { 'class': 'cb-badgecount' }, String(tagCount[t]))
+						]));
+					});
+				var head = E('div', { 'class': 'cb-devhead' }, [
+					E('span', { 'class': 'cb-caret' }, open ? '\u25be' : '\u25b8'),
+					E('span', { 'class': 'cb-devname', 'title': dev }, self.shortIp(dev)),
+					E('span', { 'class': 'cb-devmeta' }, String(list.length) + ' ' + _('flows')),
+					E('span', { 'class': 'cb-devbadges' }, badgeKids)
+				]);
+
+				head.addEventListener('click', function () {
+					if (!self.flowsOpen) self.flowsOpen = {};
+					self.flowsOpen[dev] = !self.flowsOpen[dev];
+					// 重绘整块而不是局部 toggle:展开时才构建 body,
+					// 折叠的设备连表格都不生成,几百台时省很多 DOM。
+					self.paintFlows(self.lastFlows || {});
+				});
+
+				var kids = [head];
+				if (open) kids.push(body);
+				host.appendChild(E('div', { 'class': 'cb-dev' }, kids));
+			});
+		}
+
+		var cnt = document.getElementById('cb-flows-count');
+		if (cnt) cnt.textContent = String(rows.length) + ' ' + _('flows');
+
+		// 队列结果
+		var rt = document.getElementById('cb-tag-rules');
+		if (rt) {
+			rt.innerHTML = '';
+			var rl = d.rules || [];
+			if (rl.length === 0) {
+				rt.appendChild(E('tr', {}, E('td', { 'colspan': '3', 'style': 'opacity:.6' },
+					_('no QoS rules loaded'))));
+			}
+			rl.forEach(function (r) {
+				rt.appendChild(E('tr', {}, [
+					E('td', { 'style': 'font-size:.75rem' }, r.tag),
+					E('td', { 'style': 'text-align:right' }, String(r.packets)),
+					E('td', { 'style': 'text-align:right;opacity:.7' }, fmtBytes(r.bytes))
+				]));
+			});
+		}
+
+		var ct = document.getElementById('cb-tag-classes');
+		if (ct) {
+			ct.innerHTML = '';
+			(d.classes || []).forEach(function (c) {
+				ct.appendChild(E('tr', {}, [
+					E('td', { 'style': 'font-family:var(--font-mono,monospace)' }, c.cls),
+					E('td', {}, c.name),
+					E('td', { 'style': 'text-align:right' }, String(c.packets)),
+					E('td', { 'style': 'text-align:right;opacity:.7' }, fmtBytes(c.bytes))
+				]));
+			});
+		}
+	},
+
+	renderTags: function () {
+		var self = this;
+		return callTagView().then(function (res) {
+			self.paintTags(res || {});
+		}).catch(function () { self.paintTags({}); });
+	},
+
+	paintTags: function (d) {
+		// 规则命中
+		var rt = document.getElementById('cb-tag-rules');
+		if (rt) {
+			rt.innerHTML = '';
+			var rows = d.rules || [];
+			if (rows.length === 0) {
+				rt.appendChild(E('tr', {}, E('td', { 'colspan': '3', 'style': 'opacity:.6' },
+					_('no QoS rules loaded'))));
+			}
+			rows.forEach(function (r) {
+				var cls = r.cls ? ('1:' + r.cls.split(':')[1]) : '?';
+				rt.appendChild(E('tr', {}, [
+					E('td', { 'style': 'font-size:.8rem' }, r.tag),
+					E('td', { 'style': 'text-align:right' }, String(r.packets)),
+					E('td', { 'style': 'text-align:right;opacity:.7' }, fmtBytes(r.bytes))
+				]));
+			});
+		}
+
+		// tc 类
+		var ct = document.getElementById('cb-tag-classes');
+		if (ct) {
+			ct.innerHTML = '';
+			(d.classes || []).forEach(function (c) {
+				ct.appendChild(E('tr', {}, [
+					E('td', { 'style': 'font-family:monospace' }, c.cls),
+					E('td', {}, c.name),
+					E('td', { 'style': 'text-align:right' }, String(c.packets)),
+					E('td', { 'style': 'text-align:right;opacity:.7' }, fmtBytes(c.bytes))
+				]));
+			});
+		}
+
+		// DSCP 分布
+		var dt = document.getElementById('cb-tag-dscp');
+		if (dt) {
+			dt.innerHTML = '';
+			(d.dscp || []).forEach(function (x) {
+				var pct = d.total_flows ? Math.round(x.count * 100 / d.total_flows) : 0;
+				dt.appendChild(E('tr', {}, [
+					E('td', { 'style': 'font-family:monospace' }, String(x.dscp)),
+					E('td', {}, x.name),
+					E('td', { 'style': 'text-align:right' }, String(x.count)),
+					E('td', { 'style': 'text-align:right;opacity:.7' }, pct + '%')
+				]));
+			});
+			var tot = document.getElementById('cb-tag-total');
+			if (tot) tot.textContent = String(d.total_flows || 0);
+		}
+	},
+
+	renderSocks: function () {
+		var self = this;
+		var p = callSocksGet().then(function (res) {
+			self.socks = res || {};
+			self.paintSocks();
+		}).catch(function () { self.paintSocks(); });
+		this.renderSocksCert();
+		return p;
+	},
+
+	paintSocks: function () {
+		var d = this.socks || {};
+		var st = document.getElementById('cb-socks-state');
+		if (!st) return;
+		var active = d.active === true;
+		var listening = d.listening === true;
+		st.innerHTML = '';
+		var badge = E('span', {
+			'class': 'cb-badge' + (active ? ' cb-badge-ok' : ' cb-badge-bad')
+		}, active ? _('running') : _('stopped'));
+		st.appendChild(badge);
+		st.appendChild(E('span', { 'style': 'margin-left:.6rem;opacity:.75' },
+			(listening ? _('listening on port ') + d.port : _('not listening'))));
+		if (d.fwd)
+			st.appendChild(E('span', { 'class': 'cb-badge', 'style': 'margin-left:.6rem' }, _('WAN forwarded')));
+
+		// 轮询会把服务端的值刷回来。正在编辑的输入框不能被打断,
+		// 所以只更新那些没有焦点的。
+		var focused = document.activeElement;
+		var setVal = function (id, v) {
+			var el = document.getElementById(id);
+			if (!el || el === focused) return;
+			if (el.value !== String(v)) el.value = v;
+		};
+		setVal('cb-socks-port', d.port || 8893);
+		setVal('cb-socks-user', d.user || 'languard');
+		setVal('cb-socks-tlsport', d.tlsport || 8894);
+		var enEl = document.getElementById('cb-socks-enabled');
+		if (enEl) enEl.checked = d.enabled !== false;
+		var fwdEl = document.getElementById('cb-socks-fwd');
+		if (fwdEl) fwdEl.checked = d.fwd === true;
+		var tlsEl = document.getElementById('cb-socks-tls');
+		if (tlsEl) tlsEl.checked = d.tls !== false;
+
+		var pw = document.getElementById('cb-socks-pw-state');
+		if (pw) {
+			pw.textContent = d.has_password
+				? _('a password is set')
+				: _('no password — anyone who can reach this port gets an open proxy');
+			pw.style.color = d.has_password ? '' : 'var(--error, #d33)';
+		}
+	},
+
+	handleSocksSave: function (ev) {
+		var self = this;
+		var port = document.getElementById('cb-socks-port').value;
+		var user = document.getElementById('cb-socks-user').value;
+		var pw = document.getElementById('cb-socks-pw').value;
+		var enabled = document.getElementById('cb-socks-enabled').checked;
+		var fwd = document.getElementById('cb-socks-fwd').checked;
+		var tls = document.getElementById('cb-socks-tls').checked;
+		var tlsport = document.getElementById('cb-socks-tlsport').value;
+		var btn = ev.currentTarget;
+		btn.disabled = true;
+		return callSocksSet(enabled ? '1' : '0', port, user, pw, '', fwd ? '1' : '0',
+			tls ? '1' : '0', tlsport)
+			.then(function (res) {
+				if (res && res.success === false)
+					throw new Error(res.error || _('Failed'));
+				ui.addNotification(null, E('p', {}, _('Inbound proxy updated')), 'info');
+				document.getElementById('cb-socks-pw').value = '';
+				return self.renderSocks();
+			}).catch(function (e) {
+				ui.addNotification(null, E('p', {}, e.message || _('Failed')), 'error');
+			}).finally(function () { btn.disabled = false; });
+	},
+
+	handleSocksRestart: function (ev) {
+		var self = this;
+		var btn = ev.currentTarget;
+		btn.disabled = true;
+		return callSocksRestart().then(function () {
+			return self.renderSocks();
+		}).catch(function (e) {
+			ui.addNotification(null, E('p', {}, e.message || _('Failed')), 'error');
+		}).finally(function () { btn.disabled = false; });
+	},
+
+	handleSocksGenPw: function (ev) {
+		var self = this;
+		if (!confirm(_('Replace the password with a new random one? Devices using the old one will be cut off.')))
+			return;
+		var btn = ev.currentTarget;
+		btn.disabled = true;
+		return callSocksGenPw().then(function (res) {
+			if (res && res.success === false)
+				throw new Error(res.error || _('Failed'));
+			ui.addNotification(null,
+				E('p', {}, _('New password: ') + (res.password || '')), 'info');
+			return self.renderSocks();
+		}).catch(function (e) {
+			ui.addNotification(null, E('p', {}, e.message || _('Failed')), 'error');
+		}).finally(function () { btn.disabled = false; });
+	},
+
+	handleSocksCertRegen: function (ev) {
+		var self = this;
+		var btn = ev.currentTarget;
+		btn.disabled = true;
+		return callSocksCertRegen().then(function (res) {
+			if (res && res.success === false)
+				throw new Error(res.error || _('Failed'));
+			ui.addNotification(null, E('p', {}, _('Certificate regenerated')), 'info');
+			return self.renderSocks();
+		}).catch(function (e) {
+			ui.addNotification(null, E('p', {}, e.message || _('Failed')), 'error');
+		}).finally(function () { btn.disabled = false; });
+	},
+
+	renderSocksCert: function () {
+		return callSocksCertInfo().then(function (res) {
+			var el = document.getElementById('cb-socks-cert');
+			if (!el) return;
+			if (!res || !res.present) {
+				el.textContent = _('no certificate yet — it is generated when the HTTPS port starts');
+				return;
+			}
+			el.textContent = res.details || '';
+		}).catch(function () {});
 	},
 
 	renderNotify: function () {
@@ -732,6 +1275,76 @@ return view.extend({
 			var day = document.getElementById('cb-app-day');
 			if (day) day.textContent = self.appStats.day || '';
 		}).catch(function (e) { console.error('languard: app stats refresh failed', e); });
+	},
+
+	probeCard: function () {
+		var self = this;
+		return E('div', { 'class': 'cb-card' }, [
+			E('div', { 'class': 'cb-card-head' }, [
+				E('span', { 'class': 'cb-dot' }), E('span', {}, _('Route probe')),
+				E('span', { 'class': 'cb-count', 'style': 'margin-left:auto' }, _('Which group handles a site?'))
+			]),
+			E('div', { 'class': 'cb-card-body' }, [
+				E('div', { 'style': 'display:flex;gap:.4rem' }, [
+					E('input', {
+						'id': 'cb-probe-input', 'type': 'text',
+						'placeholder': _('e.g. www.wikipedia.org'),
+						'style': 'flex:1 1 auto',
+						'keydown': function (ev) {
+							if (ev.key === 'Enter') self.runProbe();
+						}
+					}),
+					E('button', { 'class': 'cb-btn', 'click': function () { self.runProbe(); } }, _('Probe'))
+				]),
+				E('div', { 'id': 'cb-probe-result', 'style': 'margin-top:.6rem;display:none' })
+			])
+		]);
+	},
+
+	runProbe: function () {
+		var self = this;
+		var input = document.getElementById('cb-probe-input');
+		var box = document.getElementById('cb-probe-result');
+		var host = (input.value || '').trim();
+		if (!host) return;
+		box.style.display = 'block';
+		box.textContent = _('Probing...') + ' ' + host;
+		common.callProbeUrl(host).then(function (r) {
+			if (!r || r.success === false) {
+				box.textContent = (r && r.error) || _('Probe failed');
+				return;
+			}
+			box.innerHTML = '';
+			var row = function (k, v, mono) {
+				return E('div', { 'style': 'display:flex;gap:.5rem;margin:.15rem 0' }, [
+					E('span', { 'style': 'opacity:.6;flex:0 0 7.5rem' }, k),
+					E('span', mono ? { 'class': 'cb-mono' } : {}, String(v))
+				]);
+			};
+			var rows = [];
+			rows.push(row(_('DNS answers'), (r.dns || []).join(', ') || '-', true));
+			if (r.captured) {
+				rows.push(row(_('Chain'), (r.chains || []).join('  ->  ')));
+				rows.push(row(_('Rule'), (r.rule || '') + (r.rulePayload ? ' ' + r.rulePayload : '')));
+			} else {
+				rows.push(row(_('Chain'), _('Not captured - it went direct or closed too fast')));
+			}
+			rows.push(row(_('Direct reach'), r.direct === '000' ? _('Unreachable') : r.direct));
+			rows.push(row(_('Via proxy'), r.proxy === '000' ? _('Unreachable') : r.proxy));
+			var verdict;
+			if (r.direct === '200') verdict = _('Direct works; no rule change needed');
+			else if (r.captured && r.proxy === '200') verdict = _('Handled by the group above; proxy path works');
+			else if (r.proxy === '200') verdict = _('Direct fails but the proxy path works - add a rule for this site');
+			else verdict = _('Both paths fail; check the site itself or the group nodes');
+			var v = E('div', {
+				'style': 'margin-top:.5rem;padding:.4rem .6rem;border-radius:.35rem;',
+				'class': 'cb-mono'
+			}, verdict);
+			rows.push(v);
+			rows.forEach(function (n) { box.appendChild(n); });
+		}).catch(function (e) {
+			box.textContent = _('Probe failed') + ': ' + e;
+		});
 	},
 
 	renderAppStats: function () {
@@ -2239,6 +2852,8 @@ return view.extend({
 		ips: [ 'ips', 'sched' ],
 		feeds: [ 'feeds' ],
 		logs: [ 'logs' ],
+		tags: [ 'tags' ],
+		socks: [ 'socks' ],
 		settings: [ 'auto', 'notify', 'health', 'backup' ]
 	},
 
@@ -2252,11 +2867,13 @@ return view.extend({
 			var el = document.getElementById('cb-pane-' + p);
 			if (el) el.classList.toggle('active', mine.indexOf(p) !== -1);
 		});
-		['overview', 'devices', 'apps', 'ips', 'feeds', 'logs', 'settings'].forEach(function (t) {
+		['overview', 'devices', 'apps', 'ips', 'feeds', 'logs', 'tags', 'socks', 'settings'].forEach(function (t) {
 			var btn = document.getElementById('cb-tab-' + t);
 			if (btn) btn.classList.toggle('active', t === name);
 		});
 		if (name === 'overview') return this.refreshDash();
+		if (name === 'tags') return this.renderFlows();
+		if (name === 'socks') return this.renderSocks();
 		if (name === 'devices') {
 			var selfD = this;
 			return Promise.all([ this.refresh(), callList('0') ]).then(function (r) {
@@ -2806,6 +3423,7 @@ E('div', { 'class': 'cb-card' }, [
 					])
 				])
 			]),
+			this.probeCard(),
 			E('div', { 'class': 'cb-card' }, [
 				E('div', { 'class': 'cb-card-head' }, [
 					E('span', { 'class': 'cb-dot' }), E('span', {}, _('Proxy quota')),
@@ -3063,6 +3681,160 @@ E('div', { 'class': 'cb-card' }, [
 			])
 		]);
 
+		var tagsPane = E('div', {
+			'class': 'cb-pane',
+			'id': 'cb-pane-tags'
+		}, [
+			E('div', { 'class': 'cb-stats', 'id': 'cb-flow-stats' }),
+			E('div', { 'class': 'cb-card' }, [
+				E('div', { 'class': 'cb-card-head' }, [
+					E('span', { 'class': 'cb-dot' }),
+					E('span', {}, _('DSCP distribution')),
+					E('span', { 'id': 'cb-flows-count',
+						'style': 'margin-left:auto;font-size:.7rem;color:var(--text-muted)' }, '0')
+				]),
+				E('div', { 'class': 'cb-card-body', 'id': 'cb-flows-dscp' })
+			]),
+			E('div', { 'class': 'cb-card', 'style': 'margin-top:1rem' }, [
+				E('div', { 'class': 'cb-card-head' }, [
+					E('span', { 'class': 'cb-dot' }),
+					E('span', {}, _('Active flows')),
+					E('span', { 'style': 'margin-left:auto;display:flex;align-items:center;gap:.35rem' }, [
+						E('span', { 'style': 'font-size:.7rem;color:var(--text-muted)' }, _('refresh')),
+						E('input', { 'type': 'number', 'id': 'cb-flow-interval', 'min': '3', 'max': '300',
+							'placeholder': '10', 'change': function (ev) { self.handleFlowInterval(ev); },
+							'style': 'width:3.6rem;padding:.1rem .35rem;font-size:.7rem;' +
+								'border:1px solid var(--hairline);border-radius:.25rem;' +
+								'background:var(--surface-sunken);color:inherit' }),
+						E('span', { 'style': 'font-size:.7rem;color:var(--text-muted)' }, _('s'))
+					])
+				]),
+				E('div', { 'class': 'cb-card-body', 'id': 'cb-flows-body' })
+			]),
+			E('div', { 'class': 'cb-card', 'style': 'margin-top:1rem' }, [
+				E('div', { 'class': 'cb-card-head' }, [
+					E('span', { 'class': 'cb-dot' }),
+					E('span', {}, _('Group fallback chain')),
+					E('span', { 'id': 'cb-gf-sum',
+						'style': 'margin-left:auto;font-size:.7rem;color:var(--text-muted)' }, '')
+				]),
+				E('div', { 'class': 'cb-card-body' }, [
+					E('div', { 'class': 'cb-card-hint', 'style': 'margin-bottom:.6rem' },
+						_('Each group\'s final: what it falls back to when none of its members is alive. Region groups point at their backup-subscription counterpart, so traffic never crosses regions.')),
+					E('table', { 'class': 'cb-flow-table' }, [
+						E('thead', {}, E('tr', {}, [
+							E('th', {}, _('Group')),
+							E('th', {}, _('Policy')),
+							E('th', { 'style': 'text-align:right' }, _('Members')),
+							E('th', {}, _('Final')),
+							E('th', {}, _('Current'))
+						])),
+						E('tbody', { 'id': 'cb-gf-body' })
+					])
+				])
+			]),
+			E('div', { 'class': 'cb-card', 'style': 'margin-top:1rem' }, [
+				E('div', { 'class': 'cb-card-head' }, [
+					E('span', { 'class': 'cb-dot' }),
+					E('span', {}, _('Where the queue ended up'))
+				]),
+				E('div', { 'class': 'cb-card-body' }, [
+					E('div', { 'class': 'cb-card-hint', 'style': 'margin-bottom:.6rem' },
+						_('A rule that matches but a class that stays at zero means something downstream overwrote the mark.')),
+					E('table', { 'class': 'cb-table' }, [
+						E('thead', {}, E('tr', {}, [
+							E('th', {}, _('Tag')), E('th', { 'style': 'text-align:right' }, _('Packets')),
+							E('th', { 'style': 'text-align:right' }, _('Bytes'))
+						])),
+						E('tbody', { 'id': 'cb-tag-rules' })
+					]),
+					E('table', { 'class': 'cb-table', 'style': 'margin-top:.7rem' }, [
+						E('thead', {}, E('tr', {}, [
+							E('th', {}, _('Class')), E('th', {}, _('Name')),
+							E('th', { 'style': 'text-align:right' }, _('Packets')),
+							E('th', { 'style': 'text-align:right' }, _('Bytes'))
+						])),
+						E('tbody', { 'id': 'cb-tag-classes' })
+					])
+				])
+			])
+		]);
+
+		var socksPane = E('div', {
+			'class': 'cb-pane',
+			'id': 'cb-pane-socks'
+		}, [
+			E('p', { 'style': 'opacity:.75;margin:.25rem 0 1rem' },
+				_('A standalone SOCKS5 proxy for reaching this network from outside. It is independent of honk: traffic it accepts leaves as ordinary router-originated traffic, so it follows whatever outbound routing is configured.')),
+			E('div', { 'style': 'display:flex;gap:.5rem;align-items:center;margin-bottom:1rem' }, [
+				E('span', { 'id': 'cb-socks-state' })
+			]),
+			E('div', { 'class': 'cb-card' }, [
+				E('div', { 'class': 'cb-card-head' }, [
+					E('span', { 'class': 'cb-dot' }),
+					E('span', {}, _('Listener'))
+				]),
+				E('div', { 'class': 'cb-card-body' }, [
+					E('div', { 'class': 'cb-sched-form', 'style': 'padding:0;border:none;background:none' }, [
+						E('label', {}, [ E('span', {}, _('Enabled')),
+							E('input', { 'type': 'checkbox', 'id': 'cb-socks-enabled' }) ]),
+						E('label', {}, [ E('span', {}, _('Port')),
+							E('input', { 'type': 'number', 'id': 'cb-socks-port', 'min': '1', 'max': '65535',
+								'placeholder': '8893',
+								'style': 'width:7rem;padding:.35rem .5rem;border-radius:.3rem;border:1px solid var(--hairline);background:var(--surface-sunken);color:inherit' }) ]),
+						E('label', {}, [ E('span', {}, _('Username')),
+							E('input', { 'type': 'text', 'id': 'cb-socks-user', 'placeholder': 'languard',
+								'style': 'width:10rem;padding:.35rem .5rem;border-radius:.3rem;border:1px solid var(--hairline);background:var(--surface-sunken);color:inherit' }) ]),
+						E('label', {}, [ E('span', {}, _('Password')),
+							E('input', { 'type': 'password', 'id': 'cb-socks-pw', 'placeholder': _('leave blank to keep'),
+								'autocomplete': 'new-password',
+								'style': 'width:14rem;padding:.35rem .5rem;border-radius:.3rem;border:1px solid var(--hairline);background:var(--surface-sunken);color:inherit' }) ]),
+						E('label', {}, [ E('span', {}, _('HTTPS port')),
+							E('input', { 'type': 'number', 'id': 'cb-socks-tlsport', 'min': '1', 'max': '65535',
+								'placeholder': '8894',
+								'style': 'width:7rem;padding:.35rem .5rem;border-radius:.3rem;border:1px solid var(--hairline);background:var(--surface-sunken);color:inherit' }) ]),
+						E('label', {}, [ E('span', {}, _('Enable HTTPS proxy')),
+							E('input', { 'type': 'checkbox', 'id': 'cb-socks-tls' }) ]),
+						E('label', {}, [ E('span', {}, _('Forward WAN port')),
+							E('input', { 'type': 'checkbox', 'id': 'cb-socks-fwd' }) ])
+					]),
+					E('div', { 'id': 'cb-socks-pw-state',
+						'style': 'margin:.6rem 0 .2rem;font-size:.82rem;color:var(--text-muted)' }, ''),
+					E('div', { 'style': 'display:flex;gap:.5rem;margin-top:.8rem;flex-wrap:wrap' }, [
+						E('button', { 'class': 'cb-btn cb-btn-primary',
+							'click': function (ev) { self.handleSocksSave(ev); } }, _('Save')),
+						E('button', { 'class': 'cb-btn',
+							'click': function (ev) { self.handleSocksRestart(ev); } }, _('Restart')),
+						E('button', { 'class': 'cb-btn',
+							'click': function (ev) { self.handleSocksGenPw(ev); } }, _('Generate password'))
+					])
+				])
+			]),
+			E('div', { 'class': 'cb-card', 'style': 'margin-top:1.2rem' }, [
+				E('div', { 'class': 'cb-card-head' }, [
+					E('span', { 'class': 'cb-dot' }),
+					E('span', {}, _('HTTPS certificate'))
+				]),
+				E('div', { 'class': 'cb-card-body' }, [
+					E('div', { 'class': 'cb-card-hint', 'style': 'margin-bottom:.6rem' },
+						_('The HTTPS port uses a self-signed certificate. Clients show one warning the first time; after trusting it they stop asking. The certificate must carry the public IP, so regenerate it whenever the WAN address changes.')),
+					E('pre', { 'id': 'cb-socks-cert', 'style': 'font-size:.75rem;white-space:pre-wrap;opacity:.8;margin:0 0 .6rem' }, ''),
+					E('button', { 'class': 'cb-btn',
+						'click': function (ev) { self.handleSocksCertRegen(ev); } }, _('Regenerate certificate'))
+				])
+			]),
+			E('div', { 'class': 'cb-card', 'style': 'margin-top:1.2rem' }, [
+				E('div', { 'class': 'cb-card-head' }, [
+					E('span', { 'class': 'cb-dot' }),
+					E('span', {}, _('How to connect'))
+				]),
+				E('div', { 'class': 'cb-card-body' }, [
+					E('div', { 'class': 'cb-card-hint' },
+						_('Port 1 takes SOCKS5 and plain HTTP CONNECT — use it for clients like Loon. Port 2 wraps the same proxy in TLS, which is an HTTPS proxy: phone system settings and browsers accept it after trusting the certificate once. Both share the username and password above. Leave the WAN forward off to restrict access to the LAN.'))
+				])
+			])
+		]);
+
 		var notifyPane = E('div', {
 			'class': 'cb-pane',
 			'id': 'cb-pane-notify'
@@ -3131,6 +3903,8 @@ E('div', { 'class': 'cb-card' }, [
 				tabBtn('ips', _('Policy')),
 				tabBtn('feeds', _('Feeds')),
 				tabBtn('logs', _('Log')),
+				tabBtn('tags', _('Tags')),
+				tabBtn('socks', _('SOCKS5')),
 				tabBtn('settings', _('Settings'))
 			]),
 			dashPane,
@@ -3142,6 +3916,8 @@ E('div', { 'class': 'cb-card' }, [
 			backupPane,
 			logsPane,
 			schedPane,
+			tagsPane,
+			socksPane,
 			notifyPane,
 			healthPane
 		]);
@@ -3181,10 +3957,19 @@ E('div', { 'class': 'cb-card' }, [
 				self.appStatsAt = now;
 				return self.refreshAppStats();
 			}
+			if (self.tab === 'tags') {
+				// 标签页的刷新间隔可配,和其它页的 10 秒不同
+				var iv = (self.qosInterval || 10) * 1000;
+				var n = Date.now();
+				if (n - (self.tagsAt || 0) < iv) return;
+				self.tagsAt = n;
+				return self.renderFlows();
+			}
+			if (self.tab === 'socks') return self.renderSocks();
 			if (self.tab === 'settings') return self.refreshNotify();
 
 			return self.refresh();
-		}, 10);
+		}, 5);
 
 		return root;
 	},

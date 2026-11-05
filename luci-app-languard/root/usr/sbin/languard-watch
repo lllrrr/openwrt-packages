@@ -131,6 +131,32 @@ main() {
 	LRPID=$!
 	echo "$$ $LRPID" > "$PIDFILE"
 
+	# honk 的活跃连接只活十秒左右,而 tick 每 55 秒才跑一次。没有这个
+	# 两秒的采集循环,绝大多数流的字节数会在连接关闭前就消失,tick 只能
+	# 看到一个空表。它只做增量累加,不落盘归类,所以很便宜。
+	(
+		while :; do
+			ubus -S call luci.languard honkpoll >/dev/null 2>&1
+			sleep 2
+		done
+	) &
+	POLLPID=$!
+
+	# QoS 的分档依赖 honk 当前活跃的目标地址。视频开起来之后要尽快跟上,
+	# 否则前十秒的流量还在默认类里。间隔可配(3-300 秒),每次循环重新读,
+	# 改了不用重启服务。
+	(
+		while :; do
+			iv=$(cat /etc/languard/qos_interval 2>/dev/null)
+			[ -z "$iv" ] && iv=10
+			[ "$iv" -lt 3 ] 2>/dev/null && iv=3
+			[ "$iv" -gt 300 ] 2>/dev/null && iv=300
+			sleep "$iv"
+			ubus -S call luci.languard qosrefresh >/dev/null 2>&1
+		done
+	) &
+	QOSPID=$!
+
 	# Reconcile scheduled blocks once a minute. Runs in a child so it cannot
 	# block the log reader; the trap below takes it down with us.
 	(
@@ -149,7 +175,7 @@ main() {
 	SCHEDPID=$!
 
 	# shellcheck disable=SC2064
-	trap 'kill $LRPID $SCHEDPID 2>/dev/null; rm -f "$PIPE" "$PIDFILE"' EXIT INT TERM
+	trap 'kill $LRPID $SCHEDPID $POLLPID $QOSPID 2>/dev/null; rm -f "$PIPE" "$PIDFILE"' EXIT INT TERM
 	exec 3< "$PIPE"
 
 	while IFS= read -r line <&3; do

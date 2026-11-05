@@ -1,0 +1,4114 @@
+#!/usr/bin/env lua
+-- luci.languard: LAN client block/unblock manager (rpcd plugin)
+-- State: /etc/languard/blocked.json
+-- Rules: /etc/nftables.d/90-languard.nft (regenerated on every change)
+
+local jsonc = require "luci.jsonc"
+local fs = require "nixio.fs"
+local sys = require "luci.sys"
+
+local STATE_DIR = "/etc/languard"
+local STATE_FILE = STATE_DIR .. "/blocked.json"
+local NAME_FILE = STATE_DIR .. "/names.json"
+local IPSTATE_FILE = STATE_DIR .. "/blocked_ips.json"
+local SCHED_FILE = STATE_DIR .. "/schedule.json"
+local NOTIFY_FILE = STATE_DIR .. "/notify.json"
+local GROUPS_FILE = STATE_DIR .. "/groups.json"
+local PORTS_FILE = STATE_DIR .. "/ports.json"
+local WL_FILE = STATE_DIR .. "/whitelist.json"
+local PANIC_FILE = STATE_DIR .. "/panic.json"
+local FEEDS_FILE = STATE_DIR .. "/feeds.json"
+local PENDING_FILE = STATE_DIR .. "/pending.json"
+local OUI_CACHE = STATE_DIR .. "/oui_cache.json"
+local KNOWN_FILE = STATE_DIR .. "/known_devices.json"
+local PROXY_FILE = STATE_DIR .. "/trusted_proxies.json"
+local ARP_FILE = STATE_DIR .. "/arp_guard.json"
+local ALIAS_FILE = STATE_DIR .. "/aliases.json"
+local APPS_FILE = STATE_DIR .. "/apps.json"
+local APPSTAT_FILE = STATE_DIR .. "/appstats.json"
+local CT_SEEN_FILE = STATE_DIR .. "/ct_seen.json"
+local APPIPS_FILE = STATE_DIR .. "/app_ips.json"
+local QOS_FILE = STATE_DIR .. "/app_qos.json"
+local FINGERPRINT_FILE = STATE_DIR .. "/fingerprint.json"
+-- never under /etc/nftables.d: fw4 includes that directory *inside* its own
+-- table, so a table declaration there is a syntax error and takes the whole
+-- firewall down with it
+local QOS_RULE_FILE = STATE_DIR .. "/appqos.nft"
+local DOMAIN_FILE = STATE_DIR .. "/domains.json"
+local DOMAIN_HOSTS = STATE_DIR .. "/domainblock.hosts"
+local NOTIFY_TMP = "/tmp/languard-notify.json"
+local LOG_FILE = STATE_DIR .. "/login.log"
+local LOG_MAX = 500
+local AUTOCFG_FILE = STATE_DIR .. "/auto.json"
+-- legacy data from luci-app-watchdog, imported once then ignored
+local WD_BLACKLIST = "/usr/share/watchdog/api/ip_blacklist"
+local RULE_FILE = "/etc/nftables.d/90-languard.nft"
+local LEASE_FILE = "/tmp/dhcp.leases"
+local NEIGH_CMD = "ip -4 neigh show dev br-lan 2>/dev/null"
+
+local methods = {}
+local _known_cache
+local ok, err, read_all
+local load_ipstate, save_ipstate
+local is_trusted_proxy, extract_forwarded
+local render_rules, reload_firewall, nft_chunk, set_exists, rebuild_sets, unload_rules, set_element_live
+local split_macs
+local notify_event
+local collect_devices
+local learn_app_ip
+local load_apps, save_apps
+-- methods.ipdel 在定义处就引用这两个,必须先声明,否则解析成全局 nil
+local load_scan, save_scan
+
+-- 三个模块接管底层:状态文件读写、内核规则、地址解析。
+-- 用全局名,顶层已经贴着 200 个局部变量的上限。
+jsonm = require "languard.json"
+jsonm.setup(STATE_DIR)
+shq = jsonm.shq
+load_json_map = jsonm.load
+save_json_map = jsonm.save
+lock_acquire = jsonm.lock
+lock_release = jsonm.unlock
+
+-- blocked_ips.json 的读写(IP 封禁状态,与 nft 规则分开)
+load_ipstate = function()
+	return load_json_map(IPSTATE_FILE, function() return {} end)
+end
+
+save_ipstate = function(st)
+	return save_json_map(IPSTATE_FILE, st)
+end
+
+nftm = require "languard.nft"
+nftm.setup({ rule_file = RULE_FILE, load_ips = function() return load_ipstate() end })
+nft_chunk = nftm.chunk
+set_exists = nftm.set_exists
+rebuild_sets = nftm.rebuild_sets
+unload_rules = nftm.unload
+set_element_live = nftm.set_element_live
+reload_firewall = nftm.reload_firewall
+
+netm = require "languard.net"
+netm.setup({ lease_file = LEASE_FILE, neigh_cmd = NEIGH_CMD })
+
+normalize_mac = netm.normalize_mac
+normalize_ip = netm.normalize_ip
+is_local_mac = netm.is_local_mac
+ipv4_to_int = netm.ipv4_to_int
+cidr_match = netm.cidr_match
+is_private_ip = netm.is_private_ip
+parse_leases = netm.parse_leases
+parse_neigh = netm.parse_neigh
+parse_static_hosts = netm.parse_static_hosts
+
+-- 设备状态文件的所有者
+devm = require "languard.devices"
+devm.setup({
+	state = STATE_FILE, names = NAME_FILE, whitelist = WL_FILE,
+	groups = GROUPS_FILE, ports = PORTS_FILE, schedule = SCHED_FILE,
+	aliases = ALIAS_FILE, panic = PANIC_FILE,
+})
+load_state = devm.load_state
+save_state = devm.save_state
+load_names = devm.load_names
+save_names = devm.save_names
+remember_name = devm.remember_name
+load_wl = devm.load_wl
+wl_has = devm.wl_has
+load_groups = devm.load_groups
+load_ports = devm.load_ports
+load_sched = devm.load_sched
+load_aliases = devm.load_aliases
+load_panic = devm.load_panic
+
+
+
+local function trim(s)
+	return (s:gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+
+
+
+
+
+
+
+local function save_ipstate(st)
+	fs.mkdirr(STATE_DIR)
+	local f = io.open(IPSTATE_FILE, "w")
+	if not f then return false end
+	local s = jsonc.stringify(st)
+	if s == "[]" then s = "{}" end
+	f:write(s)
+	f:close()
+	return true
+end
+
+-- "1.2.3.4" or "1.2.3.0/24" -> normalized form, or nil
+
+local function load_autocfg()
+	local f = io.open(AUTOCFG_FILE, "r")
+	if not f then
+		-- sensible default: protection is on
+		return { enabled = true, threshold = 5, window = 600, ttl = 86400,
+		         imported = false, ssh_password = true, ssh_user = true,
+		         web_auth = true }
+	end
+	local raw = f:read("*a")
+	f:close()
+	local parsed = jsonc.parse(raw)
+	if type(parsed) ~= "table" then
+		return { enabled = true, threshold = 5, window = 600, ttl = 86400,
+		         imported = false, ssh_password = true, ssh_user = true,
+		         web_auth = true }
+	end
+	parsed.enabled = parsed.enabled ~= false
+	parsed.threshold = tonumber(parsed.threshold) or 5
+	parsed.window = tonumber(parsed.window) or 600
+	parsed.ttl = tonumber(parsed.ttl) or 86400
+	parsed.imported = parsed.imported and true or false
+	-- per-source triggers: absent means on
+	parsed.ssh_password = parsed.ssh_password ~= false
+	parsed.ssh_user = parsed.ssh_user ~= false
+	parsed.web_auth = parsed.web_auth ~= false
+	return parsed
+end
+
+local function save_autocfg(cfg)
+	fs.mkdirr(STATE_DIR)
+	local f = io.open(AUTOCFG_FILE, "w")
+	if not f then return false end
+	f:write(jsonc.stringify(cfg))
+	f:close()
+	return true
+end
+
+-- One-time import of the addresses luci-app-watchdog had collected
+local function import_watchdog(cfg)
+	if cfg.imported then return 0 end
+	local st = load_ipstate()
+	local n = 0
+	local f = io.open(WD_BLACKLIST, "r")
+	if f then
+		for line in f:lines() do
+			local ip = line:match("^%s*([%d%.]+)%s")
+			if ip then
+				local norm = normalize_ip(ip)
+				if norm and st[norm] == nil then
+					st[norm] = { since = os.time(), note = "watchdog import", source = "watchdog" }
+					n = n + 1
+				end
+			end
+		end
+		f:close()
+	end
+	if n > 0 then
+		save_ipstate(st)
+		render_rules(load_state())
+		reload_firewall()
+	end
+	cfg.imported = true
+	save_autocfg(cfg)
+	return n
+end
+
+local function sorted_keys(t)
+	local keys = {}
+	for k in pairs(t) do keys[#keys + 1] = k end
+	table.sort(keys)
+	return keys
+end
+
+-- ============================================================
+-- Device identification: first seen, MAC vendor, guessed type
+-- ============================================================
+
+-- Offline fallback for the vendors a home network actually contains. The
+-- authoritative source is the online lookup; this only covers a cold start or
+-- a router without internet.
+local OUI_TABLE = {
+	["00:03:93"] = "Apple", ["00:0a:27"] = "Apple", ["00:0a:95"] = "Apple",
+	["00:1b:63"] = "Apple", ["00:1e:c2"] = "Apple", ["00:23:12"] = "Apple",
+	["3c:07:54"] = "Apple", ["40:ed:cf"] = "Apple", ["64:b9:e8"] = "Apple",
+	["68:ab:1e"] = "Apple", ["78:4f:43"] = "Apple", ["8c:85:90"] = "Apple",
+	["a4:83:e7"] = "Apple", ["ac:df:a1"] = "Apple", ["d4:90:9c"] = "Apple",
+	["f0:18:98"] = "Apple", ["70:3e:ac"] = "Apple", ["88:66:a5"] = "Apple",
+	["34:fa:1c"] = "Xiaomi", ["64:90:c1"] = "Xiaomi", ["78:8b:2a"] = "Xiaomi",
+	["5c:e5:0c"] = "Xiaomi", ["a4:a9:30"] = "Xiaomi", ["50:8f:4c"] = "Xiaomi",
+	["28:6c:07"] = "Xiaomi", ["64:cc:2e"] = "Xiaomi", ["7c:1d:d9"] = "Xiaomi",
+	["8c:53:c3"] = "Xiaomi", ["f0:b4:29"] = "Xiaomi", ["24:18:c0"] = "Xiaomi",
+	["98:88:e0"] = "Espressif", ["24:0a:c4"] = "Espressif", ["30:ae:a4"] = "Espressif",
+	["84:f3:eb"] = "Espressif", ["5c:cf:7f"] = "Espressif", ["a0:20:a6"] = "Espressif",
+	["dc:4f:22"] = "Espressif", ["3c:61:05"] = "Espressif", ["7c:9e:bd"] = "Espressif",
+	["3c:6a:48"] = "TP-Link", ["50:c7:bf"] = "TP-Link", ["60:a4:b7"] = "TP-Link",
+	["a4:2b:b0"] = "TP-Link", ["c4:6e:1f"] = "TP-Link", ["ec:08:6b"] = "TP-Link",
+	["98:da:c4"] = "TP-Link", ["14:cc:20"] = "TP-Link",
+	["60:45:cb"] = "ASUS", ["04:d4:c4"] = "ASUS", ["2c:fd:a1"] = "ASUS",
+	["50:46:5d"] = "ASUS", ["ac:9e:17"] = "ASUS", ["1c:87:2c"] = "ASUS",
+	["24:5e:be"] = "QNAP", ["00:08:9b"] = "QNAP", ["00:11:32"] = "Synology",
+	["34:5a:60"] = "MSI", ["4c:cc:6a"] = "MSI", ["d8:cb:8a"] = "MSI",
+	["54:ef:44"] = "Aqara", ["04:cf:8c"] = "Aqara", ["84:7c:9b"] = "Midea",
+	["3c:a9:ab"] = "Nintendo", ["34:e6:e6"] = "LG", ["00:1e:75"] = "LG",
+	["8c:77:12"] = "Samsung", ["34:23:ba"] = "Samsung", ["78:1f:db"] = "Samsung",
+	["00:13:a9"] = "Sony", ["fc:0f:e6"] = "Sony", ["7c:1e:52"] = "Microsoft",
+	["44:65:0d"] = "Amazon", ["f0:27:2d"] = "Amazon", ["74:c2:46"] = "Amazon",
+	["3c:5a:b4"] = "Google", ["f4:f5:d8"] = "Google", ["a4:77:33"] = "Google",
+	["00:0e:58"] = "Sonos", ["5c:aa:fd"] = "Sonos", ["b0:a7:37"] = "Roku",
+	["44:19:b6"] = "Hikvision", ["bc:ad:28"] = "Hikvision", ["3c:ef:8c"] = "Dahua",
+	["10:d5:61"] = "Tuya", ["18:69:d8"] = "Tuya", ["50:02:91"] = "Tuya",
+	["68:57:2d"] = "Tuya", ["84:e3:42"] = "Tuya",
+	["b8:27:eb"] = "Raspberry Pi", ["dc:a6:32"] = "Raspberry Pi", ["e4:5f:01"] = "Raspberry Pi",
+	["24:5a:4c"] = "Ubiquiti", ["78:8a:20"] = "Ubiquiti", ["f4:92:bf"] = "Ubiquiti",
+	["20:4e:7f"] = "Netgear", ["a0:40:a0"] = "Netgear",
+	["00:1b:21"] = "Intel", ["3c:97:0e"] = "Intel", ["8c:16:45"] = "Intel",
+	["a0:36:9f"] = "Intel", ["94:c6:91"] = "Intel",
+	["00:e0:4c"] = "Realtek", ["52:54:00"] = "QEMU/KVM", ["bc:24:11"] = "Proxmox",
+	["00:15:5d"] = "Hyper-V", ["00:50:56"] = "VMware",
+	["00:e0:fc"] = "Huawei", ["48:46:fb"] = "Huawei", ["78:1d:ba"] = "Huawei",
+	["1c:20:19"] = "OPPO", ["00:0c:43"] = "MediaTek", ["00:10:18"] = "Broadcom",
+}
+
+
+local function vendor_cached(mac)
+	local prefix = mac:sub(1, 8)
+	local cache = load_json_map(OUI_CACHE, function() return {} end)
+	local e = cache[prefix]
+	if e and e.v and e.v ~= "" then return e.v end
+	if OUI_TABLE[prefix] then return OUI_TABLE[prefix] end
+	return nil
+end
+
+-- Ask macvendors.com for one prefix at a time. Called from the minute tick so
+-- a slow or rate-limited API never blocks the UI.
+local function oui_enrich(max_lookups)
+	local cache = load_json_map(OUI_CACHE, function() return {} end)
+	local neigh = parse_neigh()
+	local now = os.time()
+	local done, seen = 0, {}
+
+	for mac in pairs(neigh) do
+		if done >= max_lookups then break end
+		local prefix = mac:sub(1, 8)
+		-- locally administered addresses (containers, VMs, phone privacy
+		-- MACs) have no vendor entry at all
+		if not is_local_mac(mac) and not seen[prefix] and not OUI_TABLE[prefix] then
+			seen[prefix] = true
+			local e = cache[prefix]
+			local stale = (not e) or (not e.t) or (now - e.t > 7 * 86400)
+			if stale then
+				local out = sys.exec(string.format(
+					"curl -s -m 5 'https://api.macvendors.com/%s' 2>/dev/null",
+					prefix:gsub(":", "%%3A")))
+				out = (out or ""):gsub("^%s+", ""):gsub("%s+$", "")
+				-- the API answers with a JSON error for unknown or throttled
+				-- prefixes; keep the timestamp but no vendor, and move on
+				local bad = out == "" or out:find("errors", 1, true) or out:find("Too Many", 1, true)
+				cache[prefix] = { v = (not bad) and out or nil, t = now }
+				done = done + 1
+				sys.call("sleep 1")
+			end
+		end
+	end
+
+	if done > 0 then save_json_map(OUI_CACHE, cache) end
+	return done
+end
+
+local function first_seen_of(mac)
+	local known = _known_cache
+	if not known then
+		known = load_json_map(KNOWN_FILE, function() return {} end)
+		_known_cache = known
+	end
+	local v = known[mac]
+	if type(v) == "table" then return v.first, (v.assumed and true or false) end
+	return nil, true
+end
+
+local function guess_type(host, vendor)
+	local h = (host or ""):lower()
+	local v = (vendor or ""):lower()
+	local function has(s) return h:find(s, 1, true) ~= nil end
+
+	if has("iphone") then return "phone" end
+	if has("ipad") then return "tablet" end
+	if has("watch") then return "wearable" end
+	if has("macbook") or has("mac-") or has("imac") then return "computer" end
+	if has("tv") or has("roku") or has("firestick") or has("chromecast") then return "tv" end
+	if has("camera") or has("cam") or has("doorbell") or has("frigate") then return "camera" end
+	if has("homepod") or has("sonos") or has("speaker") or has("echo") then return "speaker" end
+	if has("printer") then return "printer" end
+	if has("switch") or has("nintendo") or has("xbox") or has("playstation") then return "console" end
+	if has("router") or has("ap-") or has("ac68") or has("be6500") then return "network" end
+	if has("nas") or has("qnap") or has("synology") or has("pve") or has("docker") or has("server") then return "server" end
+	if has("airpurifier") or has("purifier") or has("fan") or has("light") or has("yeelight")
+		or has("airfresh") or has("feeder") or has("dishwasher") or has("fryer") or has("cooker")
+		or has("heater") or has("ac-") or has("plug") or has("ups") or has("ecoflow") then
+		return "iot"
+	end
+
+	if v:find("espressif") or v:find("tuya") or v:find("lumi") or v:find("aqara") then return "iot" end
+	if v:find("apple") then return "apple" end
+	if v:find("xiaomi") or v:find("midea") or v:find("haier") then return "iot" end
+	if v:find("qnap") or v:find("synology") or v:find("proxmox") or v:find("vmware")
+		or v:find("qemu") or v:find("hyper-v") then return "server" end
+	if v:find("tp-link") or v:find("asus") or v:find("ubiquiti") or v:find("netgear")
+		or v:find("huawei") or v:find("mediatek") or v:find("broadcom") then return "network" end
+	if v:find("intel") or v:find("realtek") or v:find("msi") then return "computer" end
+	return "unknown"
+end
+
+-- ============================================================
+-- Whitelist, panic mode, trends, port templates, feeds, export/import
+-- ============================================================
+
+
+-- collect_devices 每台设备都调一次,每次都重新读盘解析太浪费。
+-- 用全局而不是 local:顶层已经贴着 200 个局部变量的上限。
+
+function methods.knownadd(mac)
+	mac = normalize_mac(mac)
+	if not mac then return err("invalid MAC") end
+	local known = load_json_map(KNOWN_FILE, function() return {} end)
+	local pending0 = load_json_map(PENDING_FILE, function() return {} end)
+	local prev = known[mac]
+	local first = (type(prev) == "table" and prev.first) or (pending0[mac] and pending0[mac].first) or os.time()
+	known[mac] = { first = first, assumed = (type(prev) == "table" and prev.assumed) or false }
+	save_json_map(KNOWN_FILE, known)
+	local pending = load_json_map(PENDING_FILE, function() return {} end)
+	pending[mac] = nil
+	save_json_map(PENDING_FILE, pending)
+	-- accepting a device also clears any block it may have
+	local st = load_state()
+	if st[mac] then
+		IDX.audit("unblock", mac, st[mac].ip, "allowed by user (" .. tostring(st[mac].source) .. ")")
+		st[mac] = nil
+		save_state(st)
+		render_rules(st)
+		reload_firewall()
+	end
+	return ok({})
+end
+
+function methods.knownlist()
+	local known = load_json_map(KNOWN_FILE, function() return {} end)
+	local pending = load_json_map(PENDING_FILE, function() return {} end)
+	local out = {}
+	for mac, p in pairs(pending) do
+		if not known[mac] then
+			out[#out + 1] = { mac = mac, ip = p.ip, host = p.host, first = p.first }
+		end
+	end
+	local n = 0
+	for _ in pairs(known) do n = n + 1 end
+	return { success = true, running = true, trusted = n, pending = out, pending_count = #out }
+end
+
+function methods.wllist()
+	local w = load_wl()
+	local leases = parse_leases()
+	local statics = parse_static_hosts()
+	local out = {}
+	for _, mac in ipairs(w.macs) do
+		out[#out + 1] = { mac = mac,
+			host = (statics[mac] and statics[mac].host) or (leases[mac] and leases[mac].host) or nil,
+			ip = (leases[mac] and leases[mac].ip) or (statics[mac] and statics[mac].ip) or nil }
+	end
+	return { success = true, running = true, macs = out, count = #w.macs }
+end
+
+function methods.wladd(mac)
+	mac = normalize_mac(mac)
+	if not mac then return err("invalid MAC") end
+	local w = load_wl()
+	if not wl_has(mac) then w.macs[#w.macs + 1] = mac end
+	save_json_map(WL_FILE, w)
+	devm.invalidate("wl")
+	-- a trusted device must not stay blocked
+	local st = load_state()
+	if st[mac] then
+		IDX.audit("unblock", mac, st[mac].ip, "allowed by user (" .. tostring(st[mac].source) .. ")")
+		st[mac] = nil
+		save_state(st)
+		render_rules(st)
+		reload_firewall()
+	end
+	return ok({ count = #w.macs })
+end
+
+function methods.wldel(mac)
+	mac = normalize_mac(mac)
+	if not mac then return err("invalid MAC") end
+	local w = load_wl()
+	local keep = {}
+	for _, m in ipairs(w.macs) do if m ~= mac then keep[#keep + 1] = m end end
+	w.macs = keep
+	save_json_map(WL_FILE, w)
+	devm.invalidate("wl")
+	return ok({ count = #keep })
+end
+
+-- ---- panic mode: block every device that is not trusted -----------------
+
+function methods.blockaudit(limit)
+	local n = tonumber(limit) or 200
+	local all = read_all(STATE_DIR .. "/block-audit.log") or ""
+	local lines = {}
+	for line in all:gmatch("[^\n]+") do lines[#lines + 1] = line end
+	local out = {}
+	local first = math.max(1, #lines - n + 1)
+	for i = #lines, first, -1 do
+		local ts, kind, mac, ip, note = lines[i]:match("^([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t(.*)$")
+		if kind then
+			out[#out + 1] = { ts = ts, kind = kind, mac = mac, ip = ip, note = note }
+		end
+	end
+	return { success = true, running = true, events = out, count = #out }
+end
+
+function methods.panicstate()
+	local p = load_panic()
+	local n = 0
+	for _, meta in pairs(load_state()) do
+		if meta.source == "panic" then n = n + 1 end
+	end
+	return { success = true, running = true, on = p.on and true or false,
+	         since = p.since, blocked = n }
+end
+
+function methods.panic(on_v)
+	local on = (on_v == true or on_v == "1" or on_v == 1 or on_v == "true")
+	local state = load_state()
+	local wl = load_wl()
+	local trusted = {}
+	for _, m in ipairs(wl.macs) do trusted[m] = true end
+	local p = load_panic()
+	local changed = false
+	local count = 0
+
+	if on then
+		local leases = parse_leases()
+		local statics = parse_static_hosts()
+		local known = load_json_map(KNOWN_FILE, function() return {} end)
+		for mac in pairs(parse_neigh()) do
+			-- only devices outside the trusted baseline are affected; a device
+			-- that has been accepted is never blocked by this action
+			if not known[mac] and not trusted[mac] and state[mac] == nil then
+				state[mac] = {
+					since = os.time(), source = "panic",
+					host = (statics[mac] and statics[mac].host) or (leases[mac] and leases[mac].host) or nil,
+					ip = (leases[mac] and leases[mac].ip) or (statics[mac] and statics[mac].ip) or nil,
+				}
+				IDX.audit("block", mac, state[mac].ip, "panic")
+				changed = true
+			end
+		end
+		p.on = true
+		IDX.audit("panic", "-", "-", "on")
+		p.since = p.since or os.time()
+	else
+		for mac, meta in pairs(state) do
+			if meta.source == "panic" then
+				IDX.audit("unblock", mac, meta.ip, "panic off")
+				state[mac] = nil; changed = true
+			end
+		end
+		p.on = false
+		IDX.audit("panic", "-", "-", "off")
+		p.since = nil
+	end
+	for _, meta in pairs(state) do if meta.source == "panic" then count = count + 1 end end
+
+	save_json_map(PANIC_FILE, p)
+	if changed then
+		save_state(state)
+		if next(state) == nil and next(load_ipstate()) == nil then
+			fs.unlink(RULE_FILE)
+		else
+			render_rules(state)
+		end
+		reload_firewall()
+	end
+	return { success = true, running = true, on = p.on, blocked = count }
+end
+
+-- ---- trends from the login log -----------------------------------------
+function methods.trend()
+	local now = os.time()
+	local buckets = {}          -- hour index -> {ok,fail}
+	local days = {}
+	local f = io.open(LOG_FILE, "r")
+	if f then
+		for line in f:lines() do
+			local ts, result = line:match("^(%d+)|[^|]*|([^|]*)")
+			if ts then
+				ts = tonumber(ts)
+				if ts and ts >= now - 7 * 86400 then
+					local hk = math.floor((now - ts) / 3600)
+					if hk < 24 then
+						buckets[hk] = buckets[hk] or { ok = 0, fail = 0 }
+						if result == "success" then buckets[hk].ok = buckets[hk].ok + 1
+						elseif result == "failure" then buckets[hk].fail = buckets[hk].fail + 1 end
+					end
+					local t = os.date("*t", ts)
+					local dk = string.format("%04d-%02d-%02d", t.year, t.month, t.day)
+					days[dk] = days[dk] or { ok = 0, fail = 0 }
+					if result == "success" then days[dk].ok = days[dk].ok + 1
+					elseif result == "failure" then days[dk].fail = days[dk].fail + 1 end
+				end
+			end
+		end
+		f:close()
+	end
+
+	local hourly = {}
+	for i = 23, 0, -1 do
+		local b = buckets[i] or { ok = 0, fail = 0 }
+		hourly[#hourly + 1] = { ago = i, ok = b.ok, fail = b.fail }
+	end
+	local daily = {}
+	for i = 6, 0, -1 do
+		local ts = now - i * 86400
+		local t = os.date("*t", ts)
+		local dk = string.format("%04d-%02d-%02d", t.year, t.month, t.day)
+		local b = days[dk] or { ok = 0, fail = 0 }
+		daily[#daily + 1] = { day = dk, ok = b.ok, fail = b.fail }
+	end
+	return { success = true, running = true, hourly = hourly, daily = daily }
+end
+
+-- ---- port presets ------------------------------------------------------
+local PORT_PRESETS = {
+	iot = { { "tcp", 23 }, { "tcp", 445 }, { "tcp", 3389 }, { "tcp", 8080 } },
+	smb = { { "tcp", 445 }, { "tcp", 139 } },
+	remote = { { "tcp", 22 }, { "tcp", 3389 }, { "tcp", 5900 } },
+}
+
+function methods.portpresets()
+	local out = {}
+	for name, list in pairs(PORT_PRESETS) do
+		local ports = {}
+		for _, p in ipairs(list) do ports[#ports + 1] = p[1] .. "/" .. p[2] end
+		out[#out + 1] = { name = name, ports = table.concat(ports, " ") }
+	end
+	return { success = true, running = true, presets = out }
+end
+
+function methods.porttemplate(macs, preset)
+	local list = PORT_PRESETS[tostring(preset or "")]
+	if not list then return err("unknown preset") end
+	local targets = split_macs(macs)
+	if #targets == 0 then return err("no devices selected") end
+	local p = load_ports()
+	local added = 0
+	for _, mac in ipairs(targets) do
+		for _, pr in ipairs(list) do
+			local dup = false
+			for _, r in ipairs(p.rules) do
+				if r.mac == mac and r.proto == pr[1] and tonumber(r.port) == pr[2] then dup = true end
+			end
+			if not dup then
+				p.seq = (tonumber(p.seq) or 0) + 1
+				p.rules[#p.rules + 1] = { id = p.seq, mac = mac, proto = pr[1],
+				                          port = pr[2], note = "preset:" .. preset, enabled = true }
+				added = added + 1
+			end
+		end
+	end
+	save_json_map(PORTS_FILE, p)
+	render_rules(load_state())
+	reload_firewall()
+	return ok({ added = added })
+end
+
+-- ---- external blacklist feeds -----------------------------------------
+
+
+
+
+-- A subscription must never be able to block the local network itself.
+
+-- A v2fly style list: one domain per line, "include:" and "regexp:" lines
+-- are not addresses, and "@cn" is a routing hint rather than part of the name.
+
+-- An app feed replaces that app's signatures outright: the upstream file is
+-- the authority for it. Hand-written extras belong under another name.
+
+
+-- ---- v2ray geosite bundles --------------------------------------------
+-- One file holds every category: v2fly ships dlc.dat, Loyalsoldier ships
+-- geosite.dat, both in the same protobuf shape. Parsing it here means one
+-- subscription instead of one per app.
+local function pb_varint(s, i)
+	local v, shift = 0, 0
+	while true do
+		local b = s:byte(i)
+		if not b then return nil end
+		i = i + 1
+		v = v + (b % 128) * 2 ^ shift
+		if b < 128 then return v, i end
+		shift = shift + 7
+		if shift > 63 then return nil end
+	end
+end
+
+-- returns tag, wiretype, value/offset
+local function pb_field(s, i)
+	local key
+	key, i = pb_varint(s, i)
+	if not key then return nil end
+	local wire = key % 8
+	local tag = math.floor(key / 8)
+	if wire == 0 then
+		local v
+		v, i = pb_varint(s, i)
+		return tag, wire, v, i
+	elseif wire == 2 then
+		local len
+		len, i = pb_varint(s, i)
+		if not len then return nil end
+		return tag, wire, s:sub(i, i + len - 1), i + len
+	elseif wire == 5 then
+		return tag, wire, s:sub(i, i + 3), i + 4
+	elseif wire == 1 then
+		return tag, wire, s:sub(i, i + 7), i + 8
+	end
+	return nil
+end
+
+-- Domain types: 0 plain, 1 regex, 2 root domain, 3 full
+
+
+
+-- Fetch one feed into `ips` without touching the firewall. Returns the set of
+-- added and removed addresses, or nil plus a reason.
+-- ---- domain blocking (DNS layer) ---------------------------------------
+-- IP rules cannot touch a domain list, and most public blocklists ship
+-- domains. They are written as a hosts file that dnsmasq reads through
+-- addnhosts, then dnsmasq is reloaded - never restarted, so DHCP stays up.
+local MAX_DOMAINS = 20000
+
+
+
+-- Accept hostnames only. Rejecting anything with a path, a wildcard or a
+-- numeric-only last label keeps prose and version strings out of the list.
+
+
+-- dnsmasq only reads the file once it is listed; do it once, not per refresh
+
+-- 只写 hosts 文件并 HUP。写 uci 条目属于启动期基础设施,放在 sync 里:
+-- 定时刷新若发现条目丢失而重启 dnsmasq,DHCP 会被打断。
+
+-- 启动路径专用:确保 addnhosts 里登记了我们的 hosts 文件,缺了就补上并重启
+-- 一次 dnsmasq(HUP 读不到新条目,这一步只能重启)。
+
+-- dnsmasq answers blocked names with 0.0.0.0, so a hit is only visible in its
+-- query log. Reading it is opt-in: the setting costs one line per DNS query.
+
+
+
+
+
+
+
+local MAX_FEED_IPS = 20000
+
+
+-- Replace this feed's contribution to the domain list. Returns how many
+-- names changed, so the caller only reloads dnsmasq when it matters.
+
+-- Push the delta into the running set. No fw4 reload: rebuilding the ruleset
+-- drops every connection on the box, and a scheduled refresh has no business
+-- disturbing the LAN. A reload only happens if the set is missing entirely.
+-- One nft process per 2000 addresses instead of one per address. A batch is
+-- atomic, so a single address that is not in the set makes the whole batch
+-- fail; when that happens each element is retried on its own so the rest
+-- still lands.
+
+
+-- Rewrite the contents of the two sets from state without touching the
+-- ruleset: flushing elements keeps the set object, its chains and every
+-- other firewall rule exactly where they are.
+
+local function apply_ip_delta(delta)
+	local function split(list)
+		local v4, v6 = {}, {}
+		for _, ip in ipairs(list) do
+			if ip:find(":") then v6[#v6 + 1] = ip else v4[#v4 + 1] = ip end
+		end
+		return v4, v6
+	end
+
+	local add4, add6 = split(delta.added)
+	local del4, del6 = split(delta.removed)
+
+	nft_chunk("blocked_ip4", "delete", del4)
+	nft_chunk("blocked_ip6", "delete", del6)
+	nft_chunk("blocked_ip4", "add", add4)
+	nft_chunk("blocked_ip6", "add", add6)
+end
+
+
+
+
+-- ---- ARP guard ---------------------------------------------------------
+-- A device that suddenly answers for another device's address is either a
+-- misconfiguration or an ARP spoof. The neighbour table is already read on
+-- every tick for the device list, so keeping the previous mapping costs one
+-- small file.
+
+local function default_gateway()
+	local fh = io.popen("ip route show default 2>/dev/null", "r")
+	if not fh then return nil end
+	local gw
+	for line in fh:lines() do
+		gw = gw or line:match("via%s+(%d+%.%d+%.%d+%.%d+)")
+	end
+	fh:close()
+	return gw
+end
+
+local function check_arp_changes(now)
+	local st = load_json_map(ARP_FILE, function() return { map = {}, alerts = {}, events = {} } end)
+	st.map = type(st.map) == "table" and st.map or {}
+	st.alerts = type(st.alerts) == "table" and st.alerts or {}
+	st.events = type(st.events) == "table" and st.events or {}
+
+	local cur = {}
+	for mac, ip in pairs(parse_neigh()) do cur[ip] = mac end
+
+	local gw = default_gateway()
+	local events = {}
+
+	for ip, mac in pairs(cur) do
+		local old = st.map[ip]
+		if old and old ~= mac then
+			-- phones rotate their private Wi-Fi address by design; alerting on
+			-- those would train the user to ignore the warning
+			local noisy = is_local_mac(old) and is_local_mac(mac)
+			local is_gw = (ip == gw)
+			if is_gw or not noisy then
+				local key = ip .. "|" .. mac
+				local last = tonumber(st.alerts[key]) or 0
+				if now - last > 3600 then
+					st.alerts[key] = now
+					local ev = { ts = now, ip = ip, was = old, now = mac,
+					             severity = is_gw and "gateway" or "conflict" }
+					events[#events + 1] = ev
+					st.events[#st.events + 1] = ev
+				end
+			end
+		end
+		st.map[ip] = mac
+	end
+
+	-- keep the history short and the rate-limit table bounded
+	while #st.events > 50 do table.remove(st.events, 1) end
+	for k, ts in pairs(st.alerts) do
+		if now - (tonumber(ts) or 0) > 7 * 86400 then st.alerts[k] = nil end
+	end
+
+	if #events > 0 then
+		save_json_map(ARP_FILE, st)
+		for _, ev in ipairs(events) do
+			notify_event("arp_change",
+				ev.severity == "gateway" and "Gateway MAC changed" or "MAC conflict",
+				string.format("%s: %s -> %s", ev.ip, ev.was, ev.now))
+		end
+	end
+	return events
+end
+
+
+
+-- ---- application identification ----------------------------------------
+-- Flows come from conntrack, which already has every byte count the router
+-- forwards. Signatures say which app a flow belongs to; the format is the
+-- one OAF uses so an existing feature library can be imported verbatim:
+--
+--   id name:[proto;sport;dport;host;request;dict]
+--
+-- Only the fields this engine understands are used (proto, dport, host, and
+-- an optional CIDR list). Payload fingerprints need packet capture and are
+-- left to a later stage.
+-- The library is read several times per tick; with a large bundle that parse
+-- dominated everything. It is only ever written by this process, so a copy
+-- cached until the next save is always correct.
+local _apps_cache
+
+load_apps = function()
+	if _apps_cache then return _apps_cache end
+	local d = load_json_map(APPS_FILE, function() return { seq = 0, apps = {} } end)
+	d.seq = tonumber(d.seq) or 0
+	d.apps = type(d.apps) == "table" and d.apps or {}
+	-- the curated library and the feed often describe the same app under
+	-- spellings that differ only in case; two rows for one app splits its
+	-- traffic, so they are folded together here and merged everywhere after
+	local byname, uniq = {}, {}
+	for _, a in ipairs(d.apps) do
+		local k = (a.name or ""):lower()
+		local m = byname[k]
+		if not m then
+			byname[k] = a
+			uniq[#uniq + 1] = a
+		else
+			if m.feed and not a.feed then
+				m.name, m.class, m.feed = a.name, a.class or m.class, a.feed
+			end
+			for _, sig in ipairs(a.sigs or {}) do m.sigs[#m.sigs + 1] = sig end
+		end
+	end
+	d.apps = uniq
+	_apps_cache = d
+	return d
+end
+
+save_apps = function(d)
+	_apps_cache = d
+	return save_json_map(APPS_FILE, d)
+end
+
+-- Lua 5.1 has no bitwise operators; arithmetic on the octets is enough here
+
+
+local function port_in(spec, port)
+	if not spec or spec == "" then return false end
+	local lo, hi = spec:match("^(%d+)%-(%d+)$")
+	if lo then return port >= tonumber(lo) and port <= tonumber(hi) end
+	return tonumber(spec) == port
+end
+
+-- host is matched against the domain we know for the flow, if any
+-- A signature anchored only on a port is safe when the port is distinctive
+-- (a game's 6000-9000 range). The same signature on 443 would attribute the
+-- entire web to one app, so those are dropped at import: in the source they
+-- carry a payload fingerprint we cannot evaluate without packet capture.
+local function sig_usable(sig, cls)
+	if (sig.host and sig.host ~= "") or (sig.ip and sig.ip ~= "") then
+		return true
+	end
+	if not sig.dport or sig.dport == "" then return false end
+	-- only games are identified by port alone; a video app matched on a bare
+	-- UDP port would swallow unrelated traffic (Douyin claimed torrents on
+	-- port 16000 before this check)
+	if cls ~= "game" then return false end
+	for p in sig.dport:gmatch("%d+") do
+		local n = tonumber(p)
+		if n == 80 or n == 443 or n == 8080 then return false end
+	end
+	return true
+end
+
+local function sig_matches(sig, proto, port, ip, host)
+	if sig.proto and sig.proto ~= "" and sig.proto ~= proto then return false end
+	local by_port = sig.dport and sig.dport ~= "" and port_in(sig.dport, port)
+	local by_ip = sig.ip and sig.ip ~= "" and cidr_match(ip, sig.ip)
+	local by_host = sig.host and sig.host ~= "" and host
+		and host:find(sig.host:gsub("^%.", ""), 1, true) ~= nil
+	if not (by_port or by_ip or by_host) then return false end
+	-- a signature with several conditions must satisfy all of the ones given
+	if sig.dport and sig.dport ~= "" and not by_port then return false end
+	if sig.ip and sig.ip ~= "" and not by_ip then return false end
+	if sig.host and sig.host ~= "" and not by_host then return false end
+	return true
+end
+
+-- Walking every signature for every flow does not scale: a geosite bundle
+-- brings 1400 apps and tens of thousands of domains, and a tick has a few
+-- thousand flows. Domains are therefore indexed by suffix, so a hostname is
+-- answered in a handful of lookups instead of a full scan. Signatures that
+-- are not plain domains (substrings, wildcards, ports) stay in short lists.
+-- Lua 5.1 allows 200 locals per chunk, so the index lives in one table
+local IDX = {}
+
+-- 谁在什么时候因为什么被封/解封。没有这个,事后只能靠猜。
+IDX.audit = function(kind, mac, ip, note)
+	local path = STATE_DIR .. "/block-audit.log"
+	local f = io.open(path, "a")
+	if not f then return end
+	f:write(string.format("%s\t%s\t%s\t%s\t%s\n", os.date("%Y-%m-%d %H:%M:%S"),
+		kind, mac or "-", ip or "-", ((note or ""):gsub("[\r\n]+", " "))))
+	f:close()
+	local probe = io.open(path, "r")
+	local size = 0
+	if probe then size = probe:seek("end") or 0; probe:close() end
+	if size > 262144 then
+		local all = read_all(path) or ""
+		local lines = {}
+		for line in all:gmatch("[^\n]+") do lines[#lines + 1] = line end
+		local keep = {}
+		for i = math.max(1, #lines - 1000), #lines do keep[#keep + 1] = lines[i] end
+		local w = io.open(path, "w")
+		if w then w:write(table.concat(keep, "\n"), "\n"); w:close() end
+	end
+end
+
+function IDX.build(apps)
+	local idx = { suffix = {}, label = {}, substr = {}, port = {} }
+	-- A category like APPLE or LE holds thousands of domains and would
+	-- otherwise claim everything a specific app also claims. Sorting by
+	-- domain count means the narrowest app owns a suffix.
+	local order = {}
+	for i, a in ipairs(apps.apps) do order[i] = a end
+	table.sort(order, function(x, y)
+		return #(x.sigs or {}) < #(y.sigs or {})
+	end)
+	for _, a in ipairs(order) do
+		for _, sig in ipairs(a.sigs or {}) do
+			local h = sig.host and sig.host:lower() or ""
+			if h ~= "" then
+				if not h:find("*", 1, true) and h:find(".", 1, true) then
+					idx.suffix[h] = idx.suffix[h] or a
+				elseif not h:find(".", 1, true) then
+					-- a bare label like "xiaohongshu" matches any host that
+					-- carries it as one of its labels
+					idx.label[h] = idx.label[h] or a
+				else
+					idx.substr[#idx.substr + 1] = { host = h, app = a, proto = sig.proto }
+					-- "*.googlevideo.com" is how the feed writes a domain rule;
+					-- registering the base makes a narrow app own it before a
+					-- broad category that spells the same domain out exactly
+					local base = h:match("^%*%.(.+)$")
+					if base and base:find(".", 1, true) and not base:find("*", 1, true) then
+						idx.suffix[base] = idx.suffix[base] or a
+					end
+				end
+			elseif sig.dport and sig.dport ~= "" then
+				idx.port[#idx.port + 1] = { dport = sig.dport, proto = sig.proto, app = a }
+			end
+		end
+	end
+	return idx
+end
+
+function IDX.get(apps)
+	if IDX.cache == nil or IDX.src ~= apps then
+		IDX.cache = IDX.build(apps)
+		IDX.src = apps
+	end
+	return IDX.cache
+end
+
+function IDX.suffix_match(idx, host)
+	local h = host:lower()
+	local pos = 1
+	while true do
+		local a = idx.suffix[h:sub(pos)]
+		if a then return a end
+		local dot = h:find(".", pos, true)
+		if not dot then return nil end
+		pos = dot + 1
+	end
+end
+
+-- Returns the app and how it was recognised. A match on the hostname or an
+-- address range is trustworthy; a bare port is a guess.
+local function classify_flow(apps, proto, port, ip, host)
+	local idx = IDX.get(apps)
+	-- the same name repeats across dozens of flows in one tick, and the
+	-- lookup walks every label; remember the answer for the tick's lifetime
+	local memo = IDX.memo
+	if host and memo and memo[host] then return memo[host][1], memo[host][2] end
+	if host and host ~= "" then
+		-- a bare label is the most specific thing there is: the curated
+		-- library names apps that way and must not lose to a bundle category
+		-- that happens to own the same domain
+		local h = host:lower()
+		local pos = 1
+		while true do
+			local a = idx.label[h:sub(pos, (h:find(".", pos, true) or (#h + 1)) - 1)]
+			if a then
+				if memo then memo[host] = { a, "high" } end
+				return a, "high"
+			end
+			local dot = h:find(".", pos, true)
+			if not dot then break end
+			pos = dot + 1
+		end
+		local a = IDX.suffix_match(idx, host)
+		if a then
+			if memo then memo[host] = { a, "high" } end
+			return a, "high"
+		end
+		for _, s in ipairs(idx.substr) do
+			if s.host ~= "" and host:lower():find(s.host, 1, true) then
+				if not s.proto or s.proto == "" or s.proto == proto then
+					return s.app, "high"
+				end
+			end
+		end
+	end
+	for _, s in ipairs(idx.port) do
+		if (not s.proto or s.proto == "" or s.proto == proto) and port_in(s.dport, port) then
+			return s.app, "low"
+		end
+	end
+	return nil
+end
+
+-- which side of the flow is on the LAN
+local function lan_prefix()
+	local out = sys.exec("ip -4 addr show dev br-lan 2>/dev/null") or ""
+	local ip = out:match("inet%s+(%d+%.%d+%.%d+)%.")
+	return ip
+end
+
+-- Clash keeps the real hostname for every proxied connection and already
+-- counts its bytes, so this is both cheaper and more accurate than guessing
+-- from conntrack: the destination the router sees is a fake IP.
+local function clash_secret()
+	local s = trim(sys.exec("uci -q get openclash.config.dashboard_password 2>/dev/null") or "")
+	if s ~= "" then return s end
+	local y = read_all("/etc/openclash/config/default.yaml") or ""
+	return y:match("secret:%s*'([^']+)'") or y:match('secret:%s*"([^"]+)"')
+end
+
+local function record(st, app_name, dev_ip, bytes, conf)
+	st.apps[app_name] = (st.apps[app_name] or 0) + bytes
+	st.dev[dev_ip] = st.dev[dev_ip] or {}
+	st.dev[dev_ip][app_name] = (st.dev[dev_ip][app_name] or 0) + bytes
+	if conf == "low" then
+		st.low = st.low or {}
+		st.low[app_name] = (st.low[app_name] or 0) + bytes
+	end
+end
+
+-- Clash reports sourceIP and sourcePort for every connection, and the router
+-- keeps the corresponding flow. Joining on that pair yields the address the
+-- client actually sent to, which for fake-ip mode is the only handle nft has.
+-- The flow table is read twice per tick (once for the fake-address index,
+-- once for the byte accounting). Reads are cheap but the popen is not, so
+-- the text is fetched once and reused.
+-- Parsing 5000 conntrack lines with Lua patterns cost more than everything
+-- else in a tick. awk reduces each line to "proto src sport dst dport bytes",
+-- so Lua does one match per line instead of six.
+local function conntrack_text()
+	if IDX.ct then return IDX.ct end
+	local out = sys.exec([[awk '/^ipv4/ { n=split($0,a," "); p=a[3]; s=""; d=""; sp=""; dp=""; b=0; c=0;
+	for(i=1;i<=n;i++){
+		if(a[i] ~ /^src=/){ c++; if(c==1) s=substr(a[i],5) }
+		else if(a[i] ~ /^dst=/){ if(c==1) d=substr(a[i],5) }
+		else if(a[i] ~ /^sport=/){ if(c==1) sp=substr(a[i],7) }
+		else if(a[i] ~ /^dport=/){ if(c==1) dp=substr(a[i],7) }
+		else if(a[i] ~ /^bytes=/){ b += substr(a[i],7) }
+	}
+	if(s != "") print p, s, sp, d, dp, b }' /proc/net/nf_conntrack 2>/dev/null]])
+	return out or ""
+end
+
+local function fake_ip_index(prefix)
+	local map = {}
+	for line in conntrack_text():gmatch("[^\n]+") do
+		local _, src, sport, dst = line:match("^(%S+) (%S+) (%S+) (%S+) ")
+		if src and sport and src:sub(1, #prefix) == prefix and dst:sub(1, #prefix) ~= prefix then
+			map[src .. "|" .. sport] = dst
+		end
+	end
+	return map
+end
+
+local function collect_clash_stats(now, apps, st, seen)
+	local secret = clash_secret()
+	if not secret then return 0 end
+	local prefix = lan_prefix() or "192.168."
+	-- fake_ip_index 在下面按需调用一次;这里预先算一份只会重复解析
+	local raw = sys.exec(string.format(
+		"curl -s -m 5 -H %s http://127.0.0.1:9090/connections 2>/dev/null",
+		shq("Authorization: Bearer " .. secret)))
+	if not raw or raw == "" then return 0 end
+	local ok_, doc = pcall(jsonc.parse, raw)
+	if not ok_ or type(doc) ~= "table" then return 0 end
+
+	-- `seen` belongs to the caller: both passes must write the same map, or
+	-- each save wipes the other's keys and every tick recounts whole flows
+	-- Clash is the only place a fake address is tied to a name. Keep that
+	-- mapping across ticks: the flow lingers in the conntrack table after it
+	-- closes, and that is where its bytes are counted - counting them here as
+	-- well would double every proxied byte.
+	local cache = load_json_map(STATE_DIR .. "/fakeip.json", function() return {} end)
+	local fakeip = fake_ip_index(prefix)
+	local fresh, n = {}, 0
+	for _, c in ipairs(doc.connections or {}) do
+		local m = c.metadata or {}
+		-- a Redir connection reports no destinationIP; the address the client
+		-- actually dialled is the far end of its own flow, found by source port
+		local host = m.host
+		local dip = fakeip[(m.sourceIP or "") .. "|" .. (m.sourcePort or "")]
+		if host and dip and host ~= dip then
+			local ch = c.chains or {}
+			fresh[dip] = { h = host, c = ch[#ch], o = ch[1] }
+			n = n + 1
+		end
+	end
+	for k, v in pairs(cache) do
+		if fresh[k] == nil and n < 60000 then fresh[k] = v; n = n + 1 end
+	end
+	save_json_map(STATE_DIR .. "/fakeip.json", fresh)
+	return fresh
+end
+
+local function collect_app_stats(now)
+	local apps = load_apps()
+	if #apps.apps == 0 then return nil end
+
+	local prefix = lan_prefix()
+	if not prefix then return nil end
+
+	local st = load_json_map(APPSTAT_FILE, function()
+		return { day = "", apps = {}, dev = {} }
+	end)
+	local today = os.date("%Y-%m-%d", now)
+	if st.day ~= today then
+		-- midnight is not a reset: the finished day is filed away so the
+		-- window can still be read, and only a week of it is worth keeping
+		st.hist = st.hist or {}
+		if st.day and st.day ~= "" and st.apps then
+			st.hist[st.day] = { apps = st.apps, dev = st.dev, low = st.low,
+			                    proxy = st.proxy, node = st.node, ph = st.ph }
+		end
+		local days = {}
+		for d in pairs(st.hist) do days[#days + 1] = d end
+		table.sort(days)
+		for i = 1, #days - 7 do st.hist[days[i]] = nil end
+		st.day, st.apps, st.dev, st.low, st.proxy, st.node, st.ph = today, {}, {}, nil, {}, {}, {}
+	end
+
+	-- one line per flow: json was 492 KB and cost more to parse than the
+	-- conntrack scan it exists to avoid
+	IDX.load_seen = IDX.load_seen or function()
+		local out, f = {}, io.open(CT_SEEN_FILE, "r")
+		if not f then return out end
+		for line in f:lines() do
+			local p_, s_, sp_, d_, dp_, b_ =
+				line:match("^(%S+) (%S+) (%S+) (%S+) (%S+) (%d+)")
+			if p_ then out[p_ .. "|" .. s_ .. "|" .. sp_ .. "|" .. d_ .. "|" .. dp_] = { b = b_ } end
+		end
+		f:close()
+		return out
+	end
+	local seen = IDX.load_seen()
+	local fresh = {}
+	local fake_cache = collect_clash_stats(now, apps, st, seen) or {}
+	local counted = 0
+
+	for line in conntrack_text():gmatch("[^\n]+") do
+		local proto, src, sport, dst, dport, total =
+			line:match("^(%S+) (%S+) (%S+) (%S+) (%S+) (%d+)")
+		if proto then
+			do
+				total = tonumber(total)
+				local key = proto .. "|" .. src .. "|" .. sport .. "|" .. dst .. "|" .. dport
+				local prev = seen[key]
+				local delta = total - (prev and tonumber(prev.b) or 0)
+				if delta < 0 then delta = 0 end
+
+				-- the LAN side identifies the device, the other side the app.
+				-- a flow with no LAN end (router to internet) has no device and
+				-- must not be attributed to the WAN address
+				local src_lan = src:sub(1, #prefix) == prefix
+				local dst_lan = dst:sub(1, #prefix) == prefix
+				local dev_ip, remote_ip, remote_port
+				if src_lan and not dst_lan then
+					dev_ip, remote_ip, remote_port = src, dst, tonumber(dport)
+				elseif dst_lan and not src_lan then
+					dev_ip, remote_ip, remote_port = dst, src, tonumber(sport)
+				end
+
+				-- a port-only guess is not evidence: tcp/6000-9000 is used by
+				-- Home Assistant, access points and torrent clients, and they
+				-- were all being reported as a game. Only a hostname, an
+				-- address we learned, or a verified fingerprint counts.
+				if delta > 0 and dev_ip then
+					local fc = fake_cache[remote_ip]
+					local host = fc and fc.h
+					-- quota is spent whether or not we can name the app, so this
+					-- is counted before classification and independently of it
+					if fc and fc.o and fc.o ~= "DIRECT" then
+						st.proxy = st.proxy or {}
+						local g = fc.c or fc.o
+						st.proxy[g] = (st.proxy[g] or 0) + delta
+						st.node = st.node or {}
+						st.node[fc.o] = (st.node[fc.o] or 0) + delta
+						-- which names actually went out that way, so a group
+						-- can be traced back to the addresses behind it
+						if host and host ~= "" then
+							st.ph = st.ph or {}
+							local e = st.ph[host]
+							if not e then
+								if #st.ph > 4000 then st.ph = {} end
+								e = { b = 0, n = {}, g = {} }
+								st.ph[host] = e
+							elseif type(e.n) ~= "table" then
+								-- 早期版本把节点和分组各存成一个字符串;
+								-- 直接索引它会让整个 tick 抛错停摆
+								local on, og, ob = e.n, e.g, e.b or 0
+								e = { b = ob, n = {}, g = {} }
+								if on and on ~= "" then e.n[on] = ob end
+								if og and og ~= "" then e.g[og] = ob end
+								st.ph[host] = e
+							end
+							-- a name can leave through several nodes over a day;
+							-- keep every one of them with its own share
+							e.b = (e.b or 0) + delta
+							e.n[fc.o] = (e.n[fc.o] or 0) + delta
+							e.g[g] = (e.g[g] or 0) + delta
+						end
+					end
+					local app, conf = classify_flow(apps, proto, remote_port, remote_ip, host)
+					if app and conf == "high" then
+						learn_app_ip(app.name, remote_ip)
+						record(st, app.name, dev_ip, delta, conf)
+						counted = counted + delta
+					end
+				end
+				-- app 是上一个块里的局部变量,这里读不到;该字段也从未被
+				-- 读取或写回,直接去掉,别留下一个永远为 nil 的假数据
+				fresh[key] = { b = total }
+			end
+		end
+	end
+
+	-- keep only the keys touched in this tick; a flow that is gone
+	-- contributes nothing, and a dropped key would be recounted in full
+	local kept, n = {}, 0
+	for k, v in pairs(fresh) do
+		n = n + 1
+		if n <= 8000 then kept[k] = v end
+	end
+
+
+	fs.mkdirr(STATE_DIR)
+	local sf = io.open(CT_SEEN_FILE .. ".tmp", "w")
+	if sf then
+		for k, v in pairs(kept) do
+			sf:write((k:gsub("|", " ")), " ", tostring(v.b), "\n")
+		end
+		sf:close()
+		os.rename(CT_SEEN_FILE .. ".tmp", CT_SEEN_FILE)
+	end
+	save_json_map(APPSTAT_FILE, st)
+	return { bytes = counted, apps = (function()
+		local c = 0
+		for _ in pairs(st.apps) do c = c + 1 end
+		return c
+	end)() }
+end
+
+
+
+
+-- Import an OAF feature library (plain text, format v3.0). Everything that
+-- parses is kept; unknown classes fall back to "other".
+
+-- Manual editing: a sampled or imported app always needs a touch-up.
+
+
+
+
+
+-- ---- per-app QoS -------------------------------------------------------
+-- qosmate maps a DSCP value to an hfsc class in its prerouting chain at
+-- priority mangle (-150). A table hooked earlier can therefore steer traffic
+-- simply by setting the DSCP; no tc work of our own is needed.
+--
+-- Which addresses belong to an app is learned from the flows we already
+-- classify: Clash reports the host and the address the client actually
+-- connected to, which for proxied traffic is a stable fake IP.
+local QOS_LEVELS = {
+	cs5 = "1:11", ef = "1:11",
+	cs4 = "1:12", af41 = "1:12",
+	cs0 = "1:13",
+	af11 = "1:14", cs2 = "1:14",
+	cs1 = "1:15",
+}
+
+local function load_appips()
+	local d = load_json_map(APPIPS_FILE, function() return {} end)
+	return d
+end
+
+local _qos_dirty = false
+
+learn_app_ip = function(app, ip)
+	if not app or not ip or ip == "" then return end
+	-- hundreds of flows can each name a new address in one tick; reading and
+	-- rewriting the file per call turned a 170 ms tick into 900 ms
+	local d = IDX.appips
+	if not d then d = load_appips(); IDX.appips = d end
+	local list = d[app] or {}
+	for _, v in ipairs(list) do if v == ip then return end end
+	-- keep the newest entries; a long-lived app accumulates CDN addresses
+	table.insert(list, 1, ip)
+	while #list > 64 do table.remove(list) end
+	d[app] = list
+	IDX.appips_dirty = true
+	_qos_dirty = true
+end
+
+local function load_qos()
+	local d = load_json_map(QOS_FILE, function() return { seq = 0, rules = {} } end)
+	d.seq = tonumber(d.seq) or 0
+	d.rules = type(d.rules) == "table" and d.rules or {}
+	return d
+end
+
+local function set_name_for(app)
+	-- Chinese names collapse to "____" under a sanitising gsub, so use the
+	-- library id instead and fall back to a numeric suffix
+	for _, a in ipairs(load_apps().apps) do
+		if a.name == app then return "s_a" .. tostring(a.id) end
+	end
+	local h = 0
+	for i = 1, #app do h = (h * 31 + app:byte(i)) % 100000 end
+	return "s_a" .. h
+end
+
+local function render_qos_rules()
+	local d = load_qos()
+	local ips = load_appips()
+	local lines = { "# generated by languard - do not edit", "" }
+
+	local used = {}
+	for _, r in ipairs(d.rules) do
+		if r.app and r.app ~= "" then used[r.app] = true end
+	end
+
+	lines[#lines + 1] = "table inet languard_qos {"
+	for app in pairs(used) do
+		local list = ips[app]
+		if list and #list > 0 then
+			local name = set_name_for(app)
+			lines[#lines + 1] = "\tset " .. name .. " {"
+			lines[#lines + 1] = "\t\ttype ipv4_addr"
+			lines[#lines + 1] = "\t\tflags interval"
+			lines[#lines + 1] = "\t\telements = { " .. table.concat(list, ", ") .. " }"
+			lines[#lines + 1] = "\t}"
+		end
+	end
+
+	lines[#lines + 1] = ""
+	lines[#lines + 1] = "\tchain pre {"
+	lines[#lines + 1] = "\t\ttype filter hook prerouting priority -160; policy accept;"
+	for _, r in ipairs(d.rules) do
+		local dscp = r.dscp or "cs1"
+		local conds = {}
+		if r.ip and r.ip ~= "" then conds[#conds + 1] = "ip saddr " .. r.ip end
+		if r.app and r.app ~= "" then
+			local name = set_name_for(r.app)
+			if ips[r.app] and #ips[r.app] > 0 then
+				conds[#conds + 1] = "ip daddr @" .. name
+			else
+				conds[#conds + 1] = "ip daddr 0.0.0.0/32"   -- nothing learned yet
+			end
+		end
+		local label = (r.app or "device") .. (r.ip and ("@" .. r.ip) or "")
+		if #conds > 0 and r.action == "block" then
+			-- drop is terminal across tables, so it also stops the client's
+			-- packet before Clash can redirect it
+			lines[#lines + 1] = string.format(
+				"\t\t%s counter drop comment \"block:%s\"", table.concat(conds, " "), label)
+			if r.ip and r.ip ~= "" and r.app and r.app ~= "" then
+				local name = set_name_for(r.app)
+				lines[#lines + 1] = string.format(
+					"\t\tip saddr @%s ip daddr %s counter drop comment \"block:%s\"",
+					name, r.ip, label)
+			end
+		elseif #conds > 0 then
+			lines[#lines + 1] = string.format(
+				"\t\t%s ip dscp set %s counter comment \"qos:%s\"",
+				table.concat(conds, " "), dscp, label)
+		end
+	end
+	lines[#lines + 1] = "\t}"
+	lines[#lines + 1] = "}"
+
+	local f = io.open(QOS_RULE_FILE, "w")
+	if not f then return false end
+	f:write(table.concat(lines, "\n") .. "\n")
+	f:close()
+	return true
+end
+
+-- Traffic that Clash redirects is terminated and re-originated by it, so a
+-- DSCP we set on the client's packet never reaches the WAN. The only way to
+-- keep the mark is to make those addresses skip the redirect entirely.
+-- The bypass set is derived from the rules: when a rule is removed its app
+-- stops being referenced and its addresses leave the set.
+local BYPASS_SET = "languard_bypass"
+
+local function bypass_addresses()
+	local d = load_qos()
+	local ips = load_appips()
+	local want, seen = {}, {}
+	for _, r in ipairs(d.rules) do
+		if r.app and r.app ~= "" and r.action ~= "block" and not seen[r.app] then
+			seen[r.app] = true
+			for _, ip in ipairs(ips[r.app] or {}) do
+				-- a fake address only means something inside Clash; routing
+				-- it directly would black-hole the connection
+				if not want[ip] and not cidr_match(ip, "198.18.0.0/15") then
+					want[ip] = true
+				end
+			end
+		end
+	end
+	local list = {}
+	for ip in pairs(want) do list[#list + 1] = ip end
+	return list
+end
+
+local function bypass_rule_present()
+	local out = sys.exec("nft list chain inet fw4 openclash 2>/dev/null | grep -c '@" .. BYPASS_SET .. "'") or "0"
+	return (tonumber(trim(out)) or 0) > 0
+end
+
+local function apply_bypass()
+	local list = bypass_addresses()
+	sys.call(string.format(
+		"nft list set inet fw4 %s >/dev/null 2>&1 || nft add set inet fw4 %s '{ type ipv4_addr; flags interval; }' 2>/dev/null",
+		BYPASS_SET, BYPASS_SET))
+	sys.call("nft flush set inet fw4 " .. BYPASS_SET .. " 2>/dev/null")
+	if #list > 0 then nft_chunk(BYPASS_SET, "add", list) end
+	if #list > 0 then
+		if not bypass_rule_present() then
+			-- fw4 reloads and OpenClash restarts rebuild this chain, so the
+			-- rule is re-inserted whenever it is missing
+			sys.call("nft insert rule inet fw4 openclash ip daddr @" .. BYPASS_SET .. " return 2>/dev/null")
+		end
+	elseif bypass_rule_present() then
+		-- nothing to bypass: do not leave a lookup in front of every packet
+		for _, h in ipairs((function()
+			local out = {}
+			for line in (sys.exec("nft -a list chain inet fw4 openclash 2>/dev/null") or ""):gmatch("[^\n]+") do
+				if line:find("@" .. BYPASS_SET, 1, true) then
+					local hh = line:match("handle (%d+)")
+					if hh then out[#out + 1] = hh end
+				end
+			end
+			return out
+		end)()) do
+			sys.call("nft delete rule inet fw4 openclash handle " .. h .. " 2>/dev/null")
+		end
+	end
+	return #list
+end
+
+local function apply_qos()
+	render_qos_rules()
+	apply_bypass()
+	-- replace our table in place; fw4 reloads pick the file up afterwards
+	sys.call("nft delete table inet languard_qos 2>/dev/null")
+	local rc = sys.call("nft -f " .. QOS_RULE_FILE .. " 2>/dev/null")
+	return rc == 0
+end
+
+
+
+
+
+-- ---- payload fingerprint sampling --------------------------------------
+-- A signature that names only a port is a guess. When it also carries a byte
+-- pattern ("00:33|1:66|02:00|03:0a" = offset:value), the first bytes of the
+-- flow settle it. Capturing every packet would be wasteful, so the filter
+-- only asks for the ports that actually have a fingerprint, and only a few
+-- hundred packets per run are inspected.
+local function fingerprint_ports(apps)
+	local specs, seen = {}, {}
+	for _, a in ipairs(apps.apps) do
+		for _, sig in ipairs(a.sigs or {}) do
+			if sig.dict and sig.dict ~= "" and sig.dport and sig.dport ~= ""
+			   and not seen[sig.dport] then
+				seen[sig.dport] = true
+				specs[#specs + 1] = sig.dport
+			end
+		end
+	end
+	if #specs == 0 then return nil end
+	local parts = {}
+	for i, spec in ipairs(specs) do
+		if i > 12 then break end
+		local lo, hi = spec:match("^(%d+)%-(%d+)$")
+		if lo then
+			parts[#parts + 1] = "(portrange " .. lo .. "-" .. hi .. ")"
+		else
+			parts[#parts + 1] = "(port " .. spec .. ")"
+		end
+	end
+	return table.concat(parts, " or ")
+end
+
+-- "00:33|1:66|02:00" and "00:73:01:00:02:00" are both offset:value lists
+local function dict_match(dict, payload)
+	if not dict or dict == "" then return false end
+	local parts = {}
+	for chunk in dict:gmatch("[^|]+") do
+		local colon = 0
+		for _ in chunk:gmatch(":") do colon = colon + 1 end
+		if colon > 1 then
+			local nums = {}
+			for n in chunk:gmatch("[^:]+") do nums[#nums + 1] = n end
+			for i = 1, #nums - 1, 2 do
+				parts[#parts + 1] = nums[i] .. ":" .. nums[i + 1]
+			end
+		else
+			parts[#parts + 1] = chunk
+		end
+	end
+	local checked = 0
+	for _, p in ipairs(parts) do
+		local off, val = p:match("^(%d+):(%x+)$")
+		if off then
+			local o, v = tonumber(off), tonumber(val, 16)
+			local b = payload:byte(o + 1)
+			if b == nil or b ~= v then return false end
+			checked = checked + 1
+		end
+	end
+	return checked > 0
+end
+
+local function pcap_u32(s, i, le)
+	local a, b, c, d = s:byte(i, i + 3)
+	if not a then return nil end
+	if le then return a + b * 256 + c * 65536 + d * 16777216 end
+	return d + c * 256 + b * 65536 + a * 16777216
+end
+
+local function pcap_u16(s, i, le)
+	local a, b = s:byte(i, i + 1)
+	if not a then return nil end
+	if le then return a + b * 256 end
+	return b + a * 256
+end
+
+-- Walk the capture and hand back one {proto, dst, dport, payload} per packet.
+local function parse_pcap(data)
+	local magic = pcap_u32(data, 1, true)
+	local le = (magic == 0xa1b2c3d4)
+	local pos = 25
+	local out = {}
+	while pos + 16 <= #data do
+		local incl = pcap_u32(data, pos + 8, le)
+		if not incl or incl == 0 then break end
+		local pkt = data:sub(pos + 16, pos + 15 + incl)
+		pos = pos + 16 + incl
+		if #pkt >= 34 then
+			local etype = pcap_u16(pkt, 13, false)
+			local off = 14
+			if etype == 0x8100 then
+				etype = pcap_u16(pkt, 17, false)
+				off = 18
+			end
+			if etype == 0x0800 then
+				local ipoff = off + 1
+				local vihl = pkt:byte(ipoff)
+				if vihl then
+					local ihl = (vihl % 16) * 4
+					local proto = pkt:byte(ipoff + 9)
+					local src = table.concat({ pkt:byte(ipoff + 12, ipoff + 15) }, ".")
+					local dst = table.concat({ pkt:byte(ipoff + 16, ipoff + 19) }, ".")
+					local l4 = ipoff + ihl
+					local sport, dport, pl
+					if proto == 17 then
+						sport = pcap_u16(pkt, l4, false)
+						dport = pcap_u16(pkt, l4 + 2, false)
+						pl = pkt:sub(l4 + 8)
+					elseif proto == 6 then
+						sport = pcap_u16(pkt, l4, false)
+						dport = pcap_u16(pkt, l4 + 2, false)
+						local doff = math.floor((pkt:byte(l4 + 12) or 0) / 16) * 4
+						pl = pkt:sub(l4 + doff)
+					end
+					if dport then
+						out[#out + 1] = {
+							proto = (proto == 17) and "udp" or "tcp",
+							src = src, dst = dst, dport = dport, payload = pl or "",
+						}
+					end
+				end
+			end
+		end
+	end
+	return out
+end
+
+
+-- Parsing a capture blocks for as long as tcpdump runs. The work is split
+-- across two ticks instead: this round reads what the previous one recorded
+-- and immediately starts the next capture in the background, so tick stays
+-- in the millisecond range and nothing waits on a timeout.
+local function fingerprint_scan(apps, now)
+	local counted, learned = 0, 0
+
+	local f = io.open("/tmp/lg_fp_next.pcap", "rb")
+	if f then
+		local data = f:read("*a")
+		f:close()
+		os.remove("/tmp/lg_fp_next.pcap")
+		if data and #data > 24 then
+			local st = load_json_map(FINGERPRINT_FILE, function() return {} end)
+			for _, p in ipairs(parse_pcap(data)) do
+				if #p.payload >= 6 then
+					for _, a in ipairs(apps.apps) do
+						local matched = false
+						for _, sig in ipairs(a.sigs or {}) do
+							if sig.dict and sig.dict ~= "" and sig.proto == p.proto
+							   and port_in(sig.dport, p.dport)
+							   and dict_match(sig.dict, p.payload) then
+								matched = true
+								break
+							end
+						end
+						if matched then
+							counted = counted + 1
+							st[a.name] = { ts = now, hits = ((st[a.name] or {}).hits or 0) + 1 }
+							learn_app_ip(a.name, p.dst)
+							learned = learned + 1
+							break
+						end
+					end
+				end
+			end
+			if counted > 0 then save_json_map(FINGERPRINT_FILE, st) end
+		end
+	end
+
+	local filter = fingerprint_ports(apps)
+	if filter then
+		sys.call(string.format(
+			"sh -c 'timeout 25 tcpdump -i br-lan -U -s 96 -c 400 -w %s %s >/dev/null 2>&1 &'",
+			"/tmp/lg_fp_next.pcap", shq(filter)))
+	end
+	return { hits = counted, learned = learned }
+end
+
+-- ---- manual sampling ---------------------------------------------------
+-- Game signatures cannot be downloaded from anywhere, so the only way to get
+-- one is to watch the game run. A capture is started on demand, the first
+-- bytes of every new flow are grouped by port and payload prefix, and a group
+-- the user recognises can be saved as a signature in one click.
+local SAMPLE_PCAP = "/tmp/lg_sample.pcap"
+local SAMPLE_STATE = STATE_DIR .. "/sample.json"
+
+local function sample_running()
+	return sys.call("pgrep -f 'tcpdump.*lg_sample' >/dev/null 2>&1") == 0
+end
+
+
+
+
+-- Turn a sampled group into a signature: "00:33|1:66|2:00|3:0a" from the
+-- prefix, with the observed port kept as the match condition.
+
+-- Called from tick: refresh at most one due subscription per run so a slow
+-- source never stalls the minute tick.
+
+-- ---- configuration export / import -------------------------------------
+-- 换固件时要保住的东西。运行时可重建的(流量账本、假 IP 缓存、登录日志)
+-- 不在这里:它们要么每小时过期,要么启动后自己长回来。
+local CONFIG_FILES = {
+	blocked_ips = IPSTATE_FILE, blocked = STATE_FILE, names = NAME_FILE,
+	schedule = SCHED_FILE, notify = NOTIFY_FILE, groups = GROUPS_FILE,
+	ports = PORTS_FILE, whitelist = WL_FILE, feeds = FEEDS_FILE,
+	auto = AUTOCFG_FILE, trusted_proxies = PROXY_FILE,
+	-- 应用识别库与学到的地址:2MB 的 apps.json 重建不出来,必须带走
+	apps = APPS_FILE, app_ips = APPIPS_FILE, app_qos = QOS_FILE,
+	domains = DOMAIN_FILE, known_devices = KNOWN_FILE, panic = PANIC_FILE,
+	tick = STATE_DIR .. "/tick.json", aliases = ALIAS_FILE,
+	fingerprint = FINGERPRINT_FILE,
+}
+-- 备份与恢复
+sysm = require "languard.system"
+sysm.setup({
+	files = CONFIG_FILES,
+	state_dir = STATE_DIR,
+	notify_file = NOTIFY_FILE,
+	deps = {
+		-- 这些名字此时可能还没赋值,用闭包在调用时解析
+		read_all = function(p) return read_all(p) end,
+		load_json_map = function(a, b) return load_json_map(a, b) end,
+		load_state = function() return load_state() end,
+		render_rules = function(st) return render_rules(st) end,
+		reload_firewall = function() return reload_firewall() end,
+	},
+})
+methods.exportconfig = sysm.exportconfig
+methods.exportfile = sysm.exportfile
+methods.importconfig = sysm.importconfig
+methods.importfile = sysm.importfile
+
+-- 通知通道
+ntfm = require "languard.notify"
+ntfm.setup({
+	notify_file = NOTIFY_FILE, notify_tmp = NOTIFY_TMP, state_dir = STATE_DIR,
+	events = { "auto_block", "new_device", "expire" },
+	shq = function(v) return shq(v) end,
+})
+notify_event = function(e, t, b) return ntfm.event(e, t, b) end
+load_notify = ntfm.load
+methods.notifyget = ntfm.get
+methods.notifyadd = ntfm.add
+methods.notifydel = ntfm.del
+methods.notifytoggle = ntfm.toggle
+methods.notifyevents = ntfm.setevents
+methods.notifytest = ntfm.test
+
+-- 域名黑名单
+domm = require "languard.domains"
+domm.setup({
+	domain_file = DOMAIN_FILE, hosts = DOMAIN_HOSTS,
+	load_json_map = function(a, b) return load_json_map(a, b) end,
+	save_json_map = function(a, b) return save_json_map(a, b) end,
+})
+load_domains = domm.load
+save_domains = domm.save
+is_domain_token = domm.is_token
+apply_domains = function() return domm.apply() end
+methods.ensure_dnsmasq = domm.ensure
+methods.domainhits = domm.hits
+methods.domaintogglelog = domm.togglelog
+methods.domainlist = domm.list
+methods.domainadd = domm.add
+methods.domaindel = domm.del
+methods.domaintoggle = domm.toggle
+
+-- 订阅源
+feedm = require "languard.feeds"
+feedm.setup({
+	FEEDS_FILE = FEEDS_FILE, IPSTATE_FILE = IPSTATE_FILE,
+	MAX_FEED_IPS = MAX_FEED_IPS, MAX_DOMAINS = MAX_DOMAINS,
+	pb_field = function(d, i) return pb_field(d, i) end,
+	methods = methods,
+	reload_firewall = function() return reload_firewall() end,
+	normalize_ip = function(v) return normalize_ip(v) end,
+	is_domain_token = function(v) return is_domain_token(v) end,
+	is_trusted_proxy = function(v) return is_trusted_proxy(v) end,
+	load_domains = function() return load_domains() end,
+	save_domains = function(d) return save_domains(d) end,
+	apply_domains = function() return apply_domains() end,
+	load_apps = function() return load_apps() end,
+	save_apps = function(a) return save_apps(a) end,
+	load_ipstate = function() return load_ipstate() end,
+	save_ipstate = function(v) return save_ipstate(v) end,
+	lock_acquire = function(f, t) return lock_acquire(f, t) end,
+	lock_release = function(f) return lock_release(f) end,
+	render_rules = function(st) return render_rules(st) end,
+	load_state = function() return load_state() end,
+	apply_ip_delta = function(d) return apply_ip_delta(d) end,
+	notify_event = function(...) return notify_event(...) end,
+	shq = function(v) return shq(v) end,
+	read_all = function(p) return read_all(p) end,
+})
+load_feeds = feedm.load_feeds
+refresh_due_feeds = feedm.refresh_due_feeds
+methods.feedlist = feedm.feedlist
+methods.feedadd = feedm.feedadd
+methods.feeddel = feedm.feeddel
+methods.feedrefresh = feedm.feedrefresh
+methods.feedset = feedm.feedset
+
+-- 应用/QoS/采样的对外接口
+appm = require "languard.apps"
+appm.setup({
+	APPSTAT_FILE = APPSTAT_FILE, CT_SEEN_FILE = CT_SEEN_FILE,
+	QOS_FILE = QOS_FILE, QOS_LEVELS = QOS_LEVELS,
+	SAMPLE_PCAP = SAMPLE_PCAP, SAMPLE_STATE = SAMPLE_STATE,
+	load_apps = function() return load_apps() end,
+	save_apps = function(a) return save_apps(a) end,
+	load_appips = function() return load_appips() end,
+	load_qos = function() return load_qos() end,
+	save_qos = function(q) return save_qos(q) end,
+	render_qos_rules = function() return render_qos_rules() end,
+	apply_qos = function() return apply_qos() end,
+	collect_devices = function() return collect_devices() end,
+	load_json_map = function(a, b) return load_json_map(a, b) end,
+	save_json_map = function(a, b) return save_json_map(a, b) end,
+	load_state = function() return load_state() end,
+	save_state = function(v) return save_state(v) end,
+	notify_event = function(...) return notify_event(...) end,
+	read_all = function(p) return read_all(p) end,
+	trim = function(v) return trim(v) end,
+	sig_usable = function(a, b) return sig_usable(a, b) end,
+	ok = function(t) return ok(t) end,
+	err = function(m) return err(m) end,
+	sample_running = function() return sample_running() end,
+	parse_pcap = function(d) return parse_pcap(d) end,
+})
+for _, name in ipairs({ "applist","appstats","appreset","appimport","siglist","sigadd",
+                        "sigdel","appdel","qoslist","qosadd","qosdel",
+                        "sample_start","sample_stop","sample_result","sample_save" }) do
+	methods[name] = appm[name]
+end
+
+
+-- ubus 消息装不下 2MB 的应用库,所以把备份写到 /www 下再让浏览器下载。
+-- /www 是 uhttpd 的静态根,不经过 LuCI 认证,所以:
+--   * 文件名随机,猜不到
+--   * 令牌一律打码,导入时"***"表示保留原值
+--   * 每次导出先删掉上一份
+
+-- 恢复走上传路径:/cgi-bin/lg-upload 把文件落在 uploads 下,这里读取并导入
+
+
+
+function render_rules(state)
+	local lines = {
+		"# Generated by luci.languard - do not edit by hand",
+		"# Revert: rm " .. RULE_FILE .. " && fw4 reload",
+		"",
+		"chain user_pre_input {",
+		"\ttype filter hook input priority -1; policy accept;",
+	}
+	for _, mac in ipairs(sorted_keys(state)) do
+		lines[#lines + 1] = string.format(
+			"\tether saddr %s counter drop comment \"languard:%s\"", mac, mac)
+	end
+	lines[#lines + 1] = "}"
+	-- per-device port restrictions (IoT should not reach NAS/SMB, telnet, ...)
+	local ports = load_ports()
+	local active_ports = {}
+	for _, r in ipairs(ports.rules) do
+		if r.enabled ~= false then active_ports[#active_ports + 1] = r end
+	end
+	if #active_ports > 0 then
+		lines[#lines + 1] = ""
+		lines[#lines + 1] = "chain user_port_forward {"
+		lines[#lines + 1] = "\ttype filter hook forward priority -1; policy accept;"
+		for _, r in ipairs(active_ports) do
+			lines[#lines + 1] = string.format(
+				"\tether saddr %s %s dport %d counter drop comment \"languard-port:%d\"",
+				r.mac, r.proto, tonumber(r.port) or 0, r.id)
+		end
+		lines[#lines + 1] = "}"
+	end
+	lines[#lines + 1] = ""
+	lines[#lines + 1] = "chain user_pre_forward {"
+	lines[#lines + 1] = "\ttype filter hook forward priority -1; policy accept;"
+	for _, mac in ipairs(sorted_keys(state)) do
+		lines[#lines + 1] = string.format(
+			"\tether saddr %s counter drop comment \"languard:%s\"", mac, mac)
+	end
+	lines[#lines + 1] = "}"
+
+	-- external IP blocking
+	local ips = load_ipstate()
+	local v4, v6 = {}, {}
+	for ip in pairs(ips) do
+		if ip:find(":") then v6[#v6 + 1] = ip else v4[#v4 + 1] = ip end
+	end
+	table.sort(v4)
+	table.sort(v6)
+
+	if #v4 > 0 or #v6 > 0 then
+		lines[#lines + 1] = ""
+		if #v4 > 0 then
+			lines[#lines + 1] = "set blocked_ip4 {"
+			lines[#lines + 1] = "\ttype ipv4_addr"
+			lines[#lines + 1] = "\tflags interval"
+			lines[#lines + 1] = "\telements = { " .. table.concat(v4, ", ") .. " }"
+			lines[#lines + 1] = "}"
+			lines[#lines + 1] = ""
+		end
+		if #v6 > 0 then
+			lines[#lines + 1] = "set blocked_ip6 {"
+			lines[#lines + 1] = "\ttype ipv6_addr"
+			lines[#lines + 1] = "\tflags interval"
+			lines[#lines + 1] = "\telements = { " .. table.concat(v6, ", ") .. " }"
+			lines[#lines + 1] = "}"
+			lines[#lines + 1] = ""
+		end
+		lines[#lines + 1] = "chain user_ip_input {"
+		lines[#lines + 1] = "\ttype filter hook input priority -1; policy accept;"
+		-- 逐 IP 计数只给手工与自动封禁:订阅条目动辄上万,一条规则一个
+		-- 地址会让规则集体积失控。订阅行在界面上显示为空。
+		for ip, meta in pairs(ips) do
+			if meta.source ~= "feed" then
+				local fam = ip:find(":") and "ip6" or "ip"
+				lines[#lines + 1] = string.format(
+					"\t%s saddr %s counter drop comment \"languard-ip:%s\"", fam, ip, ip)
+			end
+		end
+		if #v4 > 0 then
+			lines[#lines + 1] = "\tip saddr @blocked_ip4 counter drop comment \"languard-ip-in\""
+		end
+		if #v6 > 0 then
+			lines[#lines + 1] = "\tip6 saddr @blocked_ip6 counter drop comment \"languard-ip6-in\""
+		end
+		lines[#lines + 1] = "}"
+		lines[#lines + 1] = ""
+		lines[#lines + 1] = "chain user_ip_forward {"
+		lines[#lines + 1] = "\ttype filter hook forward priority -1; policy accept;"
+		if #v4 > 0 then
+			lines[#lines + 1] = "\tip daddr @blocked_ip4 counter drop comment \"languard-ip-out\""
+			lines[#lines + 1] = "\tip saddr @blocked_ip4 counter drop comment \"languard-ip-in\""
+		end
+		if #v6 > 0 then
+			lines[#lines + 1] = "\tip6 daddr @blocked_ip6 counter drop comment \"languard-ip6-out\""
+			lines[#lines + 1] = "\tip6 saddr @blocked_ip6 counter drop comment \"languard-ip6-in\""
+		end
+		-- 逐 IP 计数也要在转发链上生成:被封设备的主要流量是上网(forward),
+		-- 只统计 input 会让每个计数器永远接近零,看起来像没生效。
+		for ip, meta in pairs(ips) do
+			if meta.source ~= "feed" then
+				local fam = ip:find(":") and "ip6" or "ip"
+				lines[#lines + 1] = string.format(
+					"\t%s saddr %s counter drop comment \"languard-ip:%s\"", fam, ip, ip)
+			end
+		end
+		lines[#lines + 1] = "}"
+	end
+	lines[#lines + 1] = ""
+
+	local f = io.open(RULE_FILE, "w")
+	if not f then return false end
+	f:write(table.concat(lines, "\n"))
+	f:close()
+	return true
+end
+
+-- fw4 redefines these objects from RULE_FILE; a stale object left behind by a
+-- failed reload makes every later reload fail with "File exists".
+
+-- Runtime element updates avoid the ~6 s fw4 reload. Returns true when the
+-- set already exists in the running ruleset and the element was applied.
+
+
+
+
+-- Liveness: ping sweep in parallel, then re-read the neighbour table.
+-- Covers powered-but-quiet IoT devices that never appear REACHABLE.
+local function probe_online()
+	-- 网段跟着 br-lan 走,不能被写死成 192.168.1.x
+	local base = lan_prefix() or "192.168.1"
+	sys.call(string.format(
+		"for i in $(seq 2 254); do (ping -c1 -W1 %s.$i >/dev/null 2>&1) & done; wait", base), 25)
+	return parse_neigh()
+end
+
+
+-- A container or VM on a NAS answers ARP with its own generated MAC, so the
+-- same box shows up twice and looks like an address conflict. An alias maps
+-- such a MAC onto the device it belongs to; the row then folds into one.
+
+collect_devices = function()
+	local state = load_state()
+	local names = load_names()
+	local leases = parse_leases()
+	local neigh = parse_neigh()
+	local statics = parse_static_hosts()
+	local now = os.time()
+
+	local seen = {}
+	local list = {}
+	local aliases = load_aliases()
+
+	local function add(mac, ip, host, online)
+		mac = normalize_mac(mac)
+		if not mac then return end
+		-- fold a virtual interface into its physical device
+		local target = aliases[mac]
+		if type(target) == "table" then target = target.into end
+		if target and target ~= mac then mac = target end
+		if seen[mac] then
+			local e = seen[mac]
+			e.ip = e.ip or ip
+			e.host = e.host or host
+			e.online = e.online or online
+			return
+		end
+		local st = state[mac]
+		local _fs, _fsa = first_seen_of(mac)
+		local e = {
+			mac = mac,
+			ip = ip,
+			host = (st and st.host) or names[mac] or host,
+			online = online and true or false,
+			blocked = state[mac] ~= nil,
+			blocked_at = state[mac] and state[mac].since or nil,
+			blocked_until = state[mac] and state[mac]["expires"] or nil,
+			block_source = state[mac] and state[mac].source or nil,
+			trusted = wl_has(mac),
+			vendor = vendor_cached(mac),
+			local_mac = is_local_mac(mac),
+			device_type = guess_type(
+				(statics[mac] and statics[mac].host) or (leases[mac] and leases[mac].host) or names[mac],
+				vendor_cached(mac)),
+			first_seen = _fs, first_assumed = _fsa,
+			is_new = (function()
+				local known = _known_cache
+				if not known then
+					known = load_json_map(KNOWN_FILE, function() return {} end)
+					_known_cache = known
+				end
+				return not known[mac]
+			end)(),
+		}
+		seen[mac] = e
+		list[#list + 1] = e
+	end
+
+	for mac, l in pairs(leases) do
+		local s = statics[mac]
+		add(mac, l.ip, (s and s.host) or l.host, neigh[mac] ~= nil)
+	end
+	for mac, s in pairs(statics) do
+		add(mac, s.ip, s.host, neigh[mac] ~= nil)
+	end
+	for mac, ip in pairs(neigh) do
+		add(mac, ip, nil, true)
+	end
+	for mac, st in pairs(state) do
+		add(mac, st.ip, st.host, neigh[mac] ~= nil)
+	end
+
+	-- an address answered by a different MAC than the one bound to it is
+	-- either a stale binding or a virtual interface that took the address
+	local by_ip = {}
+	for _, e in ipairs(list) do
+		if e.ip then
+			by_ip[e.ip] = by_ip[e.ip] or {}
+			table.insert(by_ip[e.ip], e)
+		end
+	end
+	for _, es in pairs(by_ip) do
+		if #es > 1 then
+			local live
+			for _, e in ipairs(es) do if e.online then live = e end end
+			if live then
+				for _, e in ipairs(es) do
+					if e ~= live then
+						e.conflict = live.mac
+						live.conflict = live.conflict or e.mac
+					end
+				end
+			end
+		end
+	end
+
+	for virtual, target in pairs(aliases) do
+		local into = type(target) == "table" and target.into or target
+		local e = into and seen[normalize_mac(into)]
+		if e then
+			e.aliases = e.aliases or {}
+			e.aliases[#e.aliases + 1] = virtual
+		end
+	end
+
+	table.sort(list, function(a, b)
+		if a.blocked ~= b.blocked then return a.blocked end
+		if a.online ~= b.online then return a.online end
+		local ah = a.ip or "999.999.999.999"
+		local bh = b.ip or "999.999.999.999"
+		if ah ~= bh then
+			local a1, a2, a3, a4 = ah:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
+			local b1, b2, b3, b4 = bh:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
+			if a1 and b1 then
+				a1, a2, a3, a4 = tonumber(a1), tonumber(a2), tonumber(a3), tonumber(a4)
+				b1, b2, b3, b4 = tonumber(b1), tonumber(b2), tonumber(b3), tonumber(b4)
+				if a1 ~= b1 then return a1 < b1 end
+				if a2 ~= b2 then return a2 < b2 end
+				if a3 ~= b3 then return a3 < b3 end
+				return a4 < b4
+			end
+			return ah < bh
+		end
+		return a.mac < b.mac
+	end)
+	return list
+end
+
+local function counters()
+	local map = {}
+	local out = sys.exec("nft -j list ruleset 2>/dev/null") or ""
+	local ok, data = pcall(jsonc.parse, out)
+	if not ok or type(data) ~= "table" or type(data.nftables) ~= "table" then return map end
+	for _, item in ipairs(data.nftables) do
+		local rule = item.rule
+		if rule and rule.comment then
+			local mac = rule.comment:match("^languard:(.+)$")
+			if mac and rule.expr then
+				for _, e in ipairs(rule.expr) do
+					if e.counter then
+						map[mac] = { packets = e.counter.packets or 0, bytes = e.counter.bytes or 0 }
+					end
+				end
+			end
+		end
+	end
+	return map
+end
+
+function ok(tbl)
+	tbl.success = true
+	tbl.running = true
+	return tbl
+end
+
+function err(msg)
+	local r = { success = false, running = true, error = msg }
+	return r
+end
+
+function methods.list(probe)
+	_known_cache = nil
+	local devices
+	if probe == "1" or probe == 1 or probe == true then
+		probe_online()
+	end
+	devices = collect_devices()
+	local ctrs = counters()
+	local blocked = 0
+	for _, d in ipairs(devices) do
+		local c = ctrs[d.mac]
+		d.drop_packets = c and c.packets or 0
+		d.drop_bytes = c and c.bytes or 0
+		if d.blocked then blocked = blocked + 1 end
+	end
+	return { success = true, running = true, devices = devices, blocked_count = blocked,
+	         rule_file = RULE_FILE }
+end
+
+local function ip_counters()
+	local map = {}
+	local out = sys.exec("nft -j list ruleset 2>/dev/null") or ""
+	local ok_, data = pcall(jsonc.parse, out)
+	if not ok_ or type(data) ~= "table" or type(data.nftables) ~= "table" then return map end
+	for _, item in ipairs(data.nftables) do
+		local rule = item.rule
+		if rule and rule.comment and rule.comment:match("^languard%-ip") and rule.expr then
+			for _, e in ipairs(rule.expr) do
+				if e.counter then
+					local k = rule.comment
+					-- 注释形如 languard-ip:<addr> 时同时记到该地址名下
+					local addr = k:match("^languard%-ip6?:(.+)$")
+					local c = map[k] or { packets = 0, bytes = 0 }
+					c.packets = c.packets + (e.counter.packets or 0)
+					c.bytes = c.bytes + (e.counter.bytes or 0)
+					map[k] = c
+					if addr then
+						local d = map[addr] or { packets = 0, bytes = 0 }
+						d.packets = d.packets + (e.counter.packets or 0)
+						d.bytes = d.bytes + (e.counter.bytes or 0)
+						map[addr] = d
+					end
+				end
+			end
+		end
+	end
+	return map
+end
+
+-- ============================================================
+-- IP geolocation (offline, ip2region v3 xdb)
+-- ============================================================
+local GEO_DB_PATHS = {
+	"/etc/config/lucky.daji/ipdb/ip2region_v4.xdb",
+	"/usr/share/ip2region/ip2region_v4.xdb",
+	"/etc/ip2region/ip2region_v4.xdb",
+}
+local GEO_HEADER = 256
+local GEO_VEC_SIZE = 8
+local GEO_INDEX = 14
+
+local _geo_db, _geo_path
+local _geo_cache = {}
+
+
+local function geo_open()
+	if _geo_db then return _geo_db end
+	for _, p in ipairs(GEO_DB_PATHS) do
+		local f = io.open(p, "rb")
+		if f then
+			local raw = f:read("*a")
+			f:close()
+			if raw and #raw > GEO_HEADER then
+				_geo_db = raw
+				_geo_path = p
+				return raw
+			end
+		end
+	end
+	return nil
+end
+
+local function u32le(s, off)
+	local a, b, c, d = s:byte(off + 1, off + 4)
+	if not a then return nil end
+	return a + b * 256 + c * 65536 + d * 16777216
+end
+
+local function u16le(s, off)
+	local a, b = s:byte(off + 1, off + 2)
+	if not a then return nil end
+	return a + b * 256
+end
+
+-- Returns "Country|Province|City|ISP|ISO" or nil
+local function geo_lookup(ip)
+	if _geo_cache[ip] ~= nil then
+		return _geo_cache[ip] or nil
+	end
+	local db = geo_open()
+	if not db then return nil end
+	local o1, o2, o3, o4 = ip:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
+	if not o1 then return nil end
+	local n = { tonumber(o1), tonumber(o2), tonumber(o3), tonumber(o4) }
+	local ipb = string.char(n[1], n[2], n[3], n[4])
+
+	local vec = GEO_HEADER + (n[1] * 256 + n[2]) * GEO_VEC_SIZE
+	local s_ptr = u32le(db, vec)
+	local e_ptr = u32le(db, vec + 4)
+	if not s_ptr or not e_ptr or s_ptr == 0 or e_ptr == 0 then return nil end
+
+	local low, high = 0, math.floor((e_ptr - s_ptr) / GEO_INDEX)
+	while low <= high do
+		local mid = math.floor((low + high) / 2)
+		local ptr = s_ptr + mid * GEO_INDEX
+		local seg = db:sub(ptr + 1, ptr + GEO_INDEX)
+		if #seg == GEO_INDEX then
+			local s_ip = seg:sub(1, 4)
+			local e_ip = seg:sub(5, 8)
+			if ipb < s_ip then
+				high = mid - 1
+			elseif ipb > e_ip then
+				low = mid + 1
+			else
+				local d_len = u16le(seg, 8)
+				local d_ptr = u32le(seg, 10)
+				if not d_len or d_len == 0 or not d_ptr then return nil end
+				local r = db:sub(d_ptr + 1, d_ptr + d_len)
+				_geo_cache[ip] = r
+				return r
+			end
+		else
+			break
+		end
+	end
+	_geo_cache[ip] = false
+	return nil
+end
+
+-- ============================================================
+-- Login activity log
+-- ============================================================
+local LOG_FIELDS = 6   -- epoch|kind|result|ip|user|detail
+
+local function log_esc(v)
+	v = tostring(v or "")
+	v = v:gsub("[\r\n\t|]", " ")
+	return v
+end
+
+-- Append one record. The file is a pipe-separated ring trimmed to LOG_MAX.
+local function log_append(epoch, kind, result, ip, user, detail)
+	fs.mkdirr(STATE_DIR)
+	local f = io.open(LOG_FILE, "a")
+	if not f then return false end
+	f:write(table.concat({
+		tostring(epoch), log_esc(kind), log_esc(result),
+		log_esc(ip), log_esc(user), log_esc(detail)
+	}, "|") .. "\n")
+	f:close()
+
+	-- trim
+	local count = 0
+	local r = io.open(LOG_FILE, "r")
+	if r then
+		for _ in r:lines() do count = count + 1 end
+		r:close()
+	end
+	if count > LOG_MAX then
+		local keep = {}
+		local i = 0
+		local r2 = io.open(LOG_FILE, "r")
+		if r2 then
+			for line in r2:lines() do
+				i = i + 1
+				if i > count - LOG_MAX then keep[#keep + 1] = line end
+			end
+			r2:close()
+		end
+		local w = io.open(LOG_FILE, "w")
+		if w then
+			w:write(table.concat(keep, "\n") .. "\n")
+			w:close()
+		end
+	end
+	return true
+end
+
+local function log_read(limit)
+	local out = {}
+	local f = io.open(LOG_FILE, "r")
+	if not f then return out end
+	local all = {}
+	for line in f:lines() do
+		local ts, kind, result, ip, user, detail =
+			line:match("^(%d+)|([^|]*)|([^|]*)|([^|]*)|([^|]*)|(.*)$")
+		if ts then
+			all[#all + 1] = {
+				ts = tonumber(ts), kind = kind, result = result,
+				ip = ip, user = user, detail = detail,
+			}
+		end
+	end
+	f:close()
+	-- 断开的记录来自 dropbear 的 Exit 行,那里没有认证方式;用同一 IP+用户
+	-- 最近一次成功登录的方式补齐,免得那一列全是 n/a
+	local lastauth = {}
+	for _, e in ipairs(all) do
+		local key = e.ip .. "|" .. e.user
+		if e.result == "success" then
+			local m = e.detail:match("auth=(%w+)")
+			if m then lastauth[key] = m end
+		elseif e.result == "disconnect" and not e.detail:match("^auth=") then
+			if lastauth[key] then e.detail = "auth=" .. lastauth[key] .. " " .. e.detail end
+		end
+	end
+	-- newest first
+	for i = #all, 1, -1 do
+		out[#out + 1] = all[i]
+		if limit and #out >= limit then break end
+	end
+	return out
+end
+
+-- Called by the watcher for every login line it sees.
+function methods.logevent(epoch, kind, result, ip, user, detail)
+	epoch = tonumber(epoch) or os.time()
+	if not ip or ip == "" then return err("ip required") end
+	if not log_append(epoch, kind, result, ip, user, detail) then
+		return err("cannot write log")
+	end
+	return ok({})
+end
+
+function methods.loglist(limit)
+	limit = tonumber(limit) or LOG_MAX
+	local entries = log_read(limit)
+	-- enrich with hostname and region, cached per call
+	local leases = parse_leases()
+	local reverse = {}
+	for mac, l in pairs(leases) do
+		if l.ip and l.host then reverse[l.ip] = l.host end
+	end
+	local statics = parse_static_hosts()
+	for mac, h in pairs(statics) do
+		if h.ip and h.host then reverse[h.ip] = reverse[h.ip] or h.host end
+	end
+	for _, e in ipairs(entries) do
+		e.host = reverse[e.ip]
+		-- private and reserved ranges have no meaningful region
+		if e.source ~= "feed" and not e.ip:find(":") and not is_private_ip(e.ip) then
+			local g = geo_lookup(e.ip)
+			if g and not g:match("^Reserved") then e.geo = g end
+		end
+	end
+	return { success = true, running = true, entries = entries, total = #entries }, true
+end
+
+function methods.logclear()
+	fs.writefile(LOG_FILE, "")
+	return ok({})
+end
+
+-- Block-list categories. The stored `source` is coarser than what the table
+-- needs to show: an automatic ban is worth splitting into SSH brute force and
+-- web brute force, and a subscription entry should carry the feed it came from.
+local IP_CATS = { "feed", "ssh", "web", "auto", "manual", "schedule", "panic", "import", "other" }
+
+local function ip_category(meta)
+	local src = tostring(meta.source or "manual")
+	if src == "feed" then return "feed" end
+	if src == "auto" then
+		local r = tostring(meta.reason or "")
+		if r == "ssh" or r == "web" then return r end
+		return "auto"
+	end
+	if src == "schedule" then return "schedule" end
+	if src == "panic" then return "panic" end
+	if src == "watchdog" then return "import" end
+	if src == "manual" then return "manual" end
+	return "other"
+end
+
+function methods.iplist(limit, cat)
+	local st = load_ipstate()
+	local total = 0
+	limit = tonumber(limit) or 0
+	if limit <= 0 then limit = 500 end        -- 0 means "whatever fits"
+	if limit > 2000 then limit = 2000 end
+	cat = tostring(cat or "")
+
+	local ctr = ip_counters()
+	local list = {}
+	local counts = {}
+	-- a subscription entry should name the list it came from, not its id
+	local feedname = {}
+	local fl = load_feeds()
+	for _, fd in ipairs(fl.feeds or {}) do feedname[tostring(fd.id)] = fd.name end
+	for ip, meta in pairs(st) do
+		local c = ip_category(meta)
+		counts[c] = (counts[c] or 0) + 1
+		total = total + 1
+		if cat == "" or cat == c then
+		-- 逐 IP 规则优先;订阅条目没有单独计数,如实留空而不是拿全局数冒充
+		local own = ctr[ip]
+		local feed = meta.source == "feed"
+		list[#list + 1] = {
+			ip = ip,
+			note = meta.note or "",
+			since = meta.since,
+			family = ip:find(":") and "ipv6" or "ipv4",
+			source = meta.source or "manual",
+			feed = meta.feed,
+			evidence = meta.evidence,
+			drop_packets = own and own.packets or nil,
+			drop_bytes = own and own.bytes or nil,
+			per_ip = not feed,
+			category = c,
+			feed_name = meta.feed and feedname[tostring(meta.feed)] or nil,
+		}
+		end
+	end
+	table.sort(list, function(a, b) return (a.since or 0) > (b.since or 0) end)
+
+	-- only the page that is actually shown, and never for feed addresses
+	-- (a subscription can hold thousands; a geo lookup each would stall)
+	local shown = {}
+	for i = 1, math.min(#list, limit) do
+		local e = list[i]
+		if e.source ~= "feed" and not e.ip:find(":") and not is_private_ip(e.ip) then
+			e.geo = geo_lookup(e.ip)
+		end
+		shown[i] = e
+	end
+	local cats = {}
+	for _, k in ipairs(IP_CATS) do
+		if (counts[k] or 0) > 0 then cats[#cats + 1] = { key = k, count = counts[k] } end
+	end
+
+	return { success = true, running = true, ips = shown, count = total,
+	         shown = #shown, matched = #list, category = cat,
+	         categories = cats, rule_file = RULE_FILE }, true
+end
+
+-- fast=true skips the persistent rule rewrite and only touches the live set,
+-- which is what the automatic login-failure path wants (no 6 s firewall reload
+-- in the middle of an attack). The rule file is still refreshed so a reboot
+-- restores the same state.
+local notify_send
+
+function methods.ipadd(ip, note, source, fast, evidence)
+	local norm = normalize_ip(ip)
+	if not norm then return err("invalid IP address or CIDR") end
+	if is_trusted_proxy(norm) then
+		return err("refusing to block a trusted proxy: it would cut every " ..
+		           "service behind it")
+	end
+	local dup = false
+	local wrote = update_ipstate(function(st)
+		if st[norm] ~= nil then dup = true return end
+		st[norm] = {
+			since = os.time(),
+			note = (note ~= "" and note) or nil,
+			source = (source ~= "" and source) or "manual",
+			evidence = (evidence ~= "" and evidence) or nil,
+		}
+	end)
+	if dup then return ok({ ip = norm, duplicate = true }) end
+	if not wrote then return err("cannot write state") end
+	render_rules(load_state())
+	local src = (source ~= "" and source) or "manual"
+	if src == "auto" then
+		notify_event("auto_block", "Blocked " .. norm, tostring(note ~= "" and note or "automatic"))
+	end
+	if fast == true or fast == "1" then
+		-- the running ruleset may already have the set; if not, fall back
+		if not set_element_live(norm, true) then reload_firewall() end
+	else
+		reload_firewall()
+	end
+	return ok({ ip = norm })
+end
+
+function methods.ipdel(ip)
+	local norm = normalize_ip(ip)
+	if not norm then return err("invalid IP address or CIDR") end
+	local found = false
+	update_ipstate(function(st)
+		if st[norm] ~= nil then found = true st[norm] = nil end
+	end)
+	if not found then return err("not blocked") end
+	render_rules(load_state())
+	-- the live delete only works when the set is present; otherwise rebuild,
+	-- or the address stays blocked despite having been released
+	if not set_element_live(norm, false) then reload_firewall() end
+	-- forget its recent failures so a manual release is not undone by the
+	-- next scan replaying the same log lines
+	local sc = load_scan()
+	sc.hits = sc.hits or {}
+	sc.counted = sc.counted or {}
+	sc.hits[norm] = nil
+	for k in pairs(sc.counted or {}) do
+		if k:sub(1, #norm + 1) == norm .. "@" then sc.counted[k] = nil end
+	end
+	save_scan(sc)
+	return ok({})
+end
+
+-- Trusted proxies: addresses whose log lines carry the real client in a
+-- forwarding header. They are never blocked and never counted as an attacker.
+function methods.devmerge(mac, into)
+	local a = normalize_mac(mac)
+	local b = normalize_mac(into)
+	if not a or not b or a == b then return err("invalid mac") end
+	local aliases = load_aliases()
+	if aliases[b] then return err("target is itself an alias") end
+	aliases[a] = { into = b, since = os.time() }
+	save_json_map(ALIAS_FILE, aliases)
+	return ok({ mac = a, into = b })
+end
+
+function methods.devunmerge(mac)
+	local a = normalize_mac(mac)
+	if not a then return err("invalid mac") end
+	local aliases = load_aliases()
+	if aliases[a] == nil then return err("not an alias") end
+	aliases[a] = nil
+	save_json_map(ALIAS_FILE, aliases)
+	return ok({})
+end
+
+function methods.proxylist()
+	local p = load_json_map(PROXY_FILE, function() return {} end)
+	local keys = {}
+	for ip in pairs(p) do keys[#keys + 1] = ip end
+	table.sort(keys)
+	local list = {}
+	for _, ip in ipairs(keys) do list[#list + 1] = { ip = ip } end
+	return ok({ proxies = list })
+end
+
+function methods.proxyadd(ip)
+	local norm = normalize_ip(ip)
+	if not norm then return err("invalid IP address") end
+	local p = load_json_map(PROXY_FILE, function() return {} end)
+	if p[norm] then return ok({ ip = norm, duplicate = true }) end
+	p[norm] = true
+	if not save_json_map(PROXY_FILE, p) then return err("cannot write state") end
+	_proxy_cache = nil
+	-- an address that just became a proxy must not stay blocked
+	local had = false
+	update_ipstate(function(st)
+		if st[norm] then had = true st[norm] = nil end
+	end)
+	if had then
+		render_rules(load_state())
+		if not set_element_live(norm, false) then reload_firewall() end
+	end
+	return ok({ ip = norm })
+end
+
+function methods.proxydel(ip)
+	local norm = normalize_ip(ip)
+	if not norm then return err("invalid IP address") end
+	local p = load_json_map(PROXY_FILE, function() return {} end)
+	if not p[norm] then return err("not a trusted proxy") end
+	p[norm] = nil
+	save_json_map(PROXY_FILE, p)
+	_proxy_cache = nil
+	return ok({})
+end
+
+-- 破坏性操作:没有确认参数就拒绝。误点一次会清空所有 IP 封禁记录,
+-- 而这些记录无法从别处恢复(备份通常是在操作之后做的)。
+local function confirmed(v)
+	return v == "yes" or v == true or v == 1 or v == "1" or v == "true"
+end
+
+function methods.ipflush(confirm)
+	if not confirmed(confirm) then
+		local n = 0
+		for _ in pairs(load_ipstate()) do n = n + 1 end
+		return err(string.format(
+			"refusing to flush %d blocked address(es) without confirmation; " ..
+			"pass {\"confirm\":\"yes\"}", n))
+	end
+	save_ipstate({})
+	render_rules(load_state())
+	reload_firewall()
+	return ok({})
+end
+
+
+
+-- ============================================================
+-- Login-attack protection (replacement for luci-app-watchdog)
+-- ============================================================
+local SCAN_STATE = STATE_DIR .. "/scan.json"
+
+load_scan = function()
+	local f = io.open(SCAN_STATE, "r")
+	if not f then return { last = 0, hits = {} } end
+	local raw = f:read("*a")
+	f:close()
+	local p = jsonc.parse(raw)
+	if type(p) ~= "table" then return { last = 0, hits = {} } end
+	p.last = tonumber(p.last) or 0
+	if type(p.hits) ~= "table" then p.hits = {} end
+	return p
+end
+
+save_scan = function(sc)
+	fs.mkdirr(STATE_DIR)
+	local f = io.open(SCAN_STATE, "w")
+	if not f then return false end
+	f:write(jsonc.stringify(sc))
+	f:close()
+	return true
+end
+
+-- Tell an SSH brute force from a web one: both end up in the same counter,
+-- but the table wants to show which door was being kicked.
+local function fail_reason(line)
+	if line:find("dropbear", 1, true) then return "ssh" end
+	if line:find("luci", 1, true) or line:find("uhttpd", 1, true)
+		or line:find("nginx", 1, true) or line:find("rpc", 1, true) then
+		return "web"
+	end
+	return "auto"
+end
+
+-- Pull the handful of log lines that indicate a failed login attempt and
+-- return { ip = hits } for this window.
+local function scan_failures(cfg)
+	local sc = load_scan()
+	local now = os.time()
+
+	-- drop entries that fell out of the counting window
+	local kept = {}
+	for ip, h in pairs(sc.hits) do
+		if now - (tonumber(h.first) or 0) < cfg.window then kept[ip] = h end
+	end
+	sc.hits = kept
+
+	local patterns = {
+		"Bad password attempt",
+		"Login attempt for nonexistent user",
+		"Max auth tries reached",
+		"failed login",
+	}
+	-- Every log line carries a timestamp to the second; the same second plus
+	-- the same source is a duplicate of a line we already counted.
+	sc.counted = type(sc.counted) == "table" and sc.counted or {}
+	local cutoff = now - cfg.window
+	local fresh = {}
+	for k, ts in pairs(sc.counted) do
+		if (tonumber(ts) or 0) >= cutoff then fresh[k] = ts end
+	end
+	sc.counted = fresh
+
+	for _, pat in ipairs(patterns) do
+		local fh = io.popen(string.format(
+			"logread -e %q 2>/dev/null | tail -n 400", pat), "r")
+		if fh then
+			for line in fh:lines() do
+				-- dropbear: "... from <1.2.3.4:5678>" or luci: "... from 1.2.3.4"
+				local ip = line:match("from%s+<([%d%.]+):%d+>")
+					or line:match("from%s+([%d%.]+)%s*$")
+					or line:match("from%s+([%d%.]+):%d+")
+				if ip then
+					local norm = normalize_ip(ip)
+					-- the line may have been written by a proxy that put the
+					-- real client in X-Forwarded-For / X-Real-IP
+					if norm and is_trusted_proxy(norm) then
+						norm = extract_forwarded(line) or norm
+					end
+					if norm and not is_trusted_proxy(norm) then
+						-- identify the exact line: same second can carry several
+						-- attempts, so hash the whole record instead of the stamp
+						local key = norm .. "@" .. tostring(#line) .. "@" .. line
+						if sc.counted[key] == nil then
+							sc.counted[key] = now
+							local h = sc.hits[norm]
+							if h then
+								h.count = (tonumber(h.count) or 0) + 1
+							else
+								sc.hits[norm] = { count = 1, first = now,
+									reason = fail_reason(line), line = line:sub(1, 240) }
+							end
+						end
+					end
+				end
+			end
+			fh:close()
+		end
+	end
+
+	local banned = {}
+	local st = load_ipstate()
+	for ip, h in pairs(sc.hits) do
+		if (tonumber(h.count) or 0) >= cfg.threshold and st[ip] == nil
+			and not is_trusted_proxy(ip) then
+			st[ip] = {
+				since = now,
+				note = string.format("auto: %d failed logins", h.count),
+				source = "auto",
+				reason = h.reason,
+				evidence = h.line,
+			}
+			banned[#banned + 1] = ip
+		end
+	end
+
+	if #banned > 0 then
+		save_ipstate(st)
+		render_rules(load_state())
+		for _, ip in ipairs(banned) do
+			if not set_element_live(ip, true) then reload_firewall() end
+			sc.hits[ip] = nil
+		end
+	end
+
+	sc.last = now
+	save_scan(sc)
+	return banned
+end
+
+-- Expire automatic entries after cfg.ttl so a stale attack source does not
+-- stay blocked forever. Manual entries are never expired.
+local function expire_auto(cfg)
+	if cfg.ttl <= 0 then return 0 end
+	local st = load_ipstate()
+	local now = os.time()
+	local removed = 0
+	for ip, meta in pairs(st) do
+		if meta.source == "auto" and (now - (tonumber(meta.since) or now)) > cfg.ttl then
+			st[ip] = nil
+			removed = removed + 1
+			set_element_live(ip, false)
+		end
+	end
+	if removed > 0 then
+		save_ipstate(st)
+		render_rules(load_state())
+	end
+	return removed
+end
+
+function methods.geoinfo(ip)
+	local norm = normalize_ip(ip)
+	if not norm then return err("invalid IP") end
+	if norm:find(":") then
+		return { success = true, running = true, ip = norm, geo = nil }
+	end
+	return { success = true, running = true, ip = norm, geo = geo_lookup(norm) }
+end
+
+function methods.scan()
+	local cfg = load_autocfg()
+	if not cfg.enabled then
+		return ok({ scanned = false, banned = {}, expired = 0 })
+	end
+	local banned = scan_failures(cfg)
+	local expired = expire_auto(cfg)
+	return { success = true, running = true, banned = banned, expired = expired,
+	         threshold = cfg.threshold, window = cfg.window, ttl = cfg.ttl }
+end
+
+function methods.autoget()
+	local cfg = load_autocfg()
+	local imported = import_watchdog(cfg)
+	return { success = true, running = true, enabled = cfg.enabled,
+	         threshold = cfg.threshold, window = cfg.window, ttl = cfg.ttl,
+	         ssh_password = cfg.ssh_password, ssh_user = cfg.ssh_user,
+	         web_auth = cfg.web_auth, imported = imported }
+end
+
+function methods.autoset(enabled, threshold, window, ttl, ssh_password, ssh_user, web_auth)
+	local cfg = load_autocfg()
+	if enabled ~= nil and enabled ~= "" then
+		cfg.enabled = (enabled == true or enabled == "1" or enabled == 1)
+	end
+	threshold = tonumber(threshold)
+	if threshold and threshold >= 1 and threshold <= 100 then cfg.threshold = threshold end
+	window = tonumber(window)
+	if window and window >= 60 and window <= 86400 then cfg.window = window end
+	ttl = tonumber(ttl)
+	if ttl and ttl >= 0 and ttl <= 2592000 then cfg.ttl = ttl end
+	local function flag(v)
+		if v == nil or v == "" then return nil end
+		return v == true or v == "1" or v == 1 or v == "true"
+	end
+	local f
+	f = flag(ssh_password); if f ~= nil then cfg.ssh_password = f end
+	f = flag(ssh_user);     if f ~= nil then cfg.ssh_user = f end
+	f = flag(web_auth);     if f ~= nil then cfg.web_auth = f end
+	save_autocfg(cfg)
+	return ok({ enabled = cfg.enabled, threshold = cfg.threshold,
+	            window = cfg.window, ttl = cfg.ttl,
+	            ssh_password = cfg.ssh_password, ssh_user = cfg.ssh_user,
+	            web_auth = cfg.web_auth })
+end
+
+function methods.block(mac, host, ip, source, minutes)
+	mac = normalize_mac(mac)
+	if not mac then return err("invalid MAC") end
+	if wl_has(mac) then return err("device is whitelisted") end
+	local state = load_state()
+	local l = parse_leases()[mac]
+	local s = parse_static_hosts()[mac]
+	local prev = state[mac]
+	if host ~= "" and host then remember_name(mac, host) end
+	local mins = tonumber(minutes) or 0
+	state[mac] = {
+		source = (source ~= "" and source) or (prev and prev.source) or "manual",
+		since = (prev and prev.since) or os.time(),
+		expires = (mins > 0) and (os.time() + mins * 60) or nil,
+		host = (host ~= "" and host) or (prev and prev.host) or (s and s.host) or (l and l.host) or nil,
+		ip = (ip ~= "" and ip) or (l and l.ip) or (s and s.ip) or (prev and prev.ip) or nil,
+	}
+	if not save_state(state) then return err("cannot write state") end
+	IDX.audit("block", mac, state[mac].ip, state[mac].source .. (state[mac].expires and " (temporary)" or ""))
+	if not render_rules(state) then return err("cannot write rules") end
+	reload_firewall()
+	local c = collect_devices()
+	local found = nil
+	for _, d in ipairs(c) do if d.mac == mac then found = d end end
+	return ok({ device = found })
+end
+
+function methods.unblock(mac)
+	mac = normalize_mac(mac)
+	if not mac then return err("invalid MAC") end
+	local state = load_state()
+	if state[mac] == nil then return err("not blocked") end
+	IDX.audit("unblock", mac, state[mac].ip, "manual")
+	state[mac] = nil
+	save_state(state)
+	local ips = load_ipstate()
+	if next(state) == nil and next(ips) == nil then
+		fs.unlink(RULE_FILE)
+	else
+		render_rules(state)
+	end
+	reload_firewall()
+	return ok({})
+end
+
+function methods.unblock_all(confirm)
+	if not confirmed(confirm) then
+		local n = 0
+		for _ in pairs(load_state()) do n = n + 1 end
+		return err(string.format(
+			"refusing to unblock %d device(s) without confirmation; " ..
+			"pass {\"confirm\":\"yes\"}", n))
+	end
+	save_state({})
+	local ips = load_ipstate()
+	if next(ips) == nil then
+		fs.unlink(RULE_FILE)
+	else
+		render_rules({})
+	end
+	reload_firewall()
+	return ok({})
+end
+
+function methods.rename(mac, name)
+	mac = normalize_mac(mac)
+	if not mac then return err("invalid MAC") end
+	local state = load_state()
+	local prev = state[mac]
+	if prev == nil then return err("not blocked") end
+	prev.host = (name ~= "" and name) or nil
+	state[mac] = prev
+	if not save_state(state) then return err("cannot write state") end
+	remember_name(mac, name)
+	return ok({})
+end
+
+-- Called from the init script at boot: rules may be missing after a reboot
+function methods.sync()
+	-- 启动路径会调用 sync:这里是唯一允许补写 addnhosts 并重启 dnsmasq 的地方
+	pcall(methods.ensure_dnsmasq)
+	local state = load_state()
+	local ips = load_ipstate()
+	if next(state) == nil and next(ips) == nil then
+		fs.unlink(RULE_FILE)
+	else
+		render_rules(state)
+	end
+
+	-- rewriting the set contents is enough to reconcile state and kernel, and
+	-- unlike a firewall reload it does not disturb anything else on the box
+	if set_exists("blocked_ip4") or set_exists("blocked_ip6") then
+		rebuild_sets()
+	else
+		reload_firewall()
+	end
+
+	-- the QoS table lives outside fw4 and is not restored by a reload
+	apply_qos()
+
+	local n = 0
+	for _ in pairs(state) do n = n + 1 end
+	return ok({ blocked_count = n })
+end
+
+local function table_count(t)
+	local n = 0
+	for _ in pairs(t) do n = n + 1 end
+	return n
+end
+
+local function count_in(buf, pat)
+	local n = 0
+	for _ in buf:gmatch(pat) do n = n + 1 end
+	return n
+end
+
+function read_all(path)
+	local f = io.open(path, "r")
+	if not f then return nil end
+	local d = f:read("*a")
+	f:close()
+	return d
+end
+
+-- ============================================================
+-- Scheduled blocking
+-- ------------------------------------------------------------
+-- A rule blocks a MAC during a weekly window. Windows may cross midnight
+-- (21:00 -> 07:00); in that case the day list refers to the day the window
+-- starts, so "Mon-Fri 21:00-07:00" also covers Saturday morning.
+-- ============================================================
+
+
+local function save_sched(sc)
+	fs.mkdirr(STATE_DIR)
+	local f = io.open(SCHED_FILE, "w")
+	if not f then return false end
+	local o = jsonc.stringify(sc)
+	if o == "[]" then o = "{}" end
+	f:write(o)
+	f:close()
+	return true
+end
+
+local function hm_to_min(v)
+	local h, m = tostring(v or ""):match("^(%d%d?):(%d%d)$")
+	if not h then return nil end
+	h, m = tonumber(h), tonumber(m)
+	if h > 23 or m > 59 then return nil end
+	return h * 60 + m
+end
+
+local function norm_days(days)
+	-- rpcd passes arguments as strings, so accept "0,1,2" and "[0,1,2]"
+	if type(days) == "string" then
+		local t = {}
+		for v in days:gmatch("%d+") do t[#t + 1] = tonumber(v) end
+		days = t
+	end
+	local out, seen = {}, {}
+	for _, d in ipairs(days or {}) do
+		d = tonumber(d)
+		if d and d >= 0 and d <= 6 and not seen[d] then
+			seen[d] = true
+			out[#out + 1] = d
+		end
+	end
+	table.sort(out)
+	return out
+end
+
+local function sched_active(rule, now)
+	local s, e = hm_to_min(rule.start), hm_to_min(rule.stop)
+	if not s or not e or s == e then return false end
+	if rule.enabled == false then return false end
+
+	local t = os.date("*t", now)
+	local cur = t.hour * 60 + t.min
+	local wday = tonumber(os.date("%w", now)) or 0    -- 0 = Sunday
+	local days = {}
+	for _, d in ipairs(rule.days or {}) do days[tonumber(d)] = true end
+
+	if s < e then
+		return days[wday] and cur >= s and cur < e
+	end
+	-- crosses midnight
+	if days[wday] and cur >= s then return true end
+	local yday = (wday + 6) % 7
+	return days[yday] and cur < e
+end
+
+local function sched_rule_by_id(sc, id)
+	for i, r in ipairs(sc.rules) do
+		if tostring(r.id) == tostring(id) then return r, i end
+	end
+	return nil
+end
+
+local function sched_public(sc)
+	local now = os.time()
+	local out = {}
+	for _, r in ipairs(sc.rules) do
+		out[#out + 1] = {
+			id = r.id, mac = r.mac, name = r.name,
+			days = r.days, start = r.start, stop = r.stop,
+			enabled = r.enabled ~= false,
+			active = sched_active(r, now),
+		}
+	end
+	return out
+end
+
+-- ============================================================
+-- Notifications (Telegram / Bark / generic webhook)
+-- ============================================================
+
+
+
+
+
+
+-- Fire an event to every enabled channel. Never raises: a broken channel must
+-- not break blocking.
+
+
+
+
+
+
+
+-- Announce devices we have not seen before. Seeds silently on first run.
+local function migrate_known()
+	local known = load_json_map(KNOWN_FILE, function() return {} end)
+	local changed = false
+	local now = os.time()
+	for mac, v in pairs(known) do
+		if v == true then
+			-- we only start recording from now on; mark it as an assumption
+			known[mac] = { first = now, assumed = true }
+			changed = true
+		end
+	end
+	if changed then save_json_map(KNOWN_FILE, known) end
+	return changed
+end
+
+local function check_new_devices()
+	migrate_known()
+	local known
+	local raw = read_all(KNOWN_FILE)
+	if raw then
+		local p = jsonc.parse(raw)
+		if type(p) == "table" then known = p end
+	end
+	local neigh = parse_neigh()
+	local names = {}
+	local leases = parse_leases()
+	local statics = parse_static_hosts()
+	for mac in pairs(neigh) do
+		local l, st = leases[mac], statics[mac]
+		names[mac] = (st and st.host) or (l and l.host) or nil
+	end
+	if not known then
+		local seed = {}
+		for mac in pairs(neigh) do seed[mac] = true end
+		local f = io.open(KNOWN_FILE, "w")
+		if f then f:write(jsonc.stringify(seed)) f:close() end
+		return 0
+	end
+	-- A device that is not in the baseline stays untrusted until the user
+	-- accepts it. Remember that we already announced it so the notice is sent
+	-- once, not every minute.
+	local pending = load_json_map(PENDING_FILE, function() return {} end)
+	local added = 0
+	for mac, ip in pairs(neigh) do
+		if not known[mac] and not pending[mac] then
+			pending[mac] = { first = os.time(), ip = ip, host = names[mac] }
+			added = added + 1
+			notify_event("new_device", "New device",
+				string.format("%s (%s) joined the network", names[mac] or mac, ip))
+		end
+	end
+	if added > 0 then save_json_map(PENDING_FILE, pending) end
+	return added
+end
+
+-- ============================================================
+-- Device groups, curfew and per-device port restrictions
+-- ============================================================
+function load_json_map(file, shape)
+	local f = io.open(file, "r")
+	if not f then return shape() end
+	local raw = f:read("*a")
+	f:close()
+	local p = jsonc.parse(raw)
+	if type(p) ~= "table" then return shape() end
+	return p
+end
+
+-- Addresses that sit in front of the LAN and therefore never appear as the
+-- real source in a backend log: lucky, nginx, HAProxy, a WAF. Blocking one of
+-- these would cut every proxied service at once, so they are excluded from
+-- every blocking path, automatic or not.
+local _proxy_cache
+
+is_trusted_proxy = function(ip)
+	if not ip or ip == "" then return false end
+	if not _proxy_cache then
+		_proxy_cache = load_json_map(PROXY_FILE, function() return {} end)
+	end
+	return _proxy_cache[ip] == true or _proxy_cache[ip] == "true"
+end
+
+-- Pull the client address out of a log line that a proxy wrote. Accepts the
+-- usual header spellings; a list is read from the end because that is the
+-- entry the nearest proxy appended.
+extract_forwarded = function(line)
+	if not line then return nil end
+	local v = line:match("[Xx]%-[Ff]orwarded%-[Ff]or[%s:]+([^%s\"']+)")
+		or line:match("[Xx]%-[Rr]eal%-[Ii][Pp][%s:]+([^%s\"']+)")
+	if not v then return nil end
+	local last = v:match("([^,]+)$") or v
+	last = last:gsub("^%s+", ""):gsub("%s+$", ""):gsub("[,;]+$", "")
+	return normalize_ip(last)
+end
+
+function save_json_map(file, v)
+	fs.mkdirr(STATE_DIR)
+	local o = jsonc.stringify(v)
+	if o == "[]" then o = "{}" end
+	-- write beside the target and rename: a reader that opens the file while
+	-- it is being rewritten gets a truncated document, fails to parse it and
+	-- then saves the empty result back, wiping everything the file held
+	local tmp = file .. ".tmp"
+	local f = io.open(tmp, "w")
+	if not f then return false end
+	f:write(o)
+	f:close()
+	os.rename(tmp, file)
+	return true
+end
+
+-- 读-改-写必须串行:watcher 的 ubus ipadd 与 tick 的 feed 合并会同时
+-- 写 blocked_ips.json,原子改名只防半截文件,防不住后写覆盖先写。
+-- 用一个锁目录(创建成功即持有,失败即被占)做互斥,不需要外部命令;
+-- 持锁超过 5 秒视为陈旧并强制夺回,避免崩溃后永久卡死。
+function lock_acquire(file, timeout)
+	local lock = file .. ".lock"
+	local deadline = os.time() + (timeout or 5)
+	while true do
+		if fs.mkdir(lock) then return true end
+		-- 陈旧锁:持有者早已不在
+		local st = fs.stat(lock, "mtime")
+		if st and (os.time() - st) > 10 then fs.rmdir(lock) end
+		if os.time() >= deadline then return false end
+		sys.call("sleep 0.05")
+	end
+end
+
+function lock_release(file)
+	fs.rmdir(file .. ".lock")
+end
+
+-- 带锁的读改写。所有对 blocked_ips.json 的变更都走这里。
+function update_ipstate(fn)
+	local ok_ = lock_acquire(IPSTATE_FILE)
+	local d = load_ipstate()
+	fn(d)
+	local r = save_ipstate(d)
+	if ok_ then lock_release(IPSTATE_FILE) end
+	return r
+end
+
+
+function split_macs(v)
+	local out = {}
+	if type(v) == "string" then
+		for m in v:gmatch("[^,%s]+") do
+			local n = normalize_mac(m)
+			if n then out[#out + 1] = n end
+		end
+	elseif type(v) == "table" then
+		for _, m in ipairs(v) do
+			local n = normalize_mac(tostring(m))
+			if n then out[#out + 1] = n end
+		end
+	end
+	return out
+end
+
+function methods.grouplist()
+	local g = load_groups()
+	local out = {}
+	local leases = parse_leases()
+	local statics = parse_static_hosts()
+	for _, grp in ipairs(g.groups) do
+		local members = {}
+		for _, mac in ipairs(grp.macs) do
+			local l, st = leases[mac], statics[mac]
+			members[#members + 1] = {
+				mac = mac,
+				host = (st and st.host) or (l and l.host) or nil,
+				ip = (l and l.ip) or (st and st.ip) or nil,
+			}
+		end
+		out[#out + 1] = { id = grp.id, name = grp.name,
+		                  macs = grp.macs, members = members, count = #grp.macs }
+	end
+	return { success = true, running = true, groups = out }
+end
+
+function methods.groupadd(name, macs)
+	if tostring(name or "") == "" then return err("name required") end
+	local g = load_groups()
+	g.seq = (tonumber(g.seq) or 0) + 1
+	g.groups[#g.groups + 1] = { id = g.seq, name = name, macs = split_macs(macs) }
+	if not save_json_map(GROUPS_FILE, g) then return err("cannot write groups") end
+	return ok({ id = g.seq })
+end
+
+function methods.groupdel(id)
+	local g = load_groups()
+	for i, grp in ipairs(g.groups) do
+		if tostring(grp.id) == tostring(id) then
+			table.remove(g.groups, i)
+			save_json_map(GROUPS_FILE, g)
+			return ok({})
+		end
+	end
+	return err("no such group")
+end
+
+function methods.groupset(id, macs)
+	local g = load_groups()
+	for _, grp in ipairs(g.groups) do
+		if tostring(grp.id) == tostring(id) then
+			grp.macs = split_macs(macs)
+			save_json_map(GROUPS_FILE, g)
+			return ok({ count = #grp.macs })
+		end
+	end
+	return err("no such group")
+end
+
+-- Curfew: block every member of a group for a while (default: until 08:00).
+function methods.curfew(id, minutes)
+	local g = load_groups()
+	local grp
+	for _, x in ipairs(g.groups) do
+		if tostring(x.id) == tostring(id) then grp = x end
+	end
+	if not grp then return err("no such group") end
+
+	local mins = tonumber(minutes) or 0
+	if mins <= 0 then
+		local t = os.date("*t", os.time())
+		local now = t.hour * 60 + t.min
+		local target = 8 * 60
+		mins = (target > now) and (target - now) or (24 * 60 - now + target)
+		if mins < 5 then mins = 5 end
+	end
+
+	local n = 0
+	for _, mac in ipairs(grp.macs) do
+		local r = methods.block(mac, "", "", "curfew", mins)
+		if r and r.success then n = n + 1 end
+	end
+	return ok({ blocked = n, minutes = mins })
+end
+
+-- ---- port restrictions -------------------------------------------------
+
+function methods.portlist()
+	local p = load_ports()
+	local leases = parse_leases()
+	local out = {}
+	for _, r in ipairs(p.rules) do
+		out[#out + 1] = { id = r.id, mac = r.mac, proto = r.proto, port = r.port,
+		                  note = r.note, enabled = r.enabled ~= false,
+		                  host = (leases[r.mac] and leases[r.mac].host) or nil }
+	end
+	return { success = true, running = true, rules = out, count = #out }
+end
+
+function methods.portadd(mac, proto, port, note)
+	mac = normalize_mac(mac)
+	if not mac then return err("invalid MAC") end
+	proto = tostring(proto or "tcp")
+	if proto ~= "tcp" and proto ~= "udp" then return err("proto must be tcp or udp") end
+	local pnum = tonumber(port)
+	if not pnum or pnum < 1 or pnum > 65535 then return err("port must be 1-65535") end
+	local p = load_ports()
+	p.seq = (tonumber(p.seq) or 0) + 1
+	p.rules[#p.rules + 1] = { id = p.seq, mac = mac, proto = proto, port = pnum,
+	                          note = (note ~= "" and note) or nil, enabled = true }
+	if not save_json_map(PORTS_FILE, p) then return err("cannot write ports") end
+	render_rules(load_state())
+	reload_firewall()
+	return ok({ id = p.seq })
+end
+
+function methods.portdel(id)
+	local p = load_ports()
+	for i, r in ipairs(p.rules) do
+		if tostring(r.id) == tostring(id) then
+			table.remove(p.rules, i)
+			save_json_map(PORTS_FILE, p)
+			render_rules(load_state())
+			reload_firewall()
+			return ok({})
+		end
+	end
+	return err("no such rule")
+end
+
+function methods.porttoggle(id, enabled)
+	local p = load_ports()
+	for _, r in ipairs(p.rules) do
+		if tostring(r.id) == tostring(id) then
+			r.enabled = (enabled == true or enabled == "1" or enabled == 1 or enabled == "true")
+			save_json_map(PORTS_FILE, p)
+			render_rules(load_state())
+			reload_firewall()
+			return ok({})
+		end
+	end
+	return err("no such rule")
+end
+
+-- Remove blocks whose temporary lifetime has run out. Only entries that carry
+-- an expiry are touched; permanent blocks have none.
+function methods.expire()
+	local state = load_state()
+	local now = os.time()
+	local removed = {}
+	for mac, meta in pairs(state) do
+		local u = meta["expires"]
+		if u and tonumber(u) and tonumber(u) <= now then
+			state[mac] = nil
+			removed[#removed + 1] = mac
+		end
+	end
+	if #removed > 0 then
+		for _, mac in ipairs(removed) do
+			notify_event("expire", "Unblocked " .. mac, "temporary block expired")
+		end
+		save_state(state)
+		if next(state) == nil and next(load_ipstate()) == nil then
+			fs.unlink(RULE_FILE)
+		else
+			render_rules(state)
+		end
+		reload_firewall()
+	end
+	return { success = true, running = true, expired = removed }
+end
+
+-- Called once a minute by the watcher: schedules first, then expiry.
+function methods.tickcfg()
+	local d = load_json_map(STATE_DIR .. "/tick.json", function() return { enabled = true } end)
+	if d.enabled == nil then d.enabled = true end
+	return { success = true, running = true, enabled = d.enabled }
+end
+
+function methods.tickset(on_)
+	local on = (on_ ~= false and on_ ~= "0" and on_ ~= "false")
+	save_json_map(STATE_DIR .. "/tick.json", { enabled = on })
+	return ok({ enabled = on })
+end
+
+function methods.tick()
+	local now = os.time()
+	local cfg = load_json_map(STATE_DIR .. "/tick.json", function() return { enabled = true } end)
+	if cfg.enabled == false then
+		return { success = true, running = true, skipped = true }
+	end
+	local e = methods.expire()
+	local sc = methods.schedeval()
+	local nd = check_new_devices()
+	local oui = oui_enrich(2)
+	local ff = refresh_due_feeds(now)
+	local arp = check_arp_changes(now)
+	local fp = nil
+	local fst = load_json_map(FINGERPRINT_FILE, function() return {} end)
+	-- a flow lasts long enough that one sample every five minutes is plenty
+	if now - (tonumber(fst.last) or 0) >= 300 then
+		fp = fingerprint_scan(load_apps(), now)
+		fst = load_json_map(FINGERPRINT_FILE, function() return {} end)
+		fst.last = now
+		save_json_map(FINGERPRINT_FILE, fst)
+	end
+	_qos_dirty = false
+	-- clear the shared copy so this tick rebuilds it from the current table
+	IDX.ct = nil
+	IDX.memo = {}
+	local apps, stat_err = pcall(collect_app_stats, now)
+	if not apps then
+		-- 一处异常不该让整轮停摆:应用统计失败时其余维护照常进行,
+		-- 但要把错误和时间记下来,健康检查才有东西可看
+		stat_err = tostring(stat_err)
+	else
+		stat_err = nil
+	end
+	IDX.ct, IDX.memo = nil, nil
+	local stt = load_json_map(STATE_DIR .. "/tickstate.json", function() return {} end)
+	stt.last = now
+	if stat_err then
+		stt.error = stat_err:sub(1, 200)
+		stt.error_at = now
+	else
+		stt.error = nil
+		stt.ok_at = now
+	end
+	save_json_map(STATE_DIR .. "/tickstate.json", stt)
+	if IDX.appips_dirty then
+		save_json_map(APPIPS_FILE, IDX.appips)
+		IDX.appips, IDX.appips_dirty = nil, nil
+	end
+	if _qos_dirty then apply_qos() end
+	-- keep the redirect chain in step with the rules: add the bypass return
+	-- when something needs it, remove it when nothing does
+	local want_bypass = bypass_addresses()
+	if (#want_bypass > 0) ~= bypass_rule_present() then apply_bypass() end
+	return { success = true, running = true,
+	         expired = e.expired, schedule_changed = sc.changed,
+	         active = sc.active, new_devices = nd, oui_lookups = oui,
+	         feed = ff, arp_events = arp, app_stats = apps, fingerprint = fp }
+end
+
+function methods.schedlist()
+	local sc = load_sched()
+	return { success = true, running = true, rules = sched_public(sc) }
+end
+
+function methods.schedadd(mac, days, start, stop_, name)
+	mac = normalize_mac(mac)
+	if not mac then return err("invalid MAC") end
+	if not hm_to_min(start) or not hm_to_min(stop_) then
+		return err("time must be HH:MM")
+	end
+	if tostring(start) == tostring(stop_) then
+		return err("start and end must differ")
+	end
+	local nd = norm_days(days)
+	if #nd == 0 then return err("pick at least one day") end
+
+	local sc = load_sched()
+	sc.seq = (tonumber(sc.seq) or 0) + 1
+	local host = (name ~= "" and name) or nil
+	if not host then
+		local l = parse_leases()[mac]
+		local st = parse_static_hosts()[mac]
+		host = (st and st.host) or (l and l.host) or nil
+	end
+	sc.rules[#sc.rules + 1] = {
+		id = sc.seq, mac = mac, name = host,
+		days = nd, start = start, stop = stop_,
+		enabled = true,
+	}
+	if not save_sched(sc) then return err("cannot write schedule") end
+	methods.schedeval()
+	return ok({ id = sc.seq, rules = sched_public(sc) })
+end
+
+function methods.scheddel(id)
+	local sc = load_sched()
+	local r, i = sched_rule_by_id(sc, id)
+	if not r then return err("no such rule") end
+	table.remove(sc.rules, i)
+	if not save_sched(sc) then return err("cannot write schedule") end
+	methods.schedeval()
+	return ok({ rules = sched_public(sc) })
+end
+
+function methods.schedtoggle(id, enabled)
+	local sc = load_sched()
+	local r = sched_rule_by_id(sc, id)
+	if not r then return err("no such rule") end
+	r.enabled = (enabled == true or enabled == "1" or enabled == 1 or enabled == "true")
+	save_sched(sc)
+	methods.schedeval()
+	return ok({ rules = sched_public(sc) })
+end
+
+-- Reconcile the firewall with the schedule. Only touches entries this feature
+-- created (source == "schedule"), so manual blocks are never undone.
+function methods.schedeval()
+	local sc = load_sched()
+	local now = os.time()
+	local want = {}
+	for _, r in ipairs(sc.rules) do
+		if sched_active(r, now) then want[r.mac] = r.name end
+	end
+
+	local state = load_state()
+	local leases, statics
+	local changed = false
+
+	for mac, nm in pairs(want) do
+		if state[mac] == nil then
+			leases = leases or parse_leases()
+			statics = statics or parse_static_hosts()
+			local l, st = leases[mac], statics[mac]
+			state[mac] = {
+				since = now, source = "schedule",
+				host = (st and st.host) or (l and l.host) or nm or nil,
+				ip = (l and l.ip) or (st and st.ip) or nil,
+			}
+			changed = true
+		end
+	end
+	for mac, meta in pairs(state) do
+		if meta.source == "schedule" and not want[mac] then
+			state[mac] = nil
+			changed = true
+		end
+	end
+
+	if changed then
+		save_state(state)
+		if next(state) == nil and next(load_ipstate()) == nil then
+			fs.unlink(RULE_FILE)
+		else
+			render_rules(state)
+		end
+		reload_firewall()
+	end
+
+	local active = 0
+	for _ in pairs(want) do active = active + 1 end
+	return { success = true, running = true, changed = changed, active = active,
+	         blocked = (function() local n = 0 for _ in pairs(state) do n = n + 1 end return n end)() }
+end
+
+-- End-to-end probe: write a synthetic LuCI login line, wait for the watcher to
+-- record it, then delete that record again. This is the only check that proves
+-- the pipeline works from syslog to stored log entry.
+function methods.probe()
+	local ip = "192.0.2.254"            -- TEST-NET-1, never a real device
+	local before = 0
+	local f0 = io.open(LOG_FILE, "r")
+	if f0 then for _ in f0:lines() do before = before + 1 end f0:close() end
+
+	-- the watcher anchors the source address at end of line, so emit the
+	-- canonical message exactly as LuCI writes it (no trailing marker)
+	sys.call("logger -t dispatcher.uc -p authpriv.info " ..
+	         string.format("%q", "luci: accepted login on / for root from " .. ip))
+
+	local found, waited = false, 0
+	for i = 1, 20 do
+		sys.call("sleep 0.2")
+		waited = i * 200
+		local d = read_all(LOG_FILE)
+		if d and d:find(ip, 1, true) and d ~= "" then
+			local lines = {}
+			for ln in d:gmatch("[^\n]+") do lines[#lines + 1] = ln end
+			if #lines > before then found = true break end
+		end
+	end
+
+	-- remove the probe record so the log stays clean
+	if found then
+		local keep, removed = {}, 0
+		local d = read_all(LOG_FILE) or ""
+		for ln in d:gmatch("[^\n]+") do
+			if ln:find(ip, 1, true) then removed = removed + 1 else keep[#keep + 1] = ln end
+		end
+		local w = io.open(LOG_FILE, "w")
+		if w then w:write(table.concat(keep, "\n") .. (#keep > 0 and "\n" or "")) w:close() end
+	end
+
+	return { success = true, running = true, ok = found, ip = ip,
+	         elapsed_ms = waited, cleaned = found }
+end
+
+-- Health probe. Covers the two failures actually seen in the field: a watcher
+-- that is alive but no longer reads the log, and saved state that never made
+-- it into the kernel.
+-- 自检项里能自动处理的那些,一键修复。restart 必须脱离父进程,
+-- 否则重启服务时这个 ubus 调用也会跟着断。
+function methods.fix(id)
+	id = tostring(id or "")
+	if id == "watcher" or id == "appstats" or id == "logread" then
+		sys.call("( /etc/init.d/languard restart ) >/dev/null 2>&1 &")
+		return ok({ action = "restart", id = id })
+	elseif id == "luci_realip" then
+		sys.call("( /usr/libexec/languard-luci-realip >/dev/null 2>&1; /etc/init.d/uhttpd restart ) >/dev/null 2>&1 &")
+		return ok({ action = "realip" })
+	elseif id == "nftset" or id == "rulesfile" or id == "nfthook" then
+		methods.sync()
+		return ok({ action = "sync", id = id })
+	end
+	return err("no automatic fix for " .. id)
+end
+
+function methods.selfcheck()
+	local checks = {}
+	local function add(id, ok, detail, hint)
+		checks[#checks + 1] = { id = id, ok = ok and true or false,
+		                        detail = detail or "", hint = hint or "" }
+	end
+
+	-- 1) watcher process
+	-- pidfile 现在是 "watcher logread" 两段,取第一段
+	local pid = ((read_all("/var/run/languard-watch.pid") or ""):match("^%s*(%d+)") or "")
+	local alive = pid ~= "" and sys.call("kill -0 " .. pid .. " >/dev/null 2>&1") == 0
+	add("watcher", alive,
+		alive and ("running (pid " .. pid .. ")") or "not running",
+		alive and "" or "/etc/init.d/languard restart")
+
+	-- 1b) LuCI log patch: without it every proxied login is recorded as the
+	--     proxy. A LuCI upgrade replaces the file, so this check matters.
+	local disp = read_all("/usr/share/ucode/luci/dispatcher.uc") or ""
+	local patched = disp:find("languard: real client address", 1, true) ~= nil
+	local has_proxy = next(load_json_map(PROXY_FILE, function() return {} end)) ~= nil
+	add("luci_realip", patched or not has_proxy,
+		patched and "patched" or (has_proxy and "not applied" or "no trusted proxy"),
+		patched and "" or "lua /usr/libexec/languard-luci-realip && /etc/init.d/uhttpd restart")
+
+	-- 2) the logread child that actually feeds it. A bare `logread -f` may be
+	--    an orphan from an earlier run, so require it to belong to our watcher.
+	local logreads = 0
+	if alive then
+		local out = sys.exec("ps w 2>/dev/null | grep '[l]ogread -f'") or ""
+		for pidline in out:gmatch("[^\n]+") do
+			local p = pidline:match("^%s*(%d+)")
+			if p then
+				local st = read_all("/proc/" .. p .. "/stat") or ""
+				-- field 4 is ppid
+				local f = {}
+				for v in st:gmatch("%S+") do f[#f + 1] = v end
+				if f[4] == pid then logreads = logreads + 1 end
+			end
+		end
+	end
+	add("logread", logreads > 0,
+		logreads .. " logread -f child(ren) of the watcher",
+		logreads > 0 and "" or "watcher is not reading the log; restart the service")
+
+	-- 3) generated rule file vs saved state
+	local st, ips = load_state(), load_ipstate()
+	local ns = table_count(st)
+	local rf = read_all(RULE_FILE)
+	local rule_macs = rf and count_in(rf, "ether saddr") or 0
+	local file_ok = (ns == 0 and rule_macs == 0) or (ns > 0 and rule_macs >= ns)
+	add("rulesfile", file_ok,
+		string.format("%d device block(s) saved, %d rule line(s) generated", ns, rule_macs),
+		file_ok and "" or "state and generated rules disagree; run sync")
+
+	-- 4) kernel set vs saved IP state
+	local v4_state, v6_state = 0, 0
+	for ip in pairs(ips) do
+		if ip:find(":") then v6_state = v6_state + 1 else v4_state = v4_state + 1 end
+	end
+	local live4 = 0
+	if v4_state > 0 then
+		live4 = count_in(sys.exec("nft list set inet fw4 blocked_ip4 2>/dev/null") or "",
+		                 "%d+%.%d+%.%d+%.%d+")
+	end
+	local set_ok = (v4_state == 0 and live4 == 0) or (live4 == v4_state)
+	add("nftset", set_ok,
+		string.format("%d blocked IPv4 in state, %d present in kernel", v4_state, live4),
+		set_ok and "" or "run sync to rebuild the nftables set")
+
+	-- 5) rules actually hooked
+	local chain = sys.exec("nft list chain inet fw4 user_ip_forward 2>/dev/null") or ""
+	local hooked = chain:find("languard-ip", 1, true) ~= nil or v4_state == 0
+	local dev_rules = tonumber((sys.exec("nft list ruleset 2>/dev/null | grep -c 'languard:'") or "0"):match("%d+") or "0") or 0
+	add("nfthook", hooked,
+		string.format("ip drop rule: %s, device rules in kernel: %d",
+			hooked and "present" or "missing", dev_rules),
+		hooked and "" or "firewall reload did not apply our rules")
+
+	-- 6) offline geo database
+	local geo
+	for _, p in ipairs({ "/etc/config/lucky.daji/ipdb/ip2region_v4.xdb",
+	                     "/usr/share/ip2region/ip2region_v4.xdb",
+	                     "/etc/ip2region/ip2region_v4.xdb" }) do
+		if fs.access(p) then geo = p break end
+	end
+	add("geodb", geo ~= nil, geo or "not found (region column stays empty)", "")
+
+	-- 7) state directory writable
+	local probe = STATE_DIR .. "/.probe"
+	local fh = io.open(probe, "w")
+	local writable = fh ~= nil
+	if fh then fh:write("x") fh:close() fs.unlink(probe) end
+	add("state", writable, writable and "writable" or STATE_DIR .. " not writable",
+		writable and "" or "check directory permissions")
+
+	-- 7b) 应用统计是否还在推进。tick 曾在升级后每轮抛错,账本静默冻结
+	local ts = load_json_map(STATE_DIR .. "/tickstate.json", function() return {} end)
+	local age = ts.ok_at and (os.time() - tonumber(ts.ok_at)) or nil
+	local stale_min = 5
+	local fresh = age ~= nil and age <= stale_min * 60
+	add("appstats", fresh,
+		age and string.format("last successful tick %d min ago", math.floor(age / 60))
+		    or "never recorded a successful tick",
+		fresh and "" or ((ts.error and ("last error: " .. ts.error .. " — ")) or "") ..
+		                 "/etc/init.d/languard restart")
+
+	-- 8) automatic protection
+	local cfg = load_autocfg()
+	add("autoprot", cfg.enabled,
+		cfg.enabled and ("on, threshold " .. cfg.threshold) or "off", "")
+
+	local all_ok = true
+	for _, c in ipairs(checks) do if not c.ok then all_ok = false end end
+	return { success = true, running = true, ok = all_ok, checks = checks }
+end
+
+-- Aggregates for the landing page. Deliberately returns no addresses: the
+-- dashboard must not expose the LAN inventory.
+function methods.dashboard()
+	local devs = collect_devices()
+	local total, online, blocked_dev = 0, 0, 0
+	for _, d in ipairs(devs) do
+		total = total + 1
+		if d.online then online = online + 1 end
+		if d.blocked then blocked_dev = blocked_dev + 1 end
+	end
+
+	local ips = load_ipstate()
+	local ip_total, ip_auto = 0, 0
+	for _, m in pairs(ips) do
+		ip_total = ip_total + 1
+		if m.source == "auto" then ip_auto = ip_auto + 1 end
+	end
+
+	-- login counters for today + last 24h
+	local t = os.date("*t")
+	local day_start = os.time({ year = t.year, month = t.month, day = t.day, hour = 0, min = 0, sec = 0 })
+	local now = os.time()
+	local ok_today, fail_today, fail_24h, recent = 0, 0, 0, {}
+	local f = io.open(LOG_FILE, "r")
+	if f then
+		local all = {}
+		for line in f:lines() do
+			local ts, kind, result = line:match("^(%d+)|([^|]*)|([^|]*)")
+			if ts then
+				ts = tonumber(ts)
+				all[#all + 1] = { ts = ts, kind = kind, result = result }
+				if ts >= day_start then
+					if result == "success" then ok_today = ok_today + 1
+					elseif result == "failure" then fail_today = fail_today + 1 end
+				end
+				if result == "failure" and ts >= now - 86400 then fail_24h = fail_24h + 1 end
+			end
+		end
+		f:close()
+		-- newest few, without any address
+		for i = #all, math.max(1, #all - 5), -1 do
+			recent[#recent + 1] = { ts = all[i].ts, kind = all[i].kind, result = all[i].result }
+		end
+	end
+
+	-- health, condensed
+	local sc = methods.selfcheck()
+	local failing = {}
+	for _, c in ipairs(sc.checks or {}) do
+		if not c.ok then failing[#failing + 1] = { id = c.id, detail = c.detail, hint = c.hint } end
+	end
+
+	local sched = methods.schedlist()
+	local active_sched = 0
+	for _, r in ipairs(sched.rules or {}) do
+		if r.active then active_sched = active_sched + 1 end
+	end
+
+	local grp = load_groups()
+	local prt = load_ports()
+	local ntf = load_notify()
+	local cfg = load_autocfg()
+
+	local known = load_json_map(KNOWN_FILE, function() return {} end)
+	local pending = load_json_map(PENDING_FILE, function() return {} end)
+	local n_pending, n_trusted = 0, 0
+	for _ in pairs(known) do n_trusted = n_trusted + 1 end
+	for mac in pairs(pending) do if not known[mac] then n_pending = n_pending + 1 end end
+
+	local arp = load_json_map(ARP_FILE, function() return { events = {} } end)
+	local arp_recent, arp_24h = {}, 0
+	for _, ev in ipairs(arp.events or {}) do
+		if now - (tonumber(ev.ts) or 0) <= 86400 then
+			arp_24h = arp_24h + 1
+			arp_recent[#arp_recent + 1] = ev
+		end
+	end
+
+	local ngrp, nch = 0, 0
+	for _ in pairs(grp.groups or {}) do ngrp = ngrp + 1 end
+	for _ in pairs(ntf.channels or {}) do nch = nch + 1 end
+
+	return {
+		success = true, running = true,
+		devices_total = total, devices_online = online, devices_blocked = blocked_dev,
+		ips_blocked = ip_total, ips_auto = ip_auto,
+		logins_ok_today = ok_today, logins_fail_today = fail_today, logins_fail_24h = fail_24h,
+		schedules = #(sched.rules or {}), schedules_active = active_sched,
+		groups = ngrp, ports = #(prt.rules or {}), channels = nch,
+		auto_enabled = cfg.enabled, threshold = cfg.threshold, window = cfg.window, ttl = cfg.ttl,
+		health_ok = sc.ok, health_failing = failing,
+		trusted = n_trusted, pending = n_pending,
+		panic_on = load_panic().on and true or false, panic_since = load_panic().since,
+		arp_24h = arp_24h, arp_recent = arp_recent,
+		recent = recent,
+	}
+end
+
+function methods.status(_)
+	local state = load_state()
+	local n = 0
+	for _ in pairs(state) do n = n + 1 end
+	return { success = true, running = true, blocked_count = n }
+end
+
+-- jsonc renders empty tables as [] and cannot distinguish them from empty
+-- objects. rpcd needs {} for method-argument objects, while list payloads must
+-- stay arrays, so the two helpers below are used explicitly.
+local function reply(v)
+	local s = jsonc.stringify(v)
+	if v == nil or (type(v) == "table" and next(v) == nil) then
+		s = "{}"
+	end
+	io.write(s)
+end
+
+-- Emit a payload where the named array fields must survive as JSON arrays,
+-- even when empty. jsonc emits [] for empty tables, so the only repair needed
+-- is for the method-argument skeleton, which reply() already handles.
+local function reply_list(v, arrays)
+	local s = jsonc.stringify(v)
+	for _, field in ipairs(arrays) do
+		-- jsonc gives "field":{} for an empty table; restore the array form
+		s = s:gsub('"(' .. field .. ')":{}', '"%1":[]')
+	end
+	if v == nil or (type(v) == "table" and next(v) == nil) then
+		s = "{}"
+	end
+	io.write(s)
+end
+
+
+local input = io.read("*a") or ""
+local req = jsonc.parse(input) or {}
+
+local HANDLERS = {
+	-- list 是原来的第一个分支(if 而非 elseif),单独补在这里
+	list               = { f = function() return methods.list(req.probe) end, arrays = { "devices" } },
+	status             = { f = function() return methods.status() end },
+	block              = { f = function() return methods.block(req.mac, req.host, req.ip, req.source, req.minutes) end },
+	unblock            = { f = function() return methods.unblock(req.mac) end },
+	unblock_all        = { f = function() return methods.unblock_all(req.confirm) end },
+	rename             = { f = function() return methods.rename(req.mac, req.name) end },
+	sync               = { f = function() return methods.sync() end },
+	iplist             = { f = function() return methods.iplist(req.limit, req.cat) end, arrays = { "ips" } },
+	ipadd              = { f = function() return methods.ipadd(req.ip, req.note, req.source, req.fast, req.evidence) end },
+	ipdel              = { f = function() return methods.ipdel(req.ip) end },
+	ipflush            = { f = function() return methods.ipflush(req.confirm) end },
+	proxylist          = { f = function() return methods.proxylist() end, arrays = { "proxies" } },
+	proxyadd           = { f = function() return methods.proxyadd(req.ip) end },
+	proxydel           = { f = function() return methods.proxydel(req.ip) end },
+	logevent           = { f = function() return methods.logevent(req.epoch, req.kind, req.result, req.ip, req.user, req.detail) end },
+	loglist            = { f = function() return methods.loglist(req.limit) end, arrays = { "entries" } },
+	logclear           = { f = function() return methods.logclear() end },
+	grouplist          = { f = function() return methods.grouplist() end, arrays = { "groups" } },
+	groupadd           = { f = function() return methods.groupadd(req.name, req.macs) end },
+	groupdel           = { f = function() return methods.groupdel(req.id) end },
+	groupset           = { f = function() return methods.groupset(req.id, req.macs) end },
+	curfew             = { f = function() return methods.curfew(req.id, req.minutes) end },
+	portlist           = { f = function() return methods.portlist() end, arrays = { "rules" } },
+	portadd            = { f = function() return methods.portadd(req.mac, req.proto, req.port, req.note) end },
+	portdel            = { f = function() return methods.portdel(req.id) end },
+	porttoggle         = { f = function() return methods.porttoggle(req.id, req.enabled) end },
+	notifyget          = { f = function() return methods.notifyget() end, arrays = { "channels", "event_names" } },
+	notifyadd          = { f = function() return methods.notifyadd(req.type_, req.name, req.url, req.token, req.chat) end },
+	notifydel          = { f = function() return methods.notifydel(req.id) end },
+	notifytoggle       = { f = function() return methods.notifytoggle(req.id, req.enabled) end },
+	notifyevents       = { f = function() return methods.notifyevents(req.events) end },
+	notifytest         = { f = function() return methods.notifytest(req.id) end },
+	expire             = { f = function() return methods.expire() end, arrays = { "expired" } },
+	tickcfg            = { f = function() return methods.tickcfg() end },
+	tickset            = { f = function() return methods.tickset(req.on_) end },
+	tick               = { f = function() return methods.tick() end, arrays = { "expired" } },
+	schedlist          = { f = function() return methods.schedlist() end, arrays = { "rules" } },
+	schedadd           = { f = function() return methods.schedadd(req.mac, req.days, req.start, req.stop, req.name) end },
+	scheddel           = { f = function() return methods.scheddel(req.id) end },
+	schedtoggle        = { f = function() return methods.schedtoggle(req.id, req.enabled) end },
+	schedeval          = { f = function() return methods.schedeval() end },
+	probe              = { f = function() return methods.probe() end },
+	knownadd           = { f = function() return methods.knownadd(req.mac) end },
+	knownlist          = { f = function() return methods.knownlist() end, arrays = { "pending" } },
+	wllist             = { f = function() return methods.wllist() end, arrays = { "macs" } },
+	wladd              = { f = function() return methods.wladd(req.mac) end },
+	wldel              = { f = function() return methods.wldel(req.mac) end },
+	fix                = { f = function() return methods.fix(req.id) end },
+	blockaudit         = { f = function() return methods.blockaudit(req.limit) end },
+	panicstate         = { f = function() return methods.panicstate() end },
+	panic              = { f = function() return methods.panic(req.on_) end },
+	trend              = { f = function() return methods.trend() end, arrays = { "hourly", "daily" } },
+	portpresets        = { f = function() return methods.portpresets() end, arrays = { "presets" } },
+	porttemplate       = { f = function() return methods.porttemplate(req.macs, req.preset) end },
+	feedlist           = { f = function() return methods.feedlist() end, arrays = { "feeds" } },
+	feedadd            = { f = function() return methods.feedadd(req.name, req.url, req.interval, req.kind, req.cls) end },
+	feeddel            = { f = function() return methods.feeddel(req.id) end },
+	feedrefresh        = { f = function() return methods.feedrefresh(req.id) end },
+	feedset            = { f = function() return methods.feedset(req.id, req.interval) end },
+	applist            = { f = function() return methods.applist() end, arrays = { "apps" } },
+	appstats           = { f = function() return methods.appstats(req.range) end, arrays = { "apps", "dev" } },
+	sample_start       = { f = function() return methods.sample_start(req.duration) end },
+	sample_stop        = { f = function() return methods.sample_stop() end },
+	sample_result      = { f = function() return methods.sample_result() end, arrays = { "groups" } },
+	sample_save        = { f = function() return methods.sample_save(req.name, req.proto, req.dport, req.prefix, req.cls) end },
+	qoslist            = { f = function() return methods.qoslist() end, arrays = { "rules" } },
+	qosadd             = { f = function() return methods.qosadd(req.ip, req.app, req.dscp) end },
+	qosdel             = { f = function() return methods.qosdel(req.id) end },
+	appimport          = { f = function() return methods.appimport(req.text) end },
+	siglist            = { f = function() return methods.siglist(req.name) end, arrays = { "sigs" } },
+	sigadd             = { f = function() return methods.sigadd(req.name, req.proto, req.dport, req.host) end },
+	sigdel             = { f = function() return methods.sigdel(req.name, req.idx) end },
+	appdel             = { f = function() return methods.appdel(req.id) end },
+	appreset           = { f = function() return methods.appreset(req.confirm) end },
+	devmerge           = { f = function() return methods.devmerge(req.mac, req.into) end },
+	devunmerge         = { f = function() return methods.devunmerge(req.mac) end },
+	domainlist         = { f = function() return methods.domainlist() end, arrays = { "domains" } },
+	domainhits         = { f = function() return methods.domainhits(req.limit) end, arrays = { "hits" } },
+	domaintogglelog    = { f = function() return methods.domaintogglelog(req.on_) end },
+	domainadd          = { f = function() return methods.domainadd(req.name) end },
+	domaindel          = { f = function() return methods.domaindel(req.name) end },
+	domaintoggle       = { f = function() return methods.domaintoggle(req.on_) end },
+	ensure_dnsmasq     = { f = function() return methods.ensure_dnsmasq() end },
+	exportfile         = { f = function() return methods.exportfile() end },
+	importfile         = { f = function() return methods.importfile(req.name) end },
+	exportconfig       = { f = function() return methods.exportconfig() end },
+	importconfig       = { f = function() return methods.importconfig(req.payload) end },
+	dashboard          = { f = function() return methods.dashboard() end, arrays = { "recent", "health_failing" } },
+	selfcheck          = { f = function() return methods.selfcheck() end, arrays = { "checks" } },
+	geoinfo            = { f = function() return methods.geoinfo(req.ip) end },
+	scan               = { f = function() return methods.scan() end },
+	autoget            = { f = function() return methods.autoget() end },
+	autoset            = { f = function() return methods.autoset(req.enabled, req.threshold, req.window, req.ttl, req.ssh_password, req.ssh_user, req.web_auth) end },
+}
+
+
+if arg[1] == "list" then
+	-- rpcd requires {} for "no arguments"; jsonc emits [] for an empty table
+	local s2 = jsonc.stringify({
+		list        = { probe = "" },
+		status      = {},
+		block       = { mac = "", host = "", ip = "", source = "", minutes = "" },
+		unblock     = { mac = "" },
+		unblock_all = { confirm = "" },
+		rename      = { mac = "", name = "" },
+		sync        = {},
+		iplist      = { limit = "", cat = "" },
+		proxylist   = {},
+		proxyadd    = { ip = "" },
+		proxydel    = { ip = "" },
+		ipadd       = { ip = "", note = "", source = "", fast = "", evidence = "" },
+		ipdel       = { ip = "" },
+		ipflush     = { confirm = "" },
+		scan        = {},
+		geoinfo     = { ip = "" },
+		selfcheck   = {},
+		dashboard   = {},
+		knownadd    = { mac = "" },
+		knownlist   = {},
+		wllist      = {},
+		wladd       = { mac = "" },
+		wldel       = { mac = "" },
+		blockaudit  = { limit = "" },
+		fix         = { id = "" },
+		panicstate  = {},
+		panic       = { on_ = "" },
+		trend       = {},
+		portpresets = {},
+		porttemplate = { macs = "", preset = "" },
+		feedlist    = {},
+		feedadd     = { name = "", url = "", interval = "", kind = "", cls = "" },
+		feeddel     = { id = "" },
+		feedrefresh = { id = "" },
+		feedset     = { id = "", interval = "" },
+		applist     = {},
+		qoslist     = {},
+		sample_start = { duration = "" },
+		sample_stop  = {},
+		sample_result = {},
+		sample_save  = { name = "", proto = "", dport = "", prefix = "", cls = "" },
+		qosadd      = { ip = "", app = "", dscp = "" },
+		qosdel      = { id = "" },
+		appstats    = { range = "" },
+		appimport   = { text = "" },
+		appdel      = { id = "" },
+		siglist     = { name = "" },
+		sigadd      = { name = "", proto = "", dport = "", host = "" },
+		sigdel      = { name = "", idx = "" },
+		appreset    = { confirm = "" },
+		devmerge    = { mac = "", into = "" },
+		devunmerge  = { mac = "" },
+		domainlist  = {},
+		domainhits  = { limit = "" },
+		domaintogglelog = { on_ = "" },
+		domainadd   = { name = "" },
+		domaindel   = { name = "" },
+		domaintoggle = { on_ = "" },
+		exportconfig = {},
+		exportfile  = {},
+		ensure_dnsmasq = {},
+		importfile  = { name = "" },
+		importconfig = { payload = "" },
+		probe       = {},
+		grouplist    = {},
+		groupadd     = { name = "", macs = "" },
+		groupdel     = { id = "" },
+		groupset     = { id = "", macs = "" },
+		curfew       = { id = "", minutes = "" },
+		portlist     = {},
+		portadd      = { mac = "", proto = "", port = "", note = "" },
+		portdel      = { id = "" },
+		porttoggle   = { id = "", enabled = "" },
+		notifyget    = {},
+		notifyadd    = { type_ = "", name = "", url = "", token = "", chat = "" },
+		notifydel    = { id = "" },
+		notifytoggle = { id = "", enabled = "" },
+		notifyevents = { events = "" },
+		notifytest   = { id = "" },
+		expire      = {},
+		tick        = {},
+		tickcfg     = {},
+		tickset     = { on_ = "" },
+		schedlist   = {},
+		schedadd    = { mac = "", days = "", start = "", stop = "", name = "" },
+		scheddel    = { id = "" },
+		schedtoggle = { id = "", enabled = "" },
+		schedeval   = {},
+		logevent    = { epoch = "", kind = "", result = "", ip = "", user = "", detail = "" },
+		loglist     = { limit = "" },
+		logclear    = {},
+		autoget     = {},
+		autoset     = { enabled = "", threshold = "", window = "", ttl = "",
+		                ssh_password = "", ssh_user = "", web_auth = "" },
+	})
+	s2 = s2:gsub(':%[%]', ':{}')
+	io.write(s2)
+elseif arg[1] == "call" then
+	local name = arg[2]
+	local h = HANDLERS[name]
+	if not h then
+		reply({ success = false, error = "method not found: " .. tostring(name) })
+		os.exit(1)
+	end
+	local res = h.f()
+	if h.arrays then reply_list(res, h.arrays) return end
+	reply(res)
+else
+	reply({ success = false, error = "bad invocation" })
+	os.exit(1)
+end

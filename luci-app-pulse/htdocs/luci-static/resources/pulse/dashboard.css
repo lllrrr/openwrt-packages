@@ -1,8 +1,7 @@
 
-.hd { --hd-bg:#e8edf5; --hd-card:#fff; --hd-line:#dce2eb; --hd-text:#303b50; --hd-muted:#6b788d; --hd-blue:#3479ed; --hd-control:#f5f7fb; --hd-secondary:#788aa6; --hd-success-bg:#e4f5ec; --hd-success:#257650; --hd-success-line:#bedfcc; --hd-tooltip:#fff; --hd-error:#a95214; color:var(--hd-text); background:var(--hd-bg); padding:26px; border-radius:16px; font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif; font-size:13px; line-height:1.5; }
-/* Inherit LuCI's color-scheme: respects both explicit mode and automatic mode. */
+.hd { --hd-bg:#e8edf5; --hd-card:#fff; --hd-line:#dce2eb; --hd-text:#303b50; --hd-muted:#6b788d; --hd-blue:#3479ed; --hd-control:#f5f7fb; --hd-secondary:#18a999; --hd-success-bg:#e4f5ec; --hd-success:#257650; --hd-success-line:#bedfcc; --hd-tooltip:#fff; --hd-error:#a95214; color:var(--hd-text); background:var(--hd-bg); padding:26px; border-radius:16px; font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif; font-size:13px; line-height:1.5; }
 @supports (color: light-dark(white, black)) {
- .hd { --hd-bg:light-dark(#e8edf5,#191c22); --hd-card:light-dark(#fff,#22262e); --hd-line:light-dark(#dce2eb,#343a46); --hd-text:light-dark(#303b50,#e5eaf3); --hd-muted:light-dark(#6b788d,#8f9bab); --hd-blue:light-dark(#3479ed,#438bff); --hd-control:light-dark(#f5f7fb,#292f39); --hd-secondary:light-dark(#788aa6,#a3b3c9); --hd-success-bg:light-dark(#e4f5ec,#263e38); --hd-success:light-dark(#257650,#79dcb1); --hd-success-line:light-dark(#bedfcc,#345247); --hd-tooltip:light-dark(#fff,#141820); --hd-error:light-dark(#a95214,#ffbc7d); }
+ .hd { --hd-bg:light-dark(#e8edf5,#191c22); --hd-card:light-dark(#fff,#22262e); --hd-line:light-dark(#dce2eb,#343a46); --hd-text:light-dark(#303b50,#e5eaf3); --hd-muted:light-dark(#6b788d,#8f9bab); --hd-blue:light-dark(#3479ed,#438bff); --hd-control:light-dark(#f5f7fb,#292f39); --hd-secondary:#18a999; --hd-success-bg:light-dark(#e4f5ec,#263e38); --hd-success:light-dark(#257650,#79dcb1); --hd-success-line:light-dark(#bedfcc,#345247); --hd-tooltip:light-dark(#fff,#141820); --hd-error:light-dark(#a95214,#ffbc7d); }
 }
 
 .hd * { box-sizing:border-box; }
