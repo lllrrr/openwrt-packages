@@ -96,13 +96,18 @@ body { max-width:1280px; margin:0 auto; padding:18px 32px 36px; }
 </head>
 <body>
   <nav class="topnav" aria-label="公网延迟监控导航"><div class="brand">公网延迟监控</div><button type="button" class="navitem active" data-target="overviewSection">概览</button><button type="button" class="navitem" data-target="realtimeSection">实时监控</button><button type="button" class="navitem" data-target="chartSection">延迟曲线</button><button type="button" class="navitem" data-target="regionSection">国内 / 国外</button><button type="button" class="navitem" data-target="historySection">历史数据</button><button type="button" class="navitem" data-target="targetsSection">目标管理</button><button type="button" class="navitem" data-target="settingsSection">设置</button></nav>
-  <section class="hero" id="overviewSection"><div class="health" id="healthIcon">✓</div><div><h1 id="healthTitle">网络正常</h1><div class="sub" id="pageSub">从 iStoreOS WAN 经 CPE 探测。探测间隔与存储位置按实际配置显示。</div></div><div class="hero-stats"><div class="hero-stat"><b id="heroAvg">--</b><span>当前平均延迟</span></div><div class="hero-stat"><b id="heroLoss">--</b><span>丢包率</span></div><div class="hero-stat"><b id="heroOnline">0</b><span>在线目标</span></div><div class="hero-stat"><b id="heroBad">0</b><span>异常目标</span></div></div></section>
-  <section class="overview-grid" id="regionSection"><div class="overview-card"><div class="label">平均延迟</div><div class="big" id="ovAvg">-- ms</div><div class="small">所有已启用目标的平均值</div></div><div class="overview-card"><div class="label">当前延迟</div><div class="big" id="ovCur">-- ms</div><div class="small">最近一次采集结果</div></div><div class="overview-card"><div class="label">丢包率</div><div class="big" id="ovLoss">--%</div><div class="small" id="ovLossDetail">样本数：--</div></div><div class="overview-card"><div class="label">国内网络</div><div class="big" id="ovDomestic">-- ms</div><div class="small">国内目标平均延迟</div></div><div class="overview-card"><div class="label">国外网络</div><div class="big" id="ovForeign">-- ms</div><div class="small">国外目标平均延迟</div></div><div class="overview-card"><div class="label">采集状态</div><div class="big" id="ovLast">--</div><div class="small" id="ovLastDetail">等待数据</div></div></section>
+  <section class="hero" id="overviewSection"><div class="health" id="healthIcon">✓</div><div><h1 id="healthTitle">网络正常</h1><div class="sub" id="pageSub">正在读取设备名称。探测间隔与存储位置按实际配置显示。</div></div><div class="hero-stats"><div class="hero-stat"><b id="heroAvg">--</b><span>当前平均延迟</span></div><div class="hero-stat"><b id="heroDomesticLoss">--</b><span>国内丢包率</span></div><div class="hero-stat"><b id="heroForeignLoss">--</b><span>国外丢包率</span></div><div class="hero-stat"><b id="heroOnline">0</b><span>在线目标</span></div><div class="hero-stat"><b id="heroBad">0</b><span>异常目标</span></div></div></section>
+  <section class="overview-grid" id="regionSection"><div class="overview-card"><div class="label">平均延迟</div><div class="big" id="ovAvg">-- ms</div><div class="small">所有已启用目标的平均值</div></div><div class="overview-card"><div class="label">当前延迟</div><div class="big" id="ovCur">-- ms</div><div class="small">最近一次采集结果</div></div><div class="overview-card"><div class="label">国内丢包率</div><div class="big" id="ovDomesticLoss">--</div><div class="small" id="ovDomesticLossDetail">所选历史范围 · 等待采样</div></div><div class="overview-card"><div class="label">国外丢包率</div><div class="big" id="ovForeignLoss">--</div><div class="small" id="ovForeignLossDetail">所选历史范围 · 等待采样</div></div><div class="overview-card"><div class="label">国内网络</div><div class="big" id="ovDomestic">-- ms</div><div class="small">国内目标平均延迟</div></div><div class="overview-card"><div class="label">国外网络</div><div class="big" id="ovForeign">-- ms</div><div class="small">国外目标平均延迟</div></div><div class="overview-card"><div class="label">采集状态</div><div class="big" id="ovLast">--</div><div class="small" id="ovLastDetail">等待数据</div></div></section>
   <div class="addbar" id="targetsSection">
     <span class="sub" style="margin:0">预设</span>
     <button class="btn preset" id="p_ali">+ 阿里云</button>
     <button class="btn preset" id="p_tencent">+ 腾讯云</button>
     <button class="btn preset" id="p_steam">+ Steam</button>
+    <button class="btn preset" id="p_dns114">+ 114 DNS</button>
+    <button class="btn preset" id="p_baidu">+ 百度 DNS</button>
+    <button class="btn preset" id="p_cloudflare">+ Cloudflare</button>
+    <button class="btn preset" id="p_google">+ Google DNS</button>
+    <button class="btn preset" id="p_quad9">+ Quad9</button>
     <input id="newName" placeholder="名称，可空">
     <input id="newHost" placeholder="IP 或域名，例如 8.8.8.8">
     <select id="newRegion" class="region-select"><option value="auto">自动分类</option><option value="domestic">国内</option><option value="foreign">国外</option></select>
@@ -145,10 +150,83 @@ body { max-width:1280px; margin:0 auto; padding:18px 32px 36px; }
   </div>
   <div class="tip" id="tip"></div>
 <script>
+// The two panels use the same append-only carrier IDs and device-scoped marking.
+function createCarrierPanel(api, onFilter) {
+  var names=['未标记 / 未识别','中国移动','中国联通','中国电信','中国广电','其他运营商','切换中'];
+  var selected='all', busy=false, state={}, generation=0;
+  function el(tag,text,attrs) {
+    var n=document.createElement(tag); if(text!=null)n.textContent=text;
+    Object.keys(attrs||{}).forEach(function(k){n.setAttribute(k,attrs[k]);}); return n;
+  }
+  function option(select,value,label){select.appendChild(el('option',label,{value:String(value)}));}
+  function select(label) {var s=el('select',null,{'aria-label':label,class:'cbi-input-select btn'});s.style.cssText='width:auto;max-width:100%;min-width:130px';return s;}
+  var root=el('section',null,{class:'cbi-section carrier-panel'});root.style.cssText='border:1px solid rgba(128,128,128,.25);border-radius:12px;padding:14px;margin:12px 0;background:transparent';
+  root.appendChild(el('h3','运营商切换与对比'));
+  var current=el('p','正在识别当前运营商…',{'aria-live':'polite'});root.appendChild(current);
+  var controls=el('div');controls.style.cssText='display:flex;gap:8px;flex-wrap:wrap;align-items:center';root.appendChild(controls);
+  var filter=select('历史运营商筛选');option(filter,'all','全部运营商');names.forEach(function(n,i){option(filter,i,n);});
+  controls.appendChild(el('label','历史筛选'));controls.appendChild(filter);
+  filter.addEventListener('change',function(){selected=filter.value;onFilter(selected);});
+  var mark=select('当前 SIM 的运营商标记');option(mark,'auto','自动识别（推荐）');names.slice(0,6).forEach(function(n,i){option(mark,i,n);});
+  var save=el('button','保存标记',{type:'button',class:'cbi-button btn'});
+  controls.appendChild(el('label','当前卡标记'));controls.appendChild(mark);controls.appendChild(save);
+  var sim=select('切换数据 SIM');option(sim,0,'SIM 1');option(sim,1,'SIM 2');
+  var change=el('button','切换数据 SIM',{type:'button',class:'cbi-button cbi-button-action btn'});controls.appendChild(sim);controls.appendChild(change);
+  var message=el('p','',{'aria-live':'polite'});root.appendChild(message);
+  var note=el('p','筛选只影响历史曲线；总流量和原有历史继续保留。旧数据归入未标记；换卡未识别时不猜测运营商。手动标记绑定当前 SIM，不会沿用到新卡。');note.style.cssText='font-size:12px;opacity:.8;line-height:1.6';root.appendChild(note);
+  var report=el('div');report.style.overflowX='auto';root.appendChild(report);
+  function failure(error){var errors={invalid_carrier:'无效的运营商',sim_not_identified:'当前卡尚未识别，请等联网并自动识别完成后再标记',dual_sim_unavailable:'设备不支持双卡软件切换；可手动拔插 SIM，联网后自动归档',invalid_sim:'无效的卡槽',carrier_unavailable:'运营商服务暂不可用',storage_failed:'标记保存失败'};message.textContent='操作失败：'+(errors[error]||String(error||'未知错误'));}
+  function paint(s){
+    state=s||{};if(!state.ok){failure(state.error);return;}
+    current.textContent='当前：'+(names[state.code]||names[0])+(state.sim>=0?' · SIM '+(Number(state.sim)+1):'')+' · '+(state.source==='manual'?'手动标记':state.source==='auto'?'自动识别':state.source==='switching'?'正在切换':'等待识别');
+    if(document.activeElement!==mark)mark.value=state.mode||'auto';
+    save.disabled=busy||state.sim<0||state.code===6;
+    sim.disabled=change.disabled=busy||!state.switch_supported||state.code===6;
+    if(!busy&&document.activeElement!==sim)sim.value=state.sim===0?'1':'0';
+    change.title=state.switch_supported?'使用设备原有双 SIM 切换接口':'此设备不支持双卡软件切换；手动换卡后自动归档';
+  }
+  function refresh(){var id=++generation;return api('status').then(function(s){if(id===generation)paint(s);}).catch(function(e){message.textContent='识别暂不可用：'+e.message;});}
+  save.addEventListener('click',function(){busy=true;save.disabled=true;api('set',mark.value).then(function(r){if(!r.ok){failure(r.error);return;}paint(r);message.textContent='标记已保存，仅用于后续记录；已有历史未改变。';onFilter(selected);}).catch(function(e){failure(e.message);}).finally(function(){busy=false;refresh();});});
+  function follow(id,tries){
+    return api('job',id).then(function(r){
+      if(r.state==='done'){message.textContent='切换成功，等待新运营商识别；历史和累计流量继续保留。';busy=false;refresh();onFilter(selected);return;}
+      if(r.state==='error'||!r.state){busy=false;failure(r.error||'无法读取切换结果，请到 SIM 管理页确认');refresh();return;}
+      if(tries>=160){busy=false;message.textContent='切换结果尚未确认，请到设备 SIM 管理页查看；监控继续记录。';refresh();return;}
+      window.setTimeout(function(){follow(id,tries+1);},1500);
+    }).catch(function(e){busy=false;failure(e.message);refresh();});
+  }
+  change.addEventListener('click',function(){
+    if(busy||!state.switch_supported)return;
+    if(!window.confirm('切换到 SIM '+(Number(sim.value)+1)+' 会暂时断开公网连接。监控历史和总流量保留。确认切换？'))return;
+    busy=true;change.disabled=sim.disabled=save.disabled=true;message.textContent='正在提交切换…';
+    api('switch',sim.value).then(function(r){if(!r.ok||!r.id){busy=false;failure(r.error);refresh();return;}message.textContent='正在切换，请稍候…';follow(r.id,0);}).catch(function(e){busy=false;failure(e.message);refresh();});
+  });
+  function showReport(rows,targets){
+    report.replaceChildren(); if(!rows||!rows.length){report.appendChild(el('p','此查询范围还没有可对比的记录。'));return;}
+    var wan=rows[0].target!=null,table=el('table',null,{class:'table'});table.style.cssText='width:100%;min-width:620px;font-size:12px';
+    var head=el('tr');(wan?['运营商','目标','采样数','平均延迟','最低 / 最高','丢包率']:['运营商','采样数','下载 / 上传','阿里平均 / 丢包','腾讯平均 / 丢包']).forEach(function(t){head.appendChild(el('th',t));});table.appendChild(head);
+    function ms(v){return v==null?'--':Number(v).toFixed(1)+' ms';}
+    function percent(v){return Number(v||0).toFixed(1)+'%';}
+    function bytes(v){return (Number(v||0)/1e9).toFixed(4)+' GB';}
+    rows.forEach(function(r){var id=wan?r.carrier:r.id,tr=el('tr');if(selected!=='all'&&Number(selected)!==Number(id))tr.style.opacity='.55';
+      var target=(targets||[]).find(function(t){return t.id===r.target;});
+      var cols=wan?[names[id],target?target.name:r.target,r.count,ms(r.avg),ms(r.min)+' / '+ms(r.max),percent(r.loss)]:[names[id],r.count,bytes(r.download)+' / '+bytes(r.upload)+(r.unaccounted?'（旧记录流量未分组）':''),ms(r.aliyun_avg)+' / '+percent(r.aliyun_loss),ms(r.tencent_avg)+' / '+percent(r.tencent_loss)];
+      cols.forEach(function(v){tr.appendChild(el('td',v));});table.appendChild(tr);
+    });report.appendChild(table);
+    report.appendChild(el('p','对比范围与历史查询一致；仅比较各网络实际采样，不把其他运营商的时段算成丢包。切换中数据单列；分组流量从新版开始累计，旧总流量不变。'));
+  }
+  return {node:root,refresh:refresh,report:showReport,value:function(){return selected;}};
+}
+
 const PRESETS = [
   {id:"ali", name:"阿里云", host:"223.5.5.5"},
   {id:"tencent", name:"腾讯云", host:"119.29.29.29"},
-  {id:"steam", name:"Steam", host:"store.steampowered.com"}
+  {id:"steam", name:"Steam", host:"store.steampowered.com"},
+  {id:"dns114", name:"114 DNS", host:"114.114.114.114"},
+  {id:"baidu", name:"百度 DNS", host:"180.76.76.76"},
+  {id:"cloudflare", name:"Cloudflare", host:"1.1.1.1"},
+  {id:"google", name:"Google DNS", host:"8.8.8.8"},
+  {id:"quad9", name:"Quad9", host:"9.9.9.9"}
 ];
 const canvas = document.getElementById("chart");
 const tip = document.getElementById("tip");
@@ -350,24 +428,38 @@ async function delTarget(id){
 function updateOverview(){
   const targets=currentTargets(), stats=(data&&data.stats)||{}, latest=((data&&data.latest&&data.latest.items)||[]);
   const latestMap={}; latest.forEach(item=>{latestMap[item.id]=item;});
-  const current=[], history=[], domestic=[], foreign=[]; let lossSum=0, lossN=0, bad=0;
+  const current=[], history=[], domestic=[], foreign=[]; let bad=0;
+  const groups={domestic:{attempts:0,failed:0},foreign:{attempts:0,failed:0}};
   targets.forEach(t=>{
     const st=stats[t.id]||{}, cur=latestMap[t.id]&&latestMap[t.id].rtt;
     if(st.avg!=null) history.push(Number(st.avg));
-    if(st.loss!=null){lossSum+=Number(st.loss);lossN++;}
+    const group=groups[t.region];
+    if(group && Number(st.attempts)>0){group.attempts+=Number(st.attempts);group.failed+=Number(st.failed)||0;}
     if(cur==null){bad++;return;}
     const value=Number(cur); current.push(value);
     if(t.region==='foreign') foreign.push(value); else if(t.region==='domestic') domestic.push(value);
   });
   const avg=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:null;
-  const currentMean=avg(current), historyMean=avg(history), loss=lossN?lossSum/lossN:null;
+  const currentMean=avg(current), historyMean=avg(history);
   const set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;}; const ms=v=>v==null?'--':v.toFixed(1)+' ms';
-  set('heroAvg',ms(currentMean)); set('heroLoss',loss==null?'--':loss.toFixed(1)+'%'); set('heroOnline',current.length); set('heroBad',bad);
-  set('ovAvg',ms(historyMean!=null?historyMean:currentMean)); set('ovCur',ms(currentMean)); set('ovLoss',loss==null?'--%':loss.toFixed(1)+'%'); set('ovLossDetail','样本数：'+(data&&data.count||0)); set('ovDomestic',ms(avg(domestic))); set('ovForeign',ms(avg(foreign)));
+  set('heroAvg',ms(currentMean)); set('heroOnline',current.length); set('heroBad',bad);
+  set('ovAvg',ms(historyMean!=null?historyMean:currentMean)); set('ovCur',ms(currentMean)); set('ovDomestic',ms(avg(domestic))); set('ovForeign',ms(avg(foreign)));
+  [['domestic','Domestic'],['foreign','Foreign']].forEach(([region,key])=>{
+    const g=groups[region], value=g.attempts?(100*g.failed/g.attempts).toFixed(1)+'%':'--';
+    set('hero'+key+'Loss',value); set('ov'+key+'Loss',value);
+    set('ov'+key+'LossDetail',g.attempts?'失败 '+g.failed+' / 探测 '+g.attempts+' 次':'所选历史范围暂无采样');
+  });
   const stale=!(data&&data.latest&&data.latest.ts)||Math.floor(Date.now()/1000)-data.latest.ts>Math.max(20,pingInterval*3); set('ovLast',stale?'异常':'正常'); set('ovLastDetail',data&&data.latest&&data.latest.ts?'最近更新 '+fmtTime(data.latest.ts):'等待数据');
   const health=document.getElementById('healthTitle'), icon=document.getElementById('healthIcon'); if(health)health.textContent=stale?'采集异常':'网络正常'; if(icon){icon.textContent=stale?'!':'✓';icon.style.color=stale?'#e35353':'#27a55d';icon.style.borderColor=stale?'#e35353':'#27a55d';}
 }
 
+let carrierFilter = 'all';
+let carrierPanel = null;
+if (typeof createCarrierPanel === 'function' && document.createElement) {
+  carrierPanel = createCarrierPanel((mode,value) => api('action=carrier_'+mode+(value!=null?'&value='+encodeURIComponent(value):'')), value => { carrierFilter=value; loadQuery(); });
+  document.getElementById('settingsSection').insertAdjacentElement('beforebegin',carrierPanel.node);
+  carrierPanel.refresh();
+}
 let realtimeInFlight = false;
 let queryGeneration = 0;
 async function loadRealtime(){
@@ -380,6 +472,7 @@ async function loadRealtime(){
     if(!data.latest || Number(latest.ts)>=Number(data.latest.ts||0)) data.latest=latest;
     if(targetResult.ok&&Array.isArray(targetResult.targets)) data.targets=targetResult.targets;
     renderCards(); updateOverview(); updatePresetButtons(); updatePageSub();
+    if(carrierPanel) carrierPanel.refresh();
     const status=document.getElementById('statusLine');
     if(status&&status.textContent==='正在加载…'&&latest.ts) status.textContent='实时数据已加载，正在读取历史曲线…';
   } catch(err) {
@@ -404,7 +497,7 @@ async function loadQuery(){
     to = now; from = now - rangeSec;
   }
   let response;
-  try { response = await api("action=query&from=" + from + "&to=" + to); }
+  try { response = await api("action=query&from=" + from + "&to=" + to + "&carrier=" + carrierFilter); }
   catch(err) {
     if (requestGeneration !== queryGeneration) return;
     document.getElementById("statusLine").textContent = '历史数据加载失败：' + String(err&&err.message||err);
@@ -417,6 +510,7 @@ async function loadQuery(){
   }
   if(data && data.latest && Number(data.latest.ts)>Number((response.latest||{}).ts||0)) response.latest=data.latest;
   data = response;
+  if(carrierPanel) carrierPanel.report(data.carriers||[], data.targets||[]);
   renderCards();
   updateOverview();
   renderSeriesFilters();
@@ -621,15 +715,15 @@ document.getElementById("liveBtn").addEventListener("click", () => {
 document.getElementById("exportCsv").addEventListener("click", () => {
   if (!data || !data.t) return;
   const targets = visibleTargets();
-  const rows = [["time"].concat(targets.map(t => t.name))];
-  data.t.forEach((ts, i) => rows.push([fmtTime(ts)].concat(targets.map(t => {
+  const rows = [["time", "carrier_filter"].concat(targets.map(t => t.name))];
+  data.t.forEach((ts, i) => rows.push([fmtTime(ts), carrierFilter].concat(targets.map(t => {
     const s = (data.series || {})[t.id] || {};
     return s.avg && s.avg[i] != null ? s.avg[i] : "";
   }))));
   const csv = rows.map(row => row.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(",")).join("\r\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob(["\ufeff" + csv], {type:"text/csv;charset=utf-8"}));
-  a.download = "wan-latency-" + Date.now() + ".csv";
+  a.download = "wan-latency-carrier-" + carrierFilter + "-" + Date.now() + ".csv";
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
@@ -670,12 +764,22 @@ document.querySelectorAll(".navitem[data-target]").forEach(btn => {
 });
 window.addEventListener("resize", draw);
 
+let deviceName = "当前设备";
+async function loadDevice(){
+  try {
+    const device = await api("action=device");
+    if (device && device.ok && typeof device.hostname === "string" && device.hostname.trim())
+      deviceName = device.hostname.trim();
+  } catch (_) { /* Keep the generic device label when identification is unavailable. */ }
+  updatePageSub();
+}
+
 function updatePageSub(){
   const sel = document.getElementById("pingInterval");
   if (sel && sel.value) pingInterval = Number(sel.value) || pingInterval;
   const store = (data && (data.storage_label || (data.meta && data.meta.storage_label))) || "路由器本地存储";
   const el = document.getElementById("pageSub") || document.querySelector("h1 + .sub");
-  if (el) el.textContent = "从 iStoreOS WAN 经 CPE 探测。每 " + pingInterval + " 秒一个点，数据保存在" + store + "上。目标可任意添加，阿里云 / 腾讯云 / Steam 只是一键预设。";
+  if (el) el.textContent = "从 " + deviceName + " 的 WAN 接口探测。每 " + pingInterval + " 秒一个点，数据保存在" + store + "上。目标可任意添加，可一键添加国内外 DNS 与 Steam 等预设目标。";
 }
 function schedulePoll(){
   if (pollTimer) clearInterval(pollTimer);
@@ -694,6 +798,7 @@ document.getElementById("pingInterval").addEventListener("change", async () => {
 });
 ['probeTimeout','latencyThreshold','retainDays'].forEach(id=>{ const e=document.getElementById(id); if(e)e.addEventListener('change',()=>saveSetting({probeTimeout:'timeout',latencyThreshold:'latency_threshold_ms',retainDays:'retain_days'}[id],e.value)); });
 updatePageSub();
+loadDevice();
 schedulePoll();
 loadRealtime();
 loadSettings().catch(err => { document.getElementById('statusLine').textContent = '设置读取失败：' + String(err && err.message || err); });

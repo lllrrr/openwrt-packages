@@ -3,12 +3,12 @@ import gzip, hashlib, io, os, shutil, stat, tarfile, time, zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "1.4.1"
+VERSION = "1.5.0"
 RELEASE = "1"
 OUT = ROOT / "dist"
 
 EXECUTABLES = {
-    "etc/init.d/wan-latency", "usr/libexec/wan-latency-api",
+    "etc/init.d/wan-latency", "usr/libexec/wan-latency-api", "usr/libexec/wan-latency-carrier",
     "usr/sbin/wan-latencyd", "usr/sbin/wan-latency-probe",
 }
 
@@ -66,7 +66,7 @@ fail() {{ echo "Error: $*" >&2; exit 1; }}
 [ "$(id -u)" = "0" ] || fail "run this installer as root"
 [ -f /etc/openwrt_release ] || fail "this installer is only for OpenWrt-compatible systems"
 missing=""
-for p in luci-base lua luci-lib-nixio cgi-io rpcd-mod-file curl ip-full; do
+for p in luci-base lua luci-lib-nixio cgi-io rpcd-mod-file curl ip-full jsonfilter; do
   opkg status "$p" 2>/dev/null | grep -q '^Status:.* installed' || missing="$missing $p"
 done
 [ -z "$missing" ] || fail "missing packages:$missing (run: opkg update && opkg install$missing)"
@@ -98,7 +98,7 @@ def main():
     OUT.mkdir()
     main_ipk = build_ipk(
         "luci-app-wan-latency", ROOT / "files",
-        "luci-base, lua, luci-lib-nixio, cgi-io, rpcd-mod-file, curl, ip-full",
+        "luci-base, lua, luci-lib-nixio, cgi-io, rpcd-mod-file, curl, ip-full, jsonfilter",
         "WAN latency monitor for LuCI",
         "/etc/config/wan-latency\n",
         "#!/bin/sh\n[ -n \"$IPKG_INSTROOT\" ] || { mkdir -p /www/wan-latency; /etc/init.d/wan-latency enable; /etc/init.d/wan-latency restart; rm -f /www/cgi-bin/wan-latency /tmp/luci-indexcache; /etc/init.d/rpcd restart; /etc/init.d/uhttpd reload; }\nexit 0\n",

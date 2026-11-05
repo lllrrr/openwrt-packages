@@ -4,8 +4,8 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-wan-latency
-PKG_VERSION:=1.4.1
-PKG_RELEASE:=1
+PKG_VERSION:=1.5.0
+PKG_RELEASE:=2
 PKG_MAINTAINER:=xiaokeikei
 PKG_LICENSE:=GPL-2.0-only
 PKG_LICENSE_FILES:=LICENSE
@@ -18,7 +18,7 @@ define Package/luci-app-wan-latency
   SUBMENU:=3. Applications
   TITLE:=WAN latency monitor for LuCI
   PKGARCH:=all
-  DEPENDS:=+luci-base +lua +luci-lib-nixio +cgi-io +rpcd-mod-file +curl +ip-full
+  DEPENDS:=+luci-base +lua +luci-lib-nixio +cgi-io +rpcd-mod-file +curl +ip-full +jsonfilter
 endef
 
 define Package/luci-app-wan-latency/description
@@ -48,6 +48,7 @@ define Package/luci-app-wan-latency/install
 	$(INSTALL_DIR) $(1)/usr/share/rpcd/acl.d
 	$(INSTALL_DATA) ./files/usr/share/rpcd/acl.d/luci-app-wan-latency.json $(1)/usr/share/rpcd/acl.d/luci-app-wan-latency.json
 	$(INSTALL_DIR) $(1)/usr/libexec
+	$(INSTALL_BIN) ./files/usr/libexec/wan-latency-carrier $(1)/usr/libexec/wan-latency-carrier
 	$(INSTALL_BIN) ./files/usr/libexec/wan-latency-api $(1)/usr/libexec/wan-latency-api
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/status
 	$(INSTALL_DATA) ./files/www/luci-static/resources/view/status/wan_latency.js $(1)/www/luci-static/resources/view/status/wan_latency.js

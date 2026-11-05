@@ -106,7 +106,12 @@ PALETTE = {"#ff7a1a","#2ec7ff","#8bdc63","#f6c445","#c084fc","#fb7185","#22d3ee"
 PRESETS = {
   {id="ali", name="阿里云", host="223.5.5.5", color="#ff7a1a", region="domestic"},
   {id="tencent", name="腾讯云", host="119.29.29.29", color="#2ec7ff", region="domestic"},
-  {id="steam", name="Steam", host="store.steampowered.com", color="#8bdc63", region="foreign"}
+  {id="steam", name="Steam", host="store.steampowered.com", color="#8bdc63", region="foreign"},
+  {id="dns114", name="114 DNS", host="114.114.114.114", color="#a78bfa", region="domestic"},
+  {id="baidu", name="百度 DNS", host="180.76.76.76", color="#f472b6", region="domestic"},
+  {id="cloudflare", name="Cloudflare", host="1.1.1.1", color="#fbbf24", region="foreign"},
+  {id="google", name="Google DNS", host="8.8.8.8", color="#34d399", region="foreign"},
+  {id="quad9", name="Quad9", host="9.9.9.9", color="#fb7185", region="foreign"}
 }
 
 function load_paths()
@@ -265,8 +270,8 @@ function choose_step(from_ts, to_ts, min_step)
   return step
 end
 
-function query_one(path, from_ts, to_ts, step)
-  local empty = { t = {}, avg = {}, min = {}, max = {}, count = 0 }
+function query_one(path, from_ts, to_ts, step, carrier)
+  local empty = { t = {}, avg = {}, min = {}, max = {}, count = 0, failed = 0, carriers = {} }
   local n = file_count(path)
   if n <= 0 then return empty end
   local f = io.open(path, "rb")
@@ -282,20 +287,20 @@ function query_one(path, from_ts, to_ts, step)
   local i1 = lower_bound(f, n, to_ts + 1) - 1
   if i1 < i0 then f:close(); return empty end
   step = step or 5
-  local out = { t = {}, avg = {}, min = {}, max = {}, count = i1 - i0 + 1 }
+  local out = { t = {}, avg = {}, min = {}, max = {}, count = 0, failed = 0, carriers = {} }
   local bts, bn, bsum, bmin, bmax = nil, 0, 0, nil, nil
   local function flush()
     if bts == nil then return end
     out.t[#out.t + 1] = bts
     if bn > 0 then
       local avg = math.floor(bsum / bn * 10 + 0.5) / 10
-      out.avg[#out.avg + 1] = avg
-      out.min[#out.min + 1] = math.floor(bmin * 10 + 0.5) / 10
-      out.max[#out.max + 1] = math.floor(bmax * 10 + 0.5) / 10
+      out.avg[#out.t] = avg
+      out.min[#out.t] = math.floor(bmin * 10 + 0.5) / 10
+      out.max[#out.t] = math.floor(bmax * 10 + 0.5) / 10
     else
-      out.avg[#out.avg + 1] = nil
-      out.min[#out.min + 1] = nil
-      out.max[#out.max + 1] = nil
+      out.avg[#out.t] = nil
+      out.min[#out.t] = nil
+      out.max[#out.t] = nil
     end
   end
   local idx = i0
@@ -309,6 +314,19 @@ function query_one(path, from_ts, to_ts, step)
     for i = 0, recs - 1 do
       local rec = unpack_rec(blob:sub(i * REC_SIZE + 1, i * REC_SIZE + REC_SIZE))
       if rec and rec.ts >= from_ts and rec.ts <= to_ts then
+        local code = rec.flags or 0
+        if code < 0 or code > 6 then code = 0 end
+        local st = out.carriers[code] or {attempts=0, failed=0, sum=0}
+        out.carriers[code] = st
+        st.attempts = st.attempts + 1
+        if rec.rtt == nil then st.failed = st.failed + 1 else
+          st.sum = st.sum + rec.rtt
+          st.min = math.min(st.min or rec.rtt, rec.rtt)
+          st.max = math.max(st.max or rec.rtt, rec.rtt)
+        end
+        if carrier == nil or carrier == code then
+        out.count = out.count + 1
+        if rec.rtt == nil then out.failed = out.failed + 1 end
         local bt = math.floor(rec.ts / step) * step
         if bts and bts ~= bt then flush(); bn, bsum, bmin, bmax = 0, 0, nil, nil end
         bts = bt
@@ -317,6 +335,7 @@ function query_one(path, from_ts, to_ts, step)
           bsum = bsum + rec.rtt
           if bmin == nil or rec.rtt < bmin then bmin = rec.rtt end
           if bmax == nil or rec.rtt > bmax then bmax = rec.rtt end
+        end
         end
       end
     end

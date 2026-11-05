@@ -32,6 +32,7 @@ let queryFails = true;
 let queryResponder = null;
 const api = async query => {
   const action = new URLSearchParams(query).get('action');
+  if (action === 'device') return {ok:true,hostname:'test-router'};
   if (action === 'latest') return latest;
   if (action === 'targets') return {ok:true,targets};
   if (action === 'settings') return {ok:true,interval:10,timeout:3,latency_threshold_ms:150,retain_days:366};
@@ -51,6 +52,8 @@ const context = vm.createContext({
 vm.runInContext(script,context,{filename:'index.html'});
 (async () => {
   await new Promise(resolve => setTimeout(resolve,20));
+  assert.match(element('pageSub').textContent,/test-router/, 'device name is loaded at page startup');
+  assert.doesNotMatch(element('pageSub').textContent,/iStoreOS/);
   assert.equal(element('heroAvg').textContent,'47.1 ms');
   assert.equal(element('ovCur').textContent,'47.1 ms');
   assert.equal(element('heroOnline').textContent,2);

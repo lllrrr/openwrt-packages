@@ -1,0 +1,16 @@
+local wl = require "wanlatency"
+local path = "/tmp/wan-carrier-fixture-" .. tostring(os.time()) .. ".bin"
+wl.append_recs(path, wl.pack_rec(100, 10, 0) .. wl.pack_rec(110, 20, 1) .. wl.pack_rec(120, nil, 1) .. wl.pack_rec(130, 40, 3) .. wl.pack_rec(140, 50, 6))
+local all = wl.query_one(path, 90, 150, 10)
+assert(all.count == 5 and #all.t == 5, "all samples, including failures, must be retained")
+assert(all.avg[3] == nil and all.avg[4] == 40 and all.avg[5] == 50, "failed buckets must not shift later values")
+local mobile = wl.query_one(path, 90, 150, 10, 1)
+assert(mobile.count == 2 and #mobile.t == 2, "filter must exclude other carriers")
+assert(mobile.avg[1] == 20 and mobile.avg[2] == nil)
+assert(mobile.carriers[1].attempts == 2 and mobile.carriers[1].failed == 1)
+assert(mobile.carriers[3].sum == 40 and mobile.carriers[0].attempts == 1)
+local unknown = wl.query_one(path, 90, 150, 10, 0)
+assert(unknown.count == 1 and unknown.avg[1] == 10, "legacy flags=0 stay unlabelled")
+assert(wl.unpack_rec(wl.pack_rec(100, 1, 3)).flags == 3)
+os.remove(path)
+print("PASS carrier filters, legacy records, failures, raw comparison and transition exclusion")

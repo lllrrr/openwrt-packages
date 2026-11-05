@@ -1,0 +1,13 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const html=fs.readFileSync(require('node:path').join(__dirname,'../files/www/wan-latency/index.html'),'utf8');
+const fn=html.slice(html.indexOf('function updateOverview(){'),html.indexOf('\nlet carrierFilter'));
+const elements={};const node=id=>elements[id]||(elements[id]={textContent:'',style:{}});
+const targets=[{id:'d1',region:'domestic'},{id:'d2',region:'domestic'},{id:'f',region:'foreign'},{id:'u',region:'auto'}];
+const ctx=vm.createContext({currentTargets:()=>targets,fmtTime:String,document:{getElementById:node},pingInterval:10,data:{stats:{d1:{attempts:100,failed:0},d2:{attempts:2,failed:1},f:{attempts:10,failed:10},u:{attempts:100,failed:100}},latest:{ts:Date.now()/1000,items:[{id:'d1',rtt:20},{id:'d2',rtt:20},{id:'f',rtt:null}]}}});
+vm.runInContext(fn+';updateOverview()',ctx);
+assert.equal(node('heroDomesticLoss').textContent,'1.0%');
+assert.equal(node('heroForeignLoss').textContent,'100.0%');
+assert.equal(node('ovDomesticLossDetail').textContent,'失败 1 / 探测 102 次');
+ctx.data.stats={};vm.runInContext('updateOverview()',ctx);
+assert.equal(node('heroDomesticLoss').textContent,'--');assert.equal(node('heroForeignLoss').textContent,'--');
+console.log('PASS weighted regional loss, offline targets, unclassified exclusion and no-data state');

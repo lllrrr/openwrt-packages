@@ -1,0 +1,83 @@
+#!/bin/sh
+# Carrier codes are append-only: 0=unknown/legacy, 1=CMCC, 2=CUCC, 3=CTCC,
+# 4=CBN, 5=other, 6=transition. Never read or issue raw AT commands here.
+ROOT=${MONITOR_CARRIER_TEST_ROOT:-}
+get() { if [ -n "$ROOT" ]; then uci -c "$ROOT/etc/config" -q get "$1" 2>/dev/null; else uci -q get "$1" 2>/dev/null; fi; }
+error() { printf '{"ok":false,"error":"%s"}\n' "$1"; }
+refresh() {
+    [ -z "$ROOT" ] && [ -x /opt/mu300/bin/mu300-modemd ] || return
+    local now last
+    now=$(date +%s); last=$(cat /tmp/monitor-carrier-refresh 2>/dev/null); last=${last:-0}
+    [ $((now-last)) -ge 30 ] || return
+    [ $((now-last)) -gt 60 ] && rmdir /tmp/monitor-carrier-refresh.lock 2>/dev/null
+    mkdir /tmp/monitor-carrier-refresh.lock 2>/dev/null || return
+    printf '%s\n' "$now" > /tmp/monitor-carrier-refresh
+    ubus -t 2 call mu300.modem collect "{\"mode\":\"full\",\"slot\":\"$SLOT\"}" >/dev/null 2>&1
+    rmdir /tmp/monitor-carrier-refresh.lock 2>/dev/null
+}
+state() {
+    SLOT=$(cat "$ROOT/run/mu300-data-sim-actual" 2>/dev/null)
+    case "$SLOT" in 0|1) ;; *) SLOT=$(get unisoc_modem.main.data_sim); case "$SLOT" in 0|1) ;; *) SLOT=-1;; esac;; esac
+    CODE=0; SOURCE=unknown; MODE=auto; SUPPORTED=false; FINGERPRINT=
+    [ -z "$ROOT" ] && [ "$(get unisoc_modem.main.sim_slots)" = 2 ] && [ -x /usr/libexec/unisoc-modem/data-sim ] && SUPPORTED=true
+    local cache sig now ts reg reg5 up uptime connection plmn manual saved simid
+    cache="$ROOT/tmp/unisoc-modem/cell.json"; [ "$SLOT" = 1 ] && cache="$ROOT/tmp/unisoc-modem/sim1/cell.json"
+    sig="${cache%cell.json}sig.json"
+    now=$(date +%s); ts=$(jsonfilter -i "$cache" -e '@.ts' 2>/dev/null)
+    reg=$(jsonfilter -i "$sig" -e '@.reg.stat' 2>/dev/null)
+    [ -n "$reg" ] || reg=$(jsonfilter -i "$cache" -e '@.reg.stat' 2>/dev/null)
+    if [ "$reg" != 1 ] && [ "$reg" != 5 ]; then
+        reg5=$(jsonfilter -i "$sig" -e '@.reg5g.stat' 2>/dev/null)
+        [ -n "$reg5" ] || reg5=$(jsonfilter -i "$cache" -e '@.reg5g.stat' 2>/dev/null)
+        case "$reg5" in 1|5) reg=$reg5;; esac
+    fi
+    if [ -n "$ROOT" ]; then connection=$(cat "$ROOT/wan.json" 2>/dev/null)
+    else connection=$(ubus -t 2 call network.interface.wan status 2>/dev/null); fi
+    up=$(printf '%s' "$connection" | jsonfilter -e '@.up' 2>/dev/null)
+    uptime=$(printf '%s' "$connection" | jsonfilter -e '@.uptime' 2>/dev/null)
+    case "$ts:$uptime" in *[!0-9:]*|:*|*:) ts=0; uptime=0;; esac
+    # A new bearer/card must have a new operator observation. Old caches never
+    # label a hot-swapped SIM, a redial, or disconnected/expired observations.
+    if [ "$up" = true ] && { [ "$reg" = 1 ] || [ "$reg" = 5 ]; } &&
+       [ "$ts" -le "$now" ] && [ $((now-ts)) -le 120 ] && [ "$ts" -ge $((now-uptime)) ]; then
+        plmn=$(jsonfilter -i "$cache" -e '@.operator.plmn' 2>/dev/null)
+        case "$plmn" in
+            46000|46002|46004|46007|46008|46013) CODE=1;;
+            46001|46006|46009|46010) CODE=2;;
+            46003|46005|46011|46012) CODE=3;;
+            46015) CODE=4;;
+            ?????|??????) case "$plmn" in *[!0-9]*) ;; *) CODE=5;; esac;;
+        esac
+        [ "$CODE" != 0 ] && SOURCE=auto
+        simid=$(jsonfilter -i "$cache" -e '@.ident.iccid' 2>/dev/null)
+        if [ -n "$simid" ]; then FINGERPRINT=$(printf '%s' "$simid" | sha256sum); FINGERPRINT=${FINGERPRINT%% *}; fi
+        manual=$(get "monitor_carrier.main.sim$SLOT"); saved=$(get "monitor_carrier.main.fingerprint$SLOT")
+        if [ -n "$FINGERPRINT" ] && [ "$FINGERPRINT" = "$saved" ]; then
+            case "$manual" in 0|1|2|3|4|5) CODE=$manual; SOURCE=manual; MODE=$manual;; esac
+        fi
+    fi
+    if [ -e "$ROOT/run/unisoc-data-sim-switch" ]; then CODE=6; SOURCE=switching; fi
+}
+state
+case "${1:-status}" in
+    sample) refresh; echo "$CODE";;
+    status) refresh; printf '{"ok":true,"code":%s,"sim":%s,"mode":"%s","source":"%s","switch_supported":%s}\n' "$CODE" "$SLOT" "$MODE" "$SOURCE" "$SUPPORTED";;
+    set)
+        [ -z "$ROOT" ] || { error test_read_only; exit 1; }
+        case "$2" in auto|0|1|2|3|4|5) ;; *) error invalid_carrier; exit 1;; esac
+        [ "$SLOT" != -1 ] && [ -n "$FINGERPRINT" ] || { error sim_not_identified; exit 1; }
+        [ -f /etc/config/monitor_carrier ] || touch /etc/config/monitor_carrier
+        uci -q set monitor_carrier.main=monitor
+        uci -q set "monitor_carrier.main.sim$SLOT=$2"
+        uci -q set "monitor_carrier.main.fingerprint$SLOT=$FINGERPRINT"
+        uci -q commit monitor_carrier || { error storage_failed; exit 1; }
+        exec "$0" status;;
+    switch)
+        [ "$SUPPORTED" = true ] || { error dual_sim_unavailable; exit 1; }
+        case "$2" in 0|1) ;; *) error invalid_sim; exit 1;; esac
+        exec ubus -t 5 call mu300dash data_sim_set "{\"target\":\"$2\"}";;
+    job)
+        printf '%s' "$2" | grep -Eq '^[A-Za-z0-9]{10}$' || { error invalid_job; exit 1; }
+        exec ubus -t 3 call mu300dash data_sim_status "{\"id\":\"$2\"}";;
+    *) error invalid_action; exit 1;;
+esac

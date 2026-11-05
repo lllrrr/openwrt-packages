@@ -1,4 +1,4 @@
-"""Validate locally generated v1.4.1 artifacts and their embedded contents."""
+"""Validate locally generated v1.5.0 artifacts and their embedded contents."""
 import gzip
 import hashlib
 import io
@@ -8,9 +8,9 @@ from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
 out = root / "dist"
-main = "luci-app-wan-latency_1.4.1-1_all.ipk"
-runner = "luci-app-wan-latency-1.4.1-1.run"
-source = "luci-app-wan-latency-1.4.1-1-source.zip"
+main = "luci-app-wan-latency_1.5.0-1_all.ipk"
+runner = "luci-app-wan-latency-1.5.0-1.run"
+source = "luci-app-wan-latency-1.5.0-1-source.zip"
 expected = {main, runner, source}
 
 sums = {}
@@ -34,10 +34,12 @@ with tarfile.open(fileobj=io.BytesIO(ipk), mode="r:gz") as outer:
 assert members["debian-binary"] == b"2.0\n"
 with tarfile.open(fileobj=io.BytesIO(members["control.tar.gz"]), mode="r:gz") as controls:
     control = controls.extractfile("./control").read()
-    assert b"Version: 1.4.1-1\n" in control
+    assert b"Version: 1.5.0-1\n" in control
     assert b"Package: luci-app-wan-latency\n" in control
 with tarfile.open(fileobj=io.BytesIO(members["data.tar.gz"]), mode="r:gz") as data:
     paths = data.getnames()
+    assert data.getmember("./usr/libexec/wan-latency-carrier").mode == 0o755
+    assert "./usr/libexec/wan-latency-carrier" in paths
     assert "./www/wan-latency/index.html" in paths
     assert "./usr/libexec/wan-latency-api" in paths
     assert not any("higo" in p.lower() for p in paths)
@@ -46,7 +48,7 @@ blob = (out / runner).read_bytes()
 marker = b"__PAYLOAD_BELOW__\n"
 assert blob.count(marker) == 1
 header, payload = blob.split(marker, 1)
-assert b"opkg install \"$work/luci-app-wan-latency_1.4.1-1_all.ipk\"" in header
+assert b"opkg install \"$work/luci-app-wan-latency_1.5.0-1_all.ipk\"" in header
 assert b"higo" not in header.lower()
 with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as bundle:
     assert bundle.getnames() == ["./" + main]

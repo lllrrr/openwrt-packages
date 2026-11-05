@@ -2,7 +2,14 @@
 
 一个适用于 OpenWrt / ImmortalWrt / iStoreOS 的 LuCI 公网延迟监控插件。它持续从 WAN 接口探测多个目标，将数据保存在路由器本地，并在 LuCI「状态 → 公网延迟」中展示实时状态和历史曲线。
 
-## v1.4.1
+## v1.5.0
+
+- 增加运营商自动归档、历史筛选和延迟对比，兼容同槽拔插换卡。
+- 支持 MU300 原生双 SIM 数据卡切换；保留所有历史和总体记录。
+- 识别失效时不沿用旧缓存，手动标记绑定当前 SIM。
+- 详细行为与数据兼容性见 [运营商记录与换卡](docs/carriers.md)。
+
+### 原有功能
 
 - 历史折线图使用透明背景，适配浏览器黑暗模式，避免绘图区显示刺眼的白底。
 
@@ -20,22 +27,8 @@
 - 支持 15 分钟、30 分钟、1 小时、6 小时、24 小时、7 天、30 天、1 年及自定义时间范围
 - 原始数据和 1 分钟汇总数据使用紧凑二进制格式保存
 - 默认保留 366 天数据
-- 自带阿里云、腾讯云和 Steam 三个预设目标
+- 自带阿里云、腾讯云、Steam、114 DNS、百度 DNS、Cloudflare、Google DNS 和 Quad9 八个预设目标
 - 当前区间 CSV 导出及按目标筛选曲线
-
-## 界面预览
-
-### CPE 暗色模式与透明图表
-
-![ImmortalWrt CPE 公网延迟监控，暗色模式下的透明历史折线图](docs/screenshots/cpe-dark-transparent-v141.png)
-
-### 实时状态与监控总览
-
-![iStoreOS 公网延迟监控总览，显示实时延迟和配置](docs/screenshots/dashboard-overview-v140.jpg)
-
-### 历史曲线与时间范围
-
-![公网延迟历史曲线、时间范围和目标筛选](docs/screenshots/history-chart-v140.png)
 
 ## 依赖
 
@@ -53,7 +46,7 @@
 |---|---|---|---|---|
 | iStoreOS | 24.10.8 (2026073111) | 6.6.144 | x86_64 | LuCI 界面、实时探测、历史曲线及时间范围 |
 
-透明图表修复已在 ImmortalWrt 24.10-SNAPSHOT / aarch64 CPE 上验证采集服务和页面文件；截图展示浏览器黑暗模式下的实际效果。其他系统版本欢迎提交测试结果。
+透明图表修复已在 ImmortalWrt 24.10-SNAPSHOT / aarch64 CPE 上验证采集服务和页面文件。其他系统版本欢迎提交测试结果。
 
 ## 编译
 
@@ -76,7 +69,7 @@ make package/luci-app-wan-latency/compile V=s
 将 `.ipk` 上传到路由器后执行：
 
 ```sh
-opkg install ./luci-app-wan-latency_1.4.1-1_all.ipk
+opkg install ./luci-app-wan-latency_1.5.0-1_all.ipk
 ```
 
 ### 自解压安装器
@@ -84,8 +77,8 @@ opkg install ./luci-app-wan-latency_1.4.1-1_all.ipk
 也可以使用 `.run` 安装同一个通用 IPK。它不会覆盖已有的 `/etc/config/wan-latency`、目标列表和历史数据：
 
 ```sh
-chmod +x luci-app-wan-latency-1.4.1-1.run
-./luci-app-wan-latency-1.4.1-1.run
+chmod +x luci-app-wan-latency-1.5.0-1.run
+./luci-app-wan-latency-1.5.0-1.run
 ```
 
 `.run` 不会自动联网安装依赖；缺少依赖时会列出需要执行的 `opkg install` 命令。
@@ -111,3 +104,7 @@ OpenWrt 25.12 及以后使用 `.apk` 的系统尚未完成实机或官方 SDK �
 ## 来源与许可
 
 本仓库由一台正在运行的 iStoreOS 设备上的自用插件整理而成，以 [GPL-2.0-only](LICENSE) 许可证发布。
+
+## OpenWrt 25.12 APK
+
+MU300 / U30 Air 的 APK v3 包及构建、安装说明见 [APK 安装指南](docs/APK.md)。

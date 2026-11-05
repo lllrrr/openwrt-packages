@@ -207,26 +207,36 @@ local function write_latest(ts, iface, rtts, ips, methods)
   return true
 end
 
+local function carrier_code()
+  local f = io.popen("/usr/libexec/wan-latency-carrier sample 2>/dev/null")
+  if not f then return 0 end
+  local n = tonumber(f:read("*l")); f:close()
+  return n and n >= 0 and n <= 6 and n or 0
+end
+
 local function flush()
   if #buffer == 0 then return end
   wl.ensure_dir()
   local ids = {}
   for i = 1, #buffer do
-    for id, _ in pairs(buffer[i].values) do ids[id] = true end
+    for id, _ in pairs(buffer[i].observed or buffer[i].values) do ids[id] = true end
   end
   local minute = math.floor(buffer[1].ts / 60) * 60
   for id, _ in pairs(ids) do
     if wl.valid_id(id) then
-      local raw, rsum, rn = {}, 0, 0
+      local raw, rsum, rn, code = {}, 0, 0, buffer[1].carrier or 0
       for i = 1, #buffer do
+        if (buffer[i].observed or buffer[i].values)[id] then
         local v = buffer[i].values[id]
-        raw[#raw + 1] = wl.pack_rec(buffer[i].ts, v, 0)
+        raw[#raw + 1] = wl.pack_rec(buffer[i].ts, v, buffer[i].carrier or 0)
+        if code ~= (buffer[i].carrier or 0) then code = 6 end
         if v ~= nil then rsum = rsum + v; rn = rn + 1 end
+        end
       end
       if not wl.append_recs(wl.raw_path(id), table.concat(raw)) then log("cannot append raw data for " .. id) end
       local avg = nil
       if rn > 0 then avg = rsum / rn end
-      if not wl.append_recs(wl.rollup_path(id), wl.pack_rec(minute, avg, 0)) then log("cannot append rollup data for " .. id) end
+      if not wl.append_recs(wl.rollup_path(id), wl.pack_rec(minute, avg, code)) then log("cannot append rollup data for " .. id) end
     end
   end
   buffer = {}
@@ -264,7 +274,10 @@ while running do
   reload_interval()
   reload_targets()
   wan_dev = detect_wan_dev()
+  local before_carrier = carrier_code()
   local rtts, ips, methods = ping_all(wan_dev)
+  local after_carrier = carrier_code()
+  local carrier = before_carrier == after_carrier and after_carrier or 6
   local alert_after = wl.load_loss_alert_consecutive()
   local high_ms = wl.load_latency_threshold()
   for i = 1, #targets do
@@ -280,7 +293,8 @@ while running do
       if high_streak[id] == alert_after then log("alert target=" .. id .. " high_latency=" .. tostring(value) .. "ms threshold=" .. high_ms .. "ms") end
     end
   end
-  local rec = { ts = slot, values = rtts }
+  local observed = {}; for _, target in ipairs(targets) do observed[target.id] = true end
+  local rec = { observed = observed, ts = slot, values = rtts, carrier = carrier }
   buffer[#buffer + 1] = rec
   write_latest(slot, wan_dev, rtts, ips, methods)
   local oldest = buffer[1] and buffer[1].ts or 0
