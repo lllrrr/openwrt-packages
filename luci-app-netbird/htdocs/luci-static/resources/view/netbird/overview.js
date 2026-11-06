@@ -92,7 +92,7 @@ function bannerModel(state, connected) {
 	}
 }
 
-// runAction(btn, promise, okMsg, failMsg, timeoutMsg) — 统一动作按钮流转：转圈+禁用 →
+// runAction(btn, promise, okMsg, failMsg, timeoutMsg, onFailure) — 统一动作按钮流转：转圈+禁用 →
 //   then(ok：通知 okMsg + 800ms 刷新 / 否则：通知 _(res.message)||failMsg + 复位)
 //   → catch：通知异常(超时类用 timeoutMsg 替代默认友好文案，可省略) + 复位。集中原 4 个 handler 的重复样板。
 function responseMessage(res, fallback) {
@@ -107,22 +107,28 @@ function exceptionMessage(e, timeoutMsg) {
 	return nb.friendlyRpcError(e, timeoutMsg);
 }
 
-function runAction(btn, promise, okMsg, failMsg, timeoutMsg) {
+function runAction(btn, promise, okMsg, failMsg, timeoutMsg, onFailure) {
 	btn.classList.add('spinning');
 	btn.disabled = true;
+	// 按钮等刷新结束再恢复:刷新会替换页面,提前恢复可能让第二次提交被刷新结果覆盖。
+	function settle() {
+		var restore = function () {
+			btn.classList.remove('spinning');
+			btn.disabled = false;
+		};
+		return Promise.resolve().then(onFailure).then(restore, restore);
+	}
 	return promise.then(function (res) {
 		if (res && res.ok) {
 			ui.addNotification(null, E('p', {}, okMsg), 'info');
 			window.setTimeout(function () { location.reload(); }, 800);
 		} else {
 			ui.addNotification(null, E('p', {}, responseMessage(res, failMsg)), 'error');
-			btn.classList.remove('spinning');
-			btn.disabled = false;
+			return settle();
 		}
-	}).catch(function (e) {
+	}, function (e) {
 		ui.addNotification(null, E('p', {}, exceptionMessage(e, timeoutMsg)), 'error');
-		btn.classList.remove('spinning');
-		btn.disabled = false;
+		return settle();
 	});
 }
 
@@ -249,7 +255,31 @@ return view.extend({
 				return callDoUp(mgmtUrl, setupKey);
 			});
 		setupKey = '';
-		return runAction(btn, p, _('Connected to NetBird.'), _('Connection failed.'));
+		return runAction(btn, p, _('Connected to NetBird.'), _('Connection failed.'), undefined,
+			function () { return self.refreshAfterFailure(); });
+	},
+
+	// 连接失败后就地刷新状态和上次错误,不整页刷新:通知留在页面上,已填的管理 URL 和 key 也保留。
+	// load 里的查询失败时状态为 unknown,不会继续显示失败前的旧状态。
+	refreshAfterFailure: function () {
+		var self = this;
+		return this.load().then(function (data) {
+			var root = document.getElementById('nb-overview');
+			if (!root || !root.parentNode)
+				return;
+			var urlEl = document.getElementById('nb-mgmt-url');
+			var keyEl = document.getElementById('nb-setup-key');
+			var url = urlEl ? urlEl.value : null;
+			var key = keyEl ? keyEl.value : '';
+			var next = self.render(data);
+			root.parentNode.replaceChild(next, root);
+			var newUrlEl = document.getElementById('nb-mgmt-url');
+			var newKeyEl = document.getElementById('nb-setup-key');
+			if (newUrlEl && url != null)
+				newUrlEl.value = url;
+			if (newKeyEl)
+				newKeyEl.value = key;
+		});
 	},
 
 	// 「断开」回调：do_down（保留认证，仅断当前会话）。
@@ -268,7 +298,8 @@ return view.extend({
 		return runAction(ev.currentTarget,
 				self._withRpcTimeout(90, function () { return callDoReconnect(); }),
 			_('NetBird reconnected.'), _('Operation failed.'),
-			_('NetBird is still reconnecting, or the connection to this page was interrupted, which is expected when this page is opened over NetBird. The router finishes reconnecting on its own: reload this page in a few seconds, and check the Logs tab if it is still disconnected.'));
+			_('NetBird is still reconnecting, or the connection to this page was interrupted, which is expected when this page is opened over NetBird. The router finishes reconnecting on its own: reload this page in a few seconds, and check the Logs tab if it is still disconnected.'),
+			function () { return self.refreshAfterFailure(); });
 	},
 
 	// 「注销/登出」回调：二次确认（警告会删本机身份）后 do_logout。
@@ -518,7 +549,7 @@ return view.extend({
 		else
 			children.push(this.renderAuthForm(state, mgmtUrl, keyHint, lastAuthError));
 
-		return E('div', { 'class': 'cbi-map' }, children);
+		return E('div', { 'id': 'nb-overview', 'class': 'cbi-map' }, children);
 	},
 
 	handleSaveApply: null,

@@ -18,18 +18,30 @@ return view.extend({
 			role: 'separator', tabindex: '0',
 			'aria-label': _('Terminal height'),
 			'aria-orientation': 'horizontal',
-			'aria-valuemin': '500', 'aria-valuenow': '500',
+			'aria-valuemin': '12', 'aria-valuenow': '12',
 			style: 'flex: 0 0 12px; cursor: ns-resize; touch-action: none; user-select: none; background: linear-gradient(#888, #888) center / 32px 2px no-repeat;'
 		});
 		var container = E('div', {
-			style: 'display: flex; flex-direction: column; gap: 0; height: 500px; min-height: 500px; overflow: hidden; border-radius: 3px;'
+			style: 'display: flex; flex-direction: column; gap: 0; height: 12px; min-height: 0; overflow: hidden; border-radius: 3px;'
 		}, [iframe, handle]);
 		var drag = null;
 		function setHeight(height) {
-			height = Math.max(500, Math.round(height));
+			// Only reserve space for the resize handle, with no minimum terminal height.
+			height = Math.max(handle.offsetHeight, Math.round(height));
 			container.style.height = height + 'px';
 			handle.setAttribute('aria-valuenow', height);
 		}
+		function fitHeight() {
+			if (!container.isConnected) {
+				window.removeEventListener('resize', fitHeight);
+				return;
+			}
+			var padding = parseFloat(window.getComputedStyle(container.parentNode).paddingBottom) || 0;
+			setHeight(window.innerHeight - container.getBoundingClientRect().top - padding);
+		}
+		window.addEventListener('resize', fitHeight);
+		// LuCI inserts the returned view before the next animation frame.
+		window.requestAnimationFrame(fitHeight);
 		function stop() {
 			if (!drag)
 				return;

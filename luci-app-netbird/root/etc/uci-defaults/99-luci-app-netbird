@@ -184,16 +184,6 @@ grep -qxF '/var/lib/netbird/' /etc/sysupgrade.conf 2>/dev/null || \
 # preshared_key 字段要求 0600，防止非 root 用户读取
 chmod 0600 "$CONFIG_FILE"
 
-# ── env file single source of truth ─────────────────────────────────────────
-# /etc/netbird.env 作为 LuCI 期望 env 配置的单一事实源，幂等保证含 NB_LOG_FILE=syslog。
-ENV_FILE=/etc/netbird.env
-[ -f "$ENV_FILE" ] || : > "$ENV_FILE"
-grep -qxF 'NB_LOG_FILE=syslog' "$ENV_FILE" || echo 'NB_LOG_FILE=syslog' >> "$ENV_FILE"
-chmod 0644 "$ENV_FILE"
-
-# 注：env override 未闭环（上游 netbird.init v0.66.2 不消费本文件），
-# get_logs 在 running 态走 logread -e netbird ring；若 ring 为空返 no_logs_in_ring 主路径。
-
 # ── init.d/netbird-settings 可执行性兜底 ─────────────────────────────────────
 # luci.mk 打包 root/ 时偶发把 /etc/init.d/netbird-settings 落成 0644（非可执行，跨
 # macOS↔Docker 卷构建时复现），导致 Save&Apply 无法执行其 reload。uci-defaults
@@ -213,8 +203,10 @@ if [ -f /etc/init.d/luci-netbird-watchdog ]; then
 		chmod 0755 /usr/share/netbird/netbird-autoreconnect.sh
 	/etc/init.d/luci-netbird-watchdog enable 2>/dev/null || \
 		logger -t "$TAG" "警告：luci-netbird-watchdog enable 失败"
-	/etc/init.d/luci-netbird-watchdog start 2>/dev/null || \
-		logger -t "$TAG" "警告：luci-netbird-watchdog start 失败"
+	# 用 restart 而不是 start:apk 升级不会停掉运行中的 watchdog,start 对已在运行的实例不起作用,
+	# 旧脚本会一直跑到下次重启。
+	/etc/init.d/luci-netbird-watchdog restart 2>/dev/null || \
+		logger -t "$TAG" "警告：luci-netbird-watchdog restart 失败"
 fi
 
 # ── 二进制来源管理:存储目录 + sysupgrade 保全 + 遗留态 adopt ─────────────────────
@@ -233,6 +225,15 @@ mkdir -p "$NB_REL_DIR"
 sed -i '\#^/usr/share/netbird/$#d' /etc/sysupgrade.conf 2>/dev/null
 grep -qxF '/etc/config/netbird_bin' /etc/sysupgrade.conf 2>/dev/null || \
 	echo '/etc/config/netbird_bin' >> /etc/sysupgrade.conf
+
+# apk 机:本插件软件源的签名公钥由 feed 安装脚本写入,不属于任何软件包,sysupgrade 默认不保留;
+# 软件源地址(customfeeds.list 是 apk 包的 conffiles)却会保留,升级后 apk update 必然验签失败。
+# opkg 机的 /etc/opkg/keys/ 本身是 opkg 包的 conffiles,无需处理。
+NB_FEED_KEY=/etc/apk/keys/luci-app-netbird.pem
+if [ -f "$NB_FEED_KEY" ]; then
+	grep -qxF "$NB_FEED_KEY" /etc/sysupgrade.conf 2>/dev/null || \
+		echo "$NB_FEED_KEY" >> /etc/sysupgrade.conf
+fi
 
 # 遗留态 adopt(一次性,幂等):仅当 /usr/bin/netbird 是普通文件(非本应用建的 symlink)时,
 # 判定它是「系统软件源(包管理器)自带的二进制」还是「被旧版手动更新覆盖成的 release 二进制」。
@@ -273,6 +274,9 @@ if [ ! -L "$NB_OPKG_BIN" ] && [ -x "$NB_OPKG_BIN" ]; then
 			uci -q commit netbird_bin 2>/dev/null
 			logger -t "$TAG" "adopt: /usr/bin/netbird($_cur_ver) 收编为 release(软件源记录 ${_pm_ver:-none})"
 		fi
+	elif [ -z "$_cur_ver" ] || [ -z "$_pm_ver" ]; then
+		# 保守跳过分支:记下取不到的是哪一侧,便于排查来源为何没被识别。
+		logger -t "$TAG" "adopt 跳过:版本号取不到(二进制 ${_cur_ver:-空},软件源记录 ${_pm_ver:-空}),来源保持 $(uci -q get netbird_bin.binary.binary_source || echo 未设置)"
 	fi
 fi
 

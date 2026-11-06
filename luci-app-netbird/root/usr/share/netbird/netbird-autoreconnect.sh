@@ -11,6 +11,8 @@ TAG="luci-netbird-watchdog"
 INTERVAL="${NB_AUTORECONNECT_INTERVAL:-30}"
 # 有界执行(timeout 不可用时的可移植实现)与 netbird-settings 共用。
 . "${NB_LIBDIR:-/usr/share/netbird}/nb-run-bounded.sh"
+# 守护进程日志级别下发(与 netbird-settings 共用)。
+. "${NB_LIBDIR:-/usr/share/netbird}/nb-log-level.sh"
 # 重连连续失败时指数退避(INTERVAL→2x→…→封顶 MAX_INTERVAL),连上即复位;
 # 避免长时间 outage 每 INTERVAL 秒一次高成本 do_up + 日志刷屏。
 MAX_INTERVAL="${NB_AUTORECONNECT_MAX_INTERVAL:-300}"
@@ -121,6 +123,21 @@ _is_transient_disconnect() {
 	_match "$1" 'Management:[[:space:]]*Disconnected|Unavailable|DeadlineExceeded|connection refused|i/o timeout|network is unreachable|no such host|temporary failure|TLS handshake timeout|context deadline exceeded|keepalive ping failed|transport is closing|connection reset|timeout after'
 }
 
+# 连接不是经 do_up 建立时(命令行手动连接、daemon 自行恢复),没有别的入口处理待应用标记。
+# 连续 4 轮(90 秒以上)已连接且标记仍在才应用,避开 do_up 正在等待确认、稍后会自行补应用的窗口。
+pending_rounds=0
+_maybe_apply_pending_settings() {
+	if [ ! -f /etc/netbird-settings.pending ]; then
+		pending_rounds=0
+		return 0
+	fi
+	pending_rounds=$((pending_rounds + 1))
+	[ "$pending_rounds" -lt 4 ] && return 0
+	pending_rounds=0
+	_log "connected with pending settings; applying them"
+	/etc/init.d/netbird-settings reload >/dev/null 2>&1
+}
+
 _attempt_reconnect() {
 	_log "management disconnected; trying do_up with existing identity"
 	out="$(ubus -t 90 call luci.netbird do_up '{"management_url":"","setup_key":"","caller":"watchdog"}' 2>&1)"
@@ -179,6 +196,12 @@ while :; do
 		raw="$(_with_timeout_status "$bin")"
 	fi
 
+	# 守护进程重启(崩溃被 procd 拉起、手动 restart、换二进制)后日志级别回到 info;
+	# 守护进程能响应时按设置补下发,PID 与级别都没变时不调用 netbird。
+	if [ -n "$ds" ] || _match "$raw" 'Daemon status|Management:'; then
+		nb_sync_log_level "$bin"
+	fi
+
 	want="$(_desired)"
 
 	if [ "$(_json_mgmt_connected "$raw")" = "true" ] || _is_connected "$raw"; then
@@ -188,9 +211,11 @@ while :; do
 		attempt_wait=0
 		last_unknown=""
 		_maybe_restore_exit_node
+		_maybe_apply_pending_settings
 		_sleep "$INTERVAL"
 		continue
 	fi
+	pending_rounds=0
 
 	# 服务在设置里被关闭(netbird-settings 已 down+stop+disable)时不重连;不改写期望连接位,
 	# 重新启用服务后自动恢复。

@@ -1213,7 +1213,7 @@ msgstr ""
 msgid ""
 "The severity filter is a minimum threshold: choosing a level also shows all "
 "more severe levels. To capture DEBUG or TRACE lines, raise the log level on "
-"the Settings page and reconnect."
+"the Settings page."
 msgstr ""
 
 #: htdocs/luci-static/resources/view/netbird/versions.js:306
@@ -1264,7 +1264,10 @@ msgid "Userspace"
 msgstr ""
 
 #: htdocs/luci-static/resources/view/netbird/settings.js:240
-msgid "Verbosity of the NetBird log."
+msgid ""
+"Verbosity of the NetBird service log. Applied to the running service "
+"without reconnecting, and again whenever the service restarts. Requires "
+"netbird 0.27.4 or newer; older versions always log at info."
 msgstr ""
 
 #: htdocs/luci-static/resources/view/netbird/versions.js:148
@@ -1666,4 +1669,10 @@ msgid "NetBird versions before 0.76.1 have security issues in the local service 
 msgstr ""
 
 msgid "Details"
+msgstr ""
+
+msgid "The configured source is NetBird-Release, but its binary is not on this device (it is not kept across firmware upgrades, or the automatic download did not finish), so another build is running. Select NetBird-Release below, click \"Check for updates\", then \"Update now\". On a slow connection, you can use a mirror URL under \"Custom download\"."
+msgstr ""
+
+msgid "Saved settings are not active yet. They will be applied the next time NetBird connects."
 msgstr ""
