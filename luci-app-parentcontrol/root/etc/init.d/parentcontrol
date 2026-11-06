@@ -43,7 +43,7 @@ CRON_TAG_IP="#pc_ip_refresh"
 
 . "${PC_LIB:-/usr/lib/parentcontrol/common.sh}"
 
-EXTRA_COMMANDS="tick refresh_ip refresh_holiday stats_tsv reset_quota ai_http ai_stream_start ai_stream_state hosts_tsv ensure"
+EXTRA_COMMANDS="tick refresh_ip refresh_holiday stats_tsv reset_quota ai_http ai_stream_start ai_stream_state hosts_tsv ensure dns_watch"
 EXTRA_HELP="
 	tick             Re-evaluate quota state and account usage (cron, every minute)
 	refresh_ip       Re-resolve domains and rebuild IP rules (cron)
@@ -55,7 +55,8 @@ EXTRA_HELP="
 	ai_stream_start  Start a background SSE request: <key> <url> <infile> <ssefile> <idle> <max>
 	ai_stream_state  Print 'state TAB rc TAB elapsed TAB bytes TAB chunks' for <key>
 	hosts_tsv        Print LAN hosts as 'host <mac> <ip> <name> <online>' (binding health / diagnostics)
-	ensure           Lightweight repair: rebuild quota blocks + offload state only (hotplug iface events)"
+	ensure           Lightweight repair: rebuild quota blocks + offload state only (hotplug iface events)
+	dns_watch        Start the passive-DNS collector (tick restarts it when it dies; no-op without tcpdump)"
 
 elog() {
 	echo "$(date '+%Y-%m-%d %H:%M:%S'): $*" >>$LOG_FILE
@@ -1967,77 +1968,12 @@ hosts_tsv() {
 }
 
 # ============================================================================
-# R74-A：机械 ASN（Team Cymru 公共 TXT 库）—— 只在用户点开「（未归类）」明细时按需查
+# 外发门禁：哪些目标可以拿去反查 DNS（私网/保留/IPv6/域名一律不查，绝不把内网编址发给第三方）
 # ============================================================================
-# 为什么走 TXT 而不只走 PTR：PTR 不可靠（23.11.207.1 直接 NXDOMAIN，但 Cymru 有记录），
-# 而且 PTR 只能给出反解名字，给不出「归属哪个 AS / 哪个组织」。反过来 PTR 能给 ASN 给不出的
-# 东西（具体主机名 ⇒ 可注册域，比 AS 组织名更像「服务」），所以 round76 起两条**都查**：
-#   PTR 命中 ⇒ 服务名用 PTR 的可注册域；没 PTR ⇒ 退 ASN 组织名第一段；都没 ⇒ 未知。
-# 设备上没有 whois/dig/host，只有 busybox nslookup（真机实测 -type=TXT 可用）：
-#   nslookup -type=TXT 207.11.23.1.origin.asn.cymru.com → text = "20940 | 23.11.207.0/24 | US | arin | …"
-#   nslookup -type=TXT AS20940.asn.cymru.com          → text = "20940 | NL | ripencc | 2001-07-10 | AKAMAI-ASN1, NL"
-#   nslookup -type=PTR 0.173.45.23.in-addr.arpa       → name = a23-45-173-0.deploy.static.akamaitechnologies.com.
-# 归属/反解信息只说明该目标落在哪个网络，**不代表我们识别出了它是什么服务**（页面必须这么写）。
-# 缓存：$STATE_DIR/asn.cache，一行 <target>\t<expiry_epoch>\t<asn>\t<org>\t<ptr>，有效期 7 天。
-# 第 5 段（ptr）是 round76 新增的 —— **4 段旧行必须照旧能读**（ptr 当空串，不重写不丢弃）。
-# 查过但没结果也要缓存（空 asn/org/ptr），否则每次点开都重跑一遍 DNS。
-# 绝不在 tick 路径上：默认 stats_tsv 输出里一个 asn 行都没有（见 stats_tsv_inner 的分发）。
-# R77-B（round77）：单次上限 12 ⇒ 24（真机上未归类目标常有二三十个，12 个要连点两三次）。
-# 超出的不写假「无结果」，下一次点开会接着查下一批（页面文案必须这么说）。
-PC_ASN_TTL=${PC_ASN_TTL:-604800}
-PC_ASN_MAX=${PC_ASN_MAX:-24}
-
-pc_asn_cache_line() { # $1=target → 打印 "<hit>\t<asn>\t<org>\t<ptr>"（hit=1 仅当缓存未过期）
-	local _cache _now
-	_cache="$STATE_DIR/asn.cache"
-	[ -f "$_cache" ] || { printf '0\t\t\t'; return 0; }
-	_now=$(date +%s)
-	# R76-A（round76）：第 5 段是 PTR 反查主机名。**向后兼容 4 段旧行**（读不到 $5 就当
-	# 空 PTR —— 不许报错、不许因为缓存是老格式就丢弃它，否则升级后要重查一遍全网）。
-	awk -F'\t' -v t="$1" -v now="$_now" '
-		$1 == t && NF >= 4 && $2 + 0 > now { h = 1; a = $3; o = $4; p = $5 }
-		END { printf "%s\t%s\t%s\t%s", (h ? 1 : 0), a, o, p }' "$_cache" 2>/dev/null
-}
-
-pc_asn_query() { # $1=IPv4（无掩码） → 打印 "<asn>\t<org>"（任何失败都给空串，绝不猜）
-	local _rev _raw _asn _org
-	command -v nslookup >/dev/null 2>&1 || { printf '\t'; return 0; }
-	_rev=$(printf '%s\n' "$1" | awk -F. 'NF >= 4 { printf "%s.%s.%s.%s", $4, $3, $2, $1 }')
-	[ -n "$_rev" ] || { printf '\t'; return 0; }
-	# busybox nslookup 的 TXT 输出形如 `<qname>\ttext = "…"`；只要引号里的那串。
-	_raw=$(nslookup -type=TXT "$_rev.origin.asn.cymru.com" 2>/dev/null | sed -n 's/.*text = "\(.*\)".*/\1/p' | head -1)
-	_asn=$(printf '%s\n' "$_raw" | awk -F'|' '{ v = $1; gsub(/^[ \t]+|[ \t]+$/, "", v); print v; exit }')
-	case "$_asn" in ''|*[!0-9]*) printf '\t'; return 0 ;; esac
-	_raw=$(nslookup -type=TXT "AS${_asn}.asn.cymru.com" 2>/dev/null | sed -n 's/.*text = "\(.*\)".*/\1/p' | head -1)
-	# 组织名在第 5 段（AKAMAI-ASN1, NL）。可能含逗号/&/' ⇒ 去掉 Tab/CR/LF 再落盘/输出。
-	_org=$(printf '%s\n' "$_raw" | awk -F'|' 'NF >= 5 { v = $5; gsub(/^[ \t]+|[ \t]+$/, "", v); print v; exit }' | tr -d '\t\r\n')
-	printf '%s\t%s' "$_asn" "$_org"
-}
-
-# R76-A（round76）：PTR 反查。只对**已通过 pc_asn_queryable 的公网 IPv4** 调用（私网/保留/
-# IPv6/域名一律不查，调用点如下 pc_asn_report 只传 $_q）。失败/无结果一律空串，**绝不猜**：
-# 页面的服务名是「PTR 的**可注册域** ⇒ 没有就 ASN 组织名第一段 ⇒ 都没有显示未知」，
-# 任何一环都不允许凭空造品牌名。busybox nslookup 默认就是 PTR 查询，两种输出形态都认：
-#   nslookup -type=PTR 0.173.45.23.in-addr.arpa → `0.173.45.23.in-addr.arpa\tname = host.example.com.`
-#   默认形态                                     → `Name:    host.example.com`
-pc_ptr_query() { # $1=IPv4（无掩码） → 打印 PTR 主机名（失败给空串）
-	local _rev _raw _ptr
-	command -v nslookup >/dev/null 2>&1 || return 0
-	_rev=$(printf '%s\n' "$1" | awk -F. 'NF >= 4 { printf "%s.%s.%s.%s", $4, $3, $2, $1 }')
-	[ -n "$_rev" ] || return 0
-	_raw=$(nslookup -type=PTR "$_rev.in-addr.arpa" 2>/dev/null)
-	_ptr=$(printf '%s\n' "$_raw" | sed -n 's/.*name = \(.*\)$/\1/p' | head -1)
-	[ -n "$_ptr" ] || _ptr=$(printf '%s\n' "$_raw" | sed -n 's/^[[:space:]]*[Nn]ame:[[:space:]]*\([^[:space:]]*\)$/\1/p' | head -1)
-	_ptr=${_ptr%.}
-	printf '%s' "$_ptr"
-}
-
-# 目标能不能查：只认「IPv4 或 IPv4/nn」，且**必须是公网地址**。IPv6 与域名串不查
-# （IPv6 显示「未查询」，绝不编）。
-# R74-M1（round74b）：这里原来只校验「形状像 a.b.c.d」⇒ 私网/保留地址会被反序拼成
-# `<rev>.origin.asn.cymru.com` 发给 Team Cymru，等于把用户内网编址泄露给第三方 DNS
-# （复审实测 18 个私网地址 18 个都被查）。下面按首/次八位组挡掉非公网段。
-pc_asn_queryable() { # $1=target → 打印要查询的 IPv4（不可查则空）
+# round79：原来的机械 ASN（Team Cymru）整条链已删（页面上那句「归属 AKAMAI-ASN1 …」被用户判为
+# 无用信息）。这里只保留**查询门禁**：round78 的 PTR 反查（rev_ptr_query → pc_ptr_query）仍然
+# 要它挡掉 RFC1918/保留段，否则等于把用户内网编址外发（round74b 复审实测过 18/18 泄露）。
+pc_out_ok() { # $1=target → 打印可查询的 IPv4（不可查则空）
 	printf '%s\n' "$1" | awk '{
 		t = $0; sub(/\/[0-9]+$/, "", t)
 		if (t !~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) next
@@ -2060,56 +1996,20 @@ pc_asn_queryable() { # $1=target → 打印要查询的 IPv4（不可查则空�
 	}'
 }
 
-pc_asn_report() { # $@ = 目标列表 → 打印 `asn <target> <asn> <org> <ptr>`
-	local _t _rest _hit _asn _org _ptr _q _cnt _cache _now _exp
-	_cache="$STATE_DIR/asn.cache"
-	mkdir -p "$STATE_DIR"
-	_now=$(date +%s)
-	_cnt=0
-	for _t in "$@"; do
-		[ -n "$_t" ] || continue
-		# 目标串里出现分隔符就不处理：它会把 TSV 列数与缓存键搞乱（同 .map 的注入面）。
-		case "$_t" in *"|"*|*"$TAB"*) continue ;; esac
-		_rest=$(pc_asn_cache_line "$_t")
-		_hit=${_rest%%"$TAB"*}
-		_rest=${_rest#*"$TAB"}
-		_asn=${_rest%%"$TAB"*}
-		_rest=${_rest#*"$TAB"}
-		_org=${_rest%%"$TAB"*}
-		_ptr=${_rest#*"$TAB"}
-		if [ "$_hit" = "1" ]; then
-			printf 'asn\t%s\t%s\t%s\t%s\n' "$_t" "$_asn" "$_org" "$_ptr"
-			continue
-		fi
-		_q=$(pc_asn_queryable "$_t")
-		if [ -z "$_q" ]; then
-			# IPv6 / 域名串 / 私网 / 保留：不查询、不缓存，直接空票（页面渲染「未查询」）。
-			# PTR 同理 —— 它也只在这个分支之外被调用，绝不为不可查目标发 DNS。
-			printf 'asn\t%s\t\t\t\n' "$_t"
-			continue
-		fi
-		if [ "$_cnt" -ge "$PC_ASN_MAX" ]; then
-			# 配额用完：本次不查也不缓存，留给下一次点开（否则会写一条假「无结果」）。
-			printf 'asn\t%s\t\t\t\n' "$_t"
-			continue
-		fi
-		_cnt=$((_cnt + 1))
-		_rest=$(pc_asn_query "$_q")
-		_asn=${_rest%%"$TAB"*}
-		_org=${_rest#*"$TAB"}
-		# R76-A：同一个已过滤的 IPv4，最多再加 1 次 PTR 查询（每目标 ≤ 3 次 DNS：
-		# origin.asn + AS<asn>.asn + PTR）。ASN 查不到也照样试 PTR —— 反解名可能还在。
-		_ptr=$(pc_ptr_query "$_q")
-		_exp=$((_now + PC_ASN_TTL))
-		printf '%s\t%s\t%s\t%s\t%s\n' "$_t" "$_exp" "$_asn" "$_org" "$_ptr" >> "$_cache" 2>/dev/null
-		printf 'asn\t%s\t%s\t%s\t%s\n' "$_t" "$_asn" "$_org" "$_ptr"
-	done
-	# 紧凑化缓存（同一 target 后写覆盖先写；否则文件会随目标变动无限长）。
-	if [ -f "$_cache" ]; then
-		awk -F'\t' 'NF >= 4 { m[$1] = $0 } END { for (k in m) print m[k] }' "$_cache" > "$_cache.new" 2>/dev/null \
-			&& mv "$_cache.new" "$_cache" || rm -f "$_cache.new"
-	fi
-	return 0
+# PTR 反查本身（busybox nslookup；-type=PTR 与默认形态两种输出都认）。调用点只有
+# rev_ptr_query()（先过 pc_out_ok）。失败/无结果一律空串，**绝不猜**：页面上没有名字就显示 '-'。
+#   nslookup -type=PTR 0.173.45.23.in-addr.arpa → `<rev>.in-addr.arpa\tname = host.example.com.`
+#   默认形态                                     → `Name:    host.example.com`
+pc_ptr_query() { # $1=IPv4（无掩码） → 打印 PTR 主机名（失败给空串）
+	local _rev _raw _ptr
+	command -v nslookup >/dev/null 2>&1 || return 0
+	_rev=$(printf '%s\n' "$1" | awk -F. 'NF >= 4 { printf "%s.%s.%s.%s", $4, $3, $2, $1 }')
+	[ -n "$_rev" ] || return 0
+	_raw=$(nslookup -type=PTR "$_rev.in-addr.arpa" 2>/dev/null)
+	_ptr=$(printf '%s\n' "$_raw" | sed -n 's/.*name = \(.*\)$/\1/p' | head -1)
+	[ -n "$_ptr" ] || _ptr=$(printf '%s\n' "$_raw" | sed -n 's/^[[:space:]]*[Nn]ame:[[:space:]]*\([^[:space:]]*\)$/\1/p' | head -1)
+	_ptr=${_ptr%.}
+	printf '%s' "$_ptr"
 }
 
 # 看板/列表数据：结构化 TSV（Lua 侧解析；不在 shell 里手拼 JSON）。
@@ -2121,18 +2021,540 @@ pc_asn_report() { # $@ = 目标列表 → 打印 `asn <target> <asn> <org> <ptr>
 #   hist     <YYYYMMDD> <当天总分钟>
 #   histkey  <YYYYMMDD> <条目key> <分钟>
 #   reset    <YYYYMMDD> <HH:MM:SS> <条目key> <重置前已用分钟>
+# ============================================================================
+# round78：目标反解（L1 PTR + L2 被动 DNS）—— 只产证据，不做判定。用户原话（m01925）：
+# 「反解肯定是第一步，反解出来不一定马上就是具体对应的服务」⇒ 本段只回答「这个网段解析出了
+# 什么名字」，「它是什么应用」永远交给 AI，系统提示里写明「线索不等于目标对应的应用」。
+# 两层证据：L1 PTR（当场覆盖，便宜）→ L2 被动 DNS（常驻累积，覆盖慢）。
+# 被动层单窗口命中率很低（真机 75 秒样本 13 个目标只命中 3 个），所以必须常驻 + 长期累积。
+# 落盘（$USAGE_DIR，**绝不写 /etc/config**；两个文件都原子写 > .new 再 mv）：
+#   ptrmap  <target>\t<name|->\t<ts>          阴性（-）也缓存，否则每次都重问 DNS
+#   dnsmap  <ip>\t<name>\t<count>\t<lastts>   按 (ip,name) 累加；>7 天删；总行数 <= PC_DNSMAP_MAX
+# ============================================================================
+PC_PTR_TTL=${PC_PTR_TTL:-86400}        # ptrmap 行有效期（秒）
+PC_DNS_TTL=${PC_DNS_TTL:-604800}       # dnsmap 行有效期（秒，7 天）
+PC_DNSMAP_MAX=${PC_DNSMAP_MAX:-2000}   # dnsmap 总行数上限（超出按 count 小者淘汰）
+PC_PTR_MAX=${PC_PTR_MAX:-8}            # 每次 sweep 最多查几个目标（控 DNS 压力）
+PC_PTR_MIN_AGE=${PC_PTR_MIN_AGE:-10}   # sweep 最小间隔（分钟）
+PC_DNS_IFACE=${PC_DNS_IFACE:-br-lan}   # 被动 DNS 采集接口
+# 采集器登记表：**不能放 $STATE_DIR**（停用分支 rm -rf 那里 ⇒ round50 现场 tcpdump 成孤儿）。
+PC_RUN_DIR=${PC_RUN_DIR:-/var/run/parentcontrol-dns}
+# 进程命令行的读取根：**测试缝**。产品路径恒为 /proc（`grep -rn PC_PROC root/ luasrc/ htdocs/`
+# 只有这里定义、`_dns_is_ours` 使用；cron 那两行是裸命令不带任何 VAR=）；它只影响**读**
+# （拿到 cmdline 认进程），不影响写/杀决策 —— 杀谁仍由 pidfile+登记表+活体校验决定。
+# 之所以留这个缝：macOS 没有 /proc，不注入就没法验证 /proc 分支本身（见 W320）。
+PC_PROC=${PC_PROC:-/proc}
+
+# 「目标反解」总开关：默认开；uci 里显式 0 才算关（C7 关掉后进程要停、页面不再显示线索）。
+pc_dnsrev_on() {
+	local _v
+	_v=$(pc_uget "@basic[0].dnsrev" 2>/dev/null)
+	[ "$_v" != "0" ]
+}
+
+# 名字清洗（§2 定死）：去尾点、只留 [A-Za-z0-9._-]、截 64 字节；**原始串含 TAB/|/; 一律丢弃**。
+rev_sanitize_name() {
+	awk '{
+		n = $0
+		sub(/[ \t]+$/, "", n)
+		sub(/\.$/, "", n)
+		if (n == "") next
+		if (index(n, "\t") > 0 || index(n, "|") > 0 || index(n, ";") > 0) next
+		gsub(/[^A-Za-z0-9._-]/, "-", n)
+		if (n == "") next
+		if (length(n) > 64) n = substr(n, 1, 64)
+		print n
+	}'
+}
+
+# 前缀归属（A16）：IPv4 走整数区间；IPv6 **只认 /64**，其它长度一律不匹配 —— 宁缺勿错。
+pc_ip_in_cidr() { # $1=ip $2=cidr → 退出码 0 命中 / 1 不命中
+	awk -v ip="$1" -v cd="$2" '
+	function v4(s,   a) {
+		if (split(s, a, ".") != 4) return -1
+		for (i = 1; i <= 4; i++) { if (a[i] !~ /^[0-9]+$/ || a[i] + 0 > 255) return -1 }
+		return ((a[1] * 256 + a[2]) * 256 + a[3]) * 256 + a[4]
+	}
+	function h4(s,   a, o, i, x) {
+		o = ""
+		split(s, a, ":")
+		for (i = 1; i <= 4; i++) {
+			x = a[i]; if (x == "") x = "0"
+			sub(/^0+/, "", x); if (x == "") x = "0"
+			o = o ":" x
+		}
+		return o
+	}
+	BEGIN {
+		if (cd ~ /:/) {
+			n = split(cd, p, "/")
+			if (n != 2 || p[2] != "64" || ip !~ /:/) exit 1
+			if (h4(ip) != h4(p[1])) exit 1
+			exit 0
+		}
+		if (ip ~ /:/) exit 1
+		n = split(cd, p, "/")
+		if (n != 2) exit 1
+		len = p[2] + 0
+		if (len < 0 || len > 32) exit 1
+		a = v4(ip); b = v4(p[1])
+		if (a < 0 || b < 0) exit 1
+		if (len == 0) exit 0
+		sz = 2 ^ (32 - len)
+		if (int(a / sz) != int(b / sz)) exit 1
+		exit 0
+	}'
+}
+
+# 目标 CIDR → 代表地址：/24 取 .1（真机就是这种形状），其它取网段首地址；IPv6 给空。
+rev_rep_addr() {
+	awk -v cd="$1" '
+	function v4(s,   a) {
+		if (split(s, a, ".") != 4) return -1
+		return ((a[1] * 256 + a[2]) * 256 + a[3]) * 256 + a[4]
+	}
+	function ntoa(n) {
+		return sprintf("%d.%d.%d.%d", int(n / 16777216) % 256, int(n / 65536) % 256, int(n / 256) % 256, n % 256)
+	}
+	BEGIN {
+		if (cd ~ /:/) exit 0
+		n = split(cd, p, "/")
+		if (n != 2) exit 0
+		len = p[2] + 0
+		if (len < 0 || len > 32) exit 0
+		a = v4(p[1]); if (a < 0) exit 0
+		sz = 2 ^ (32 - len)
+		if (len == 24) { print ntoa(int(a / sz) * sz + 1); exit 0 }
+		print ntoa(int(a / sz) * sz)
+	}'
+}
+
+# PTR 查询：**必须用 nslookup**（resolveip 对 IP 只是原样回显，真机实测）。复用 pc_ptr_query。
+rev_ptr_query() { # $1=target → 打印 PTR 名（查不到/不支持给空）
+	local _ip _o
+	_ip=$(rev_rep_addr "$1")
+	[ -n "$_ip" ] || return 0
+	# 门禁：私网/保留地址一律不查（round74 的归属查询顺手挡过，round79 删那条链后挪到这里，
+	# 不许因为「掌管私网判定」的函数跟着被删而丢掉这道门 —— W301.3 直测这一行为）
+	[ -n "$(pc_out_ok "$_ip")" ] || return 0
+	_o=$(pc_ptr_query "$_ip" | rev_sanitize_name | head -n 1)
+	printf '%s' "$_o"
+}
+
+# 缓存读：命中（无论新旧）就回缓存的字面值（'-' = 阴性缓存）。UI 用旧值也比空着好。
+rev_ptr_raw() { # $1=target
+	[ -f "$USAGE_DIR/ptrmap" ] || return 0
+	awk -F'\t' -v t="$1" '$1 == t { print $2; exit }' "$USAGE_DIR/ptrmap" 2>/dev/null
+}
+
+# 是否需要刷新：0 = 需要（没有行或已过期）
+rev_ptr_stale() { # $1=target
+	[ -f "$USAGE_DIR/ptrmap" ] || return 0
+	awk -F'\t' -v t="$1" -v now="$(date +%s)" -v ttl="$PC_PTR_TTL" '
+		$1 == t && ($3 + 0) > now - ttl { f = 1 }
+		END { exit (f ? 1 : 0) }' "$USAGE_DIR/ptrmap" 2>/dev/null
+}
+
+# 刷新 ptrmap（只为「需要刷新」的目标发 DNS）。原子写：只在最后 mv 一次。
+rev_ptr_refresh() {
+	local _t _n _now _tmp
+	command -v nslookup >/dev/null 2>&1 || return 0
+	[ "$#" -gt 0 ] || return 0
+	mkdir -p "$USAGE_DIR" 2>/dev/null
+	_now=$(date +%s)
+	_tmp="$USAGE_DIR/ptrmap.work.$$"
+	cp -f "$USAGE_DIR/ptrmap" "$_tmp" 2>/dev/null || : > "$_tmp"
+	for _t in "$@"; do
+		rev_ptr_stale "$_t" || continue
+		_n=$(rev_ptr_query "$_t")
+		awk -F'\t' -v t="$_t" '$1 != t' "$_tmp" > "$_tmp.2" 2>/dev/null
+		printf '%s\t%s\t%s\n' "$_t" "${_n:--}" "$_now" >> "$_tmp.2" 2>/dev/null
+		mv -f "$_tmp.2" "$_tmp" 2>/dev/null || rm -f "$_tmp.2"
+	done
+	if [ -s "$_tmp" ]; then
+		mv -f "$_tmp" "$USAGE_DIR/ptrmap" 2>/dev/null || rm -f "$_tmp"
+	else
+		rm -f "$_tmp"
+	fi
+	return 0
+}
+
+# dnsmap 里落在该目标内的名字，按 count 降序：<count>\t<name>
+rev_dns_names() { # $1=target
+	[ -f "$USAGE_DIR/dnsmap" ] || return 0
+	awk -F'\t' -v cd="$1" '
+	function v4(s,   a) {
+		if (split(s, a, ".") != 4) return -1
+		for (i = 1; i <= 4; i++) { if (a[i] !~ /^[0-9]+$/ || a[i] + 0 > 255) return -1 }
+		return ((a[1] * 256 + a[2]) * 256 + a[3]) * 256 + a[4]
+	}
+	function h4(s,   a, o, i, x) {
+		o = ""
+		split(s, a, ":")
+		for (i = 1; i <= 4; i++) {
+			x = a[i]; if (x == "") x = "0"
+			sub(/^0+/, "", x); if (x == "") x = "0"
+			o = o ":" x
+		}
+		return o
+	}
+	BEGIN {
+		if (cd ~ /:/) {
+			v6 = 1
+			n = split(cd, p, "/")
+			if (n != 2 || p[2] != "64") exit 0
+			want = h4(p[1])
+		} else {
+			n = split(cd, p, "/")
+			if (n != 2) exit 0
+			len = p[2] + 0
+			if (len < 0 || len > 32) exit 0
+			base = v4(p[1]); if (base < 0) exit 0
+			sz = (len == 0) ? 0 : 2 ^ (32 - len)
+		}
+	}
+	NF >= 4 {
+		a = $1
+		if (v6) { if (a !~ /:/) next; if (h4(a) != want) next }
+		else {
+			if (a ~ /:/) next
+			z = v4(a); if (z < 0) next
+			if (len != 0 && int(z / sz) != int(base / sz)) next
+		}
+		c[$2] += ($3 + 0)
+	}
+	END { for (k in c) printf "%d\t%s\n", c[k], k }
+	' "$USAGE_DIR/dnsmap" 2>/dev/null | sort -rn | head -n 10
+}
+
+# 给某个目标拼线索串：先 PTR，再按 dnsmap count 降序；同名字去重；最多 3 个；用 ';' 连接。
+rev_hint_names() { # $1=target → 打印 "a;b;c"（无则空）
+	local _p
+	_p=$(rev_ptr_raw "$1")
+	[ "$_p" = "-" ] && _p=""
+	{
+		[ -n "$_p" ] && printf '%s\n' "$_p"
+		rev_dns_names "$1" | cut -f 2
+	} | awk 'NF && !seen[$0]++' | head -n 3 \
+		| awk '{ a[NR] = $0 } END { for (i = 1; i <= NR; i++) printf "%s%s", (i > 1 ? ";" : ""), a[i] }'
+}
+
+# 从 tcpdump 文本里配平 DNS 查询/应答，输出 "<ip>\t<域名>"。真机格式（§0 实测，别再猜）：
+#   答：IP <dns>.53 > <client>.<port>: 17096 4/0/0 CNAME x.aaplimg.com., A 23.46.216.200, A …
+# 应答行**源是 DNS 服务器、客户端在 > 右侧**（最容易搞错）；配平键 = (客户端 IP, DNS 事务 id)。
+rev_dns_parse() { # stdin=tcpdump 文本 → stdout "<ip>\t<name>"
+	# 程序体只有一份：`_dns_awk_text`（历史上这里抄过一份，抄完就漂移成「门绿线上错」）。
+	# busybox awk 接受「程序体作为一个参数」，所以不必落临时文件。
+	awk "$(_dns_awk_text)"
+}
+
+# 把 stage 的 <ip>\t<name> 并进 dnsmap：累加 count、刷新 lastts、丢 >7 天、超限按 count 淘汰。原子写。
+rev_dns_merge() { # $1=stage 文件
+	local _stage="$1" _now
+	_now=$(date +%s)
+	[ -f "$_stage" ] || return 0
+	mkdir -p "$USAGE_DIR" 2>/dev/null
+	# awk 的第一个输入文件不存在会直接报错退出（连 stage 也不处理），所以先给个空文件。
+	[ -f "$USAGE_DIR/dnsmap" ] || : > "$USAGE_DIR/dnsmap" 2>/dev/null
+	awk -F'\t' -v now="$_now" -v ttl="$PC_DNS_TTL" -v max="$PC_DNSMAP_MAX" '
+	FILENAME == ARGV[1] {
+		if (NF >= 4 && ($4 + 0) > now - ttl) c[$1 SUBSEP $2] += ($3 + 0)
+		next
+	}
+	NF >= 2 && $1 != "" && $2 != "" { c[$1 SUBSEP $2] += 1 }
+	END {
+		n = 0
+		for (k in c) {
+			n++
+			sp = index(k, SUBSEP)
+			ipa[n] = substr(k, 1, sp - 1); nma[n] = substr(k, sp + 1); ca[n] = c[k]
+		}
+		for (i = 2; i <= n; i++) {
+			for (j = i; j > 1 && ca[j] > ca[j - 1]; j--) {
+				ts = ca[j]; ca[j] = ca[j - 1]; ca[j - 1] = ts
+				ts = ipa[j]; ipa[j] = ipa[j - 1]; ipa[j - 1] = ts
+				ts = nma[j]; nma[j] = nma[j - 1]; nma[j - 1] = ts
+			}
+		}
+		lim = (n > max) ? max : n
+		for (i = 1; i <= lim; i++) printf "%s\t%s\t%d\t%d\n", ipa[i], nma[i], ca[i], now
+	}' "$USAGE_DIR/dnsmap" "$_stage" > "$USAGE_DIR/dnsmap.new.$$" 2>/dev/null \
+		&& mv -f "$USAGE_DIR/dnsmap.new.$$" "$USAGE_DIR/dnsmap" 2>/dev/null
+	rm -f "$USAGE_DIR/dnsmap.new.$$" 2>/dev/null
+	return 0
+}
+
+# 被动 DNS 采集 worker 的脚本文本（dns_watch 写到 STATE_DIR 再后台执行）：tcpdump →
+# `_dns_awk_text` 的同一份程序体 → 每 50 行 rev_dns_merge 落盘。**snaplen 必须是 0**（-s 120 会截断应答）。
+_dns_worker_text() {
+	cat <<'DNSW'
+#!/bin/sh
+# argv: <iface> <stage> <awkfile> <initd> <usagedir> <statedir> <rundir>
+# 变量一律 dw_ 前缀（不带下划线）：生成脚本里的全局变量，下划线开头的会被 lint_locals.py 误判。
+dw_iface=$1; dw_stage=$2; dw_awk=$3; dw_lib=$4; dw_usage=$5; dw_state=$6; dw_run=$7
+# 路径**全部由 argv 给定**，source 只用来拿函数；缺文件 / 缺函数都必须显式失败（F4）。
+if [ ! -f "$dw_lib" ]; then
+	printf 'init script missing: %s\n' "$dw_lib" > "$dw_state/dns.nolib" 2>/dev/null
+	exit 1
+fi
+. "$dw_lib"
+if ! command -v rev_dns_merge >/dev/null 2>&1; then
+	printf 'rev_dns_merge missing after sourcing %s\n' "$dw_lib" > "$dw_state/dns.nolib" 2>/dev/null
+	exit 1
+fi
+USAGE_DIR="$dw_usage"; STATE_DIR="$dw_state"; export USAGE_DIR STATE_DIR
+command -v tcpdump >/dev/null 2>&1 || exit 0
+: > "$dw_stage"
+# 两个 fifo 只为拿到 tcpdump/awk 的**确切 pid**（管道里 $! 只给最后一个元素，靠 ps 匹配会误伤别人）。
+dw_in="$dw_run/fifo.$$.in"; dw_out="$dw_run/fifo.$$.out"
+rm -f "$dw_in" "$dw_out"
+mkfifo "$dw_in" "$dw_out" 2>/dev/null || exit 1
+trap 'rm -f "$dw_in" "$dw_out"' EXIT
+trap 'rm -f "$dw_in" "$dw_out"; exit 0' INT TERM
+tcpdump -i "$dw_iface" -nn -l -s 0 "udp port 53" 2>/dev/null > "$dw_in" &
+dw_tp=$!
+awk -f "$dw_awk" < "$dw_in" > "$dw_out" 2>/dev/null &
+dw_aw=$!
+printf '%s %s\n' "$dw_tp" "$dw_aw" > "$dw_run/pids"
+dw_n=0
+while IFS= read -r dw_line; do
+	printf '%s\n' "$dw_line" >> "$dw_stage"
+	dw_n=$((dw_n + 1))
+	if [ "$dw_n" -ge 50 ]; then
+		rev_dns_merge "$dw_stage" && : > "$dw_stage"
+		dw_n=0
+	fi
+done < "$dw_out"
+rev_dns_merge "$dw_stage"
+DNSW
+}
+
+# 解析器的**唯一**一份实现：rev_dns_parse 用 `awk "$(_dns_awk_text)"`、worker 写成 dns.awk 用 `awk -f`（W308 对拍）。
+_dns_awk_text() {
+	cat <<'DNSA'
+function port_of(x) { sub(/.*\./, "", x); return x }
+function strip_port(x) { sub(/\.[0-9]+$/, "", x); return x }
+BEGIN { CAP = 4096 }
+function emit(ip, nm) {
+	sub(/\.$/, "", nm)
+	if (ip == "" || nm == "") return
+	if (index(nm, "\t") > 0 || index(nm, "|") > 0 || index(nm, ";") > 0) return
+	gsub(/[^A-Za-z0-9._-]/, "-", nm)
+	if (nm == "" || length(nm) > 64) return
+	printf "%s\t%s\n", ip, nm
+}
+{
+	i = index($0, " IP ")
+	if (i == 0) next
+	s = substr($0, i + 4)
+	a = index(s, " > ")
+	if (a == 0) next
+	src = substr(s, 1, a - 1)
+	t = substr(s, a + 3)
+	b = index(t, ": ")
+	if (b == 0) next
+	dst = substr(t, 1, b - 1)
+	rest = substr(t, b + 2)
+	sq = port_of(src); dq = port_of(dst)
+	if (dq == 53) {
+		cli = strip_port(src)
+		if (!match(rest, /^[0-9]+[+*]?[ ]/)) next
+		id = substr(rest, 1, RLENGTH - 1)
+		sub(/[+*]$/, "", id)
+		q = substr(rest, RLENGTH + 1)
+		split(q, w, " ")
+		if (w[2] == "") next
+		qk = cli SUBSEP id
+		# 有界：qname 只增不减会跑到几十万键（router 上是事故）。按**插入顺序**淘汰（不是「应答完
+		# 就删」—— 一条查询常对应多个应答包，删了后续包会被丢弃）；重传不重复占位。
+		if (!(qk in qname)) qorder[++qn] = qk
+		qname[qk] = w[2]
+		if (qn > CAP) { delete qname[qorder[qn - CAP]]; delete qorder[qn - CAP] }
+	} else if (sq == 53) {
+		cli = strip_port(dst)
+		if (!match(rest, /^[0-9]+[ ]/)) next
+		id = substr(rest, 1, RLENGTH - 1)
+		qk = cli SUBSEP id
+		if (!(qk in qname)) next
+		# RR 段首条前面没有逗号 ⇒ 不能按「以 , 开头」切。
+		sec = substr(rest, RLENGTH + 1)
+		sub(/^[0-9]+\/[0-9]+\/[0-9]+[ ]/, "", sec)   # 先吃掉 "1/0/0" 这段计数头
+		nr = split(sec, rr, /, /)
+		for (ri = 1; ri <= nr; ri++) {
+			split(rr[ri], z, " ")
+			if (z[1] == "A" || z[1] == "AAAA") emit(z[2], qname[qk])
+		}
+		# 不 delete：一条查询常对应多个应答包（先 CNAME 再 A），删了后面的包会被丢弃。
+	}
+}
+DNSA
+}
+
+# 采集器登记表：worker.pid（worker 的 sh）+ pids（tcpdump awk 两个 pid）。
+_dns_pidfile() { printf '%s/worker.pid' "$PC_RUN_DIR"; }   # worker.pid / pids 都在这（round82：lint_locals 先剥行尾注释再判单行函数，所以这里可以写行尾注释）
+_dns_pidsfile() { printf '%s/pids' "$PC_RUN_DIR"; }
+_dns_ps() { local _o; _o=$(ps -x -ww 2>/dev/null); [ -n "$_o" ] || _o=$(ps -x 2>/dev/null); [ -n "$_o" ] || _o=$(ps 2>/dev/null); printf '%s\n' "$_o"; }
+# $1=pid $2=命令行的特征子串 $3=ps 快照（兜底） ⇒ 活着、且命令行确实是我们的才认。
+# Linux 优先读 /proc/<pid>/cmdline：完整不截断、零 fork。busybox ps 不认 -x/-o，裸 ps 把整行
+# 截在 78 字符 —— 路径稍长就把 "dns.worker" 截掉 ⇒ 永判「不是我们的」⇒ 该收的孤儿收不掉、
+# 该早退的反而重新拉起。macOS 没有 /proc，仍回退到调用方传进来的 ps 快照。
+_dns_is_ours() {
+	local _p="$1" _c=""
+	case $_p in ''|*[!0-9]*) return 1 ;; esac
+	[ "$_p" -le 1 ] && return 1        # init(1)/内核线程(0) 永不认：产品上不可达，成本一行
+	[ "$_p" = "$$" ] && return 1
+	[ "$_p" = "$PPID" ] && return 1
+	kill -0 "$_p" 2>/dev/null || return 1
+	[ -r "$PC_PROC/$_p/cmdline" ] && _c=$(tr '\000' ' ' < "$PC_PROC/$_p/cmdline" 2>/dev/null)
+	[ -n "$_c" ] || _c=$(printf '%s\n' "$3" | awk -v p="$_p" '$1 == p { $1 = ""; sub(/^ +/, ""); print; exit }')
+	[ -n "$_c" ] || return 1
+	case $_c in *"$2"*) return 0 ;; esac
+	return 1
+}
+_dns_ppid() {   # $1=pid：Linux 走 /proc（零 fork），macOS 退回 ps
+	local _s
+	if IFS= read -r _s 2>/dev/null < "/proc/$1/stat"; then _s=${_s#*)}; set -- $_s; printf '%s' "$2"; return 0; fi
+	_s=$(ps -o ppid= -p "$1" 2>/dev/null); printf '%s' "${_s# }"
+}
+
+# 显式子命令：起 / 停 / 自愈。tcpdump 不存在 ⇒ 整条 L2 静默关掉（A19），L1/L3 照常。
+dns_watch() {
+	local _pidf _stage _aw _lib
+	_pidf=$(_dns_pidfile)
+	pc_dnsrev_on || { dns_watch_stop; return 0; }
+	command -v tcpdump >/dev/null 2>&1 || return 0
+	mkdir -p "$STATE_DIR" "$USAGE_DIR" "$PC_RUN_DIR" 2>/dev/null
+	# 开起来就把「关闭态已清扫」与「装坏了」两个标记清掉：后续再关闭才会重新真清扫。
+	rm -f "$STATE_DIR/dns.off" "$STATE_DIR/dns.nolib" "$STATE_DIR/dns.nolib.logged" "$(_dns_pidsfile)" 2>/dev/null
+	_stage="$STATE_DIR/dns.stage"
+	_aw="$STATE_DIR/dns.awk"
+	_lib="${PC_SELF:-/etc/init.d/parentcontrol}"   # worker 要 rev_dns_merge ⇒ 给 init.d 本体
+	_dns_worker_text > "$STATE_DIR/dns.worker" 2>/dev/null
+	_dns_awk_text > "$_aw" 2>/dev/null
+	start-stop-daemon -S -b -m -p "$_pidf" -x /bin/sh -- \
+		"$STATE_DIR/dns.worker" "$PC_DNS_IFACE" "$_stage" "$_aw" "$_lib" "$USAGE_DIR" "$STATE_DIR" "$PC_RUN_DIR" 2>/dev/null \
+		|| { rm -f "$_pidf"; return 1; }
+	return 0
+}
+
+dns_watch_stop() {
+	local _pidf _pids _p _c _psl _pr _had
+	_pidf=$(_dns_pidfile); _pids=$(_dns_pidsfile)
+	_psl=$(_dns_ps)                      # 一次快照、所有校验复用（原来每个模式各取两次 ⇒ 4 ps/次）
+	_p=$(cat "$_pidf" 2>/dev/null)
+	_had=$([ -n "$_p" ] || [ -f "$_pids" ] && echo 1)   # 登记表在 ⇒ 不用模式兜底（省 fork）
+	# worker 的 sh 退出**不带**子进程（真机：stop 后 tcpdump 还在抓）⇒ 先按登记表收，再模式扫描兜底。
+	[ -n "$_p" ] && _dns_is_ours "$_p" "/dns.worker " "$_psl" && kill "$_p" 2>/dev/null
+	if [ -f "$_pids" ]; then
+		for _c in $(cat "$_pids" 2>/dev/null); do
+			if _dns_is_ours "$_c" "/dns.awk" "$_psl" || _dns_is_ours "$_c" "udp port 53" "$_psl"; then
+				kill "$_c" 2>/dev/null
+			else
+				elog "被动 DNS 采集：登记表里的 pid $_c 已不是采集进程，跳过（PID 复用）"
+			fi
+		done
+		rm -f "$_pids" 2>/dev/null
+	fi
+	# 兜底：登记表丢了才按命令行扫。排除 $$/$PPID/含 dns_watch_stop 的调用方，且父进程须是
+	# 1 或我们的 worker（否则别人 argv 里恰好有这串参数就被误杀 —— round50 现场 exit 143/137）。
+	[ -n "$_had" ] || for _c in $(printf '%s\n' "$_psl" | awk -v a="/dns.awk" -v t="udp port 53" -v me="$$" -v pp="$PPID" \
+			'$1 == me || $1 == pp { next } index($0, "dns_watch_stop") { next }
+			 index($0, a) || (index($0, t) && index($0, "-nn -l -s 0")) { print $1 }' | sort -u); do
+		case $_c in ''|*[!0-9]*) continue ;; esac
+		_pr=$(_dns_ppid "$_c")
+		[ "$_pr" = "1" ] || { [ -n "$_p" ] && [ "$_pr" = "$_p" ]; } || continue
+		kill "$_c" 2>/dev/null
+	done
+	rm -f "$_pidf" "$_pids" "$STATE_DIR/dns.off" 2>/dev/null
+	return 0
+}
+
+dns_watch_off() {   # 关闭态跃迁清扫：只在「启用→关闭」那一次真清扫，之后每 tick 只 stat 标记文件
+	local _off
+	_off="$STATE_DIR/dns.off"
+	if [ -f "$_off" ]; then return 0; fi
+	dns_watch_stop
+	mkdir -p "$STATE_DIR" 2>/dev/null
+	: > "$_off" 2>/dev/null
+	return 0
+}
+
+# tick 自愈：活着什么都不做，死了**最多拉起一次**。稳态 = 一次 [ -f ] + 一次 kill -0。
+dns_watch_ensure() {
+	local _pidf _pids _p _c _psl _r
+	pc_dnsrev_on || { dns_watch_off; return 0; }
+	# F4：worker 起不来（缺 init.d / source 后没有 rev_dns_merge）只记一行，此后不再反复拉起。
+	if [ -f "$STATE_DIR/dns.nolib" ] || [ -f "$STATE_DIR/dns.nolib.logged" ]; then
+		if [ -f "$STATE_DIR/dns.nolib" ]; then
+			_r=$(head -n 1 "$STATE_DIR/dns.nolib" 2>/dev/null)
+			mv -f "$STATE_DIR/dns.nolib" "$STATE_DIR/dns.nolib.logged" 2>/dev/null
+			elog "被动 DNS 采集未启用：$_r"
+		fi
+		return 0
+	fi
+	if ! command -v tcpdump >/dev/null 2>&1; then
+		# A19：没有 tcpdump 就整条被动层关掉（PTR 照常），但要说一次。
+		if [ ! -f "$STATE_DIR/dns.no-tcpdump" ]; then
+			mkdir -p "$STATE_DIR" 2>/dev/null
+			: > "$STATE_DIR/dns.no-tcpdump" 2>/dev/null
+			elog "被动 DNS 采集未启用：系统里没有 tcpdump（PTR 反解不受影响）"
+		fi
+		return 0
+	fi
+	if [ -f "$STATE_DIR/dns.no-tcpdump" ]; then rm -f "$STATE_DIR/dns.no-tcpdump" 2>/dev/null; fi
+	_pidf=$(_dns_pidfile)
+	if [ -f "$_pidf" ]; then
+		_p=$(cat "$_pidf" 2>/dev/null)
+		if [ -n "$_p" ] && kill -0 "$_p" 2>/dev/null; then
+			# 只验「pid 活着」不够：长期运行后 worker 崩过、pid 被别的进程复用 ⇒ 永久早退，采集器静默停摆。
+			_dns_is_ours "$_p" "/dns.worker " "$(_dns_ps)" && return 0
+			elog "被动 DNS 采集：pidfile 里的 pid $_p 已不是采集进程（PID 复用），重新拉起"
+		fi
+		rm -f "$_pidf" 2>/dev/null
+	fi
+	# 登记表里那两个采集子进程：父（worker 的 sh）还活着 ⇒ 收养，绝不起第二个（否则 dnsmap 双份）；
+	# 父已经死了（worker 崩了，TERM 不传播）⇒ 它们是在抓包的孤儿，先收尸再起，否则同样双份。
+	_pids=$(_dns_pidsfile)
+	if [ -f "$_pids" ]; then
+		_psl=$(_dns_ps)
+		for _c in $(cat "$_pids" 2>/dev/null); do
+			_dns_is_ours "$_c" "/dns.awk" "$_psl" || _dns_is_ours "$_c" "udp port 53" "$_psl" || continue
+			_p=$(_dns_ppid "$_c")
+			if [ -n "$_p" ] && _dns_is_ours "$_p" "/dns.worker " "$_psl"; then
+				printf '%s\n' "$_p" > "$_pidf" 2>/dev/null
+				return 0
+			fi
+			kill "$_c" 2>/dev/null
+		done
+		rm -f "$_pids" 2>/dev/null
+	fi
+	dns_watch >/dev/null 2>&1
+	return 0
+}
+
+# PTR sweep：每 PC_PTR_MIN_AGE 分钟最多一轮，每轮最多 PC_PTR_MAX 个「未归类且需刷新」的目标。
+# 放在 tick 而不是 stats_tsv —— stats_tsv 是读路径，不能在里面发 DNS。
+rev_ptr_sweep() {
+	local _ts
+	pc_dnsrev_on || return 0
+	command -v nslookup >/dev/null 2>&1 || return 0
+	mkdir -p "$USAGE_DIR" "$STATE_DIR" 2>/dev/null
+	if [ -f "$STATE_DIR/ptr.stamp" ] && [ -z "$(find "$STATE_DIR/ptr.stamp" -mmin +"$PC_PTR_MIN_AGE" 2>/dev/null)" ]; then
+		return 0
+	fi
+	_ts=$(awk -F'\t' 'NF >= 2 && $2 + 0 == 0 { print $1 }' "$IPDIR"/weburl_*.map 2>/dev/null | sort -u | head -n "$PC_PTR_MAX")
+	: > "$STATE_DIR/ptr.stamp" 2>/dev/null
+	[ -n "$_ts" ] || return 0
+	# shellcheck disable=SC2086
+	rev_ptr_refresh $_ts
+	return 0
+}
+
 stats_tsv() { pc_uci_snap_begin; stats_tsv_inner "$@"; pc_uci_snap_drop; }
 
 stats_tsv_inner() {
-	local _brief _tt _min_kb _keep _m _i _key _name _mac _q _u _pool _live _f _t _n _dump _unl _dd _hs _dtf _df _di _dname _donl _k _snap _amf _akey _aapps
+	local _brief _tt _min_kb _keep _m _i _key _name _mac _q _u _pool _live _f _t _n _dump _unl _dd _hs _dtf _df _di _dname _donl _k _snap _amf _akey _aapps _ah _atgt _anr
 	_brief="${1:-}"
-	# R74-A：`stats_tsv asn <target>…` 是**独立子命令**，只输出 asn 行，早退 —— 默认
-	# stats_tsv 的输出里必须一行 asn 都没有（首屏不变慢，测试也不依赖环境有没有 nslookup）。
-	if [ "$_brief" = "asn" ]; then
-		shift
-		pc_asn_report "$@"
-		return 0
-	fi
 	_tt=$(pc_today_type)
 	_min_kb=$(pc_uget "@basic[0].usage_min_kb")
 	case "$_min_kb" in ''|*[!0-9]*) _min_kb=8 ;; esac
@@ -2233,6 +2655,23 @@ stats_tsv_inner() {
 					| awk -F'\t' -v k="$_akey" '{ printf "appname\t%s\t%d\t%s\n", k, NR, $1 }'
 			fi
 			awk -F'\t' -v k="$_akey" 'NF >= 2 { printf "appmap\t%s\t%s\t%s\n", k, $2, $1 }' "$_amf"
+			# round79：「反解主机名」列 —— 未归类目标的 PTR 名，唯一来源是缓存
+			# （round78 的 ptrmap，由 tick 里的 rev_ptr_sweep 写）。**只读、零 DNS**：
+			# stats_tsv 是读路径，在这里查 DNS 会让整页卡住。阴性（-）/ 没查过都输出
+			# '-'，让页面永远有一个确定值可显示（不回落成空、更不猜）。
+			# AI 线索（PTR + 被动 DNS 拼成 a;b）仍在 shell 侧生成，供 controller 的
+			# unclassified_infer 用；页面不再渲染它。
+			if pc_dnsrev_on; then
+				while IFS="$TAB" read -r _atgt _anr; do
+					[ "$_anr" = "0" ] || continue
+					[ -n "$_atgt" ] || continue
+					_ah=$(rev_ptr_raw "$_atgt")
+					printf 'ptr\t%s\t%s\n' "$_atgt" "${_ah:--}"
+					_ah=$(rev_hint_names "$_atgt")
+					[ -n "$_ah" ] || continue
+					printf 'dnshint\t%s\t%s\t%s\n' "$_akey" "$_atgt" "$_ah"
+				done < "$_amf"
+			fi
 		done
 		# 历史（最近 30 天）。第 8 轮起 $USAGE_DIR 下多了 diag/ 子目录（诊断明细），
 		# 它不是用量文件，不能进 hist 统计。
@@ -2416,10 +2855,17 @@ tick_body() {
 		# A23/D15：恢复动作挂「已停用」这个必然项，不挂「有残留」这个可选项（review2 B1）。
 		# 停用只改 uci、不走 stop()；restore_offload 自带 nft 双守卫 + 幂等 + A7 静默 ⇒ 无条件安全。
 		restore_offload
+		# F5：**先停采集器再删目录**。顺序反了就是 round50 现场：rm -rf 把 pidfile 带走、
+		# tcpdump 成孤儿继续抓包（进程 12973 存活），再启用时 ensure 看不到 pidfile ⇒ 起第二个。
+		dns_watch_stop
 		rm -rf "$STATE_DIR"
 		return 0
 	fi
 	mkdir -p "$STATE_DIR"
+	# round78：被动 DNS 采集自愈（活着就什么都不做，死了本 tick 拉起一次）+ PTR 定期 sweep。
+	# 二者都不碰 iptables（A18 稳态零写），成本 = 一次 [ -f ] + 一次 kill -0 + 一次 find。
+	dns_watch_ensure
+	rev_ptr_sweep
 	# A116（design §11.25.2 / F-6）：清掉历史版本留下的 scratch 残渣（旧实现把 diag.t/c/ip 写在
 	# 持久状态目录，进程被杀就永久遗留）。新实现已改到 /tmp 一次性目录，这里做一次垃圾回收，
 	# 让「$STATE_DIR 只装持久状态」这一口径在升级后也立即成立。
@@ -2529,6 +2975,7 @@ start() {
 }
 
 stop() {
+	dns_watch_stop
 	del_rule
 	# A6/D6：offload 决策点从 del_rule 移到这里 —— del_rule 有两个语义完全不同的
 	# 调用方（stop=真拆除，应该恢复；start=重建，不该中途恢复）。不移走就是

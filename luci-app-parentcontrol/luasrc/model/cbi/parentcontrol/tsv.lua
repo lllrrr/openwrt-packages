@@ -31,12 +31,17 @@ end
 --              所需的目标集合只存在于这一行里（`.map` 只由 shell 读，Lua 拿不到）。
 --   diagdaytgt <YYYYMMDD> <key> <target> <minutes>
 --           —— 同上，按天×目标的分钟（R74-C 一起恢复解析）。
---   asn     <target> <asn> <org> <ptr>
---           —— R74-A：Team Cymru 机械 ASN。**只在 `stats_tsv asn <target>…`（用户点开明细）
---              时输出**，默认 stats_tsv 的首屏输出里一行都没有（D1：不在 tick/首屏路径查询）。
---              org 可为空串（没查到 / IPv6 未查询）；asn 空串即「无归属信息」。
---              round76（R76-A）加第 5 段 `<ptr>`：PTR 反查主机名（只对公网 IPv4 查，IPv6/域名/
---              私网一律空串 = 「未查询」）。缺第 5 段（老 shell 的输出）= 空串，照旧能解析。
+--   dnshint <key> <target> <names>
+--           —— round78：未归类目标的**反解线索**（L1 PTR + L2 被动 DNS），`names` 用 `;` 连接、
+--              最多 3 个、先 PTR 再按被动 DNS 计数降序、同名去重。一个线索都没有时**整行不输出**
+--              ⇒ 缺行 = 没有线索（UI 不渲染「反解：」小字，也不写「暂无」）。缺行（老 shell）
+--              与「没有线索」同义，完全向后兼容。
+--   ptr     <target> <名字|->
+--           —— round79：未归类目标的**反解主机名**（L1 PTR），给统计页「反解主机名」列用。
+--              只读 `$USAGE_DIR/ptrmap`（tick 里的 rev_ptr_sweep 写的），**统计页零 DNS**；
+--              阴性缓存与「还没查过」都输出 `-`。缺行（老 shell / 开关关闭）= 没有 PTR ⇒ 页面显示 `-`，
+--              完全向后兼容。（round74 那套「按目标查归属网络」的行与对应的惰性读取函数
+--              已在 round79 整条删除 —— 统计页不再发起任何外部查询。）
 --   appname <key> <行序号> <名称>
 --           —— 一个条目里「封锁名称行」的显示名（行序号从 1 起，与 apps 行序/`pc_apps_rows`
 --              一致；名称空的行已由 shell 回退成该行域名首项）。缺行（老 shell）=「无名称维度」。
@@ -58,9 +63,10 @@ function M.parse(raw)
 		diag_n_today = {}, diag_day_name = {},
 		-- R74-C：目标 → 名称行号（0 = 未归类）与按天×目标的分钟（「（未归类）」明细用）
 		app_map = {}, diag_day_tgt = {},
-		-- R74-A：<target> → { asn = "20940", org = "AKAMAI-ASN1, NL", ptr = "a23-45-…" }
-		-- （只在点开明细时才有；ptr 是 round76 新增，缺省空串）
-		asn = {},
+		-- round79：<target> → PTR 主机名（只有反解开关打开且该目标已扫过才有键；缺键 = 显示 `-`）
+		ptr = {},
+		-- round78：<key> → <target> → 反解线索串（"a;b"）。只在有线索时才有键。
+		dns_hint = {},
 		-- A50/D34：name 行的权威名单（key → { label, state }）。缺行（老 shell）时
 		-- 保持空表 —— 下游回退「条目 #N」，永不裸 key，向后兼容。
 		names = {},
@@ -148,6 +154,13 @@ function M.parse(raw)
 					d.app_map[ky] = d.app_map[ky] or {}
 					d.app_map[ky][f[4]] = num(f[3])
 				end
+			elseif k == "dnshint" then
+				-- round78：<key> <target> <names> ⇒ d.dns_hint[key][target] = "a;b"
+				local ky = f[2]
+				if ky and f[3] and (f[4] or "") ~= "" then
+					d.dns_hint[ky] = d.dns_hint[ky] or {}
+					d.dns_hint[ky][f[3]] = f[4]
+				end
 			elseif k == "diagdaytgt" then
 				-- R74-C：<YYYYMMDD> <key> <target> <分钟> ⇒ d.diag_day_tgt[dt][key.."|"..target]
 				local dt = f[2]
@@ -155,11 +168,11 @@ function M.parse(raw)
 					d.diag_day_tgt[dt] = d.diag_day_tgt[dt] or {}
 					d.diag_day_tgt[dt][f[3] .. "|" .. f[4]] = num(f[5])
 				end
-			elseif k == "asn" then
-				-- R74-A：<target> <asn> <org>（org 可为空串；asn 空串 = 无归属信息）
-				-- round76：第 5 段是 PTR 反查主机名，老 shell 不给 ⇒ 空串（向后兼容）
-				if f[2] then
-					d.asn[f[2]] = { asn = f[3] or "", org = f[4] or "", ptr = f[5] or "" }
+			elseif k == "ptr" then
+				-- round79：<target> <名字|-> ⇒ d.ptr[target] = "<名字>"（`-` 照原样留着，
+				-- 由消费方判定「没有名字」；不在这里编造任何主机名）
+				if f[2] and f[3] and f[3] ~= "" then
+					d.ptr[f[2]] = f[3]
 				end
 			end
 		end
@@ -172,23 +185,6 @@ function M.read(brief)
 	local cmd = "/etc/init.d/parentcontrol stats_tsv"
 		.. (brief and " brief" or "") .. " 2>/dev/null"
 	return M.parse(sys.exec(cmd) or "")
-end
-
--- R74-A：只查这几个目标的 ASN（用户点开「（未归类）」明细时才调用）。
--- 返回 <target> → { asn, org, ptr }；查询失败/IPv6/未查到都是空串，**绝不在 Lua 侧臆造**。
-function M.read_asn(targets)
-	local list = targets or {}
-	if #list == 0 then return {} end
-	local q = {}
-	for _, t in ipairs(list) do
-		-- 目标串来自本地映射文件，仍按不可信处理：单引号吃掉外层引号、去掉换行。
-		local s = tostring(t):gsub("[\r\n]", ""):gsub("'", "")
-		if s ~= "" then q[#q + 1] = "'" .. s .. "'" end
-	end
-	if #q == 0 then return {} end
-	local d = M.parse(sys.exec("/etc/init.d/parentcontrol stats_tsv asn "
-		.. table.concat(q, " ") .. " 2>/dev/null") or "")
-	return d.asn or {}
 end
 
 return M

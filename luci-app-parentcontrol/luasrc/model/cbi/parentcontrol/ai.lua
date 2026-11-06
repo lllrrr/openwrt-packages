@@ -480,7 +480,7 @@ end
 --
 -- 隐私红线（用户拍板，没有商量空间）：请求体里**只允许**出现三样东西 ——
 --   ① 每个未归类目标的公网网段（IPv4，且不是私网/保留段）
---   ② 该网段的 ASN 组织名（来自 round74 的 ASN 缓存，如 AKAMAI-ASN1, NL）
+--   ② 该网段反解出的域名线索（PTR / 被动 DNS；round79 起 ASN 组织名不再发送）
 --   ③ 该条目已配的「封锁名称」清单（只有名称文字，不含域名）
 -- 绝不发送：MAC、主机名、内网 IP、LAN 网段、设备名、条目备注、其它条目的名称、
 -- 用户 uci 全量配置。连「内网网段的形态」都不许出现（发出去就等于泄露编址）。
@@ -560,7 +560,7 @@ function M.is_private_addr(s)
 	return false
 end
 
--- 「可外发的网段」：公网 IPv4 单地址或 IPv4 CIDR（IPv6/域名一律不发：没有 ASN 前缀，
+-- 「可外发的网段」：公网 IPv4 单地址或 IPv4 CIDR（IPv6/域名一律不发：
 -- 发出去也没有意义，只会扩大暴露面）。
 function M.is_public_prefix(s)
 	if type(s) ~= "string" then return false end
@@ -584,7 +584,7 @@ end
 --      （同一腾讯云/阿里云网段上可能跑着别家的游戏），所以「内置 ASN→服务名常识表」被用户否决，
 --      模型自己把托管方名字填进 name 也是同一类错误（解析侧还会再拦一道，见 sanitize_infer）。
 -- 明确要求不确定就留空 name，并强制 JSON 数组形态便于严格校验。
-local INFER_SYS_PROMPT = "你是网络流量归因助手。用户会给出若干「公网网段 + 该网段的 ASN 组织名」"
+local INFER_SYS_PROMPT = "你是网络流量归因助手。用户会给出若干「公网网段 + 该网段反解出的域名线索」"
 	.. "以及该条目已配置的封锁名称清单。请对每个网段回答两件事："
 	.. "(1) 它属于哪类基础设施（CDN / 云服务商 / 运营商 / 企业网络 / 无法判断）；"
 	.. "(2) 如果该网段很可能就是清单里某个已配名称所用，给出该名称；否则 name 留空。"
@@ -596,6 +596,13 @@ local INFER_SYS_PROMPT = "你是网络流量归因助手。用户会给出若干
 	.. "note 必须明确写「无法判断具体应用」。"
 	.. "绝对不许把基础设施提供商的名字（如 Akamai、Cloudflare、腾讯云、阿里云）当成应用名填进 name。"
 	.. "不确定就留空 name，绝对不要编造。"
+	-- round78：反解线索（PTR / 被动 DNS）必须被当作**线索**而不是结论。用户原话：
+	-- 「反解肯定是第一步，反解出来不一定马上就是具体对应的服务」。
+	.. "有些网段后面附了以「←」开头的域名列表，那是反解析（PTR）与本机被动 DNS 采到的线索，"
+	.. "可能是 CDN 边缘节点、托管平台、统计/广告域，也可能一个域名对应很多应用；"
+	.. "这些域名**不等于**该网段对应的应用。线索可以帮你判断基础设施类型，"
+	.. "但不要因为看到一个域名就直接把它或它的品牌当成 name；拿不准就把你的理解写进 note，"
+	.. "name 宁可留空。"
 M.INFER_SYS_PROMPT = INFER_SYS_PROMPT
 
 -- 从模型回答里抽出 JSON 数组：容忍 ```json 包裹与前后废话（与 extract 同风格）。
@@ -668,7 +675,7 @@ local function sanitize_infer(parsed, sentmap)
 			-- （不是丢整条 —— note 还有用，prefix 也还有用）。
 			if not badname and n ~= "" and is_infra_name(n) then n = "" end
 			-- L-2（round77f）：name 与 note **都**为空 ⇒ 丢弃。留着它只会在页面上变成一行空白，
-			-- 且归入按钮点下去只会提示「请先点推测是什么」——那是把模型的沉默当成了结果。
+			-- 且归入按钮点下去只会提示「请先点「推测本行目标」」——那是把模型的沉默当成了结果。
 			local useful = (n ~= "" or note ~= "") and true or false
 			-- prefix 必须在**刚才发出去的那批**里：不在的一律丢弃（防模型幻觉塞东西）。
 			if p ~= "" and sentmap[p] and not seen[p] and not badname and useful then
@@ -684,23 +691,33 @@ local function sanitize_infer(parsed, sentmap)
 end
 
 -- I-1（round75b）：组织名是唯一「不经任何过滤就进请求体」的字段。它来自 `stats_tsv asn`
---（shell 侧已经把制表符、回车、换行都删掉了），但本层不该依赖上游净化：控制字符能把一条记录拆成
--- 两行（结构注入），IPv4 字面量会把一个地址顺带发出去。所以这里：控制字符→空格、抹掉
--- 任何 IPv4 形态的 token、折叠空白、截断到 64 字。
-local function clean_org(s)
+-- round79：反解线索是唯一「不经用户手写就进请求体」的字段（来自 PTR / 被动 DNS；
+-- ASN 组织名已随 ASN 整条链删除）。口径：控制字符→空格、抹掉 IPv4/IPv6 字面量（线索里不该出现地址，
+-- 出现就是上游把 IP 当名字了）、只留最多 3 个、每个 ≤64 字、用 ';' 连接、总长 ≤200。
+-- 注意**保留** `.` `-` `_`：域名就是靠它们；`;` 是下游分隔符，不能被名字内容带进来。
+local function clean_hint(s)
 	local v = tostring(s or "")
 	v = v:gsub("[%c]", " ")
-	v = v:gsub("%d+%.%d+%.%d+%.%d+", " ")
-	v = v:gsub(" +", " "):gsub("^ ", ""):gsub(" $", "")
-	if #v > 64 then
-		v = v:sub(1, 64):gsub(" +$", "")
+	local out = {}
+	for one in v:gmatch("[^;]+") do
+		local w = one:gsub("^ +", ""):gsub(" +$", "")
+		w = w:gsub("^[%w%-%._]+://", "")          -- 去掉误带的 scheme
+		w = w:gsub("%d+%.%d+%.%d+%.%d+", "")      -- IPv4 字面量
+		w = w:gsub("[%x:]*:[%x:]*:%x[%x:]*", "")  -- IPv6 字面量
+		w = w:gsub("[^%w%-%._]", "")              -- 只留域名合法字符
+		w = w:gsub("^[%.%-]+", ""):gsub("[%.%-]+$", "")
+		if #w > 64 then w = w:sub(1, 64) end
+		if w ~= "" then out[#out + 1] = w end
+		if #out >= 3 then break end
 	end
-	return v
+	local r = table.concat(out, ";")
+	if #r > 200 then r = r:sub(1, 200) end
+	return r
 end
 
 -- R75-C 主流程。
 -- opts = {
---   items = { { target = "<网段>", org = "<ASN 组织名>" }, ... },   -- 来自 round74 的 ASN 数据
+--   items = { { target = "<网段>", hint = "a.example.com;b.example.com" }, ... },
 --   names = { "<已配名称>", ... },                                  -- 该条目已配的封锁名称
 --   endpoint / model / apikey,                                      -- 可覆盖 M.config()
 --   http  = function(method, url, body, apikey) ... end,             -- 测试注入用
@@ -736,17 +753,22 @@ end
 -- M.infer_start（流式）共用同一份，避免两条路径的隐私口径分叉。
 -- 返回 { payload, sent, sentmap, names } 或 { empty = true } 或 { err, sent }。
 local function build_request(opts, endpoint, model, stream)
-	-- ① 可发送项：公网 IPv4 网段 + 有 ASN 组织名。没有组织名（查询失败 / IPv6 / 域名）
-	--    一律跳过 —— 发一个光秃秃的网段既没信息量，又白白多泄露一个编址。
+	-- ① 可发送项：公网 IPv4 网段 **且** 有反解线索（PTR / 被动 DNS 域名）。
+	--    round79 起 ASN 组织名不再参与（整条链已删），线索本身就有信息量 ——
+	--    但**线索不是结论**，系统提示里另有约束句。
+	--    hint 用 ';' 连接、最多 3 个（shell 侧已截好），这里再截一次长度与字符。
 	local sent, sentmap, lines = {}, {}, {}
 	for _, it in ipairs(opts.items or {}) do
 		if type(it) == "table" then
 			local tgt = trim(it.target or "")
-			local org = clean_org(it.org)
-			if tgt ~= "" and org ~= "" and M.is_public_prefix(tgt) and not sentmap[tgt] then
+			local hint = clean_hint(it.hint)
+			-- round79：可发条件只看反解线索 —— 没有线索的目标不发（发一个光秃秃的网段既没
+			-- 信息量，又白多泄露一个编址）；私网/保留前缀仍然一律跳过。
+			if tgt ~= "" and hint ~= "" and M.is_public_prefix(tgt)
+				and not sentmap[tgt] then
 				sentmap[tgt] = true
 				sent[#sent + 1] = tgt
-				lines[#lines + 1] = tgt .. "  " .. org
+				lines[#lines + 1] = tgt .. "  ← " .. hint
 			end
 		end
 	end
