@@ -9,11 +9,13 @@
   --bg:#f6f8fa; --card:#ffffff; --text:#1f2328; --muted:#656d76; --muted2:#8b949e;
   --border:#d0d7de; --accent:#0969da;
   --dn:#1a7f37; --up:#9a6700; --grid:rgba(0,0,0,.08);
+  --tip-bg:rgba(255,255,255,.74);
 }
 html[data-theme="dark"]{
   --bg:#0d1117; --card:#161b22; --text:#e6edf3; --muted:#8b949e; --muted2:#6e7681;
   --border:#30363d; --accent:#58a6ff;
   --dn:#3fb950; --up:#d29922; --grid:rgba(255,255,255,.08);
+  --tip-bg:rgba(22,27,34,.74);
 }
 *{box-sizing:border-box}
 body{margin:0;padding:16px;background:var(--bg);color:var(--text);
@@ -43,10 +45,12 @@ button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
 .legend{display:flex;gap:16px;margin-bottom:6px;font-size:11px;color:var(--muted)}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px;margin-right:5px}
 svg{display:block;width:100%;height:250px}
-.tip{position:fixed;pointer-events:none;background:var(--card);border:1px solid var(--border);
+.tip{position:fixed;pointer-events:none;background:var(--tip-bg);border:1px solid var(--border);
   border-radius:6px;padding:7px 10px;font-size:11px;line-height:1.7;color:var(--text);
-  box-shadow:0 3px 12px rgba(0,0,0,.18);display:none;z-index:999;white-space:nowrap;
-  font-variant-numeric:tabular-nums}
+  box-shadow:0 3px 12px rgba(0,0,0,.22);display:none;z-index:999;white-space:nowrap;
+  font-variant-numeric:tabular-nums;
+  backdrop-filter:blur(5px) saturate(1.1);-webkit-backdrop-filter:blur(5px) saturate(1.1);
+  text-shadow:0 1px 1px var(--card)}
 .tip .h{font-weight:600;margin-bottom:4px;color:var(--text)}
 .tip .r{display:flex;justify-content:space-between;gap:16px}
 .tip .r span:first-child{color:var(--muted)}
@@ -343,14 +347,6 @@ function prepBars(){
   bars = daySlots;
 }
 
-function p95(arr){
-  if (!arr || !arr.length) return 0;
-  var a = arr.slice().sort(function(x,y){ return x-y; });
-  var idx = Math.floor(a.length * 0.95);
-  if (idx >= a.length) idx = a.length - 1;
-  return a[idx];
-}
-
 function applyStats(){
   var td=0, tu=0, span=1;
   var isLine = MODES[mode].type === 'line';
@@ -489,21 +485,56 @@ function el(tag, attrs){
   return e;
 }
 
-// ---- 1 天视图：24 个小时槽，横轴 00:00 -> 24:00 ----
-function placeDots1d(h){
-  if (!_chartCtx || !_chartCtx.is1d) return;
-  var P = {l:92};
-  var vb = document.getElementById('chart').viewBox.baseVal;
-  var W = (vb && vb.width) ? vb.width : 1000;
-  var iw = W - P.l - 14;
-  var x = P.l + iw*h/24;
-  var Y = _chartCtx.Y;
-  _chartCtx.dotDn.setAttribute('cx', x.toFixed(1));
-  _chartCtx.dotDn.setAttribute('cy', Y(_chartCtx.dnA[h]).toFixed(1));
-  _chartCtx.dotDn.setAttribute('opacity', 1);
-  _chartCtx.dotUp.setAttribute('cx', x.toFixed(1));
-  _chartCtx.dotUp.setAttribute('cy', Y(_chartCtx.upA[h]).toFixed(1));
-  _chartCtx.dotUp.setAttribute('opacity', 1);
+// Catmull-Rom 转三次贝塞尔：把折线磨圆，t 越小越贴近原始点、越不会过冲
+// yLo/yHi 把控制点夹在画布内：贝塞尔曲线必落在控制点凸包里，
+// 所以夹住控制点就能保证剧烈尖峰时面积不会穿到基线下方
+function smoothPath(pts, yLo, yHi){
+  if (!pts.length) return '';
+  if (pts.length === 1) return 'M' + pts[0][0].toFixed(1) + ',' + pts[0][1].toFixed(1);
+  var t = 0.18;
+  var clampY = function(v){ return v < yLo ? yLo : (v > yHi ? yHi : v); };
+  var d = 'M' + pts[0][0].toFixed(1) + ',' + pts[0][1].toFixed(1);
+  for (var i=0; i<pts.length-1; i++){
+    var p0 = pts[i-1] || pts[i], p1 = pts[i], p2 = pts[i+1], p3 = pts[i+2] || p2;
+    var c1x = p1[0] + (p2[0]-p0[0])*t, c1y = clampY(p1[1] + (p2[1]-p0[1])*t);
+    var c2x = p2[0] - (p3[0]-p1[0])*t, c2y = clampY(p2[1] - (p3[1]-p1[1])*t);
+    d += 'C' + c1x.toFixed(1) + ',' + c1y.toFixed(1) + ' ' +
+                c2x.toFixed(1) + ',' + c2y.toFixed(1) + ' ' +
+                p2[0].toFixed(1) + ',' + p2[1].toFixed(1);
+  }
+  return d;
+}
+
+// 读取当前主题的实际颜色，避免把亮/暗主题色值写死在 SVG 渐变里
+function themeColor(name, fallback){
+  var v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return v || fallback;
+}
+
+// 由主题色派生亮/暗两端（amt>0 提亮，amt<0 压暗），明暗主题自动适配
+function shade(hex, amt){
+  var h = String(hex).replace('#','');
+  if (h.length === 3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  if (!/^[0-9a-fA-F]{6}$/.test(h)) return hex;
+  var n = parseInt(h,16), r=(n>>16)&255, g=(n>>8)&255, b=n&255;
+  var f = function(v){ return Math.round(amt > 0 ? v + (255-v)*amt : v*(1+amt)); };
+  return 'rgb('+f(r)+','+f(g)+','+f(b)+')';
+}
+function rectP(x,y,w,h){
+  return 'M'+x.toFixed(1)+','+(y+h).toFixed(1)+
+         'L'+x.toFixed(1)+','+y.toFixed(1)+
+         'L'+(x+w).toFixed(1)+','+y.toFixed(1)+
+         'L'+(x+w).toFixed(1)+','+(y+h).toFixed(1)+'Z';
+}
+function roundTop(x,y,w,h,r){
+  r = Math.min(r, w/2, h);
+  var x2=x+w, y2=y+h;
+  return 'M'+x.toFixed(1)+','+y2.toFixed(1)+
+         'L'+x.toFixed(1)+','+(y+r).toFixed(1)+
+         'Q'+x.toFixed(1)+','+y.toFixed(1)+' '+(x+r).toFixed(1)+','+y.toFixed(1)+
+         'L'+(x2-r).toFixed(1)+','+y.toFixed(1)+
+         'Q'+x2.toFixed(1)+','+y.toFixed(1)+' '+x2.toFixed(1)+','+(y+r).toFixed(1)+
+         'L'+x2.toFixed(1)+','+y2.toFixed(1)+'Z';
 }
 
 // 悬停时把当前柱高亮（其余淡化），一眼看出 tooltip 对应哪根
@@ -511,106 +542,18 @@ function highlightBar(idx){
   if (!_chartCtx || !_chartCtx.barRects) return;
   var rs = _chartCtx.barRects;
   for (var i=0;i<rs.length;i++){
-    var op = (i === idx) ? '1' : '0.25';
-    rs[i][0].setAttribute('opacity', op);
-    rs[i][1].setAttribute('opacity', op);
+    var op = (i === idx) ? '1' : '0.55';
+    if (rs[i][0]) rs[i][0].setAttribute('opacity', op);
+    if (rs[i][1]) rs[i][1].setAttribute('opacity', op);
   }
 }
 function resetBarHighlight(){
   if (!_chartCtx || !_chartCtx.barRects) return;
   var rs = _chartCtx.barRects;
   for (var i=0;i<rs.length;i++){
-    rs[i][0].setAttribute('opacity', '1');
-    rs[i][1].setAttribute('opacity', '1');
+    if (rs[i][0]) rs[i][0].setAttribute('opacity', '1');
+    if (rs[i][1]) rs[i][1].setAttribute('opacity', '1');
   }
-}
-
-function drawHourTicks(svg, H, P, iw){
-  var maxLb = Math.max(2, Math.floor(iw / 62));
-  var step = Math.max(1, Math.ceil(24 / maxLb));
-  var last = 0;
-  for (var h = 0; h <= 24; h += step){
-    var x = P.l + iw*h/24;
-    svg.appendChild(el('text', {
-      x:x.toFixed(1), y:H-8, fill:'var(--muted2)', 'font-size':'9', 'text-anchor':'middle'
-    })).textContent = pad2(h) + ':00';
-    last = h;
-  }
-  if (last < 24){
-    svg.appendChild(el('text', {
-      x:(P.l+iw).toFixed(1), y:H-8, fill:'var(--muted2)', 'font-size':'9', 'text-anchor':'end'
-    })).textContent = '24:00';
-  }
-}
-
-function drawDay1d(svg, W, H, P, iw, ih){
-  var maxV = 0, lastIdx = -1;
-  for (var i=0;i<24;i++){
-    var s = slots1d[i];
-    if (!s || !s.has) continue;
-    lastIdx = i;
-    if (s.rdn > maxV) maxV = s.rdn;
-    if (s.rup > maxV) maxV = s.rup;
-  }
-  if (lastIdx < 0){ emptyState(svg, W, H); return; }
-
-  var su = scaleUnit(maxV, 'rate');
-  var st = niceStep(maxV/su.div, 12);
-  var yMax = (Math.floor(maxV/su.div/st)+2)*st;
-  drawGrid(svg, W, H, P, iw, ih, yMax, st, su);
-
-  var X = function(h){ return P.l + iw*h/24; };
-  var Y = function(v){ return P.t + ih - ih*(v/su.div)/yMax; };
-
-  // 只连接"有数据"的小时；中间断开（断电/重启）就另起一段，不要掉到 0
-  var dnPts = [], upPts = [];
-  var prevHad = false;
-  for (var h=0; h<=lastIdx; h++){
-    var sh = slots1d[h];
-    if (!sh || !sh.has){ prevHad = false; continue; }
-    var cmd = prevHad ? 'L' : 'M';
-    dnPts.push(cmd + X(h).toFixed(1) + ',' + Y(sh.rdn).toFixed(1));
-    upPts.push(cmd + X(h).toFixed(1) + ',' + Y(sh.rup).toFixed(1));
-    prevHad = true;
-  }
-  [['dn',dnPts],['up',upPts]].forEach(function(pair){
-    if (!pair[1].length) return;
-    svg.appendChild(el('path', {
-      d:pair[1].join(''), fill:'none', stroke:'var(--'+pair[0]+')',
-      'stroke-width':'1.8', 'stroke-linejoin':'round', 'stroke-linecap':'round'
-    }));
-  });
-
-  // 每个有数据的点都画实心圆：只有一个点时也能看见，不至于整张图空白像出错
-  for (var hd2=0; hd2<=lastIdx; hd2++){
-    var sd2 = slots1d[hd2];
-    if (!sd2 || !sd2.has) continue;
-    svg.appendChild(el('circle', {
-      cx:X(hd2).toFixed(1), cy:Y(sd2.rdn).toFixed(1), r:2.6, fill:'var(--dn)'
-    }));
-    svg.appendChild(el('circle', {
-      cx:X(hd2).toFixed(1), cy:Y(sd2.rup).toFixed(1), r:2.6, fill:'var(--up)'
-    }));
-  }
-
-  _chartCtx = {
-    is1d: true, last: lastIdx, Y: Y,
-    dnA: slots1d.map(function(s){ return s.rdn; }),
-    upA: slots1d.map(function(s){ return s.rup; }),
-    dotDn: el('circle', {cx:0,cy:0,r:4.5,fill:'var(--dn)',stroke:'var(--card)','stroke-width':2,opacity:0,'pointer-events':'none'}),
-    dotUp: el('circle', {cx:0,cy:0,r:4.5,fill:'var(--up)',stroke:'var(--card)','stroke-width':2,opacity:0,'pointer-events':'none'})
-  };
-  svg.appendChild(_chartCtx.dotDn);
-  svg.appendChild(_chartCtx.dotUp);
-
-  if (mouseVx >= 0){
-    var hv = Math.round((mouseVx - P.l)/iw*24 - 0.5);
-    if (hv < 0) hv = 0;
-    if (hv > lastIdx) hv = lastIdx;
-    placeDots1d(hv);
-  }
-
-  drawHourTicks(svg, H, P, iw);
 }
 
 function draw(){
@@ -639,19 +582,60 @@ function draw(){
     var n = rows.length;
     var X = function(i){ return P.l + iw*i/(n-1); };
     var Y = function(v){ return P.t + ih - ih*(v/su.div)/yMax; };
+    var yBase = P.t + ih;
 
-    [['dn',dnA],['up',upA]].forEach(function(pair){
-      var d = pair[1].map(function(v,i){ return (i?'L':'M')+X(i).toFixed(1)+','+Y(v).toFixed(1); }).join('');
+    // 面积渐变：颜色由主题变量派生（与柱子、竖虚线同一套机制），
+    // 只靠 stop-opacity 做上浓下淡，保持柔和、不抢折线
+    var defs = el('defs');
+    var aDn = themeColor('--dn', '#3fb950'), aUp = themeColor('--up', '#d29922');
+    [['gAreaDn', aDn], ['gAreaUp', aUp]].forEach(function(g){
+      var col = shade(g[1], 0.18);
+      var lg = el('linearGradient', {id:g[0], x1:'0', y1:'0', x2:'0', y2:'1'});
+      lg.appendChild(el('stop', {offset:'0%', 'stop-color':col, 'stop-opacity':'0.20'}));
+      lg.appendChild(el('stop', {offset:'100%', 'stop-color':col, 'stop-opacity':'0.02'}));
+      defs.appendChild(lg);
+    });
+
+    // 悬停竖虚线的渐变：顶部渐入 → 上行黄 → 下行绿，颜色跟随主题变量
+    // userSpaceOnUse 是必需的：垂直线的 objectBoundingBox 宽度为 0，默认渐变不会渲染
+    var vTop = P.t + ih*0.06;
+    var cUp = themeColor('--up', '#d29922'), cDn = themeColor('--dn', '#3fb950');
+    var vg = el('linearGradient', {
+      id:'gVline', gradientUnits:'userSpaceOnUse',
+      x1:'0', y1:vTop.toFixed(1), x2:'0', y2:yBase.toFixed(1)
+    });
+    vg.appendChild(el('stop', {offset:'0%', 'stop-color':cUp, 'stop-opacity':'0'}));
+    vg.appendChild(el('stop', {offset:'35%', 'stop-color':cUp, 'stop-opacity':'0.8'}));
+    vg.appendChild(el('stop', {offset:'100%', 'stop-color':cDn, 'stop-opacity':'0.3'}));
+    defs.appendChild(vg);
+    svg.appendChild(defs);
+
+    // 悬停列的竖虚线：从 6% 高度起（顶部只留一点空白），细密短划，渐变着色，压在面积下方
+    var vline = el('line', {
+      x1:0, y1:vTop.toFixed(1), x2:0, y2:yBase.toFixed(1),
+      stroke:'url(#gVline)', 'stroke-width':'1.1', 'stroke-dasharray':'2 3',
+      opacity:0, 'pointer-events':'none'
+    });
+    svg.appendChild(vline);
+
+    [['dn',dnA,'gAreaDn'],['up',upA,'gAreaUp']].forEach(function(pair){
+      var pts = pair[1].map(function(v,i){ return [X(i), Y(v)]; });
+      if (pts.length < 2) return;
+      var d = smoothPath(pts, P.t, yBase);
+      var area = d + 'L' + pts[pts.length-1][0].toFixed(1) + ',' + yBase.toFixed(1) +
+                     'L' + pts[0][0].toFixed(1) + ',' + yBase.toFixed(1) + 'Z';
+      svg.appendChild(el('path', {d:area, fill:'url(#'+pair[2]+')', stroke:'none', 'pointer-events':'none'}));
       svg.appendChild(el('path', {
         d:d, fill:'none', stroke:'var(--'+pair[0]+')',
-        'stroke-width':'1.8', 'stroke-linejoin':'round', 'stroke-linecap':'round'
+        'stroke-width':'1.9', 'stroke-linejoin':'round', 'stroke-linecap':'round',
+        'pointer-events':'none'
       }));
     });
 
     _chartCtx = {
-      X: X, Y: Y, dnA: dnA, upA: upA,
-      dotDn: el('circle', {cx:0, cy:0, r:4.5, fill:'var(--dn)', stroke:'var(--card)', 'stroke-width':2, opacity:0, 'pointer-events':'none'}),
-      dotUp: el('circle', {cx:0, cy:0, r:4.5, fill:'var(--up)', stroke:'var(--card)', 'stroke-width':2, opacity:0, 'pointer-events':'none'})
+      X: X, Y: Y, dnA: dnA, upA: upA, vline: vline,
+      dotDn: el('circle', {cx:0, cy:0, r:3.2, fill:'var(--dn)', stroke:'var(--card)', 'stroke-width':1.5, opacity:0, 'pointer-events':'none'}),
+      dotUp: el('circle', {cx:0, cy:0, r:3.2, fill:'var(--up)', stroke:'var(--card)', 'stroke-width':1.5, opacity:0, 'pointer-events':'none'})
     };
     svg.appendChild(_chartCtx.dotDn);
     svg.appendChild(_chartCtx.dotUp);
@@ -667,6 +651,9 @@ function draw(){
       _chartCtx.dotUp.setAttribute('cx', hx.toFixed(1));
       _chartCtx.dotUp.setAttribute('cy', Y(upA[hidx]).toFixed(1));
       _chartCtx.dotUp.setAttribute('opacity', 1);
+      vline.setAttribute('x1', hx.toFixed(1));
+      vline.setAttribute('x2', hx.toFixed(1));
+      vline.setAttribute('opacity', 0.68);
     }
 
     var lbls = rows.map(function(r, i){
@@ -700,24 +687,48 @@ function draw(){
     var gap = iw/n2;
     var bw = Math.max(2, gap*0.62);
 
+    var defsB = el('defs');
+    svg.appendChild(defsB);
+    var cDn = themeColor('--dn', '#3fb950'), cUp = themeColor('--up', '#d29922');
+
     var barRects = [];
     bars.forEach(function(b, i){
       var cx = P.l + gap*i + gap/2;
       var hDn = ih*(b.dn/s2.div)/yM2;
       var hUp = ih*(b.up/s2.div)/yM2;
       var yb = P.t + ih;
-      var rDn = el('rect', {
-        x:(cx-bw/2).toFixed(1), y:(yb-hDn).toFixed(1),
-        width:bw.toFixed(1), height:Math.max(0,hDn).toFixed(1), fill:'var(--dn)',
-        style:'transition:opacity .18s'
+      if (hDn + hUp <= 0){ barRects.push([null, null]); return; }  // 空柱保留柱位但不画
+      var x = cx - bw/2;
+      var topY = yb - hDn - hUp;
+      var rr = Math.min(4, bw/2, hDn + hUp);
+
+      // 方案 B：整根柱共用一段亮度渐变。userSpaceOnUse 让上下两段取同一 Y 尺度，
+      // 接缝处亮度连续，只有柱顶一个亮点，不破坏「一根柱 = 总流量」的语义
+      var idDn = 'gBarDn' + i, idUp = 'gBarUp' + i;
+      [[idDn, cDn], [idUp, cUp]].forEach(function(g){
+        var lg = el('linearGradient', {
+          id:g[0], gradientUnits:'userSpaceOnUse',
+          x1:'0', y1:topY.toFixed(1), x2:'0', y2:yb.toFixed(1)
+        });
+        lg.appendChild(el('stop', {offset:'0%', 'stop-color':shade(g[1], 0.24)}));
+        lg.appendChild(el('stop', {offset:'100%', 'stop-color':shade(g[1], -0.20)}));
+        defsB.appendChild(lg);
       });
-      var rUp = el('rect', {
-        x:(cx-bw/2).toFixed(1), y:(yb-hDn-hUp).toFixed(1),
-        width:bw.toFixed(1), height:Math.max(0,hUp).toFixed(1), fill:'var(--up)',
-        style:'transition:opacity .18s'
-      });
-      svg.appendChild(rDn); svg.appendChild(rUp);
-      barRects.push([rDn, rUp]);
+
+      var pDn = null, pUp = null;
+      if (hDn > 0){
+        // 有上行时下行保持直角，避免堆叠接缝露背景缝
+        var dDn = (hUp > 0) ? rectP(x, yb-hDn, bw, hDn)
+                            : roundTop(x, yb-hDn, bw, hDn, rr);
+        pDn = el('path', {d:dDn, fill:'url(#'+idDn+')', style:'transition:opacity .18s'});
+        svg.appendChild(pDn);
+      }
+      if (hUp > 0){
+        pUp = el('path', {d:roundTop(x, topY, bw, hUp, rr), fill:'url(#'+idUp+')',
+                          style:'transition:opacity .18s'});
+        svg.appendChild(pUp);
+      }
+      barRects.push([pDn, pUp]);
     });
     // 记录柱子引用，供悬停时高亮当前柱
     _chartCtx = { barRects: barRects };
@@ -746,7 +757,8 @@ function drawGrid(svg, W, H, P, iw, ih, yMax, step, su){
     var y = P.t + ih - ih*(v/yMax);
     svg.appendChild(el('line', {
       x1:P.l, x2:W-P.r, y1:y.toFixed(1), y2:y.toFixed(1),
-      stroke:'var(--grid)', 'stroke-width':'1'
+      stroke:'var(--grid)', 'stroke-width':'1',
+      'stroke-dasharray':'3 6', opacity:'0.5'
     }));
     svg.appendChild(el('text', {
       x:P.l-8, y:(y+3.5).toFixed(1), fill:'var(--muted)', 'font-size':'10', 'text-anchor':'end'
@@ -768,7 +780,8 @@ function emptyState(svg, W, H){
     var y = P.t + ih - ih*(v/yMax);
     svg.appendChild(el('line', {
       x1:P.l, x2:W-P.r, y1:y.toFixed(1), y2:y.toFixed(1),
-      stroke:'var(--grid)', 'stroke-width':'1'
+      stroke:'var(--grid)', 'stroke-width':'1',
+      'stroke-dasharray':'3 6', opacity:'0.5'
     }));
     svg.appendChild(el('text', {
       x:P.l-8, y:(y+3.5).toFixed(1), fill:'var(--muted)', 'font-size':'10', 'text-anchor':'end'
@@ -821,30 +834,6 @@ function refreshTip(){
   var PL = 92, PR = 14;
   var iw = W - PL - PR;
 
-  if (mode === '1d'){
-    var lastD = (_chartCtx && _chartCtx.is1d && _chartCtx.last !== undefined) ? _chartCtx.last : 23;
-    var hd = Math.round((mouseVx - PL)/iw*24 - 0.5);
-    if (hd < 0) hd = 0;
-    if (hd > lastD) hd = lastD;
-    var sd = slots1d[hd];
-    if (!sd || !sd.has){ tip.style.display = 'none'; return; }
-    tip.innerHTML =
-      '<div class="h">' + pad2(hd) + ':00 - ' + pad2(hd+1) + ':00</div>' +
-      '<div class="r"><span>下行</span><span class="dn">' + fmtR(sd.rdn) + '<br>' + fmtB(sd.dn) + '</span></div>' +
-      '<div class="r"><span>上行</span><span class="up">' + fmtR(sd.rup) + '<br>' + fmtB(sd.up) + '</span></div>' +
-      '<div class="hr"></div>' +
-      '<div class="r"><span>合计</span><span>' + fmtB(sd.dn+sd.up) + '</span></div>';
-    placeDots1d(hd);
-    tip.style.display = 'block';
-    var tw1 = tip.offsetWidth;
-    var tx1 = mouseCx + 14;
-    if (tx1 + tw1 > window.innerWidth - 8) tx1 = mouseCx - tw1 - 14;
-    if (tx1 < 4) tx1 = 4;
-    tip.style.left = tx1 + 'px';
-    tip.style.top = (mouseCy - 14) + 'px';
-    return;
-  }
-
   var isLine = MODES[mode].type === 'line';
   var n = isLine ? rows.length : bars.length;
   if (n < 1){ tip.style.display = 'none'; return; }
@@ -888,6 +877,11 @@ function refreshTip(){
       _chartCtx.dotUp.setAttribute('cx', cxp.toFixed(1));
       _chartCtx.dotUp.setAttribute('cy', _chartCtx.Y(_chartCtx.upA[idx]).toFixed(1));
       _chartCtx.dotUp.setAttribute('opacity', 1);
+      if (_chartCtx.vline){
+        _chartCtx.vline.setAttribute('x1', cxp.toFixed(1));
+        _chartCtx.vline.setAttribute('x2', cxp.toFixed(1));
+        _chartCtx.vline.setAttribute('opacity', 0.68);
+      }
     }
   } else {
     if (_chartCtx && _chartCtx.dotDn){
@@ -938,6 +932,7 @@ function refreshTip(){
       _chartCtx.dotDn.setAttribute('opacity', 0);
       _chartCtx.dotUp.setAttribute('opacity', 0);
     }
+    if (_chartCtx && _chartCtx.vline) _chartCtx.vline.setAttribute('opacity', 0);
   });
 })();
 
