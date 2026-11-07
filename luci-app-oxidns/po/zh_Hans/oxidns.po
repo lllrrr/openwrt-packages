@@ -118,6 +118,9 @@ msgstr "内核操作失败"
 msgid "Core repository"
 msgstr "内核仓库"
 
+msgid "Core & Settings"
+msgstr "内核与设置"
+
 msgid "Core Status"
 msgstr "内核状态"
 
@@ -329,9 +332,6 @@ msgstr "OxiDNS 只在 provider 载入时读取规则文件。要让改动生效�
 
 msgid "OxiDNS Rule Files"
 msgstr "OxiDNS 规则文件"
-
-msgid "OxiDNS Settings"
-msgstr "OxiDNS 设置"
 
 msgid "Path"
 msgstr "路径"

@@ -2,7 +2,7 @@
 
 set -eu
 
-node -e "const fs=require('fs'); const dir='htdocs/luci-static/resources/view/oxidns/'; for (const n of ['overview','core','config','rules','geo','logs','settings','upload']) { const f=dir+n+'.js'; if (fs.existsSync(f)) new Function(fs.readFileSync(f,'utf8')); }"
+node -e "const fs=require('fs'); const dir='htdocs/luci-static/resources/view/oxidns/'; for (const n of ['overview','coresection','config','rules','geo','logs','settings','upload']) { const f=dir+n+'.js'; if (fs.existsSync(f)) new Function(fs.readFileSync(f,'utf8')); }"
 node -e "for (const f of ['root/usr/share/luci/menu.d/luci-app-oxidns.json','root/usr/share/rpcd/acl.d/luci-app-oxidns.json','root/usr/share/oxidns/targets.json']) JSON.parse(require('fs').readFileSync(f,'utf8'));"
 node <<'NODE'
 const fs = require('fs');
@@ -10,7 +10,7 @@ const fs = require('fs');
 const required = new Set();
 for (const file of [
 	'htdocs/luci-static/resources/view/oxidns/overview.js',
-	'htdocs/luci-static/resources/view/oxidns/core.js',
+	'htdocs/luci-static/resources/view/oxidns/coresection.js',
 	'htdocs/luci-static/resources/view/oxidns/config.js',
 	'htdocs/luci-static/resources/view/oxidns/rules.js',
 	'htdocs/luci-static/resources/view/oxidns/geo.js',
@@ -152,10 +152,14 @@ node scripts/learn-reset-check.mjs
 # 规则页 UI 结构：标签条用原生 cbi-tabmenu、元信息压成一行且 id 齐全
 node scripts/rules-ui-check.mjs
 
+# 内核页与设置页已合并：菜单单入口、区块顺序、模块导出形态不能退化
+node scripts/page-merge-check.mjs
+node scripts/page-merge-render.mjs
+
 # CodeMirror 主题：CSS 被加载、token 全覆盖、对比度达标、深色判定正确
 node scripts/cm-theme-check.mjs
 
-for script in scripts/po2lmo.mjs scripts/strip-tar-eof.mjs scripts/write-apk-data-tar.mjs scripts/write-ar-archive.mjs scripts/check-rule-args.mjs scripts/learn-reset-check.mjs scripts/rules-ui-check.mjs scripts/cm-theme-check.mjs; do
+for script in scripts/po2lmo.mjs scripts/strip-tar-eof.mjs scripts/write-apk-data-tar.mjs scripts/write-ar-archive.mjs scripts/check-rule-args.mjs scripts/learn-reset-check.mjs scripts/rules-ui-check.mjs scripts/cm-theme-check.mjs scripts/page-merge-check.mjs scripts/page-merge-render.mjs; do
 	node --check "$script"
 done
 node scripts/po2lmo.mjs po/zh_Hans/oxidns.po "${TMPDIR:-/tmp}/oxidns.zh-cn.lmo"

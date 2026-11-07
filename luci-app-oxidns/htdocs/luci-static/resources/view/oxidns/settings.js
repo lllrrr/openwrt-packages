@@ -2,10 +2,17 @@
 'require view';
 'require rpc';
 'require ui';
+'require view.oxidns.coresection as coresection';
 
 var callSettingsRead = rpc.declare({
 	object: 'luci.oxidns',
 	method: 'settings_read',
+	expect: {}
+});
+
+var callStatus = rpc.declare({
+	object: 'luci.oxidns',
+	method: 'status',
 	expect: {}
 });
 
@@ -179,16 +186,29 @@ function saveSettings() {
 
 return view.extend({
 	load: function() {
-		return L.resolveDefault(callSettingsRead(), {});
+		return Promise.all([
+			L.resolveDefault(callSettingsRead(), {}),
+			L.resolveDefault(callStatus(), {})
+		]).then(function(results) {
+			return {
+				settings: results[0] || {},
+				status: results[1] || {}
+			};
+		});
 	},
 
-	render: function(settings) {
-		settings = settings || {};
+	render: function(data) {
+		var settings = (data && data.settings) || {};
+		var status = (data && data.status) || {};
+
 		return E('div', { 'class': 'cbi-map' }, [
-			E('h2', {}, _('OxiDNS Settings')),
-			E('div', { 'class': 'cbi-map-descr' },
-				_('Configure OxiDNS core download sources, runtime paths, and optional download credentials.')),
-			E('div', { 'class': 'cbi-section' }, [
+			E('h2', {}, _('OxiDNS')),
+			/* 内核状态与安装/更新/上传/删除都在这一块，见 coresection.js */
+			coresection.render(status, {}),
+			E('div', { 'class': 'cbi-section', 'id': 'oxidns-settings-section' }, [
+				E('h3', {}, _('Settings')),
+				E('div', { 'class': 'cbi-section-descr' },
+					_('Configure OxiDNS core download sources, runtime paths, and optional download credentials.')),
 				E('div', { 'class': 'table cbi-section-table' }, [
 					row(_('Core repository'), textInput('oxidns-setting-core-repository', settings.core_repository || 'svenshi/oxidns')),
 					row(_('Core bundle'), bundleSelect('oxidns-setting-core-bundle', settings.core_bundle || 'full')),

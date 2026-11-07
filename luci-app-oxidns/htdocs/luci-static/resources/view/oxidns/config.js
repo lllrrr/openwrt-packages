@@ -318,7 +318,7 @@ return view.extend({
 						_('Install the OxiDNS core before editing the configuration.')),
 					E('a', {
 						'class': 'btn cbi-button cbi-button-action',
-						'href': L.url('admin/services/oxidns/core')
+						'href': L.url('admin/services/oxidns/settings')
 					}, _('Install Core'))
 				])
 			]);

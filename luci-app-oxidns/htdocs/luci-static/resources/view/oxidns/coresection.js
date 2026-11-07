@@ -1,7 +1,22 @@
 'use strict';
-'require view';
+'require baseclass';
 'require rpc';
 'require ui';
+
+/*
+ * 内核（Core）区块。
+ *
+ * 原来是一个独立的视图（view/oxidns/core.js），2026-11 与配置页合并成单页后
+ * 抽成模块：配置页 require 本模块，把 render() 返回的 <div class="cbi-section">
+ * 插到页面顶部，内核状态与操作按钮都还在这块里。
+ *
+ * 对外只暴露两个方法：
+ *   render(status, opts) - 用 status 快照渲染区块；opts.onChange 在"内核装/卸"
+ *                          这类状态翻转时被调用（配置页据此决定要不要重读配置）
+ *   refresh()            - 重新拉一次状态，就地更新表格与按钮（操作完成后调用）
+ *
+ * 所有元素 id 保持与合并前一致（oxidns-core-*），刷新逻辑仍按 id 找节点。
+ */
 
 var callStatus = rpc.declare({
 	object: 'luci.oxidns',
@@ -48,6 +63,7 @@ var callCoreRemove = rpc.declare({
 });
 
 var statusState = {};
+var onChangeCb = null;
 
 function valueOrDash(value) {
 	if (value === null || value === undefined || value === '')
@@ -85,6 +101,8 @@ function setText(id, value) {
 }
 
 function refreshStatus() {
+	var wasInstalled = coreInstalled(statusState);
+
 	return L.resolveDefault(callStatus(), {}).then(function(status) {
 		statusState = status || {};
 		var core = statusState.core || {};
@@ -96,6 +114,15 @@ function refreshStatus() {
 		setText('oxidns-core-binary', core.binary_path);
 		setText('oxidns-core-service', serviceRunning(statusState) ? _('Running') : _('Stopped'));
 		refreshActionButtons();
+
+		/* 装上 / 卸掉了内核：配置页可能因此从"读不到"变成"能编辑"，通知它 */
+		if (onChangeCb && wasInstalled !== coreInstalled(statusState)) {
+			try {
+				onChangeCb(statusState);
+			} catch (e) {
+				/* 回调出问题不该影响状态刷新 */
+			}
+		}
 	});
 }
 
@@ -447,45 +474,46 @@ function refreshActionButtons() {
 		replaceContent(node, actionButtons(statusState));
 }
 
-return view.extend({
-	load: function() {
-		return L.resolveDefault(callStatus(), {});
-	},
+function render(status, opts) {
+	statusState = status || {};
+	onChangeCb = (opts && typeof opts.onChange === 'function') ? opts.onChange : null;
 
-	render: function(status) {
-		statusState = status || {};
-		var core = statusState.core || {};
-		var rows = [
-			renderRow(_('Installed'), boolText(core.installed), 'oxidns-core-installed'),
-			renderRow(_('Version'), core.version, 'oxidns-core-version'),
-			renderRow(_('Bundle'), core.bundle, 'oxidns-core-bundle'),
-			renderRow(_('Target'), core.target, 'oxidns-core-target'),
-			renderRow(_('Binary path'), core.binary_path, 'oxidns-core-binary'),
-			renderRow(_('Service status'), serviceRunning(statusState) ? _('Running') : _('Stopped'), 'oxidns-core-service')
-		];
+	var core = statusState.core || {};
+	var rows = [
+		renderRow(_('Installed'), boolText(core.installed), 'oxidns-core-installed'),
+		renderRow(_('Version'), core.version, 'oxidns-core-version'),
+		renderRow(_('Bundle'), core.bundle, 'oxidns-core-bundle'),
+		renderRow(_('Target'), core.target, 'oxidns-core-target'),
+		renderRow(_('Binary path'), core.binary_path, 'oxidns-core-binary'),
+		renderRow(_('Service status'), serviceRunning(statusState) ? _('Running') : _('Stopped'), 'oxidns-core-service')
+	];
 
-		return E('div', { 'class': 'cbi-map' }, [
-			E('h2', {}, _('OxiDNS Core')),
-			E('div', { 'class': 'cbi-map-descr' },
-				_('Install, update or repair the OxiDNS core binary. Updates prefer the openwrt-oxidns package when it has a build for this device.')),
-			E('div', { 'class': 'cbi-section' }, [
-				E('h3', {}, _('Core Status')),
-				E('div', { 'class': 'table cbi-section-table' }, rows)
-			]),
-			E('div', { 'class': 'cbi-section' }, [
-				E('h3', {}, _('Actions')),
-				E('div', { 'class': 'cbi-section-descr' },
-					_('Update checks the openwrt-oxidns package first and falls back to the official OxiDNS release archive for architectures it does not build. Upload accepts a .tar.gz archive or a single oxidns binary.')),
-				E('div', {
-					'id': 'oxidns-core-actions',
-					'class': 'cbi-button-row',
-					'style': 'display: flex; flex-wrap: wrap; gap: .5em;'
-				}, actionButtons(statusState))
-			])
-		]);
-	},
+	return E('div', { 'class': 'cbi-section', 'id': 'oxidns-core-section' }, [
+		E('h3', {}, _('OxiDNS Core')),
+		E('div', { 'class': 'cbi-section-descr' },
+			_('Install, update or repair the OxiDNS core binary. Updates prefer the openwrt-oxidns package when it has a build for this device.')),
+		E('h4', {}, _('Core Status')),
+		E('div', { 'class': 'table cbi-section-table' }, rows),
+		E('h4', { 'style': 'margin-top: 1.25em;' }, _('Actions')),
+		E('div', { 'class': 'cbi-section-descr' },
+			_('Update checks the openwrt-oxidns package first and falls back to the official OxiDNS release archive for architectures it does not build. Upload accepts a .tar.gz archive or a single oxidns binary.')),
+		E('div', {
+			'id': 'oxidns-core-actions',
+			'class': 'cbi-button-row',
+			'style': 'display: flex; flex-wrap: wrap; gap: .5em;'
+		}, actionButtons(statusState))
+	]);
+}
 
-	handleSaveApply: null,
-	handleSave: null,
-	handleReset: null
+/*
+ * 必须返回构造函数：LuCI 的模块加载器对带依赖的模块会走 compileClass，
+ * 返回普通对象会抛 "factory yields invalid constructor"（baseclass.extend
+ * 同时把成员挂在构造函数上，所以调用方仍写成 coresection.render(...)）。
+ */
+return baseclass.extend({
+	render: render,
+	refresh: refreshStatus,
+	installed: function() {
+		return coreInstalled(statusState);
+	}
 });

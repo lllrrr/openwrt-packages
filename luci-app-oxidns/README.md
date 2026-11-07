@@ -22,20 +22,19 @@ apk add --allow-untrusted --no-network ./luci-i18n-oxidns-zh-cn-<版本>.apk
 | 页面 | 用途 |
 | --- | --- |
 | `Overview` | 内核 / 服务状态、WebUI 入口；DNS 劫持开关（把局域网发往 53 端口的 DNS 请求重定向到本机 OxiDNS，目标端口从 config.yaml 解析） |
-| `Core` | 内核安装、更新、上传安装、修复重装、删除 |
+| `Core & Settings` | 单页：上半部分为内核状态与安装/更新/上传/修复/删除，下半部分为内核源、代理、token、路径设置 |
 | `Configuration` | 查看、校验、保存配置文件 |
 | `Rule Files` | 编辑规则列表文件；定时重置学习文件 |
 | `Geo Data` | geoip.dat / geosite.dat 下载与更新（默认 jsDelivr 上的 Loyalsoldier 增强版，落点 `/usr/share/v2ray`，地址与目录可改、可一键还原） |
 | `Logs` | 日志文件查看，时间戳按 UTC+8 显示；「清空」截断日志文件 |
-| `Settings` | 内核源、代理、token、路径 |
 
 配置在 `/etc/oxidns/config.yaml`，规则目录 `/etc/oxidns/rule`，工作目录 `/var/lib/oxidns`。
 
 ## 升级与删除
 
-- **内核**：`Core` 页 `Update Core`。它同时查 [openwrt-oxidns](https://github.com/hahaher123/openwrt-oxidns) 与官方 [svenshi/oxidns](https://github.com/svenshi/oxidns) 的最新版本，取更高者：优先装 openwrt-oxidns 的 apk（arm64/x86_64），该仓库没有构建的架构回落到官方 musl 归档；两者都不高于当前版本就提示「已是最新」，不会降级。
+- **内核**：`Core & Settings` 页 `Update Core`。它同时查 [openwrt-oxidns](https://github.com/hahaher123/openwrt-oxidns) 与官方 [svenshi/oxidns](https://github.com/svenshi/oxidns) 的最新版本，取更高者：优先装 openwrt-oxidns 的 apk（arm64/x86_64），该仓库没有构建的架构回落到官方 musl 归档；两者都不高于当前版本就提示「已是最新」，不会降级。
 - **插件**：下载新版本包重装即可。
-- **删除内核**：`Core` 页 `Remove Core`，保留配置与工作目录。
+- **删除内核**：`Core & Settings` 页 `Remove Core`，保留配置与工作目录。
 
 ## 网络受限环境
 

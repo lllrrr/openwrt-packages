@@ -109,6 +109,9 @@ msgstr ""
 msgid "Core repository"
 msgstr ""
 
+msgid "Core & Settings"
+msgstr ""
+
 msgid "Core Status"
 msgstr ""
 
@@ -319,9 +322,6 @@ msgid "OxiDNS reads rule files when a provider is loaded. Use Save & Restart to 
 msgstr ""
 
 msgid "OxiDNS Rule Files"
-msgstr ""
-
-msgid "OxiDNS Settings"
 msgstr ""
 
 msgid "Path"
