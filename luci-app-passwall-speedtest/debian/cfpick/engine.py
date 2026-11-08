@@ -182,7 +182,7 @@ class Engine:
     def _start_stop_watcher(self):
         def watch():
             while not self._watcher_stop.wait(0.5):
-                if lock.stop_requested() and not self.stop_event.is_set():
+                if lock.stop_requested(os.getpid()) and not self.stop_event.is_set():
                     self.stop_source = "user"
                     self.stop_event.set()
                     lock.write_state(stop_requested=True, phase="stopping")
@@ -551,8 +551,13 @@ class Engine:
 
     # ── download stage ──────────────────────────────────────────────────
     def _download_phase(self, node, rows):
+        """Download-test the node's best IPs.
+
+        Returns ``(rows, kept)`` where ``kept`` is how many IPs passed the
+        download test; 0 with non-empty rows means every download failed.
+        """
         if not rows:
-            return rows
+            return rows, 0
         ordered = result.sort_rows(rows, "latency")
         count = self.cfg["download_count"]
         tested = ordered[:count]
@@ -580,23 +585,72 @@ class Engine:
             best = out[0]
             self.log.log("下载测速 [%s] 完成：成功 %d/%d，最优 %s %.2f MB/s" % (
                 node["name"], len(kept), len(tested), best.ip, best.speed))
-            return out
+            return out, len(kept)
         self.log.log("下载测速 [%s] 未取得任何有效速度，保留延迟排序结果" % node["name"])
-        return ordered
+        return ordered, 0
 
     def _download_stage(self, nodes, rows_by_node):
+        """Run the serial download stage; return nodes whose downloads all failed."""
         if not self.dl_enabled:
-            return
+            return []
         if self.stop_event.is_set() and self.stop_source == "user":
             self.log.log("用户已停止一轮测速，仍继续完成下载实测后再导出结果")
         lock.write_state(phase="download")
         self.log.log("下载实测阶段开始：所有 worker 已停止探测，逐节点串行实测下载速度")
+        failed = []
         for node in nodes:
             if self.hard_stop:
                 self.log.log("收到终止信号，跳过剩余节点的下载实测")
                 break
-            rows_by_node[node["name"]] = self._download_phase(
-                node, rows_by_node.get(node["name"]) or [])
+            original = rows_by_node.get(node["name"]) or []
+            rows, kept = self._download_phase(node, original)
+            rows_by_node[node["name"]] = rows
+            # 有候选却一个下载都没成功：等其他节点测完后复测一轮。
+            if original and not kept:
+                failed.append(node)
+        return failed
+
+    def _retest_download_failures(self, nodes, rows_by_node):
+        """Give nodes whose downloads all failed one more full retest round.
+
+        Runs after every other node's download stage, so the retest is not
+        competing with them for WAN bandwidth.  Candidates follow the normal
+        retest semantics (current result.csv row + the node's address).
+        """
+        if not nodes or self.hard_stop:
+            return
+        if self.stop_source == "user":
+            self.log.log("用户已停止，跳过下载失败节点的复测")
+            return
+        self.log.log("下载全部失败的节点: %s；其他节点下载结束后各复测一轮" % (
+            "、".join(node["name"] for node in nodes)))
+        try:
+            candidates = iplists.retest_candidates(self.cfg, nodes, self.log)
+        except iplists.IpListError as exc:
+            self.log.log("下载失败节点无法复测: %s" % exc)
+            return
+
+        for node in nodes:
+            if self.hard_stop:
+                break
+            name = node["name"]
+            # 复测不受第一轮 “首个完成即停” 的 stop_event 影响，单独用一个事件。
+            original_event = self.stop_event
+            self.stop_event = threading.Event()
+            try:
+                rows = self._latency_worker(node, candidates)
+            finally:
+                self.stop_event = original_event
+            if not rows:
+                self.log.log("复测 [%s] 没有通过延迟筛选的 IP，保留上一轮结果" % name)
+                continue
+            rows, kept = self._download_phase(node, rows)
+            if kept:
+                rows_by_node[name] = rows
+                self.log.log("复测 [%s] 下载成功 %d 个，已用复测结果替换该节点结果" % (
+                    name, kept))
+            else:
+                self.log.log("复测 [%s] 下载仍全部失败，保留上一轮结果" % name)
 
     # ── commit ──────────────────────────────────────────────────────────
     def _iterate_summary(self, node, rows):
@@ -715,7 +769,8 @@ class Engine:
                     ok = False
                 else:
                     try:
-                        self._download_stage(nodes, rows_by_node)
+                        failed_nodes = self._download_stage(nodes, rows_by_node)
+                        self._retest_download_failures(failed_nodes, rows_by_node)
                         ok = self._commit(nodes, rows_by_node)
                     finally:
                         lock.release_commit()
@@ -791,6 +846,8 @@ def run(mode="start", node_names=None):
     if not other:
         logger.rotate()
         lock.clear_stop()
+    # 清掉本进程可能残留的单 worker 停止请求（上一轮异常退出等）。
+    lock.clear_stop(os.getpid())
     label = "复测现有最优 IP" if mode == "retest" else "Cloudflare IP 测速"
     logger.log("════ %s 开始 ════" % label)
     lock.write_state(

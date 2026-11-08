@@ -369,11 +369,18 @@
 
 		$('#btn-start').disabled = running;
 		$('#btn-retest').disabled = running;
-		$('#btn-stop').disabled = !running;
+
+		// 已请求停止时禁用并显示「停止中…」，避免重复点。
+		const stopping = running && !!status.stop_requested;
+		const stopButton = $('#btn-stop');
+		stopButton.disabled = !running || stopping;
+		stopButton.textContent = stopping ? '停止中…' : '停止';
 
 		const lockHint = running ? '已有测速在运行，请先停止' : '';
 		$('#btn-start').title = lockHint;
 		$('#btn-retest').title = lockHint;
+
+		syncWorkerActions();
 	}
 
 	// ── 独立内核模式（统一测速使用 mihomo / Xray） ─────────────────
@@ -890,6 +897,94 @@
 		return list;
 	}
 
+	// 折叠多选展开时默认会撑高所在行（表格行、grid 行），长节点列表能把整行
+	// 拉到几百像素。展开时改成 fixed 悬浮层：先移出文档流再测量（避免表格
+	// 重排前的坐标），贴住 summary 下方，空间不足向上翻，滚动/缩放时跟随。
+	function floatPickerList(details, list) {
+		let onScroll = null;
+		let onResize = null;
+
+		function detach() {
+			if (onScroll) window.removeEventListener('scroll', onScroll, true);
+			if (onResize) window.removeEventListener('resize', onResize);
+			onScroll = null;
+			onResize = null;
+		}
+
+		function reset() {
+			list.classList.remove('floating');
+			['position', 'top', 'bottom', 'left', 'width', 'minWidth', 'maxWidth',
+				'maxHeight', 'marginTop'].forEach((prop) => { list.style[prop] = ''; });
+		}
+
+		function place() {
+			if (!details.isConnected) {
+				detach();
+				return;
+			}
+
+			// 先把列表移出文档流再测量：展开瞬间它仍参与表格自动布局，
+			// summary 会被撑宽/挤偏，等列表变 fixed 后表格又重排回原样。
+			if (!list.classList.contains('floating')) {
+				list.classList.add('floating');
+				list.style.position = 'fixed';
+				list.style.marginTop = '0';
+				void list.offsetHeight;
+			}
+
+			const anchor = details.querySelector('summary') || details;
+			const rect = anchor.getBoundingClientRect();
+			const margin = 8;
+			const gap = 6;
+			const vw = document.documentElement.clientWidth;
+			const vh = document.documentElement.clientHeight;
+			const cssMin = details.classList.contains('country-picker') ? 240 : 170;
+			const width = Math.min(Math.max(cssMin, Math.round(rect.width)),
+				vw - margin * 2);
+			const natural = Math.min(list.scrollHeight + 2, 190);
+			const below = vh - rect.bottom - gap - margin;
+			const above = rect.top - gap - margin;
+
+			list.style.width = width + 'px';
+			list.style.minWidth = '0';
+			list.style.maxWidth = 'none';
+			list.style.left = Math.max(margin,
+				Math.min(rect.left, vw - margin - width)) + 'px';
+
+			if (natural > below && above > below) {
+				list.style.top = 'auto';
+				list.style.bottom = Math.round(vh - rect.top + gap) + 'px';
+				list.style.maxHeight = Math.max(90, Math.min(190, above)) + 'px';
+			}
+			else {
+				list.style.bottom = 'auto';
+				list.style.top = Math.round(rect.bottom + gap) + 'px';
+				list.style.maxHeight = Math.max(90, Math.min(190, below)) + 'px';
+			}
+		}
+
+		details.addEventListener('toggle', () => {
+			if (details.open) {
+				place();
+				// 表格/字体的重排可能延续到下一帧，再校准一次。
+				requestAnimationFrame(() => {
+					if (details.open)
+						place();
+				});
+				if (!onScroll) {
+					onScroll = () => place();
+					onResize = () => place();
+					window.addEventListener('scroll', onScroll, true);
+					window.addEventListener('resize', onResize);
+				}
+			}
+			else {
+				detach();
+				reset();
+			}
+		});
+	}
+
 	// Collapsible checkbox list for the node selection.  Like the CLI, an
 	// empty selection means every enabled worker node.
 	function buildNodePicker(selected, disabled) {
@@ -926,6 +1021,7 @@
 
 		details.appendChild(summary);
 		details.appendChild(list);
+		floatPickerList(details, list);
 
 		details._nodeValues = () => Array.prototype.slice.call(
 			list.querySelectorAll('input[type="checkbox"]:checked'))
@@ -1218,6 +1314,74 @@
 		}
 	}
 
+	// ── 节点页每个 worker 的独立测速/复测/停止 ──────────────────────
+	async function runWorker(node, mode) {
+		if (!node) {
+			toast('请先选择 PassWall 节点', true);
+			return;
+		}
+
+		try {
+			const result = await api(mode === 'retest' ? 'retest' : 'start', {
+				method: 'POST',
+				body: { nodes: [node] }
+			});
+
+			if (result && result.started === false)
+				toast('该 worker 已在测速，请先停止');
+			else
+				toast((mode === 'retest' ? '已开始复测：' : '已开始测速：') + nodeLabel(node));
+
+			await refreshStatus();
+		}
+		catch (e) {
+			toast(e.message, true);
+		}
+	}
+
+	async function stopWorker(node) {
+		if (!node)
+			return;
+
+		try {
+			const result = await api('stop', { method: 'POST', body: { nodes: [node] } });
+			toast((result && result.message) || ('已请求停止：' + nodeLabel(node)));
+			await refreshStatus();
+		}
+		catch (e) {
+			toast(e.message, true);
+		}
+	}
+
+	// 按钮状态跟 /api/status 的 workers + download_active 同步：
+	//   运行中的 worker → 测速/复测禁用，停止可用；
+	//   下载/写回阶段（download_active）→ 全部按钮禁用。
+	function syncWorkerActions() {
+		const status = state.status || {};
+		const workers = status.workers || {};
+		const busy = !!status.download_active;
+
+		$$('#cfg-workers-body tr').forEach((row) => {
+			const id = row.dataset.worker || '';
+			const info = id ? workers[id] : null;
+			const running = !!info;
+			const stopping = !!(info && info.stopping);
+			row.classList.toggle('running', running);
+
+			row.querySelectorAll('[data-worker-action]').forEach((button) => {
+				const action = button.dataset.workerAction;
+
+				if (action === 'stop') {
+					button.disabled = !running || stopping || busy;
+					button.textContent = stopping ? '停止中…' : '停止';
+				}
+				else {
+					button.disabled = running || busy;
+				}
+			});
+		});
+	}
+
 	function provider(name) {
 		return (state.nodes && state.nodes[name]) || {};
 	}
@@ -1319,7 +1483,11 @@
 				nodeSelect.appendChild(el('option', { value: worker.node }, worker.node));
 
 			nodeSelect.value = worker.node || '';
-			nodeSelect.addEventListener('change', () => { worker.node = nodeSelect.value; });
+			nodeSelect.addEventListener('change', () => {
+				worker.node = nodeSelect.value;
+				tr.dataset.worker = nodeSelect.value || '';
+				syncWorkerActions();
+			});
 
 			const listSelect = el('select');
 			listSelect.appendChild(el('option', { value: '' }, '默认（第一个启用）'));
@@ -1346,19 +1514,42 @@
 				worker.ddns_domain = ddnsInput.value.trim();
 			});
 
+			const actions = el('div', { class: 'row-actions' });
+
+			[['测速', 'start', 'primary'], ['复测', 'retest', ''], ['停止', 'stop', 'danger']]
+				.forEach(([label, action, cls]) => {
+					const button = el('button', {
+						type: 'button',
+						'class': 'btn small' + (cls ? ' ' + cls : '')
+					}, label);
+					button.dataset.workerAction = action;
+					button.addEventListener('click', () => {
+						if (action === 'stop')
+							stopWorker(worker.node);
+						else
+							runWorker(worker.node, action);
+					});
+					actions.appendChild(button);
+				});
+
 			const remove = el('button', { type: 'button', 'class': 'btn small danger' }, '删除');
 			remove.addEventListener('click', () => {
 				state.workers.splice(index, 1);
 				renderWorkers();
 			});
+			actions.appendChild(remove);
 
-			body.appendChild(el('tr', {}, [
+			const tr = el('tr', {}, [
 				el('td', {}, nodeSelect),
 				el('td', {}, listSelect),
 				el('td', {}, ddnsInput),
-				el('td', {}, remove)
-			]));
+				el('td', {}, actions)
+			]);
+			tr.dataset.worker = worker.node || '';
+			body.appendChild(tr);
 		});
+
+		syncWorkerActions();
 	}
 
 	function addWorker() {
@@ -1564,6 +1755,7 @@
 
 		details.appendChild(summary);
 		details.appendChild(list);
+		floatPickerList(details, list);
 
 		details._values = () => Array.prototype.slice.call(
 			list.querySelectorAll('input[type="checkbox"]:checked'))

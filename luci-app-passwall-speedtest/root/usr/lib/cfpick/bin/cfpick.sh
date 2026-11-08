@@ -1369,6 +1369,8 @@ nt_download_phase() {
     local _W=$1 _rfile=$2 _Wn=$3 _cnt=$4 _durl=$5 _tmo=$6 _port=$7 _flag=$8
     local _rows="${_rfile}.rows" _out="${_rfile}.dl" _line _ip _spd _hdr
     local _i=0 _n _tested=0 _failed=0 _best_ip='' _best_spd=0
+    # 供 nt_download_stage 判断该节点是否需要复测一轮；早退（没有候选行）不算失败。
+    NT_DL_FAILED=0
     [ -f "$_rfile" ] || return 0
     _n=$(awk 'END{print NR+0}' "$_rfile" 2>/dev/null)
     [ "$_n" -gt 1 ] || return 0
@@ -1429,6 +1431,7 @@ nt_download_phase() {
     else
         rm -f "$_out"
         echolog "下载测速 [${_Wn}] 未取得任何有效速度（测试 URL 可能经该节点不可达），保留延迟排序结果"
+        NT_DL_FAILED=1
     fi
     return 0
 }
@@ -1446,13 +1449,48 @@ nt_download_worker() {
         "${DL_TEST_TIME:-10}" "$_port" "$_flag"
 }
 
+# 下载全部失败的节点：等其他 worker 的下载结束后，按现有 result.csv + 节点 address
+# 重新完整复测一轮（延迟探测 + 下载实测）。复测拿到有效下载速度才替换原结果；
+# 仍全失败则保留上一轮延迟排序结果。
+# 参数: $1=idx $2=node $3=origaddr $4=原结果文件 $5=socks_port
+nt_retest_failed_worker() {
+    local _idx=$1 _W=$2 _orig=$3 _rfile=$4 _port=$5
+    local _rf="${RUN_DIR}/retest_ips_${_W}.txt"
+    local _tmp="${RUN_DIR}/result.csv.retest.${_W}"
+    local _flag="${NODE_TEST_FLAG_BASE}_${_idx}_rt" _wn
+    build_retest_list_one "$_W" "${count:-30}" || return 0
+    [ -s "$_rf" ] || return 0
+    rm -f "$_tmp" 2>/dev/null
+    echolog "复测 [${_W}] 开始：该节点下载全部失败，用现有 result.csv/节点地址再测一轮"
+    node_test_worker "$_idx" "$_W" "$_orig" "$_tmp" "$_rf" \
+        "${probe_url:-}" "${timeout:-5}" "${probes:-3}" "$_port" "$_flag"
+    if [ -z "$(first_result_ip "$_tmp")" ]; then
+        rm -f "$_tmp"
+        echolog "复测 [${_W}] 没有通过延迟筛选的 IP，保留上一轮结果"
+        return 0
+    fi
+    _wn="$(uci -q get "passwall.${_W}.remarks" 2>/dev/null)"; _wn="${_wn:-${_W}}"
+    NT_DL_FAILED=0
+    nt_download_phase "$_W" "$_tmp" "$_wn" "${DL_TEST_COUNT:-5}" \
+        "${DL_TEST_URL:-https://speed.cloudflare.com/__down?bytes=10000000}" \
+        "${DL_TEST_TIME:-10}" "$_port" "${_flag}_dl"
+    if [ "$NT_DL_FAILED" != "1" ]; then
+        mv -f "$_tmp" "$_rfile"
+        echolog "复测 [${_wn}] 下载成功，已用复测结果替换该节点结果"
+    else
+        rm -f "$_tmp"
+        echolog "复测 [${_wn}] 下载仍全部失败，保留上一轮结果"
+    fi
+    return 0
+}
+
 # 下载实测阶段（所有 worker 停止后统一执行）：按映射文件逐 worker 串行实测。
 # 与一轮延迟测试分离的原因：worker 还在跑时，其 SOCKS、uci 改写和探测流量都会和下载
 # 争抢路由器 WAN 带宽与 CPU，边测边下载会让各 IP 的速度互相污染、无法横向比较。
 # 串行由主进程的顺序循环保证，不依赖跨进程锁。
 # 参数: $1=worker 映射文件（idx \t node \t origaddr，与 NT_ORIG_FILE 同格式）
 nt_download_stage() {
-    local _map=$1 _i _W _orig _rfile
+    local _map=$1 _i _W _orig _rfile _failed="" _item _idx _rest
     [ "${DL_TEST_ENABLED:-1}" = "1" ] || return 0
     [ -f "$_map" ] || return 0
     # 下载结果决定各节点写回的最优 IP，与写回同属不可中断的收尾：提前打 .nt_committing，
@@ -1467,8 +1505,27 @@ nt_download_stage() {
     while read -r _i _W _orig; do
         [ -n "$_W" ] || continue
         _rfile="${RUN_DIR}/result.csv.tmp.$_W"
+        NT_DL_FAILED=0
         nt_download_worker "$_W" "$_rfile" "$((48900 + _i - 1))" "${NODE_TEST_FLAG_BASE}_${_i}_dl"
+        [ "$NT_DL_FAILED" = "1" ] && _failed="$_failed ${_i}:${_W}:${_orig}"
     done < "$_map"
+
+    # 其他 worker 的下载全部结束后，对下载全部失败的节点各完整复测一轮。
+    if [ -n "$_failed" ]; then
+        if [ -f "${RUN_DIR}/.user_stop" ]; then
+            echolog "用户已停止，跳过下载失败节点的复测"
+            return 0
+        fi
+        echolog "下载全部失败的 worker:${_failed}；其他 worker 下载结束后各复测一轮"
+        for _item in $_failed; do
+            _idx=${_item%%:*}
+            _rest=${_item#*:}
+            _W=${_rest%%:*}
+            _orig=${_rest#*:}
+            nt_retest_failed_worker "$_idx" "$_W" "$_orig" \
+                "${RUN_DIR}/result.csv.tmp.${_W}" "$((48900 + _idx - 1))"
+        done
+    fi
     return 0
 }
 
@@ -1759,10 +1816,71 @@ node_speed_test() {
     local ip_source_mode="file"
     local selected_ip_file=""
     if [ "${RETEST_FROM_RESULT:-0}" = "1" ]; then
-        # 复测模式：候选来自当前 result.csv + 各节点当前 address + DDNS 域名解析，绝不重新拉在线列表。
+        # 复测模式：候选来自当前 result.csv + 各节点当前 address + DDNS 域名解析。
+        # 某个 worker 去重后只剩 0/1 个候选时无法择优，一旦这个 IP 失效就会一直
+        # 复测失败；这类 worker 退回普通测速来源（在线源会重新下载列表），其余
+        # worker 仍按复测的少量候选跑。
         read_node_ip_map
-        build_retest_ip_lists "$count" || { echolog "复测模式：没有可复测的候选 IP（result.csv 为空、节点 address 不是 IP 且 DDNS 域名无可解析记录），中止"; return 1; }
-        echolog "复测模式：候选来自现有 result.csv / 各节点当前 address / DDNS 域名解析（不重新下载在线列表），每节点最多 ${count} 个"
+        build_retest_ip_lists "$count"
+        local _sparse="" _seen="" _w _rf _rn _before _src _N _n _e _any
+        for _w in ${NODE_IP_WORKERS:-} ${passwall_services:-} ${node_test_node:-}; do
+            [ -n "$_w" ] || continue
+            node_selected "$_w" || continue
+            case " $_seen " in *" $_w "*) continue ;; esac
+            _seen="$_seen $_w"
+            _rf="${RUN_DIR}/retest_ips_${_w}.txt"
+            _rn=0
+            [ -f "$_rf" ] && _rn=$(grep -cvE '^[[:space:]]*#|^[[:space:]]*$' "$_rf")
+            [ "$_rn" -ge 2 ] || _sparse="$_sparse $_w"
+        done
+        _sparse="${_sparse# }"
+
+        if [ -n "$_sparse" ]; then
+            echolog "复测候选不足 2 个的 worker: ${_sparse}；改为普通测速并重新拉取列表 IP"
+            if [ "${ip_source:-}" = "online" ]; then
+                migrate_ip_online_regions
+                fetch_online_raw || return 1
+                compute_default_ip_list
+                for _n in 1 2 3 4 5; do
+                    eval "_e=\${list${_n}_enabled:-0}"
+                    [ "$_e" = "1" ] && build_ip_list_file "$_n"
+                done
+                for _w in $_sparse; do
+                    _N=$(resolve_node_list "$_w")
+                    if [ -n "$_N" ]; then
+                        _src="${RUN_DIR}/ip_list_${_N#list}.txt"
+                    else
+                        _src="${ONLINE_RAW:-}"
+                    fi
+                    [ -n "$_src" ] && [ -f "$_src" ] || continue
+                    _rf="${RUN_DIR}/retest_ips_${_w}.txt"
+                    _before=$(grep -cvE '^[[:space:]]*#|^[[:space:]]*$' "$_rf" 2>/dev/null)
+                    case "$_before" in ''|*[!0-9]*) _before=0 ;; esac
+                    grep -vE '^[[:space:]]*#|^[[:space:]]*$' "$_src" | head -n "$count" > "$_rf"
+                    echolog "worker [$_w] 复测只有 ${_before} 个候选，已改用普通测速候选（$(grep -cvE '^[[:space:]]*#|^[[:space:]]*$' "$_rf") 个）"
+                done
+            else
+                selected_ip_file="$(select_ip_file)"
+                [ -f "$selected_ip_file" ] || { echolog "候选 IP 列表文件不存在: $selected_ip_file"; return 1; }
+                for _w in $_sparse; do
+                    _rf="${RUN_DIR}/retest_ips_${_w}.txt"
+                    _before=$(grep -cvE '^[[:space:]]*#|^[[:space:]]*$' "$_rf" 2>/dev/null)
+                    case "$_before" in ''|*[!0-9]*) _before=0 ;; esac
+                    grep -vE '^[[:space:]]*#|^[[:space:]]*$' "$selected_ip_file" | head -n "$count" > "$_rf"
+                    echolog "worker [$_w] 复测只有 ${_before} 个候选，已改用普通测速候选（$(grep -cvE '^[[:space:]]*#|^[[:space:]]*$' "$_rf") 个）"
+                done
+            fi
+        fi
+
+        # 兜底：至少一个 worker 有候选，否则中止（与旧行为一致）。
+        _any=0
+        for _w in ${NODE_IP_WORKERS:-} ${passwall_services:-} ${node_test_node:-}; do
+            [ -n "$_w" ] || continue
+            node_selected "$_w" || continue
+            [ -s "${RUN_DIR}/retest_ips_${_w}.txt" ] && { _any=1; break; }
+        done
+        [ "$_any" = "1" ] || { echolog "复测模式：没有可复测的候选 IP（result.csv 为空、节点 address 不是 IP 且 DDNS 域名无可解析记录），中止"; return 1; }
+        echolog "复测模式：候选来自现有 result.csv / 各节点当前 address / DDNS 域名解析，每节点最多 ${count} 个"
         ip_source_mode="retest"
     elif [ "${ip_source:-}" = "online" ]; then
         # online CM 源：一次下载原始列表，按各 ip_list 的 regions 分别过滤成 ip_list_<N>.txt

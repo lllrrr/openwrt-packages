@@ -187,6 +187,24 @@ class WebTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(data["stopped"])
 
+    def test_status_exposes_worker_states(self):
+        status, data = self.request("/api/status")
+        self.assertEqual(status, 200)
+        self.assertIsInstance(data["workers"], dict)
+        self.assertFalse(data["download_active"])
+
+    def test_stop_unknown_node_is_noop(self):
+        status, data = self.request("/api/stop", method="POST",
+                                    payload={"nodes": ["ghost"]})
+        self.assertEqual(status, 200)
+        self.assertFalse(data["stopped"])
+        self.assertIn("没有运行中", data["message"])
+
+    def test_stop_rejects_non_list_nodes(self):
+        status, data = self.request("/api/stop", method="POST",
+                                    payload={"nodes": "ghost"})
+        self.assertEqual(status, 400)
+
     def test_ddns_preview_endpoint(self):
         status, data = self.request("/api/ddns")
         self.assertEqual(status, 200)

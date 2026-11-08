@@ -20,6 +20,13 @@ case "$1" in
             exit 1
         fi
         ;;
+    holiday_info)
+        netcontrol holiday-info
+        ;;
+    holiday_update)
+        netcontrol holiday-update >/dev/null 2>&1
+        netcontrol holiday-info
+        ;;
     *)
         echo "错误：未知命令 '$1'" >&2
         exit 1

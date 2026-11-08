@@ -9,7 +9,7 @@
   --bg:#f6f8fa; --card:#ffffff; --text:#1f2328; --muted:#656d76; --muted2:#8b949e;
   --border:#d0d7de; --accent:#0969da;
   /* 数据色只有一套，深浅主题共用；只有界面底色与文字随主题切换 */
-  --dn:#6366f1; --up:#db2777; --grid:rgba(0,0,0,.08);
+  --dn:#0f7f9c; --up:#8854e8; --grid:rgba(0,0,0,.08);
   --tip-bg:rgba(255,255,255,.74);
 }
 html[data-theme="dark"]{
@@ -588,7 +588,7 @@ function draw(){
     // 面积渐变：颜色由主题变量派生（与柱子、竖虚线同一套机制），
     // 只靠 stop-opacity 做上浓下淡，保持柔和、不抢折线
     var defs = el('defs');
-    var aDn = themeColor('--dn', '#6366f1'), aUp = themeColor('--up', '#db2777');
+    var aDn = themeColor('--dn', '#0f7f9c'), aUp = themeColor('--up', '#8854e8');
     [['gAreaDn', aDn], ['gAreaUp', aUp]].forEach(function(g){
       var col = shade(g[1], 0.18);
       var lg = el('linearGradient', {id:g[0], x1:'0', y1:'0', x2:'0', y2:'1'});
@@ -600,7 +600,7 @@ function draw(){
     // 悬停竖虚线的渐变：顶部渐入 → 上行黄 → 下行绿，颜色跟随主题变量
     // userSpaceOnUse 是必需的：垂直线的 objectBoundingBox 宽度为 0，默认渐变不会渲染
     var vTop = P.t + ih*0.06;
-    var cUp = themeColor('--up', '#db2777'), cDn = themeColor('--dn', '#6366f1');
+    var cUp = themeColor('--up', '#8854e8'), cDn = themeColor('--dn', '#0f7f9c');
     var vg = el('linearGradient', {
       id:'gVline', gradientUnits:'userSpaceOnUse',
       x1:'0', y1:vTop.toFixed(1), x2:'0', y2:yBase.toFixed(1)
@@ -690,18 +690,25 @@ function draw(){
 
     var defsB = el('defs');
     svg.appendChild(defsB);
-    var cDn = themeColor('--dn', '#6366f1'), cUp = themeColor('--up', '#db2777');
+    var cDn = themeColor('--dn', '#0f7f9c'), cUp = themeColor('--up', '#8854e8');
 
     var barRects = [];
     bars.forEach(function(b, i){
       var cx = P.l + gap*i + gap/2;
       var hDn = ih*(b.dn/s2.div)/yM2;
       var hUp = ih*(b.up/s2.div)/yM2;
-      var yb = P.t + ih;
       if (hDn + hUp <= 0){ barRects.push([null, null]); return; }  // 空柱保留柱位但不画
-      var x = cx - bw/2;
-      var topY = yb - hDn - hUp;
-      var rr = Math.min(4, bw/2, hDn + hUp);
+
+      // 全部几何对齐到整数像素：浮点 x / 接缝 y 会让 SVG 在左右边缘和堆叠接缝
+      // 画出半透明抗锯齿像素，粉段淡边偏洋红、蓝段偏靛蓝，缩小看就像两段错位；
+      // 接缝处两段 AA 叠加还会混出一条杂色线。整数坐标让边缘正好落在像素边界
+      var yb    = Math.round(P.t + ih);            // 基线
+      var x     = Math.round(cx - bw/2);
+      var w     = Math.max(1, Math.round(bw));
+      var ySeam = Math.round(yb - hDn);            // 下行顶 = 上行底，同一个整数
+      var yTop  = Math.round(yb - hDn - hUp);      // 柱顶
+      var hDnI  = yb - ySeam, hUpI = ySeam - yTop;
+      var rr    = Math.round(Math.min(4, w/2, yb - yTop));
 
       // 方案 B：整根柱共用一段亮度渐变。userSpaceOnUse 让上下两段取同一 Y 尺度，
       // 接缝处亮度连续，只有柱顶一个亮点，不破坏「一根柱 = 总流量」的语义
@@ -709,23 +716,28 @@ function draw(){
       [[idDn, cDn], [idUp, cUp]].forEach(function(g){
         var lg = el('linearGradient', {
           id:g[0], gradientUnits:'userSpaceOnUse',
-          x1:'0', y1:topY.toFixed(1), x2:'0', y2:yb.toFixed(1)
+          x1:'0', y1:yTop, x2:'0', y2:yb
         });
         lg.appendChild(el('stop', {offset:'0%', 'stop-color':shade(g[1], 0.24)}));
-        lg.appendChild(el('stop', {offset:'100%', 'stop-color':shade(g[1], -0.10)}));
+        // 暗端保持主色、不再压暗：压暗后底部蓝段在深底上对比仅 ~3.5，
+        // 抗锯齿边缘融进背景显得比粉段窄，视觉上会误以为粉段偏左
+        lg.appendChild(el('stop', {offset:'100%', 'stop-color':g[1]}));
         defsB.appendChild(lg);
       });
 
       var pDn = null, pUp = null;
-      if (hDn > 0){
-        // 有上行时下行保持直角，避免堆叠接缝露背景缝
-        var dDn = (hUp > 0) ? rectP(x, yb-hDn, bw, hDn)
-                            : roundTop(x, yb-hDn, bw, hDn, rr);
-        pDn = el('path', {d:dDn, fill:'url(#'+idDn+')', style:'transition:opacity .18s'});
+      if (hDnI > 0){
+        // 有上行时下行保持直角，避免堆叠接缝露背景缝；纯矩形段关掉抗锯齿
+        var stacked = (hUpI > 0);
+        var dDn = stacked ? rectP(x, ySeam, w, hDnI)
+                          : roundTop(x, ySeam, w, hDnI, rr);
+        var aDn = {d:dDn, fill:'url(#'+idDn+')', style:'transition:opacity .18s'};
+        if (stacked) aDn['shape-rendering'] = 'crispEdges';
+        pDn = el('path', aDn);
         svg.appendChild(pDn);
       }
-      if (hUp > 0){
-        pUp = el('path', {d:roundTop(x, topY, bw, hUp, rr), fill:'url(#'+idUp+')',
+      if (hUpI > 0){
+        pUp = el('path', {d:roundTop(x, yTop, w, hUpI, rr), fill:'url(#'+idUp+')',
                           style:'transition:opacity .18s'});
         svg.appendChild(pUp);
       }

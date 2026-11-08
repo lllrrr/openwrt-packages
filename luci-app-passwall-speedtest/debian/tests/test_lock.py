@@ -19,6 +19,7 @@ class LockTests(unittest.TestCase):
             mock.patch.object(lock, "WORKER_LOCK_DIR", self.root / ".worker-locks"),
             mock.patch.object(lock, "RUN_REGISTRY", self.root / ".runs"),
             mock.patch.object(lock, "COMMIT_LOCK_DIR", self.root / ".commit.lock"),
+            mock.patch.object(lock, "STOP_DIR", self.root / ".stops"),
             mock.patch.object(lock, "RUN_PID_FILE", self.root / "current_run"),
             mock.patch.object(lock.paths, "RUN_LOCK_DIR", self.root / ".run.lock"),
             mock.patch.object(lock.paths, "STOP_FILE", self.root / "stop.request"),
@@ -84,6 +85,36 @@ class LockTests(unittest.TestCase):
         self.assertTrue(lock.stop_requested())
         lock.clear_stop()
         self.assertFalse(lock.stop_requested())
+
+    def test_per_run_stop_flag(self):
+        lock.request_stop(4321)
+        self.assertTrue(lock.stop_requested(4321))
+        self.assertFalse(lock.stop_requested(1234))
+        lock.clear_stop(4321)
+        self.assertFalse(lock.stop_requested(4321))
+        # 全局停止对每个运行都生效。
+        lock.request_stop()
+        self.assertTrue(lock.stop_requested(1234))
+        self.assertTrue(lock.stop_requested(4321))
+        lock.clear_stop()
+        self.assertFalse(lock.stop_requested(1234))
+
+    def test_worker_states_and_commit_active(self):
+        path = self.busy("a", pid=999)
+        (path / "name").write_text("a", encoding="utf-8")
+        states = lock.worker_states()
+        self.assertEqual(states["a"]["pid"], 999)
+        self.assertFalse(states["a"]["stopping"])
+
+        lock.request_stop(999)
+        self.assertTrue(lock.worker_states()["a"]["stopping"])
+
+        self.assertFalse(lock.commit_active())
+        lock.COMMIT_LOCK_DIR.mkdir(parents=True)
+        (lock.COMMIT_LOCK_DIR / "pid").write_text("999", encoding="utf-8")
+        (lock.COMMIT_LOCK_DIR / "started").write_text(
+            str(int(time.time())), encoding="utf-8")
+        self.assertTrue(lock.commit_active())
 
 
 if __name__ == "__main__":

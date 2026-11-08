@@ -26,6 +26,15 @@ RANDMAC_SEEN="/var/$NAME.randseen"
 # 与 netcontrol reset-duration 共用的 duration.db 写锁
 DB_LOCK="/var/lock/netcontrol-db.lock"
 
+# 法定节假日判定（holiday_day_type / holiday_update）。文件缺失时不能直接 source：
+# 非交互 ash 会当场退出，procd 跟着无限重启。退化为无数据，法定选项按周一至周五处理。
+if [ -f /usr/share/netcontrol/holiday.sh ]; then
+    . /usr/share/netcontrol/holiday.sh
+else
+    HOLIDAY_NEXT="/var/netcontrol.holiday_next"
+    holiday_day_type() { [ "$2" -le 5 ] && echo "work weekday" || echo "off weekday"; }
+fi
+
 # ─── 日志 ────────────────────────────────────────────────────────────────────
 
 dbg() {
@@ -595,9 +604,58 @@ is_time_in_range() {
     return 1
 }
 
+# 今天的法定日类型（work/off），由 refresh_day_type 在主 shell 里算好。目标检查跑在
+# 管道子 shell 中，在那边算的缓存带不回来，所以必须在进管道前刷新。
+DAYTYPE=""
+DAYTYPE_DATE=""
+
+refresh_day_type() {
+    local force="$1" today r
+    today="$(date +%Y-%m-%d)"
+    [ "$force" != "1" ] && [ "$today" = "$DAYTYPE_DATE" ] && return 0
+    r="$(holiday_day_type "$today" "$(date +%u)")"
+    DAYTYPE="${r%% *}"
+    # 一天只提示一次，避免刷屏
+    [ "$today" != "$DAYTYPE_DATE" ] && [ "${r#* }" = "weekday" ] && rules_use_holiday && \
+        info "没有 ${today%%-*} 年的法定节假日数据，暂按周一至周五为工作日处理"
+    DAYTYPE_DATE="$today"
+    dbg "今天（$today）的法定日类型：$r"
+}
+
+# 是否有已启用的规则用到了法定节假日选项
+rules_use_holiday() {
+    local rec rest
+    for rec in $DEVICE_CACHE; do
+        rest="${rec#*|}"; rest="${rest#*|}"          # enable|time_mode|week|...
+        [ "${rest%%|*}" = "1" ] || continue
+        rest="${rest#*|}"; rest="${rest#*|}"          # week|...
+        case "${rest%%|*}" in cn_work|cn_off) return 0 ;; esac
+    done
+    return 1
+}
+
+# 节假日数据自动在线更新：只在有规则用到时才联网。成功后一天一次，失败一小时后重试。
+# 在后台跑，不拖慢主循环；DAYTYPE 由主循环每 10 轮强制刷新一次，届时用上新数据。
+maybe_update_holidays() {
+    local now next
+    [ "$(config_t_get netcontrol holiday_update 0 1)" = "1" ] || return 0
+    rules_use_holiday || return 0
+    now="$(date +%s)"
+    next="$(cat "$HOLIDAY_NEXT" 2>/dev/null)"
+    case "$next" in ''|*[!0-9]*) next=0 ;; esac
+    [ "$now" -lt "$next" ] && return 0
+    echo $((now + 3600)) > "$HOLIDAY_NEXT"
+    ( netcontrol holiday-update >/dev/null 2>&1 & )
+}
+
 is_weekday_in_range() {
-    local wdays="$1" cur; cur="$(date +%u)"
-    [ "$wdays" = "0" ] && return 0
+    local wdays="$1" cur
+    case "$wdays" in
+        0)       return 0 ;;
+        cn_work) [ "$DAYTYPE" = "work" ]; return $? ;;
+        cn_off)  [ "$DAYTYPE" = "off" ];  return $? ;;
+    esac
+    cur="$(date +%u)"
     # 前后补逗号后用 case 子串匹配，省掉 tr 与子 shell（wdays 形如 "1,2,3,4,5"）
     case ",$wdays," in *",$cur,"*) return 0 ;; esac
     return 1
@@ -872,6 +930,14 @@ main_loop() {
         fi
 
         dbg "开始检查各设备的上网控制规则"
+        # 每 10 轮强制重算一次，让新下载的数据和刚保存的自定义日期及时生效
+        # 在线更新的检查也放在这里，避免每轮多派生几个进程
+        if [ $((loop_count % 10)) -eq 0 ]; then
+            refresh_day_type 1
+            maybe_update_holidays
+        else
+            refresh_day_type
+        fi
         targets="$(get_all_targets)"
 
         if [ -z "$targets" ]; then

@@ -190,14 +190,19 @@
 			? '已运行 ' + fmtDuration(status.elapsed) + (status.stop_requested ? ' · 正在停止' : '')
 			: (status.last && status.last.finished_at ? '上次完成于 ' + new Date(status.last.finished_at * 1000).toLocaleString() : '—'));
 
+		// 已请求停止时按钮也要失效并显示「停止中…」，避免重复点。
+		const stopping = running && !!status.stop_requested;
+		const stopButton = $('#btn-stop');
 		$('#btn-start').disabled = running;
-		$('#btn-stop').disabled = !running;
+		stopButton.disabled = !running || stopping;
+		stopButton.textContent = stopping ? '停止中…' : '停止';
 		$('#btn-retest').disabled = running;
 
 		if (status.core) renderActiveCore(status.core);
 		setText('ov-cron', status.cron ? '已启用' : '未启用');
 		setText('ov-cron-line', status.cron_line || '—');
 		renderDdnsStatus(status.ddns);
+		syncNodeActions();
 	}
 
 	function ddnsText(info) {
@@ -519,6 +524,7 @@
 		nodes.forEach((node, index) => {
 			const tr = document.createElement('tr');
 			tr.dataset.index = String(index);
+			tr.dataset.node = node.name || '';
 
 			const enabledCell = document.createElement('td');
 			const enabled = document.createElement('input');
@@ -527,6 +533,7 @@
 			enabled.addEventListener('change', () => {
 				node.enabled = enabled.checked;
 				tr.classList.toggle('disabled', !enabled.checked);
+				syncNodeActions();
 			});
 			enabledCell.appendChild(enabled);
 			tr.appendChild(enabledCell);
@@ -536,7 +543,10 @@
 			name.type = 'text';
 			name.value = node.name || '';
 			name.placeholder = '节点名称';
-			name.addEventListener('input', () => { node.name = name.value; });
+			name.addEventListener('input', () => {
+				node.name = name.value;
+				tr.dataset.node = name.value;
+			});
 			nameCell.appendChild(name);
 			tr.appendChild(nameCell);
 
@@ -586,6 +596,27 @@
 			tr.appendChild(statusCell);
 
 			const actionCell = document.createElement('td');
+			const actions = document.createElement('div');
+			actions.className = 'row-actions';
+
+			// 每行三个 worker 按钮：测速 / 复测 / 停止。禁用状态由 syncNodeActions()
+			// 按 /api/status 的 workers + download_active 实时同步。
+			[['测速', 'start', 'primary'], ['复测', 'retest', ''], ['停止', 'stop', 'danger']]
+				.forEach(([label, action, cls]) => {
+					const button = document.createElement('button');
+					button.type = 'button';
+					button.className = 'btn small' + (cls ? ' ' + cls : '');
+					button.dataset.nodeAction = action;
+					button.textContent = label;
+					button.addEventListener('click', () => {
+						if (action === 'stop')
+							stopNode(node.name);
+						else
+							startNode(node.name, action === 'retest' ? 'retest' : 'start');
+					});
+					actions.appendChild(button);
+				});
+
 			const remove = document.createElement('button');
 			remove.type = 'button';
 			remove.className = 'btn small danger';
@@ -595,13 +626,15 @@
 				nodes.splice(index, 1);
 				renderNodes();
 			});
-			actionCell.appendChild(remove);
+			actions.appendChild(remove);
+			actionCell.appendChild(actions);
 			tr.appendChild(actionCell);
 
 			if (node.enabled === false) tr.classList.add('disabled');
 			body.appendChild(tr);
 		});
 		$('#nodes-empty').classList.toggle('hidden', nodes.length > 0);
+		syncNodeActions();
 	}
 
 	async function refreshNodeInfo() {
@@ -643,6 +676,99 @@
 		$('#bulk-overlay').classList.add('hidden');
 		renderNodes();
 		toast(added ? ('已导入 ' + added + ' 个节点，记得点击「保存节点」') : '没有可导入的新链接');
+	}
+
+	// 折叠多选展开时默认会撑高所在行（表格行、grid 行），长节点列表能把整行
+	// 拉到几百像素。这里把展开的列表改成 fixed 悬浮层：脱离文档流，不改变
+	// 行高；页面滚动或窗口缩放时重新贴回 summary 下方，下方空间不足则向上翻。
+	function floatPickerList(details, list) {
+		let onScroll = null;
+		let onResize = null;
+
+		function detach() {
+			if (onScroll) window.removeEventListener('scroll', onScroll, true);
+			if (onResize) window.removeEventListener('resize', onResize);
+			onScroll = null;
+			onResize = null;
+		}
+
+		function reset() {
+			list.classList.remove('floating');
+			['position', 'top', 'bottom', 'left', 'width', 'minWidth', 'maxWidth',
+				'maxHeight', 'marginTop'].forEach((prop) => { list.style[prop] = ''; });
+		}
+
+		function place() {
+			if (!details.isConnected) {
+				detach();
+				return;
+			}
+			// 先把列表移出文档流再测量：展开的瞬间列表还参与表格自动布局，
+			// summary 会被撑宽/挤偏，等列表变成 fixed 后表格又重排回原样。
+			// 先测再改就会用到重排前的坐标（首次打开偏一截，滚动一下才正常）。
+			if (!list.classList.contains('floating')) {
+				list.classList.add('floating');
+				list.style.position = 'fixed';
+				list.style.marginTop = '0';
+				void list.offsetHeight;
+			}
+			// 注意：details 展开后的 rect 包含列表本身的高度，拿它当锚点会把
+			// 浮层再往下推一整个列表的高度（看起来像脱离输入框的弹窗）。
+			// 锚点必须是 summary。
+			const anchor = details.querySelector('summary') || details;
+			const rect = anchor.getBoundingClientRect();
+			const margin = 8;
+			const gap = 6;
+			const vw = document.documentElement.clientWidth;
+			const vh = document.documentElement.clientHeight;
+			// 不要从 list 自己的 computedStyle 读宽度：悬浮层一旦设过宽度，
+			// 下一次定位会把上次的值再读回来，越放越宽。国家码多选需要两列，
+			// 至少 240px；节点多选至少 170px。
+			const cssMin = details.classList.contains('country-picker') ? 240 : 170;
+			const width = Math.min(Math.max(cssMin, Math.round(rect.width)),
+				vw - margin * 2);
+			const natural = Math.min(list.scrollHeight + 2, 190);
+			const below = vh - rect.bottom - gap - margin;
+			const above = rect.top - gap - margin;
+
+			list.style.width = width + 'px';
+			list.style.minWidth = '0';
+			list.style.maxWidth = 'none';
+			list.style.left = Math.max(margin,
+				Math.min(rect.left, vw - margin - width)) + 'px';
+
+			if (natural > below && above > below) {
+				list.style.top = 'auto';
+				list.style.bottom = Math.round(vh - rect.top + gap) + 'px';
+				list.style.maxHeight = Math.max(90, Math.min(190, above)) + 'px';
+			}
+			else {
+				list.style.bottom = 'auto';
+				list.style.top = Math.round(rect.bottom + gap) + 'px';
+				list.style.maxHeight = Math.max(90, Math.min(190, below)) + 'px';
+			}
+		}
+
+		details.addEventListener('toggle', () => {
+			if (details.open) {
+				place();
+				// 表格/字体的重排可能延续到下一帧，再校准一次，避免首帧偏差。
+				requestAnimationFrame(() => {
+					if (details.open)
+						place();
+				});
+				if (!onScroll) {
+					onScroll = () => place();
+					onResize = () => place();
+					window.addEventListener('scroll', onScroll, true);
+					window.addEventListener('resize', onResize);
+				}
+			}
+			else {
+				detach();
+				reset();
+			}
+		});
 	}
 
 	// ── IP lists ────────────────────────────────────────────────────────
@@ -691,6 +817,7 @@
 
 		details.appendChild(summary);
 		details.appendChild(list);
+		floatPickerList(details, list);
 		details._values = () => Array.from(
 			list.querySelectorAll('input[type="checkbox"]:checked'))
 			.map((box) => box.value);
@@ -980,6 +1107,7 @@
 
 		details.appendChild(summary);
 		details.appendChild(list);
+		floatPickerList(details, list);
 		details._nodeValues = () => Array.from(
 			list.querySelectorAll('input[type="checkbox"]:checked'))
 			.map((box) => box.value);
@@ -1748,6 +1876,72 @@
 	}
 
 	// ── actions ─────────────────────────────────────────────────────────
+	// 节点页每行的独立测速：只测一个 worker，允许与其他 worker 并行探测。
+	async function startNode(name, mode) {
+		if (!name) {
+			toast('请先给节点填写名称', true);
+			return;
+		}
+		try {
+			await api('/api/start', {
+				method: 'POST',
+				body: { mode: mode, nodes: [name] },
+			});
+			toast((mode === 'retest' ? '已开始复测：' : '已开始测速：') + name);
+			activateTab('logs');
+			await pollStatus();
+		}
+		catch (e) {
+			toast(e.message, true);
+		}
+	}
+
+	// 只停这一个 worker：它跑完当前 IP 后进入下载实测并写回，其他 worker 继续。
+	async function stopNode(name) {
+		if (!name) return;
+		try {
+			const response = await api('/api/stop', {
+				method: 'POST',
+				body: { nodes: [name] },
+			});
+			toast(response.message || ('已请求停止：' + name));
+			await pollStatus();
+		}
+		catch (e) {
+			toast(e.message, true);
+		}
+	}
+
+	// 按钮状态跟 /api/status 同步：
+	//   * 该 worker 正在测速 → 测速/复测禁用，停止可用；
+	//   * 整个下载/写回阶段（download_active）→ 本页所有按钮禁用；
+	//   * 空闲且未禁用 → 测速/复测可用，停止禁用。
+	function syncNodeActions() {
+		const status = state.status || {};
+		const workers = status.workers || {};
+		const busy = !!status.download_active;
+
+		$$('#nodes-body tr').forEach((row) => {
+			const name = row.dataset.node || '';
+			const info = name ? workers[name] : null;
+			const running = !!info;
+			const stopping = !!(info && info.stopping);
+			const off = row.classList.contains('disabled');
+			row.classList.toggle('running', running);
+
+			row.querySelectorAll('[data-node-action]').forEach((button) => {
+				const action = button.dataset.nodeAction;
+				if (action === 'stop') {
+					button.disabled = !running || stopping || busy;
+					button.textContent = stopping ? '停止中…' : '停止';
+				}
+				else {
+					button.disabled = running || busy || off;
+				}
+			});
+		});
+	}
+
 	async function startTest(mode) {
 		try {
 			await api('/api/start', { method: 'POST', body: { mode: mode } });

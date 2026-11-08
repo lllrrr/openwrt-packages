@@ -1,6 +1,8 @@
 import tempfile
+import types
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from cfpick import iplists
 
@@ -69,6 +71,83 @@ class OnlineTests(unittest.TestCase):
             {"enabled": True},
         ]
         self.assertEqual(iplists.default_list(settings), "list2")
+
+
+class _Log:
+    def __init__(self):
+        self.lines = []
+
+    def log(self, message):
+        self.lines.append(str(message))
+
+
+class RetestFallbackTests(unittest.TestCase):
+    """复测只有 0/1 个候选的 worker 应退回普通测速重新取列表。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.path = Path(self.tmp.name) / "ip.txt"
+        self.path.write_text("5.6.7.8\n9.9.9.9\n", encoding="utf-8")
+        self.cfg = {
+            "ip_source": "custom",
+            "custom_ip_file": str(self.path),
+            "custom_allip": False,
+            "test_count": 30,
+            "ip_lists": [],
+            "ip_online_url": "",
+        }
+        self.log = _Log()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    @staticmethod
+    def node(name, server):
+        return {"name": name, "ip_list": "", "ddns_domain": "",
+                "parsed": types.SimpleNamespace(server=server)}
+
+    def select(self, nodes, rows):
+        with mock.patch("cfpick.iplists.result.read_result",
+                        return_value=(rows, None)):
+            return iplists.select(self.cfg, nodes, "retest", self.log)
+
+    def test_two_candidates_stay_retest(self):
+        nodes = [self.node("A", "2.2.2.2")]
+        rows = [types.SimpleNamespace(node="A", ip="1.1.1.1")]
+        chosen = self.select(nodes, rows)
+        self.assertEqual(chosen.source, "retest")
+        self.assertEqual(chosen.per_node["A"], ["2.2.2.2", "1.1.1.1"])
+        self.assertFalse(any("普通测速" in line for line in self.log.lines))
+
+    def test_single_candidate_falls_back_to_list(self):
+        nodes = [self.node("A", "1.1.1.1")]
+        rows = [types.SimpleNamespace(node="A", ip="1.1.1.1")]
+        chosen = self.select(nodes, rows)
+        self.assertEqual(chosen.per_node["A"], ["5.6.7.8", "9.9.9.9"])
+        self.assertTrue(any("改为普通测速" in line for line in self.log.lines))
+
+    def test_no_candidate_falls_back_to_list(self):
+        nodes = [self.node("A", "example.com")]
+        chosen = self.select(nodes, [])
+        self.assertEqual(chosen.per_node["A"], ["5.6.7.8", "9.9.9.9"])
+
+    def test_sparse_worker_does_not_affect_others(self):
+        nodes = [self.node("A", "1.1.1.1"), self.node("B", "3.3.3.3")]
+        rows = [
+            types.SimpleNamespace(node="A", ip="1.1.1.1"),
+            types.SimpleNamespace(node="B", ip="3.3.3.3"),
+            types.SimpleNamespace(node="B", ip="4.4.4.4"),
+        ]
+        chosen = self.select(nodes, rows)
+        self.assertEqual(chosen.per_node["A"], ["5.6.7.8", "9.9.9.9"])
+        self.assertEqual(chosen.per_node["B"], ["3.3.3.3", "4.4.4.4"])
+
+    def test_start_mode_unchanged(self):
+        nodes = [self.node("A", "1.1.1.1")]
+        with mock.patch("cfpick.iplists.result.read_result") as reader:
+            chosen = iplists.select(self.cfg, nodes, "start", self.log)
+            reader.assert_not_called()
+        self.assertEqual(chosen.shared, ["5.6.7.8", "9.9.9.9"])
 
 
 if __name__ == "__main__":

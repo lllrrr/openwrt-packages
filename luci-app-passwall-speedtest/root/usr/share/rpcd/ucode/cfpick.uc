@@ -10,6 +10,8 @@ const RUN_PID_FILE = RESULT_DIR + '/current_run';
 const RUN_LOCK_DIR = RESULT_DIR + '/.run.lock';
 // 按 worker 并发的任务登记表：每个运行写一个 /tmp/cfpick/.runs/<pid>。
 const RUN_REGISTRY = RESULT_DIR + '/.runs';
+// 与 cfpick.sh 保持一致：下载/写回使用一个全局锁，锁被占用时节点页按钮全禁用。
+const COMMIT_LOCK_DIR = RESULT_DIR + '/.commit.lock';
 const HISTORY_FILE = '/etc/cfpick/history.csv';
 const RUN_SCRIPT = '/usr/lib/cfpick/bin/cfpick.sh';
 
@@ -152,29 +154,6 @@ function status() {
 	};
 }
 
-// Single-instance guard at the API layer as well: while a run is alive,
-// starting another one is a no-op.  The user must stop the current run first;
-// the shell script's run lock is the second line of defence.
-function start() {
-	if (status().running)
-		return { started: false, running: true };
-
-	command(shquote(RUN_SCRIPT) + ' start >/dev/null 2>&1 &');
-
-	return { started: true, running: true };
-}
-
-// 复测现有最优 IP：只对当前 result.csv + 各节点现有 address 做一轮延迟 + 下载实测，
-// 不重新下载在线列表。运行中同样直接拒绝，避免用户误点。
-function start_retest() {
-	if (status().running)
-		return { started: false, running: true };
-
-	command(shquote(RUN_SCRIPT) + ' retest >/dev/null 2>&1 &');
-
-	return { started: true, running: true };
-}
-
 // 记录的主进程 PID 是否还活着、且确实是本脚本。只看 /proc/<pid> 存在会被「PID 被无关进程
 // 复用」骗过（同脚本 run_lock_acquire 的判据），故再匹配一次 cmdline。
 function run_pid_alive(pid) {
@@ -231,6 +210,127 @@ function run_dir() {
 	return pid ? RESULT_DIR + '/run.' + pid : null;
 }
 
+// 锁目录的持有者是否还活着（与 cfpick.sh 的 lock_owner_alive 同判据）。
+function lock_alive(dir) {
+	let pid = trim(read_file(dir + '/pid') || '');
+
+	return match(pid, /^[0-9]+$/) != null && run_pid_alive(pid);
+}
+
+// worker id → { pid, mode, stopping }。登记表的 workers= 字段由脚本在抢到
+// worker 锁后写入，节点页三个按钮据此同步：正在测的行只能停止。
+function worker_states() {
+	let out = {};
+	let pids = run_pids();
+
+	for (let i = 0; i < length(pids); i++) {
+		let pid = pids[i];
+		let text = '';
+
+		try {
+			text = read_file(RUN_REGISTRY + '/' + pid) || '';
+		}
+		catch (e) {
+			text = '';
+		}
+
+		let lines = split(text, '\n');
+		let workers = '';
+		let mode = '';
+
+		for (let j = 0; j < length(lines); j++) {
+			let line = trim(lines[j]);
+			let m = match(line, /^workers=(.*)$/);
+
+			if (m != null) {
+				workers = m[1];
+				continue;
+			}
+
+			m = match(line, /^mode=(.*)$/);
+
+			if (m != null)
+				mode = m[1];
+		}
+
+		let dir = RESULT_DIR + '/run.' + pid;
+		let stopping = fs.access(dir + '/.nt_stop', 'f') ||
+			fs.access(dir + '/.iter_stop', 'f');
+		let ids = split(workers, ',');
+
+		for (let k = 0; k < length(ids); k++) {
+			let id = trim(ids[k]);
+
+			if (id != '')
+				out[id] = { pid: int(pid), mode: mode, stopping: stopping };
+		}
+	}
+
+	return out;
+}
+
+// 下载实测 + 写回占用全局下载锁时，节点页所有 worker 按钮都禁用。
+function download_active() {
+	return fs.access(COMMIT_LOCK_DIR + '/pid', 'f') && lock_alive(COMMIT_LOCK_DIR);
+}
+
+// ubus 参数里的 node 是逗号分隔的 worker id 列表。
+function node_list(req) {
+	let raw = '' + ((req && req.args && req.args.node) || '');
+	// 兼容逗号/空格分隔（CGI 的 nodes_text 用空格拼接）。
+	let parts = split(replace(raw, /,/g, ' '), ' ');
+	let out = [];
+
+	for (let i = 0; i < length(parts); i++) {
+		let id = trim(parts[i]);
+
+		if (id != '' && index(out, id) < 0)
+			push(out, id);
+	}
+
+	return out;
+}
+
+// 带 node 时只跑该 worker（cfpick.sh --node），不同 worker 的探测可以并行；
+// 不带 node 的整轮测速仍在已有任务运行时拒绝，保持原行为。
+function start(node) {
+	if (node) {
+		if (worker_states()[node])
+			return { started: false, running: true, node: node };
+
+		command(shquote(RUN_SCRIPT) + ' start --node=' + shquote(node) + ' >/dev/null 2>&1 &');
+
+		return { started: true, running: true, node: node };
+	}
+
+	if (status().running)
+		return { started: false, running: true };
+
+	command(shquote(RUN_SCRIPT) + ' start >/dev/null 2>&1 &');
+
+	return { started: true, running: true };
+}
+
+// 复测现有最优 IP：只对当前 result.csv + 各节点现有 address 做一轮延迟 + 下载实测，
+// 不重新下载在线列表。运行中同样直接拒绝，避免用户误点；带 node 时只复测该 worker。
+function start_retest(node) {
+	if (node) {
+		if (worker_states()[node])
+			return { started: false, running: true, node: node };
+
+		command(shquote(RUN_SCRIPT) + ' retest --node=' + shquote(node) + ' >/dev/null 2>&1 &');
+
+		return { started: true, running: true, node: node };
+	}
+
+	if (status().running)
+		return { started: false, running: true };
+
+	command(shquote(RUN_SCRIPT) + ' retest >/dev/null 2>&1 &');
+
+	return { started: true, running: true };
+}
+
 // 协作式停止：写本次会话的停止标志 .nt_stop，各 worker 跑完当前 IP 自行 break；
 // 另写 .iter_stop，限时迭代模式据此在轮间不再开新轮。
 // 停止的语义是「停止测速，但把已通过 IP 的下载实测做完、各节点最优 IP 写完再退」：
@@ -241,8 +341,32 @@ function run_dir() {
 // 提交阶段（无 .nt_committing）且长时间不动（真挂死，~120s）才升级信号；进了提交/下载
 // 收尾阶段（.nt_committing）则放宽到 ~1200s 才兜底。强杀只针对记录的 PID 本身，不再
 // pgrep 通杀 —— 否则会误杀随后新起的那次运行。
-function stop() {
+function stop(nodes) {
 	let pids = run_pids();
+
+	// 节点页单行的停止只停包含该 worker 的运行；不带 nodes 的顶部停止仍通知全部。
+	if (nodes != null && length(nodes) > 0) {
+		let states = worker_states();
+		let wanted = {};
+
+		for (let i = 0; i < length(nodes); i++) {
+			let info = states[nodes[i]];
+
+			if (info != null)
+				wanted[info.pid] = true;
+		}
+
+		let selected = [];
+
+		for (let i = 0; i < length(pids); i++)
+			if (wanted[int(pids[i])])
+				push(selected, pids[i]);
+
+		if (length(selected) == 0)
+			return { stopped: false, message: '所选节点没有运行中的测速' };
+
+		pids = selected;
+	}
 
 	// 按 worker 并发时可能有多个任务同时运行：停止按钮通知全部，各自完成下载/写回后退。
 	for (let i = 0; i < length(pids); i++) {
@@ -260,7 +384,7 @@ function stop() {
 			' kill -9 ' + pid + ' 2>/dev/null ) >/dev/null 2>&1 &');
 	}
 
-	return {};
+	return { stopped: true };
 }
 
 function get_log(req) {
@@ -881,6 +1005,22 @@ function run_phase() {
 	return stopping ? 'stopping' : 'testing';
 }
 
+// 是否已有停止请求（任一运行的 .nt_stop/.iter_stop）。与 phase 分开算：
+// 进入 .nt_committing 后 phase 会变成 committing，但停止请求仍然有效，
+// 顶部停止按钮应保持「停止中…」。
+function stop_requested() {
+	let pids = run_pids();
+
+	for (let i = 0; i < length(pids); i++) {
+		let dir = RESULT_DIR + '/run.' + pids[i];
+
+		if (fs.access(dir + '/.nt_stop', 'f') || fs.access(dir + '/.iter_stop', 'f'))
+			return true;
+	}
+
+	return false;
+}
+
 function api_status_data() {
 	let base = status();
 	let pid = run_pid();
@@ -910,7 +1050,11 @@ function api_status_data() {
 		node_count: length(worker_ids()),
 		result_rows: summary.rows,
 		last_time: summary.time,
-		best: summary.best
+		best: summary.best,
+		// 节点页三个按钮的状态来源：哪些 worker 正在测/停止中，以及下载阶段。
+		workers: worker_states(),
+		download_active: download_active(),
+		stop_requested: (running && stop_requested())
 	};
 }
 
@@ -1792,21 +1936,22 @@ return {
 			return api_web_reset_data();
 		}),
 
-		api_run_start: api(function() {
-			let result = start();
+		api_run_start: api(function(req) {
+			let nodes = node_list(req);
+			let result = start(length(nodes) > 0 ? nodes[0] : '');
 			result.mode = 'start';
 			return result;
 		}),
 
-		api_run_retest: api(function() {
-			let result = start_retest();
+		api_run_retest: api(function(req) {
+			let nodes = node_list(req);
+			let result = start_retest(length(nodes) > 0 ? nodes[0] : '');
 			result.mode = 'retest';
 			return result;
 		}),
 
-		api_run_stop: api(function() {
-			stop();
-			return { stopped: true };
+		api_run_stop: api(function(req) {
+			return stop(node_list(req));
 		}),
 
 		// Standalone core mode: option/status and independent core updates.

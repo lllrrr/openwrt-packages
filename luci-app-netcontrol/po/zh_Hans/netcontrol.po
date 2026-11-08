@@ -264,3 +264,85 @@ msgid ""
 "These devices would be blocked if you enable the switch above. Fill the "
 "allowlist first."
 msgstr "开启上方开关后，这些设备将被拦截。请先填好放行名单。"
+
+msgid "Statutory workday"
+msgstr "法定工作日（含调休补班）"
+
+msgid "Statutory day off"
+msgstr "法定节假日及周末（不含补班）"
+
+msgid "Statutory Holidays"
+msgstr "法定节假日"
+
+msgid ""
+"Used by the \"Statutory workday\" and \"Statutory day off\" options of "
+"device rules. Holidays and make-up workdays follow the State Council "
+"schedule."
+msgstr "供设备规则中“法定工作日”“法定节假日及周末”两个选项使用，放假与调休补班按国务院办公厅公布的安排。"
+
+msgid "Holiday data status unavailable"
+msgstr "无法获取节假日数据状态"
+
+msgid "Today"
+msgstr "今天"
+
+msgid "Day off"
+msgstr "休息日"
+
+msgid "Workday (statutory)"
+msgstr "工作日"
+
+msgid "no holiday data for this year, Monday to Friday treated as workdays"
+msgstr "没有今年的节假日数据，按周一至周五为工作日处理"
+
+msgid "custom day"
+msgstr "自定义日期"
+
+msgid "online data"
+msgstr "在线数据"
+
+msgid "bundled data"
+msgstr "内置数据"
+
+msgid "Years with data:"
+msgstr "已有数据的年份："
+
+msgid "Updating..."
+msgstr "正在更新..."
+
+msgid "Update now"
+msgstr "立即更新"
+
+msgid "Auto-update Holiday Data"
+msgstr "自动更新节假日数据"
+
+msgid ""
+"Download the latest holiday schedule once a day, only while some rule uses "
+"the statutory options. Without network access the bundled data is used."
+msgstr "仅在有规则使用法定节假日选项时，每天联网下载一次最新安排；无法联网时使用插件内置的数据。"
+
+msgid "Holiday Data URL"
+msgstr "节假日数据地址"
+
+msgid "{year} is replaced by the year. Must serve the holiday-cn JSON format."
+msgstr "{year} 会被替换为年份。须为 holiday-cn 的 JSON 格式。"
+
+msgid "Must be an http(s) URL containing {year}"
+msgstr "须为包含 {year} 的 http(s) 地址"
+
+msgid "Custom Days"
+msgstr "自定义日期"
+
+msgid ""
+"Overrides the holiday data for single days, e.g. 2026-12-31:off for an "
+"extra day off or 2026-12-27:work for a working weekend."
+msgstr "按天覆盖节假日数据，例如 2026-12-31:off 表示当天放假，2026-12-27:work 表示当天上班。"
+
+msgid "Expected YYYY-MM-DD:off or YYYY-MM-DD:work"
+msgstr "格式应为 YYYY-MM-DD:off 或 YYYY-MM-DD:work"
+
+msgid "Invalid date"
+msgstr "日期无效"
+
+msgid "Holiday data update failed: %s"
+msgstr "节假日数据更新失败：%s"

@@ -10,6 +10,7 @@
 'require poll';
 'require dom';
 'require network';
+'require ui';
 
 // ── 服务状态 ──────────────────────────────────────────────────────────────────
 
@@ -106,6 +107,40 @@ function renderRandomMacTable(randomHosts, blockOn, allowSet) {
     ]);
 }
 
+// ── 法定节假日 ────────────────────────────────────────────────────────────────
+
+// 解析 netcontrol holiday-info 的单行输出：
+//   today=2026-10-01 type=off source=online years="2025 2026"
+function parseHolidayInfo(out) {
+    var info = {};
+    String(out || '').replace(/(\w+)=("([^"]*)"|\S*)/g, function(all, k, v, q) {
+        info[k] = (q !== undefined) ? q : v;
+    });
+    return info.today ? info : null;
+}
+
+var HOLIDAY_SOURCES = {
+    custom:  _('custom day'),
+    online:  _('online data'),
+    bundled: _('bundled data')
+};
+
+function renderHolidayInfo(info) {
+    if (!info)
+        return E('span', { 'style': 'color:#888' }, _('Holiday data status unavailable'));
+    var parts = [
+        _('Today') + ' ' + info.today + '：',
+        E('strong', {}, info.type === 'off' ? _('Day off') : _('Workday (statutory)'))
+    ];
+    if (info.source === 'weekday')
+        parts.push(E('span', { 'style': 'color:#d9534f' },
+            '（' + _('no holiday data for this year, Monday to Friday treated as workdays') + '）'));
+    else
+        parts.push('（' + (HOLIDAY_SOURCES[info.source] || info.source) + '）');
+    parts.push(E('br'), _('Years with data:') + ' ' + (info.years || '-'));
+    return E('span', {}, parts);
+}
+
 // ── 设备状态表 ────────────────────────────────────────────────────────────────
 
 function renderStatusTable(content) {
@@ -198,7 +233,8 @@ return view.extend({
     load: function() {
         return Promise.all([
             uci.load('netcontrol'),
-            network.getHostHints()
+            network.getHostHints(),
+            L.resolveDefault(fs.exec_direct('/usr/libexec/netcontrol-call', ['holiday_info']), '')
         ]);
     },
 
@@ -206,6 +242,7 @@ return view.extend({
         var m, s, o;
         var hints = data[1] || {};
         var hosts = hints.hosts || hints;
+        var holidayInfo = parseHolidayInfo(data[2]);
         var randomHosts = collectRandomHosts(hosts);
         var globalCfg = uci.sections('netcontrol', 'netcontrol')[0] || {};
         var allowSet = {};
@@ -300,6 +337,61 @@ return view.extend({
                 return _('Invalid MAC address format');
             return isRandomMac(value) ? true
                 : _('This is not a randomized MAC address; the allowlist has no effect on it.');
+        };
+
+        // ── 法定节假日 ──
+        o = s.option(form.DummyValue, '_holiday_status', _('Statutory Holidays'),
+            _('Used by the "Statutory workday" and "Statutory day off" options of device rules. Holidays and make-up workdays follow the State Council schedule.'));
+        o.renderWidget = function() {
+            var box = E('span', {}, renderHolidayInfo(holidayInfo));
+            var btn = E('button', {
+                'class': 'btn cbi-button cbi-button-action',
+                'style': 'margin-left:1em',
+                'click': function(ev) {
+                    ev.preventDefault();
+                    btn.disabled = true;
+                    btn.textContent = _('Updating...');
+                    fs.exec_direct('/usr/libexec/netcontrol-call', ['holiday_update'])
+                        .then(function(out) {
+                            holidayInfo = parseHolidayInfo(out) || holidayInfo;
+                            dom.content(box, renderHolidayInfo(holidayInfo));
+                        })
+                        .catch(function(err) {
+                            ui.addNotification(null, E('p', _('Holiday data update failed: %s').format(err)), 'warning');
+                        })
+                        .then(function() { btn.textContent = _('Update now'); btn.disabled = false; });
+                }
+            }, _('Update now'));
+            return E('div', {}, [box, btn]);
+        };
+
+        o = s.option(form.Flag, 'holiday_update', _('Auto-update Holiday Data'),
+            _('Download the latest holiday schedule once a day, only while some rule uses the statutory options. Without network access the bundled data is used.'));
+        o.default = '1';
+        o.rmempty = false;
+
+        o = s.option(form.Value, 'holiday_url', _('Holiday Data URL'),
+            _('{year} is replaced by the year. Must serve the holiday-cn JSON format.'));
+        o.placeholder = 'https://cdn.jsdelivr.net/gh/NateScarlet/holiday-cn@master/{year}.json';
+        o.depends('holiday_update', '1');
+        o.rmempty = true;
+        o.validate = function(section_id, value) {
+            if (value == null || value === '') return true;
+            return /^https?:\/\/\S*\{year\}\S*$/.test(value.trim())
+                ? true : _('Must be an http(s) URL containing {year}');
+        };
+
+        o = s.option(form.DynamicList, 'holiday_extra', _('Custom Days'),
+            _('Overrides the holiday data for single days, e.g. 2026-12-31:off for an extra day off or 2026-12-27:work for a working weekend.'));
+        o.placeholder = 'YYYY-MM-DD:off';
+        o.rmempty = true;
+        o.validate = function(section_id, value) {
+            if (value == null || value === '') return true;
+            var m = /^(\d{4})-(\d{2})-(\d{2}):(off|work)$/.exec(value.trim());
+            if (!m) return _('Expected YYYY-MM-DD:off or YYYY-MM-DD:work');
+            var d = new Date(+m[1], +m[2] - 1, +m[3]);
+            return (d.getMonth() === +m[2] - 1 && d.getDate() === +m[3])
+                ? true : _('Invalid date');
         };
 
         // ── 设备规则表 ──
@@ -446,6 +538,8 @@ return view.extend({
         o.value('7',         _('Sunday'));
         o.value('1,2,3,4,5', _('Workday'));
         o.value('6,7',       _('Rest Day'));
+        o.value('cn_work',   _('Statutory workday'));
+        o.value('cn_off',    _('Statutory day off'));
         o.default = '0';
         o.rmempty = false;
 

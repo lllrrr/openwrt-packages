@@ -467,6 +467,10 @@ class Handler(BaseHTTPRequestHandler):
             "node_count": len([n for n in cfg.get("nodes", []) if n.get("enabled", True)]),
             "cron": bool(cron_info.get("installed")),
             "cron_line": cron_info.get("line", ""),
+            # 节点页每个 worker 的按钮状态：正在被哪个 run 测、是否已请求停止；
+            # download_active 为真时下载/写回占满 WAN，所有 worker 按钮都禁用。
+            "workers": lock.worker_states(),
+            "download_active": lock.commit_active(),
             "core": info,
             "core_type": active,
             "cores": cores["cores"],
@@ -524,7 +528,7 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/api/start":
             self._start(body)
         elif route == "/api/stop":
-            self._stop()
+            self._stop(body)
         elif route == "/api/config":
             self._save_config(body)
         elif route == "/api/core/update":
@@ -552,9 +556,6 @@ class Handler(BaseHTTPRequestHandler):
         if _read_update_state().get("updating"):
             self._send_error(409, "程序正在更新，请稍候再开始测速")
             return
-        if lock.is_running():
-            self._send_error(409, "已有测速在运行")
-            return
         cfg = config.load()
         try:
             core.ensure_core(cfg)
@@ -565,9 +566,42 @@ class Handler(BaseHTTPRequestHandler):
         if not enabled:
             self._send_error(400, "没有启用任何节点，请先在「节点」页添加并启用节点")
             return
+
+        # 「节点」页每行的测速/复测只带一个节点名：不同 worker 可以并行探测，
+        # 只拒绝已经在测的那个节点。不带 nodes 的整轮测速仍沿用原来的限制。
+        requested = body.get("nodes")
+        node_names = []
+        if requested is None:
+            if lock.is_running():
+                self._send_error(409, "已有测速在运行")
+                return
+            targets = enabled
+        else:
+            if not isinstance(requested, list):
+                self._send_error(400, "nodes 必须是节点名称数组")
+                return
+            for raw in requested:
+                name = str(raw or "").strip()
+                if name and name not in node_names:
+                    node_names.append(name)
+            if not node_names:
+                self._send_error(400, "请选择要测速的节点")
+                return
+            enabled_names = {str(item.get("name", "")).strip() for item in enabled}
+            missing = [name for name in node_names if name not in enabled_names]
+            if missing:
+                self._send_error(400, "节点不存在或未启用: %s" % "、".join(missing))
+                return
+            busy = [name for name in node_names if name in lock.worker_states()]
+            if busy:
+                self._send_error(409, "节点正在测速: %s" % "、".join(busy))
+                return
+            targets = [item for item in enabled
+                       if str(item.get("name", "")).strip() in node_names]
+
         active = core.active_type(cfg)
         compatible = 0
-        for item in enabled:
+        for item in targets:
             try:
                 parsed = links.parse_link(item.get("link", ""))
                 core.validate_proxy(parsed.proxy, active)
@@ -590,9 +624,12 @@ class Handler(BaseHTTPRequestHandler):
             os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
         paths.SPAWN_LOG.parent.mkdir(parents=True, exist_ok=True)
         handle = open(paths.SPAWN_LOG, "ab", buffering=0)
+        command = [sys.executable, "-m", "cfpick", "run", mode]
+        for name in node_names:
+            command.extend(["--node", name])
         try:
             subprocess.Popen(
-                [sys.executable, "-m", "cfpick", "run", mode],
+                command,
                 cwd=str(paths.APP_DIR),
                 env=env,
                 stdin=subprocess.DEVNULL,
@@ -606,9 +643,46 @@ class Handler(BaseHTTPRequestHandler):
             return
         finally:
             handle.close()
-        self._send_json({"started": True, "mode": mode}, status=202)
+        self._send_json({"started": True, "mode": mode, "nodes": node_names}, status=202)
 
-    def _stop(self):
+    def _stop(self, body=None):
+        nodes = (body or {}).get("nodes")
+        if nodes is not None:
+            if not isinstance(nodes, list):
+                self._send_error(400, "nodes 必须是节点名称数组")
+                return
+            names = []
+            for raw in nodes:
+                name = str(raw or "").strip()
+                if name and name not in names:
+                    names.append(name)
+            if not names:
+                self._send_error(400, "请选择要停止的节点")
+                return
+            states = lock.worker_states()
+            pids = []
+            for name in names:
+                info = states.get(name)
+                if info and info.get("pid") and info["pid"] not in pids:
+                    pids.append(info["pid"])
+            if not pids:
+                self._send_json({"stopped": False, "nodes": names,
+                                 "message": "所选节点没有运行中的测速"})
+                return
+            for pid in pids:
+                lock.request_stop(pid)
+            lock.write_state(stop_requested=True, phase="stopping")
+            message = "已请求停止 %s：该 worker 跑完当前 IP 后进入下载实测并写回" % "、".join(names)
+            siblings = sorted({
+                name for name, info in states.items()
+                if info.get("pid") in pids and name not in names
+            })
+            if siblings:
+                message += "（同一任务还包含 %s，会一起停止探测）" % "、".join(siblings)
+            self._send_json({"stop_requested": True, "nodes": names,
+                             "message": message})
+            return
+
         if not lock.is_running():
             self._send_json({"stopped": True, "message": "当前没有运行中的测速"})
             return

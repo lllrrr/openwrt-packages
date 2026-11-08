@@ -259,16 +259,40 @@ def retest_candidates(cfg, nodes, logger):
                 deduped.append(ip)
         per_node[node["name"]] = deduped[:cfg["test_count"]]
     total = sum(len(value) for value in per_node.values())
-    if total == 0:
-        raise IpListError("复测模式没有候选 IP：当前 result.csv 为空且节点地址不是 IP")
     logger.log("复测模式：候选来自现有 result.csv / 节点原始地址（不重新下载在线列表），共 %d 个" % total)
     return CandidateSet(source="retest", per_node=per_node, limit=cfg["test_count"])
 
 
 def select(cfg, nodes, mode, logger):
-    if mode == "retest":
-        return retest_candidates(cfg, nodes, logger)
+    if mode != "retest":
+        return _normal_candidates(cfg, nodes, logger)
 
+    candidates = retest_candidates(cfg, nodes, logger)
+    # 复测只有 0/1 个候选时，这个 worker 实际上没法“择优”，一旦那一个 IP
+    # 失效就会一直失败。对这些 worker 退回普通测速：按配置的 IP 来源重新
+    # 拉取列表（在线 CM 源会重新下载），其余 worker 仍走复测。
+    sparse = [node for node in nodes
+              if len(candidates.per_node.get(node["name"], [])) <= 1]
+    if not sparse:
+        return candidates
+
+    logger.log("复测候选不足 2 个的 worker: %s；改为普通测速并重新拉取列表 IP" % (
+        "、".join(node["name"] for node in sparse)))
+    normal = _normal_candidates(cfg, sparse, logger)
+    for node in sparse:
+        name = node["name"]
+        before = len(candidates.per_node.get(name, []))
+        # 普通测速可能是共享列表（内置/自定义文件），用 for_node 统一取。
+        candidates.per_node[name] = list(normal.for_node(name))
+        logger.log("worker [%s] 复测只有 %d 个候选，已改用普通测速候选（%d 个）" % (
+            name, before, len(candidates.per_node[name])))
+
+    if not any(candidates.per_node.values()):
+        raise IpListError("复测候选不足且普通测速也没有取到候选 IP")
+    return candidates
+
+
+def _normal_candidates(cfg, nodes, logger):
     if cfg["ip_source"] == "online":
         entries = fetch_online(cfg["ip_online_url"], logger)
         lists = build_online_lists(entries, cfg["ip_lists"], logger)

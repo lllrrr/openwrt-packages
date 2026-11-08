@@ -226,9 +226,24 @@ table.data td .schedule-editor { flex-wrap: nowrap; min-width: 206px; }
 }
 .node-picker-list label.check { flex-direction: row; align-items: center; gap: 6px; font-size: 0.78rem; }
 table.data td .node-picker { min-width: 150px; }
+/* 展开的多选列表是 fixed 悬浮层（坐标由 app.js 计算），不参与行布局。 */
+.node-picker-list.floating {
+	margin-top: 0; z-index: 70;
+	box-shadow: 0 6px 18px rgba(0, 0, 0, 0.16);
+}
 /* 国家码多选：沿用 node-picker 的交互，选项排两列，少滚动。 */
 .country-picker { min-width: 150px; }
 .country-picker .node-picker-list { grid-template-columns: repeat(2, minmax(96px, 1fr)); min-width: 240px; }
+
+/* 节点页每个 worker 的测速/复测/停止；操作列吸附右侧。 */
+.workers-table .row-actions { display: flex; gap: 6px; flex-wrap: nowrap; }
+.workers-table th:last-child, .workers-table td:last-child {
+	position: sticky; right: 0; z-index: 1; min-width: 246px;
+	background: var(--bg-elev);
+	box-shadow: -8px 0 10px -8px rgba(0, 0, 0, 0.25);
+}
+.workers-table th:last-child { background: var(--bg-soft); }
+.workers-table tr.running td { background: rgba(37, 99, 235, 0.06); }
 
 /* core module cards */
 .badge {

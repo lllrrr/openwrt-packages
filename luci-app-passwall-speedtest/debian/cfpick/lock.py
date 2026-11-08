@@ -22,6 +22,7 @@ from . import paths
 WORKER_LOCK_DIR = paths.STATE_DIR / ".worker-locks"
 RUN_REGISTRY = paths.STATE_DIR / ".runs"
 COMMIT_LOCK_DIR = paths.STATE_DIR / ".commit.lock"
+STOP_DIR = paths.STATE_DIR / ".stops"
 RUN_PID_FILE = paths.STATE_DIR / "current_run"
 COMMIT_WAIT_SECONDS = 4 * 3600
 
@@ -212,6 +213,7 @@ class RunLock:
         self.node_names = []
 
     def release(self):
+        clear_stop(self.pid)
         self._release_node_locks()
         if self.run_dir:
             shutil.rmtree(self.run_dir, ignore_errors=True)
@@ -289,6 +291,40 @@ def download_active_by_other(pid=None):
     return bool(owner and owner != pid and _owner_alive(COMMIT_LOCK_DIR))
 
 
+def commit_active():
+    """True while a run holds the download/write-back slot."""
+    return COMMIT_LOCK_DIR.exists() and _owner_alive(COMMIT_LOCK_DIR)
+
+
+def worker_states():
+    """Map worker name -> {pid, started, stopping} for live per-node locks.
+
+    The Nodes tab uses this to keep each row's buttons in sync: a node listed
+    here is currently being tested by some run (its own single-node run, or a
+    cron/multi-node run that includes it).
+    """
+    states = {}
+    if not WORKER_LOCK_DIR.is_dir():
+        return states
+    global_stop = paths.STOP_FILE.exists()
+    for path in WORKER_LOCK_DIR.iterdir():
+        if not path.is_dir() or not _owner_alive(path):
+            continue
+        try:
+            name = (path / "name").read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        if not name:
+            continue
+        pid = _lock_owner(path)
+        states[name] = {
+            "pid": pid,
+            "started": _lock_started(path),
+            "stopping": global_stop or stop_requested(pid),
+        }
+    return states
+
+
 # ── shared state ─────────────────────────────────────────────────────────
 def read_state():
     try:
@@ -314,17 +350,37 @@ def write_state(**fields):
     return state
 
 
-def request_stop():
+def request_stop(pid=None):
+    """Ask one run (``pid``) or every run (no pid) to stop probing.
+
+    A per-run stop only ends that run's probing; the run still finishes its
+    download stage and writes the result back, which is what the Nodes tab's
+    per-worker 停止 button relies on.
+    """
     paths.STATE_DIR.mkdir(parents=True, exist_ok=True)
+    if pid:
+        STOP_DIR.mkdir(parents=True, exist_ok=True)
+        (STOP_DIR / str(int(pid))).touch()
+        return
     paths.STOP_FILE.touch()
 
 
-def clear_stop():
+def clear_stop(pid=None):
+    if pid:
+        try:
+            (STOP_DIR / str(int(pid))).unlink()
+        except OSError:
+            pass
+        return
     try:
         paths.STOP_FILE.unlink()
     except OSError:
         pass
 
 
-def stop_requested():
-    return paths.STOP_FILE.exists()
+def stop_requested(pid=None):
+    if paths.STOP_FILE.exists():
+        return True
+    if not pid:
+        return False
+    return (STOP_DIR / str(int(pid))).exists()

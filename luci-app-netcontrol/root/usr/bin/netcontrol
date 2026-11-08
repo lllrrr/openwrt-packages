@@ -21,6 +21,9 @@ DURATION_DIR="/var/lib/netcontrol"
 # 与守护进程共用的 duration.db 写锁，避免并发读改写丢失更新
 DB_LOCK="/var/lock/netcontrol-db.lock"
 
+# 法定节假日判定与在线更新。文件缺失时不 source，否则脚本当场退出，连 start/stop 都跑不了。
+[ -f /usr/share/netcontrol/holiday.sh ] && . /usr/share/netcontrol/holiday.sh
+
 bin_nft=$(which nft 2>/dev/null)
 bin_conntrack=$(which conntrack 2>/dev/null)
 
@@ -351,6 +354,37 @@ reset_duration() {
     info "$target 的上网时长计数已重置"
 }
 
+# 节假日数据状态，单行 key=value，供 LuCI 解析：
+#   today=YYYY-MM-DD type=work|off source=custom|online|bundled|weekday years="2025 2026"
+holiday_info() {
+    local today r
+    today="$(date +%Y-%m-%d)"
+    r="$(holiday_day_type "$today" "$(date +%u)")"
+    printf 'today=%s type=%s source=%s years="%s"\n' "$today" "${r%% *}" "${r#* }" "$(holiday_years)"
+}
+
+# 在线更新节假日数据，并设定守护进程下一次自动更新的时刻
+holiday_update_cmd() {
+    local now; now="$(date +%s)"
+    if holiday_update; then
+        # 只有真的在线取到今年的数据才隔一天再试；没取到（多半是刚开机还没联网）一小时后重试
+        if [ "$HOLIDAY_FETCHED" = "1" ]; then
+            echo $((now + 86400)) > "$HOLIDAY_NEXT"
+        else
+            echo $((now + 3600)) > "$HOLIDAY_NEXT"
+        fi
+        if [ -n "$HOLIDAY_GOT" ]; then
+            info "法定节假日数据已在线更新（$HOLIDAY_GOT）"
+        else
+            info "未能在线获取节假日数据，继续使用本地已有数据"
+        fi
+        return 0
+    fi
+    echo $((now + 3600)) > "$HOLIDAY_NEXT"
+    info "法定节假日数据更新失败，且本地没有今年的数据，暂按周一至周五为工作日处理"
+    return 1
+}
+
 # 显示当前防火墙状态
 show_firewall_status() {
     printf '\n当前防火墙状态\n'
@@ -387,9 +421,14 @@ diagnose() {
         echo "   ✗ 未找到 nft 命令，请安装 nftables 包"
     fi
 
+    printf '\n4. 法定节假日：\n'
+    local hi; hi="$(holiday_info)"
+    echo "   $hi"
+    case "$hi" in *source=weekday*) echo "   ✗ 没有今年的节假日数据，按周一至周五为工作日处理" ;; esac
+
     show_firewall_status
 
-    printf '\n4. 当前拦截列表：\n'
+    printf '\n5. 当前拦截列表：\n'
     if [ -f "$IDLIST" ] && [ -s "$IDLIST" ]; then
         echo "   当前被拦截的设备："
         sed 's/!//g' "$IDLIST" | while IFS= read -r id; do
@@ -443,12 +482,18 @@ case "$crrun" in
             r=$(parse_target "$t" 2>/dev/null) && echo "✓ 格式有效 → $r" || echo "✗ 格式无效"
         done
         ;;
+    holiday-update)
+        holiday_update_cmd
+        ;;
+    holiday-info)
+        holiday_info
+        ;;
     flush)
         info "正在强制断开所有网络连接"
         [ -x "$bin_conntrack" ] && $bin_conntrack -F && info "所有网络连接已断开" || info "conntrack 不可用，无法断开连接"
         ;;
     help|"")
-        echo "用法：$0 {start|stop|add <id>|del <id>|reset-duration <addr>|status|diagnose|test|flush|help}"
+        echo "用法：$0 {start|stop|add <id>|del <id>|reset-duration <addr>|status|diagnose|test|holiday-update|holiday-info|flush|help}"
         printf '\n  %-28s %s\n' "start"                  "初始化并加载 nftables 规则"
         printf    '  %-28s %s\n' "stop"                   "停止服务并清除所有 nftables 规则"
         printf    '  %-28s %s\n' "add <id>"               "将设备加入拦截列表"
@@ -457,6 +502,8 @@ case "$crrun" in
         printf    '  %-28s %s\n' "status"                 "查看当前 nftables 规则状态"
         printf    '  %-28s %s\n' "diagnose"               "运行系统诊断检查"
         printf    '  %-28s %s\n' "test"                   "测试地址格式解析"
+        printf    '  %-28s %s\n' "holiday-update"         "在线更新法定节假日数据"
+        printf    '  %-28s %s\n' "holiday-info"           "显示今天的法定日类型与已有数据年份"
         printf    '  %-28s %s\n' "flush"                  "强制断开所有网络连接"
         printf    '  %-28s %s\n' "help"                   "显示此帮助信息"
         ;;

@@ -925,9 +925,16 @@ function dispatch(req) {
 		}));
 	}
 	else if (action == 'start' || action == 'retest' || action == 'stop') {
+		let body = body_json() || {};
+		let args = {};
+
+		// 节点页每一行的按钮只带一个 worker id；不带 nodes 时保持整轮语义。
+		if (body.nodes != null)
+			args.node = nodes_text(body.nodes);
+
 		send(req, ubus_call(
 			action == 'start' ? 'api_run_start'
-			: (action == 'retest' ? 'api_run_retest' : 'api_run_stop'), {}));
+			: (action == 'retest' ? 'api_run_retest' : 'api_run_stop'), args));
 	}
 	else if (action == 'standalone') {
 		// The standalone-core rpcd methods return their payload directly (they

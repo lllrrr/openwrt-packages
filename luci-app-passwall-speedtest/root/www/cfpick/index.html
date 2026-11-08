@@ -175,8 +175,8 @@
         </div>
         <p class="muted">worker 表：每个 PassWall 节点一个 worker，并指派使用的 CM IP 列表；留空列表使用第一个启用的列表。填了 DDNS 域名的 worker 只把最优 IP 写到 Cloudflare DNS，不再写回 PassWall 节点；留空则照旧写回。</p>
         <div class="table-wrap">
-          <table class="data">
-            <thead><tr><th>PassWall 节点</th><th>CM IP 列表</th><th>DDNS 域名</th><th></th></tr></thead>
+          <table class="data workers-table">
+            <thead><tr><th>PassWall 节点</th><th>CM IP 列表</th><th>DDNS 域名</th><th>操作</th></tr></thead>
             <tbody id="cfg-workers-body"></tbody>
           </table>
         </div>

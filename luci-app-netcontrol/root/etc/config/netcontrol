@@ -3,4 +3,5 @@ config netcontrol
 	option enabled '0'
 	option chain 'forward'
 	option rand_mac_block '0'
+	option holiday_update '1'
 
