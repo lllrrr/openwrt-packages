@@ -2232,3 +2232,36 @@ msgstr "未知状态码"
 
 msgid "OpenClash apply failed."
 msgstr "OpenClash apply failed."
+
+msgid "All"
+msgstr "All"
+
+msgid "Filter"
+msgstr "Filter"
+
+msgid "No matching log lines."
+msgstr "No matching log lines."
+
+msgid "Adaptive Readouts"
+msgstr "Adaptive Readouts"
+
+msgid "Time"
+msgstr "Time"
+
+msgid "Result"
+msgstr "Result"
+
+msgid "Probes"
+msgstr "Probes"
+
+msgid "Fallback"
+msgstr "Fallback"
+
+msgid "Duration"
+msgstr "Duration"
+
+msgid "Measurement & Ranking"
+msgstr "Measurement & Ranking"
+
+msgid "Service Handling"
+msgstr "Service Handling"

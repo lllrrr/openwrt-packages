@@ -8,13 +8,14 @@
 :root{
   --bg:#f6f8fa; --card:#ffffff; --text:#1f2328; --muted:#656d76; --muted2:#8b949e;
   --border:#d0d7de; --accent:#0969da;
-  --dn:#1a7f37; --up:#9a6700; --grid:rgba(0,0,0,.08);
+  /* 数据色只有一套，深浅主题共用；只有界面底色与文字随主题切换 */
+  --dn:#6366f1; --up:#db2777; --grid:rgba(0,0,0,.08);
   --tip-bg:rgba(255,255,255,.74);
 }
 html[data-theme="dark"]{
   --bg:#0d1117; --card:#161b22; --text:#e6edf3; --muted:#8b949e; --muted2:#6e7681;
   --border:#30363d; --accent:#58a6ff;
-  --dn:#3fb950; --up:#d29922; --grid:rgba(255,255,255,.08);
+  --grid:rgba(255,255,255,.08);
   --tip-bg:rgba(22,27,34,.74);
 }
 *{box-sizing:border-box}
@@ -587,7 +588,7 @@ function draw(){
     // 面积渐变：颜色由主题变量派生（与柱子、竖虚线同一套机制），
     // 只靠 stop-opacity 做上浓下淡，保持柔和、不抢折线
     var defs = el('defs');
-    var aDn = themeColor('--dn', '#3fb950'), aUp = themeColor('--up', '#d29922');
+    var aDn = themeColor('--dn', '#6366f1'), aUp = themeColor('--up', '#db2777');
     [['gAreaDn', aDn], ['gAreaUp', aUp]].forEach(function(g){
       var col = shade(g[1], 0.18);
       var lg = el('linearGradient', {id:g[0], x1:'0', y1:'0', x2:'0', y2:'1'});
@@ -599,7 +600,7 @@ function draw(){
     // 悬停竖虚线的渐变：顶部渐入 → 上行黄 → 下行绿，颜色跟随主题变量
     // userSpaceOnUse 是必需的：垂直线的 objectBoundingBox 宽度为 0，默认渐变不会渲染
     var vTop = P.t + ih*0.06;
-    var cUp = themeColor('--up', '#d29922'), cDn = themeColor('--dn', '#3fb950');
+    var cUp = themeColor('--up', '#db2777'), cDn = themeColor('--dn', '#6366f1');
     var vg = el('linearGradient', {
       id:'gVline', gradientUnits:'userSpaceOnUse',
       x1:'0', y1:vTop.toFixed(1), x2:'0', y2:yBase.toFixed(1)
@@ -689,7 +690,7 @@ function draw(){
 
     var defsB = el('defs');
     svg.appendChild(defsB);
-    var cDn = themeColor('--dn', '#3fb950'), cUp = themeColor('--up', '#d29922');
+    var cDn = themeColor('--dn', '#6366f1'), cUp = themeColor('--up', '#db2777');
 
     var barRects = [];
     bars.forEach(function(b, i){
@@ -711,7 +712,7 @@ function draw(){
           x1:'0', y1:topY.toFixed(1), x2:'0', y2:yb.toFixed(1)
         });
         lg.appendChild(el('stop', {offset:'0%', 'stop-color':shade(g[1], 0.24)}));
-        lg.appendChild(el('stop', {offset:'100%', 'stop-color':shade(g[1], -0.20)}));
+        lg.appendChild(el('stop', {offset:'100%', 'stop-color':shade(g[1], -0.10)}));
         defsB.appendChild(lg);
       });
 
