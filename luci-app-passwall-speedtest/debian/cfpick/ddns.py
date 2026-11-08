@@ -13,6 +13,8 @@ setup being tested.
 import ipaddress
 import json
 import re
+import socket
+import ssl
 import time
 import urllib.error
 import urllib.parse
@@ -54,24 +56,76 @@ def _error_text(status, payload):
     return "；".join(messages)
 
 
+RETRY_ATTEMPTS = 3
+RETRY_BASE_DELAY = 1.0
+
+
+def _error_chain(exc):
+    """Yield the exception plus its reason/cause/context.
+
+    urllib wraps the real socket/TLS error in ``URLError.reason`` instead of
+    chaining it via ``__cause__``, so both paths must be inspected.
+    """
+    seen = set()
+    stack = [exc]
+    while stack:
+        item = stack.pop()
+        if item is None or id(item) in seen:
+            continue
+        seen.add(id(item))
+        yield item
+        stack.append(getattr(item, "reason", None))
+        stack.append(item.__cause__)
+        stack.append(item.__context__)
+
+
+def _retry_safe(exc, method):
+    """Whether a failed API request may be retried without side effects.
+
+    GET / PUT are idempotent, so any transient network error can be retried.
+    POST creates a record: retry only when the failure happened before the
+    request reached Cloudflare (DNS resolution / TLS handshake), otherwise a
+    reply lost in flight could leave a duplicate record behind.
+    """
+    if method.upper() != "POST":
+        return True
+    return any(isinstance(item, (ssl.SSLError, socket.gaierror))
+               for item in _error_chain(exc))
+
+
 def _http_transport(url, method, headers, body, timeout):
     """Return ``(status, payload)``.  HTTP errors keep Cloudflare's JSON body."""
     data = None
     if body is not None:
         data = json.dumps(body, ensure_ascii=False).encode("utf-8")
-    request = urllib.request.Request(url, data=data, headers=headers, method=method)
-    # Do not inherit http_proxy/https_proxy: the DNS API should work even when
-    # the machine has no working system proxy.
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    try:
-        with opener.open(request, timeout=timeout) as response:
-            raw = response.read()
-            status = getattr(response, "status", 200)
-    except urllib.error.HTTPError as exc:
-        raw = exc.read() or b""
-        status = exc.code
-    except (urllib.error.URLError, OSError, ValueError) as exc:
-        raise DdnsError("Cloudflare API 连接失败: %s" % exc)
+    last_error = None
+    for attempt in range(1, RETRY_ATTEMPTS + 1):
+        request = urllib.request.Request(url, data=data, headers=headers, method=method)
+        # Do not inherit http_proxy/https_proxy: the DNS API should work even
+        # when the machine has no working system proxy.
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        try:
+            with opener.open(request, timeout=timeout) as response:
+                raw = response.read()
+                status = getattr(response, "status", 200)
+            break
+        except urllib.error.HTTPError as exc:
+            # Cloudflare answered: retrying the same request will not help.
+            raw = exc.read() or b""
+            status = exc.code
+            break
+        except ValueError as exc:
+            # Malformed URL / request: not a transient condition.
+            raise DdnsError("Cloudflare API 连接失败: %s" % exc)
+        except (urllib.error.URLError, OSError) as exc:
+            last_error = exc
+            if attempt >= RETRY_ATTEMPTS or not _retry_safe(exc, method):
+                raise DdnsError("Cloudflare API 连接失败: %s" % exc)
+            # Handshake timeouts / EOF are common on flaky WAN links; back off
+            # briefly and try again.
+            time.sleep(RETRY_BASE_DELAY * attempt)
+    else:  # pragma: no cover - loop always breaks or raises
+        raise DdnsError("Cloudflare API 连接失败: %s" % last_error)
     try:
         payload = json.loads(raw.decode("utf-8", "replace")) if raw else {}
     except ValueError:

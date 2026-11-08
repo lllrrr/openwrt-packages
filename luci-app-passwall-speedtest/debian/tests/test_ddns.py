@@ -1,6 +1,9 @@
 import json
+import ssl
 import unittest
+import urllib.error
 import urllib.parse
+from unittest import mock
 
 from cfpick import config, ddns
 from cfpick.result import Row
@@ -363,6 +366,86 @@ class DdnsTests(unittest.TestCase):
         self.assertFalse(report["ok"])
         self.assertIn("格式", report["nodes"][0]["error"])
         self.assertEqual(transport.calls, [])
+
+
+class _FakeResponse:
+    status = 200
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def read(self):
+        return b'{"success": true, "result": []}'
+
+
+class _FlakyOpener:
+    """Fails the first ``failures`` calls, then answers like Cloudflare."""
+
+    def __init__(self, failures, error=None):
+        self.failures = failures
+        self.error = error or urllib.error.URLError(ssl.SSLError("handshake timed out"))
+        self.calls = 0
+
+    def open(self, request, timeout=None):
+        self.calls += 1
+        if self.calls <= self.failures:
+            raise self.error
+        return _FakeResponse()
+
+
+class TransportRetryTests(unittest.TestCase):
+    """瞬时 TLS/连接失败应自动重试，且 POST 不会重复建记录。"""
+
+    def run_transport(self, method, opener):
+        with mock.patch.object(ddns.urllib.request, "build_opener",
+                               return_value=opener), \
+             mock.patch.object(ddns.time, "sleep"):
+            return ddns._http_transport("https://example.test/api", method,
+                                        {}, None, 1)
+
+    def test_handshake_failure_is_retried(self):
+        opener = _FlakyOpener(2)
+        status, payload = self.run_transport("GET", opener)
+        self.assertEqual(status, 200)
+        self.assertEqual(opener.calls, 3)
+
+    def test_post_handshake_failure_is_retried(self):
+        # 握手阶段失败说明请求没到 Cloudflare，重试 POST 不会建出重复记录。
+        opener = _FlakyOpener(1)
+        status, _ = self.run_transport("POST", opener)
+        self.assertEqual(status, 200)
+        self.assertEqual(opener.calls, 2)
+
+    def test_post_read_timeout_is_not_retried(self):
+        opener = _FlakyOpener(3, urllib.error.URLError(TimeoutError("timed out")))
+        with self.assertRaises(ddns.DdnsError):
+            self.run_transport("POST", opener)
+        self.assertEqual(opener.calls, 1)
+
+    def test_put_timeout_is_retried(self):
+        opener = _FlakyOpener(2, urllib.error.URLError(TimeoutError("timed out")))
+        status, _ = self.run_transport("PUT", opener)
+        self.assertEqual(status, 200)
+        self.assertEqual(opener.calls, 3)
+
+    def test_http_error_is_not_retried(self):
+        error = urllib.error.HTTPError(
+            "https://example.test/api", 400, "Bad Request", {}, None)
+        opener = _FlakyOpener(1, error)
+        status, _ = self.run_transport("GET", opener)
+        self.assertEqual(status, 400)
+        self.assertEqual(opener.calls, 1)
+
+    def test_retry_safe_rules(self):
+        handshake = urllib.error.URLError(ssl.SSLError("handshake"))
+        timeout = urllib.error.URLError(TimeoutError("timed out"))
+        self.assertTrue(ddns._retry_safe(handshake, "POST"))
+        self.assertTrue(ddns._retry_safe(timeout, "GET"))
+        self.assertTrue(ddns._retry_safe(timeout, "PUT"))
+        self.assertFalse(ddns._retry_safe(timeout, "POST"))
 
 
 if __name__ == "__main__":

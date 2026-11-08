@@ -3,436 +3,543 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CFPick 操作台</title>
+<title>CFPick 优选</title>
 <link rel="icon" type="image/svg+xml" href="favicon.svg?v=1.0.12">
 <link rel="icon" href="favicon.ico?v=1.0.12" sizes="any">
 <meta name="theme-color" content="#2563eb">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=1.0.20">
 </head>
 <body>
-<div id="toast" class="toast hidden"></div>
-
-<main id="auth-view" class="auth-wrap hidden">
-  <div class="auth-card">
-    <div class="auth-brand">CF<span>Pick</span></div>
-    <h1 id="auth-title">登录操作台</h1>
-    <p id="auth-desc" class="muted">输入管理员账号进入操作台。</p>
-    <form id="auth-form" autocomplete="off">
-      <label>用户名
-        <input id="auth-user" type="text" spellcheck="false" autocomplete="username">
-      </label>
-      <label>密码
-        <input id="auth-password" type="password" autocomplete="current-password">
-      </label>
-      <label id="auth-confirm-row" class="hidden">确认密码
-        <input id="auth-confirm" type="password" autocomplete="new-password">
-      </label>
-      <p id="auth-error" class="error"></p>
-      <button id="auth-submit" type="submit" class="btn primary wide">登录</button>
-    </form>
-    <p class="auth-foot muted">独立操作台 · 与 LuCI 配置互不影响</p>
-  </div>
-</main>
-
-<div id="app-view" class="hidden">
-  <header class="topbar">
-    <div class="brand">CF<span>Pick</span></div>
-    <nav class="tabs" id="tabs">
-      <button type="button" class="tab active" data-tab="overview">概览</button>
-      <button type="button" class="tab" data-tab="standalone">独立测速</button>
-      <button type="button" class="tab" data-tab="nodes">节点</button>
-      <button type="button" class="tab" data-tab="iplists">IP 列表</button>
-      <button type="button" class="tab" data-tab="settings">设置</button>
-      <button type="button" class="tab" data-tab="logs">日志</button>
-      <button type="button" class="tab" data-tab="thirdparty">第三方</button>
-    </nav>
-    <div class="top-actions">
-      <span id="status-dot" class="dot"></span>
-      <span id="status-text" class="muted">加载中…</span>
-      <button id="btn-logout" type="button" class="btn small">退出</button>
+<header class="topbar">
+  <div class="brand">
+    <div class="logo">CF</div>
+    <div>
+      <h1>CFPick 优选</h1>
+      <p>CDN 优选 · PassWall 节点 · 自带 mihomo / Xray 代理内核</p>
     </div>
-  </header>
+  </div>
+  <div class="statusline">
+    <span id="status-dot" class="dot idle"></span>
+    <span id="status-text">正在加载…</span>
+  </div>
+  <div class="actions">
+    <button id="btn-start" class="btn primary" type="button">开始测速</button>
+    <button id="btn-stop" class="btn danger" type="button" disabled>停止</button>
+    <button id="btn-retest" class="btn" type="button">复测现有最优</button>
+    <button id="btn-logout" class="btn small" type="button">退出</button>
+  </div>
+</header>
 
-  <main class="wrap">
-    <!-- ── 概览 ─────────────────────────────────────────────────── -->
-    <section id="pane-overview" class="pane active">
-      <div class="cards">
-        <div class="card stat">
-          <span class="label">运行状态</span>
-          <strong id="st-state">—</strong>
-          <span id="st-elapsed" class="sub">—</span>
-        </div>
-        <div class="card stat">
-          <span class="label">全局最优 IP</span>
-          <strong id="st-best" class="mono">—</strong>
-          <span id="st-best-meta" class="sub">—</span>
-        </div>
-        <div class="card stat">
-          <span class="label">定时任务</span>
-          <strong id="st-cron">—</strong>
-          <span id="st-last" class="sub">—</span>
-        </div>
-        <div class="card stat">
-          <span class="label">Worker / 结果</span>
-          <strong id="st-workers">—</strong>
-          <span class="sub">本轮数据</span>
+<nav class="tabs" id="tabs">
+  <button type="button" class="tab active" data-tab="overview">概览</button>
+  <button type="button" class="tab" data-tab="nodes">节点</button>
+  <button type="button" class="tab" data-tab="iplists">IP 列表</button>
+  <button type="button" class="tab" data-tab="settings">设置</button>
+  <button type="button" class="tab" data-tab="logs">日志</button>
+  <button type="button" class="tab" data-tab="core">内核</button>
+  <button type="button" class="tab" data-tab="thirdparty">第三方</button>
+</nav>
+
+<main>
+  <!-- ── Overview ───────────────────────────────────────────────── -->
+  <section class="panel active" data-panel="overview">
+    <div class="cards">
+      <div class="card stat">
+        <span class="label">运行状态</span>
+        <strong id="st-state">—</strong>
+        <span id="st-elapsed" class="sub">—</span>
+      </div>
+      <div class="card stat">
+        <span class="label">全局最优 IP</span>
+        <strong id="st-best" class="mono">—</strong>
+        <span id="st-best-meta" class="sub">—</span>
+      </div>
+      <div class="card stat">
+        <span class="label">定时任务</span>
+        <strong id="st-cron">—</strong>
+        <span id="st-last" class="sub">—</span>
+      </div>
+      <div class="card stat">
+        <span class="label">Worker / 结果</span>
+        <strong id="st-workers">—</strong>
+        <span class="sub">本轮数据</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>操作</h2>
+        <div class="card-actions">
+          <button id="ov-btn-start" type="button" class="btn primary">开始测速</button>
+          <button id="ov-btn-retest" type="button" class="btn">复测现有最优</button>
+          <button id="ov-btn-stop" type="button" class="btn danger">停止</button>
         </div>
       </div>
+      <p class="muted">开始/停止走脚本原有的单实例锁与协作式收尾；停止后仍会完成已通过 IP 的下载实测和写回。</p>
+    </div>
 
-      <div class="card">
-        <div class="card-head">
-          <h2>操作</h2>
-          <div class="card-actions">
-            <button id="btn-start" type="button" class="btn primary">开始测速</button>
-            <button id="btn-retest" type="button" class="btn">复测现有最优</button>
-            <button id="btn-stop" type="button" class="btn danger">停止</button>
-          </div>
-        </div>
-        <p class="muted">开始/停止走脚本原有的单实例锁与协作式收尾；停止后仍会完成已通过 IP 的下载实测和写回。</p>
+    <div class="card">
+      <div class="card-head"><h2>各节点最优 IP</h2></div>
+      <div class="table-wrap">
+        <table class="data">
+          <thead><tr><th>节点</th><th>IP</th><th>延迟</th><th>丢包</th><th>下载</th><th>地区</th></tr></thead>
+          <tbody id="result-body"><tr><td colspan="6" class="empty">加载中…</td></tr></tbody>
+        </table>
       </div>
+    </div>
 
-      <div class="card">
-        <div class="card-head"><h2>各节点最优 IP</h2></div>
-        <div class="table-wrap">
-          <table class="data">
-            <thead><tr><th>节点</th><th>IP</th><th>延迟</th><th>丢包</th><th>下载</th><th>地区</th></tr></thead>
-            <tbody id="result-body"><tr><td colspan="6" class="empty">加载中…</td></tr></tbody>
-          </table>
+    <div class="card">
+      <div class="card-head"><h2>历史</h2></div>
+      <div class="table-wrap">
+        <table class="data">
+          <thead><tr><th>时间</th><th>最优 IP</th><th>延迟</th><th>下载</th><th>地区</th></tr></thead>
+          <tbody id="history-body"><tr><td colspan="5" class="empty">加载中…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>定时任务</h2></div>
+      <div class="table-wrap">
+        <table class="data">
+          <thead><tr><th>状态</th><th>计划</th><th>任务</th><th>节点</th><th>命令</th></tr></thead>
+          <tbody id="task-body"><tr><td colspan="5" class="empty">加载中…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Nodes（PassWall 节点来源） ─────────────────────────────── -->
+  <section class="panel" data-panel="nodes">
+    <div class="card">
+      <div class="card-head">
+        <h2>代理节点</h2>
+        <div class="card-actions">
+          <button type="button" class="btn small" id="btn-add-worker">添加 worker</button>
+          <button type="button" class="btn small primary" id="btn-save-nodes">保存节点</button>
         </div>
       </div>
+      <p class="muted">
+        每个 worker 对应一个 PassWall 节点，测速时经该节点探测候选 Cloudflare IP。
+        「IP 列表」留空使用第一个启用的列表；填写「DDNS 域名」的 worker 只把最优 IP 写到 Cloudflare DNS，
+        留空则照旧写回 PassWall 节点。没有 worker 时使用下面的「单节点测速」。
+      </p>
+      <div class="grid three">
+        <label>单节点测速（无 worker 时使用） <select id="cfg-test-node"></select></label>
+        <label>稳定节点（必选） <select id="cfg-stable-node"></select></label>
+      </div>
+      <div class="table-wrap">
+        <table class="data nodes-table workers-table">
+          <thead>
+            <tr><th>PassWall 节点</th><th>CM IP 列表</th><th>DDNS 域名</th><th>操作</th></tr>
+          </thead>
+          <tbody id="cfg-workers-body"></tbody>
+        </table>
+      </div>
+      <div id="workers-empty" class="empty-note hidden">还没有 worker；测速将使用上面的「单节点测速」。</div>
+    </div>
+  </section>
 
-      <div class="card">
-        <div class="card-head"><h2>历史</h2></div>
-        <div class="table-wrap">
-          <table class="data">
-            <thead><tr><th>时间</th><th>最优 IP</th><th>延迟</th><th>下载</th><th>地区</th></tr></thead>
-            <tbody id="history-body"><tr><td colspan="5" class="empty">加载中…</td></tr></tbody>
-          </table>
+  <!-- ── IP lists ────────────────────────────────────────────────── -->
+  <section class="panel" data-panel="iplists">
+    <div class="card">
+      <div class="card-head">
+        <h2>在线 CM 源 IP 列表</h2>
+        <div class="card-actions">
+          <button type="button" class="btn small primary" id="btn-save-iplists">保存列表</button>
         </div>
       </div>
-
-      <div class="card">
-        <div class="card-head"><h2>定时任务</h2></div>
-        <div class="table-wrap">
-          <table class="data">
-            <thead><tr><th>状态</th><th>计划</th><th>任务</th><th>节点</th><th>命令</th></tr></thead>
-            <tbody id="task-body"><tr><td colspan="5" class="empty">加载中…</td></tr></tbody>
-          </table>
-        </div>
+      <p class="muted">
+        仅在「IP 来源 = 在线 CM 源」时使用。五个列表共享在线源地址，各自按端口和国家码过滤；
+        节点可在「节点」页指派其中一个列表，未指派的节点使用第一个启用的列表。
+        端口只用于挑选候选 IP，实际探测仍走节点自己的端口。
+      </p>
+      <div class="table-wrap">
+        <table class="data">
+          <thead>
+            <tr><th>启用</th><th>名称</th><th>国家码（不勾选 = 全部）</th><th>端口</th></tr>
+          </thead>
+          <tbody id="iplists-body"></tbody>
+        </table>
       </div>
-    </section>
+    </div>
+  </section>
 
-    <!-- ── 独立测速 ─────────────────────────────────────────────── -->
-    <section id="pane-standalone" class="pane">
+  <!-- ── Settings ────────────────────────────────────────────────── -->
+  <section class="panel" data-panel="settings">
+    <form id="settings-form" autocomplete="off">
       <div class="card">
-        <div class="card-head">
-          <h2>内核模块</h2>
-          <div class="card-actions">
-            <button id="btn-sa-refresh" type="button" class="btn small">刷新</button>
-            <button id="btn-sa-save" type="button" class="btn small primary">保存内核设置</button>
-          </div>
-        </div>
+        <div class="card-head"><h2>候选 IP 来源</h2></div>
         <div class="grid">
-          <label class="check"><input id="sa-enabled" type="checkbox"> 启用独立内核
-            <span class="muted">（启用后「开始测速」走本机内核；关闭则依赖 PassWall run_socks）</span>
-          </label>
-          <label>当前使用的内核
-            <select id="sa-core-select">
-              <option value="mihomo">mihomo（Clash.Meta）</option>
-              <option value="xray">Xray-core</option>
-            </select>
-          </label>
-        </div>
-        <p class="muted">
-          两个内核都是独立模块，可分别安装/升级，升级互不影响，也不会中断正在运行的测速（下一次运行生效）。
-          节点兼容性：mihomo 支持 vless / vmess / trojan / ss / hysteria2 及 tcp / ws / grpc /
-          h2 / http 传输，xhttp 目前仅 VLESS；xray 支持 vless / vmess / trojan / ss
-          （SS 不支持 plugin）及 tcp / ws / grpc / xhttp 传输，不支持 hysteria2
-          （Xray 26 也已移除 h2/http 传输）。VMess/Trojan 的 xhttp 节点请选 Xray。
-        </p>
-        <p class="muted">
-          独立模式不改写 PassWall 节点 address，也不切换全局节点；节点、IP 列表、探测/下载参数
-          仍用本操作台的配置。节点类型与选中内核不兼容时自动回退 PassWall run_socks。
-        </p>
-        <p id="sa-update-message" class="muted">—</p>
-      </div>
-
-      <div class="cards" id="sa-core-cards"></div>
-
-      <div class="card">
-        <div class="card-head"><h2>内核更新日志</h2></div>
-        <pre id="sa-update-log" class="log-view" style="max-height:180px"></pre>
-      </div>
-    </section>
-
-    <!-- ── 节点 ─────────────────────────────────────────────────── -->
-    <section id="pane-nodes" class="pane">
-      <div class="card">
-        <div class="card-head"><h2>节点与 worker</h2></div>
-        <div class="grid three">
-          <label>单节点测速（无 worker 时使用） <select id="cfg-test-node"></select></label>
-          <label>稳定节点（必选） <select id="cfg-stable-node"></select></label>
-        </div>
-        <p class="muted">worker 表：每个 PassWall 节点一个 worker，并指派使用的 CM IP 列表；留空列表使用第一个启用的列表。填了 DDNS 域名的 worker 只把最优 IP 写到 Cloudflare DNS，不再写回 PassWall 节点；留空则照旧写回。</p>
-        <div class="table-wrap">
-          <table class="data workers-table">
-            <thead><tr><th>PassWall 节点</th><th>CM IP 列表</th><th>DDNS 域名</th><th>操作</th></tr></thead>
-            <tbody id="cfg-workers-body"></tbody>
-          </table>
-        </div>
-        <div class="card-actions" style="margin-top:12px">
-          <button type="button" class="btn" id="btn-add-worker">添加 worker</button>
-          <button type="button" class="btn primary save-config">保存节点配置</button>
-        </div>
-      </div>
-    </section>
-
-    <!-- ── IP 列表 ───────────────────────────────────────────────── -->
-    <section id="pane-iplists" class="pane">
-      <div class="card">
-        <div class="card-head"><h2>在线 CM 源 IP 列表</h2></div>
-        <p class="muted">五个列表共享在线源地址；国家码点开勾选，不勾选表示全部。worker 在「节点」页指派列表。</p>
-        <div class="table-wrap">
-          <table class="data">
-            <thead><tr><th>启用</th><th>名称</th><th>国家码（不勾选 = 全部）</th><th>端口</th></tr></thead>
-            <tbody id="cfg-iplists-body"></tbody>
-          </table>
-        </div>
-        <div class="card-actions" style="margin-top:12px">
-          <button type="button" class="btn primary save-config">保存 IP 列表</button>
-        </div>
-      </div>
-    </section>
-
-    <!-- ── 设置 ─────────────────────────────────────────────────── -->
-    <section id="pane-settings" class="pane">
-      <div class="card">
-        <div class="card-head"><h2>基本设置</h2></div>
-        <div class="grid three">
-          <label>IP 来源
-            <select id="cfg-ip-source">
+          <label>来源
+            <select id="ip_source">
               <option value="builtin_ipv4">内置 IPv4 列表</option>
               <option value="builtin_ipv6">内置 IPv6 列表</option>
               <option value="online">在线 CM 源</option>
               <option value="custom_file">自定义文件</option>
             </select>
           </label>
-          <label id="row-ip-online">在线源地址
-            <input id="cfg-ip-online-url" type="text" spellcheck="false" placeholder="https://zip.cm.edu.kg/all.txt">
+          <label data-when="online">在线源地址
+            <input id="ip_online_url" type="text" spellcheck="false" placeholder="https://zip.cm.edu.kg/all.txt">
           </label>
-          <label id="row-custom-file">自定义 IP 文件
-            <input id="cfg-custom-ip-file" type="text" spellcheck="false" placeholder="/etc/cfpick/ip.txt">
+          <label data-when="custom_file">自定义 IP 文件
+            <input id="custom_ip_file" type="text" spellcheck="false" placeholder="/etc/cfpick/ip.txt">
           </label>
-          <label class="check" id="row-custom-allip"><input id="cfg-custom-allip" type="checkbox"> 扫描每个 /24 的全部 IP</label>
-          <label>延迟上限 (ms，0 = 不限) <input id="cfg-tl" type="number" min="0" step="1"></label>
-          <label>延迟下限 (ms) <input id="cfg-tll" type="number" min="0" step="1"></label>
-          <label>丢包率上限 <input id="cfg-tlr" type="number" min="0" max="1" step="0.01"></label>
-          <label>候选 IP 数 / 节点 <input id="cfg-test-count" type="number" min="1" step="1"></label>
-          <label>探测超时 (s) <input id="cfg-test-timeout" type="number" min="1" step="1"></label>
-          <label>每 IP 探测次数 <input id="cfg-test-probes" type="number" min="1" max="5" step="1"></label>
-          <label>最大并发 worker <input id="cfg-test-threads" type="number" min="0" step="1"></label>
-          <label class="span2">探测 URL <input id="cfg-test-url" type="text" spellcheck="false"></label>
+          <label class="check" data-when="custom_file">
+            <input id="custom_allip" type="checkbox">
+            扫描每个 /24 内的全部 IP（较慢）
+          </label>
         </div>
+        <p class="muted">内置文件为 CIDR 段：默认每个 /24 随机取一个地址；IPv6 每个 /64 取一个样本。在线源格式为 <code>IP:PORT#国家码</code>。</p>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>延迟筛选与探测</h2></div>
+        <div class="grid three">
+          <label>延迟上限 (ms，0 = 不限) <input id="latency_max" type="number" min="0" step="1"></label>
+          <label>延迟下限 (ms，0 = 不限) <input id="latency_min" type="number" min="0" step="1"></label>
+          <label>丢包率上限 <input id="loss_max" type="number" min="0" max="1" step="0.01"></label>
+          <label>候选 IP 数 / 节点 <input id="test_count" type="number" min="1" step="1"></label>
+          <label>探测超时 (s) <input id="probe_timeout" type="number" min="1" step="1"></label>
+          <label>每 IP 探测次数 <input id="probes" type="number" min="1" max="5" step="1"></label>
+          <label>最大并发 worker <input id="max_workers" type="number" min="0" step="1"></label>
+          <label class="span2">探测 URL
+            <input id="probe_url" type="text" spellcheck="false">
+          </label>
+        </div>
+        <p class="muted">任意一次探测失败该 IP 立即丢弃，只有全部探测都成功才保留。并发上限 0 表示全部节点同时运行。延迟是经节点 SOCKS 测得的全链路耗时，包含节点自身 RTT；远端节点常超过 200ms，延迟上限默认不限（0），调得太低会把所有候选全部丢弃。</p>
       </div>
 
       <div class="card">
         <div class="card-head"><h2>真实下载实测</h2></div>
         <div class="grid three">
-          <label class="check"><input id="cfg-dl-enabled" type="checkbox"> 启用下载实测</label>
-          <label>每节点候选数 <input id="cfg-dl-count" type="number" min="1" max="10" step="1"></label>
-          <label>单 IP 时限 (s) <input id="cfg-dl-time" type="number" min="1" max="60" step="1"></label>
-          <label class="span2">下载 URL <input id="cfg-dl-url" type="text" spellcheck="false"></label>
+          <label class="check"><input id="download_enabled" type="checkbox"> 启用下载实测</label>
+          <label>每节点候选数（最多 10） <input id="download_count" type="number" min="1" max="10" step="1"></label>
+          <label>单 IP 时限 (s) <input id="download_time" type="number" min="1" max="60" step="1"></label>
+          <label class="span2">下载 URL
+            <input id="download_url" type="text" spellcheck="false">
+          </label>
         </div>
-      </div>
-
-      <div class="card">
-        <div class="card-head"><h2>DDNS 写回（Cloudflare）</h2></div>
-        <div class="grid three">
-          <label class="check"><input id="cfg-ddns-enabled" type="checkbox"> 启用 DDNS 写回</label>
-          <label>每节点写入 IP 数 <input id="cfg-ddns-count" type="number" min="1" max="10" step="1"></label>
-          <label>TTL (s) <input id="cfg-ddns-ttl" type="number" min="1" max="86400" step="1"></label>
-          <label class="span2">Cloudflare API Token <input id="cfg-ddns-token" type="password" autocomplete="off"></label>
-          <label>Zone ID（可选） <input id="cfg-ddns-zone-id" type="text" spellcheck="false"></label>
-          <label>Zone 名称（可选） <input id="cfg-ddns-zone-name" type="text" spellcheck="false" placeholder="example.com"></label>
-          <label class="check"><input id="cfg-ddns-proxied" type="checkbox"> 记录走 Cloudflare 代理</label>
-        </div>
-        <p class="muted">worker 表里填了 DDNS 域名的节点只把最优 IP 写到 DNS，不再写回 PassWall 节点；未填域名的节点照旧写回。域名需属于同一个 Cloudflare Zone，留空 Zone 时按域名自动查找。</p>
+        <p class="muted">所有 worker 停止延迟探测后，逐节点串行下载：只测每个节点延迟最优的前 N 个 IP；5 秒内不足 1 MB 的候选会被 curl 快速中止并判失败。下载失败的行会被剔除；全部失败时保留延迟排序。</p>
       </div>
 
       <div class="card">
         <div class="card-head"><h2>限时迭代</h2></div>
         <div class="grid three">
-          <label class="check"><input id="cfg-iter-enabled" type="checkbox"> 启用限时迭代收敛</label>
-          <label>迭代时长（分钟） <input id="cfg-iter-minutes" type="number" min="1" step="1"></label>
-          <label>迭代收敛阈值 <input id="cfg-iter-converge" type="number" min="1" max="100" step="1" title="剩余候选 ≤ N 个即停止迭代，与下载测速候选数无关"></label>
+          <label class="check"><input id="iterate_enabled" type="checkbox"> 启用限时迭代收敛</label>
+          <label>迭代时长（分钟） <input id="iterate_minutes" type="number" min="1" step="1"></label>
+          <label>迭代收敛阈值 <input id="iterate_converge_count" type="number" min="1" max="100" step="1" title="剩余候选 ≤ N 个即停止迭代，与下载测速候选数无关"></label>
         </div>
+        <p class="muted">每个节点独立循环：第一遍测初始候选，之后每遍只复测上一遍通过的 IP，直到时长结束或候选收敛到 ≤「迭代收敛阈值」（默认 5，最多 100）。该阈值与下载测速候选数相互独立；迭代期间不写结果，结束后统一导出并对最终候选做下载实测。</p>
       </div>
 
       <div class="card">
         <div class="card-head">
           <h2>定时任务</h2>
+          <div class="card-actions">
+            <span id="cron-note" class="muted"></span>
+            <button type="button" class="btn small" id="btn-cron-refresh">刷新</button>
+          </div>
         </div>
+        <p class="muted">
+          显示与本程序相关的 cron 任务（当前用户的 crontab 可直接修改，<code>/etc/crontab</code>
+          中的条目只读）。所有任务都是普通 crontab 行，可改计划、类型、节点或启停；没有单独的主任务。
+        </p>
         <div class="table-wrap">
-          <table class="data">
-            <thead><tr><th>启用</th><th>计划</th><th>任务</th><th>节点</th><th>命令</th><th>操作</th></tr></thead>
-            <tbody id="cfg-task-body"><tr><td colspan="6" class="empty">加载中…</td></tr></tbody>
+          <table class="data cron-table" id="cron-table">
+            <thead>
+              <tr><th>启用</th><th>计划</th><th>任务</th><th>节点</th><th>命令</th><th>操作</th></tr>
+            </thead>
+            <tbody id="cron-body"><tr><td colspan="6" class="empty">加载中…</td></tr></tbody>
           </table>
         </div>
-        <div id="cfg-task-add-form" class="grid task-add">
-          <label>计划 <span id="cfg-task-add-schedule" class="schedule-host"></span></label>
+        <div id="cron-add-form" class="grid task-add">
+          <label>计划 <span id="cron-add-schedule" class="schedule-host"></span></label>
           <label>任务
-            <select id="cfg-task-add-mode">
+            <select id="cron-add-mode">
               <option value="start">完整测速并写回（start）</option>
               <option value="retest">复测现有最优并写回（retest）</option>
               <option value="test">仅测速，不写回（test）</option>
               <option value="replace">仅写回现有结果（replace）</option>
             </select>
           </label>
-          <label>节点 <span id="cfg-task-add-nodes" class="node-picker-host"></span></label>
-          <label>&nbsp;<button id="btn-cfg-task-add" type="button" class="btn primary">添加任务</button></label>
+          <label>节点
+            <span id="cron-add-nodes" class="node-picker-host"></span>
+          </label>
+          <label>&nbsp;<button type="button" class="btn primary" id="btn-cron-add">添加任务</button></label>
         </div>
+        <p class="muted" id="cron-errors"></p>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2>DDNS（Cloudflare 优选 IP）</h2>
+          <div class="card-actions">
+            <button type="button" class="btn small" id="btn-ddns-apply">立即写入</button>
+            <button type="button" class="btn small" id="btn-ddns-preview">预览</button>
+          </div>
+        </div>
+        <div class="grid three">
+          <label class="check"><input id="ddns_enabled" type="checkbox"> 启用 DDNS 写入</label>
+          <label>API Token
+            <input id="ddns_token" type="password" autocomplete="new-password" placeholder="*** = 保留已保存的令牌">
+          </label>
+          <label>Zone ID（可选） <input id="ddns_zone_id" type="text" spellcheck="false" placeholder="留空则自动查找"></label>
+          <label>Zone 名称（可选） <input id="ddns_zone_name" type="text" spellcheck="false" placeholder="example.com"></label>
+          <label>每节点写入 IP 数 <input id="ddns_ip_count" type="number" min="1" max="10" step="1"></label>
+          <label>TTL（秒，1 = 自动） <input id="ddns_ttl" type="number" min="1" max="86400" step="1"></label>
+          <label class="check"><input id="ddns_proxied" type="checkbox"> Cloudflare 橙云代理（不推荐）</label>
+        </div>
+        <p class="muted">
+          每个节点在「节点」页填写自己的 DDNS 域名；留空的节点只测速，不写 DNS。
+          写入的是该节点本次最优的 IP（IPv4 → A，IPv6 → AAAA）。Zone ID / 名称都留空时按域名自动查找。
+          API Token 需要该 Zone 的 <code>DNS:Edit</code> 权限。启用橙云代理后 Cloudflare 会返回自己的
+          边缘 IP，写入的优选 IP 不会生效，优选场景请保持关闭。
+        </p>
+        <p class="muted" id="ddns-status">尚未写入。</p>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>内核与 Web</h2></div>
+        <div class="grid three">
+          <label>监听地址 <input id="web_listen" type="text" spellcheck="false" placeholder="0.0.0.0"></label>
+          <label>监听端口 <input id="web_port" type="number" min="1" max="65535" step="1"></label>
+        </div>
+        <p class="muted">
+          监听地址 / 端口修改后，cfpick-web 会在保存时自动重启，需要用新地址重新打开操作台。
+          独立内核的 DNS 由 PassWall / 内核自身提供，这里不单独配置。
+        </p>
       </div>
 
       <div class="card">
         <div class="card-head"><h2>操作台账号</h2></div>
-        <form id="password-form" autocomplete="off">
-          <div class="grid three">
-            <label>当前密码 <input id="cfg-auth-current" type="password" autocomplete="current-password"></label>
-            <label>新密码 <input id="cfg-auth-new" type="password" autocomplete="new-password"></label>
-            <label>确认新密码 <input id="cfg-auth-confirm" type="password" autocomplete="new-password"></label>
-          </div>
-          <p class="muted">密码只保存在路由器的 UCI 配置中（加盐 SHA-256），修改后需要重新登录。</p>
-          <button type="submit" class="btn">修改密码</button>
-        </form>
-      </div>
-
-      <div class="card-actions" style="margin:8px 0 24px">
-        <button type="button" class="btn primary save-config">保存设置</button>
-      </div>
-    </section>
-
-    <!-- ── 日志 ─────────────────────────────────────────────────── -->
-    <section id="pane-logs" class="pane">
-      <div class="card">
-        <div class="card-head">
-          <h2>实时日志</h2>
-          <div class="card-actions">
-            <label class="check inline"><input id="log-follow" type="checkbox" checked> 自动刷新</label>
-            <button id="btn-log-clear" type="button" class="btn small">清空显示</button>
-          </div>
-        </div>
-        <pre id="log-view" class="log-view"></pre>
-      </div>
-    </section>
-
-    <!-- ── 第三方 ───────────────────────────────────────────────── -->
-    <section id="pane-thirdparty" class="pane">
-      <div class="card" id="tp-ssr">
-        <div class="card-head"><h2>ShadowSocksR Plus+</h2></div>
         <div class="grid three">
-          <label class="check"><input id="tp-ssr-enabled" type="checkbox"> 启用写回</label>
-          <label class="span2">服务节点（Ctrl/Cmd 多选）
-            <select id="tp-ssr-services" multiple size="5"></select>
-          </label>
+          <label>当前密码 <input id="auth-current" type="password" autocomplete="current-password"></label>
+          <label>新密码 <input id="auth-new" type="password" autocomplete="new-password"></label>
+          <label>确认新密码 <input id="auth-confirm-new" type="password" autocomplete="new-password"></label>
+        </div>
+        <p class="muted">密码只保存在路由器的 UCI 配置中（加盐 SHA-256），修改后需要重新登录。</p>
+        <button type="button" class="btn" id="btn-password">修改密码</button>
+      </div>
+
+      <div class="save-bar">
+        <span id="save-hint" class="muted"></span>
+        <button type="submit" class="btn primary">保存全部设置</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- ── Logs ────────────────────────────────────────────────────── -->
+  <section class="panel" data-panel="logs">
+    <div class="card">
+      <div class="card-head">
+        <h2>运行日志</h2>
+        <div class="card-actions">
+          <label class="check inline"><input id="log-follow" type="checkbox" checked> 自动滚动</label>
+          <label class="check inline"><input id="log-autorefresh" type="checkbox" checked> 每 2 秒刷新</label>
+          <button type="button" class="btn small" id="btn-log-reload">重新加载</button>
+          <a class="btn small" id="dl-log" href="#">下载日志</a>
         </div>
       </div>
+      <pre id="log-view" class="log-view"></pre>
+      <p class="muted" id="log-meta"></p>
+    </div>
+  </section>
 
-      <div class="card" id="tp-passwall">
-        <div class="card-head"><h2>PassWall</h2></div>
-        <label class="check"><input id="tp-passwall-enabled" type="checkbox"> 启用写回</label>
-        <p class="muted">PassWall 的待测节点在「节点」页的 worker 表中配置；此处只控制是否写回节点地址。</p>
-      </div>
-
-      <div class="card" id="tp-passwall2">
-        <div class="card-head"><h2>PassWall2</h2></div>
-        <div class="grid three">
-          <label class="check"><input id="tp-passwall2-enabled" type="checkbox"> 启用写回</label>
-          <label class="span2">服务节点（Ctrl/Cmd 多选）
-            <select id="tp-passwall2-services" multiple size="5"></select>
-          </label>
+  <!-- ── Core ────────────────────────────────────────────────────── -->
+  <section class="panel" data-panel="core">
+    <div class="card">
+      <div class="card-head">
+        <h2>内核模块</h2>
+        <div class="card-actions">
+          <button type="button" class="btn small" id="btn-core-refresh">刷新</button>
+          <button type="button" class="btn small primary" id="btn-save-core">保存内核设置</button>
         </div>
       </div>
+      <div class="grid">
+        <label class="check"><input id="sa-enabled" type="checkbox"> 启用独立内核
+          <span class="muted">（启用后「开始测速」走本机内核；关闭则依赖 PassWall run_socks）</span>
+        </label>
+        <label>当前使用的内核
+          <select id="core-type">
+            <option value="mihomo">mihomo（Clash.Meta）</option>
+            <option value="xray">Xray-core</option>
+          </select>
+        </label>
+      </div>
+      <p class="muted">
+        两个内核都是独立模块，可分别安装/升级，升级互不影响，也不会中断正在运行的测速（下一次运行生效）。
+        节点兼容性：mihomo 支持 vless / vmess / trojan / ss / hysteria2 及 tcp / ws / grpc /
+        h2 / http 传输，xhttp 目前仅 VLESS；xray 支持 vless / vmess / trojan / ss
+        （SS 不支持 plugin）及 tcp / ws / grpc / xhttp 传输，不支持 hysteria2
+        （Xray 26 也已移除 h2/http 传输）。VMess/Trojan 的 xhttp 节点请选 Xray。
+      </p>
+      <p class="muted">
+        独立模式不改写 PassWall 节点 address，也不切换全局节点；节点、IP 列表、探测/下载参数
+        仍用本操作台的配置。节点类型与选中内核不兼容时自动回退 PassWall run_socks。
+      </p>
+      <p class="muted" id="core-message"></p>
+    </div>
+    <div class="cards" id="core-cards"></div>
 
-      <div class="card" id="tp-bypass">
-        <div class="card-head"><h2>Bypass</h2></div>
-        <div class="grid three">
-          <label class="check"><input id="tp-bypass-enabled" type="checkbox"> 启用写回</label>
-          <label class="span2">服务节点（Ctrl/Cmd 多选）
-            <select id="tp-bypass-services" multiple size="5"></select>
-          </label>
+    <div class="card">
+      <div class="card-head"><h2>内核更新日志</h2></div>
+      <pre id="sa-update-log" class="log-view" style="height:180px"></pre>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>程序更新</h2>
+        <div class="card-actions">
+          <button type="button" class="btn small primary" id="btn-app-update">更新程序</button>
         </div>
       </div>
+      <dl class="kv">
+        <dt>当前版本</dt><dd id="app-current-version">—</dd>
+        <dt>更新状态</dt><dd id="app-update-state">—</dd>
+      </dl>
+      <p class="muted">
+        从 GitHub Release 下载当前架构的安装包并覆盖安装，rpcd 随后重载；页面会短暂断连后自动恢复。
+      </p>
+    </div>
+  </section>
 
-      <div class="card" id="tp-vssr">
-        <div class="card-head"><h2>Vssr</h2></div>
-        <div class="grid three">
-          <label class="check"><input id="tp-vssr-enabled" type="checkbox"> 启用写回</label>
-          <label class="span2">服务节点（Ctrl/Cmd 多选）
-            <select id="tp-vssr-services" multiple size="5"></select>
-          </label>
-        </div>
+  <!-- ── Third party（OpenWrt 专属写回） ────────────────────────── -->
+  <section class="panel" data-panel="thirdparty">
+    <div class="card" id="tp-ssr">
+      <div class="card-head"><h2>ShadowSocksR Plus+</h2></div>
+      <div class="grid three">
+        <label class="check"><input id="tp-ssr-enabled" type="checkbox"> 启用写回</label>
+        <label class="span2">服务节点（Ctrl/Cmd 多选）
+          <select id="tp-ssr-services" multiple size="5"></select>
+        </label>
       </div>
+    </div>
 
-      <div class="card" id="tp-host">
-        <div class="card-head"><h2>HOST</h2></div>
-        <div class="grid three">
-          <label class="check"><input id="tp-host-enabled" type="checkbox"> 写入 /etc/hosts</label>
-          <label>域名 <input id="tp-host-domain" type="text" spellcheck="false" placeholder="cf.example.com"></label>
-        </div>
-      </div>
+    <div class="card" id="tp-passwall">
+      <div class="card-head"><h2>PassWall</h2></div>
+      <label class="check"><input id="tp-passwall-enabled" type="checkbox"> 启用写回</label>
+      <p class="muted">PassWall 的待测节点在「节点」页的 worker 表中配置；此处只控制是否写回节点地址。</p>
+    </div>
 
-      <div class="card" id="tp-dns">
-        <div class="card-head"><h2>阿里云 DNS</h2></div>
-        <div class="grid three">
-          <label class="check"><input id="tp-dns-enabled" type="checkbox"> 启用写回</label>
-          <label>DNS 类型
-            <select id="tp-dns-type"><option value="aliyun">阿里云 DNS</option></select>
-          </label>
-          <label>AccessKey ID <input id="tp-app-key" type="text" spellcheck="false" autocomplete="off"></label>
-          <label>AccessKey Secret
-            <input id="tp-app-secret" type="password" autocomplete="new-password" placeholder="*** = 保持已保存的密钥">
-          </label>
-          <label>主域名 <input id="tp-main-domain" type="text" spellcheck="false" placeholder="example.com"></label>
-          <label>子域名（空格或逗号分隔）
-            <input id="tp-sub-domain" type="text" spellcheck="false" placeholder="jp us">
-          </label>
-          <label>线路
-            <select id="tp-dns-line">
-              <option value="default">default</option>
-              <option value="telecom">telecom</option>
-              <option value="unicom">unicom</option>
-              <option value="mobile">mobile</option>
-            </select>
-          </label>
-          <label>写入 IP 数 <input id="tp-alidns-count" type="number" min="1" max="100" step="1"></label>
-        </div>
+    <div class="card" id="tp-passwall2">
+      <div class="card-head"><h2>PassWall2</h2></div>
+      <div class="grid three">
+        <label class="check"><input id="tp-passwall2-enabled" type="checkbox"> 启用写回</label>
+        <label class="span2">服务节点（Ctrl/Cmd 多选）
+          <select id="tp-passwall2-services" multiple size="5"></select>
+        </label>
       </div>
+    </div>
 
-      <div class="card" id="tp-mosdns">
-        <div class="card-head"><h2>MosDNS</h2></div>
-        <div class="grid three">
-          <label class="check"><input id="tp-mosdns-enabled" type="checkbox"> 启用写回</label>
-          <label>写入 IP 数 <input id="tp-mosdns-count" type="number" min="1" max="100" step="1"></label>
-          <label class="check"><input id="tp-openclash" type="checkbox"> 写回后重启 OpenClash</label>
-        </div>
+    <div class="card" id="tp-bypass">
+      <div class="card-head"><h2>Bypass</h2></div>
+      <div class="grid three">
+        <label class="check"><input id="tp-bypass-enabled" type="checkbox"> 启用写回</label>
+        <label class="span2">服务节点（Ctrl/Cmd 多选）
+          <select id="tp-bypass-services" multiple size="5"></select>
+        </label>
       </div>
+    </div>
 
-      <div class="card" id="tp-astra">
-        <div class="card-head"><h2>astra-dns</h2></div>
-        <div class="grid three">
-          <label class="check"><input id="tp-astra-enabled" type="checkbox"> 启用写回</label>
-          <label>配置文件 <input id="tp-astra-config" type="text" spellcheck="false" placeholder="/etc/astra-dns/named.yaml"></label>
-          <label>二进制路径 <input id="tp-astra-bin" type="text" spellcheck="false" placeholder="/usr/bin/astra-dns"></label>
-        </div>
+    <div class="card" id="tp-vssr">
+      <div class="card-head"><h2>Vssr</h2></div>
+      <div class="grid three">
+        <label class="check"><input id="tp-vssr-enabled" type="checkbox"> 启用写回</label>
+        <label class="span2">服务节点（Ctrl/Cmd 多选）
+          <select id="tp-vssr-services" multiple size="5"></select>
+        </label>
       </div>
+    </div>
 
-      <div class="card-actions" style="margin:8px 0 24px">
-        <button type="button" class="btn primary save-config">保存第三方配置</button>
+    <div class="card" id="tp-host">
+      <div class="card-head"><h2>HOST</h2></div>
+      <div class="grid three">
+        <label class="check"><input id="tp-host-enabled" type="checkbox"> 写入 /etc/hosts</label>
+        <label>域名 <input id="tp-host-domain" type="text" spellcheck="false" placeholder="cf.example.com"></label>
       </div>
-    </section>
-  </main>
+    </div>
+
+    <div class="card" id="tp-dns">
+      <div class="card-head"><h2>阿里云 DNS</h2></div>
+      <div class="grid three">
+        <label class="check"><input id="tp-dns-enabled" type="checkbox"> 启用写回</label>
+        <label>DNS 类型
+          <select id="tp-dns-type"><option value="aliyun">阿里云 DNS</option></select>
+        </label>
+        <label>AccessKey ID <input id="tp-app-key" type="text" spellcheck="false" autocomplete="off"></label>
+        <label>AccessKey Secret
+          <input id="tp-app-secret" type="password" autocomplete="new-password" placeholder="*** = 保持已保存的密钥">
+        </label>
+        <label>主域名 <input id="tp-main-domain" type="text" spellcheck="false" placeholder="example.com"></label>
+        <label>子域名（空格或逗号分隔）
+          <input id="tp-sub-domain" type="text" spellcheck="false" placeholder="jp us">
+        </label>
+        <label>线路
+          <select id="tp-dns-line">
+            <option value="default">default</option>
+            <option value="telecom">telecom</option>
+            <option value="unicom">unicom</option>
+            <option value="mobile">mobile</option>
+          </select>
+        </label>
+        <label>写入 IP 数 <input id="tp-alidns-count" type="number" min="1" max="100" step="1"></label>
+      </div>
+    </div>
+
+    <div class="card" id="tp-mosdns">
+      <div class="card-head"><h2>MosDNS</h2></div>
+      <div class="grid three">
+        <label class="check"><input id="tp-mosdns-enabled" type="checkbox"> 启用写回</label>
+        <label>写入 IP 数 <input id="tp-mosdns-count" type="number" min="1" max="100" step="1"></label>
+        <label class="check"><input id="tp-openclash" type="checkbox"> 写回后重启 OpenClash</label>
+      </div>
+    </div>
+
+    <div class="card" id="tp-astra">
+      <div class="card-head"><h2>astra-dns</h2></div>
+      <div class="grid three">
+        <label class="check"><input id="tp-astra-enabled" type="checkbox"> 启用写回</label>
+        <label>配置文件 <input id="tp-astra-config" type="text" spellcheck="false" placeholder="/etc/astra-dns/named.yaml"></label>
+        <label>二进制路径 <input id="tp-astra-bin" type="text" spellcheck="false" placeholder="/usr/bin/astra-dns"></label>
+      </div>
+    </div>
+
+    <div class="save-bar">
+      <button type="button" class="btn primary" id="btn-save-thirdparty">保存第三方配置</button>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <span>cfpick <span id="app-version"></span></span>
+  <span>结果目录：<code id="state-dir">/tmp/cfpick</code></span>
+</footer>
+
+<!-- Login overlay -->
+<div id="auth-overlay" class="overlay hidden">
+  <form class="dialog" id="auth-form" autocomplete="off">
+    <h2 id="auth-title">登录操作台</h2>
+    <p class="muted" id="auth-desc">输入管理员账号进入操作台。</p>
+    <label>用户名
+      <input id="auth-user" type="text" spellcheck="false" autocomplete="username">
+    </label>
+    <label>密码
+      <input id="auth-password" type="password" autocomplete="current-password">
+    </label>
+    <label id="auth-confirm-row" class="hidden">确认密码
+      <input id="auth-confirm" type="password" autocomplete="new-password">
+    </label>
+    <p class="error" id="auth-error"></p>
+    <div class="dialog-actions">
+      <button type="submit" class="btn primary" id="auth-submit">登录</button>
+    </div>
+    <p class="muted">独立操作台 · 与 LuCI 配置互不影响</p>
+  </form>
 </div>
 
-<script src="app.js"></script>
+<div id="toast" class="toast hidden"></div>
+
+<script src="app.js?v=1.0.20"></script>
 </body>
 </html>

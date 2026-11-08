@@ -205,6 +205,24 @@ def cmd_ddns_uci_apply(args):
     return 0 if report.get("ok") else 1
 
 
+def cmd_ddns_uci_preview(args):
+    """Preview the DNS write plan using the UCI config and shell result file."""
+    from . import passwall
+
+    settings = passwall.ddns_config()
+    nodes = passwall.node_ip_ddns()
+    rows, when = result.read_result(args.result or None)
+    cfg = {"ddns": settings}
+    node_list = [{
+        "name": item["name"],
+        "node_id": item["node"],
+        "ddns_domain": item["domain"],
+        "enabled": True,
+    } for item in nodes]
+    _print_json(ddns.preview(cfg, node_list, rows, when))
+    return 0
+
+
 def cmd_ddns_verify(args):
     """Validate Cloudflare credentials without writing any DNS record.
 
@@ -233,6 +251,8 @@ def cmd_ddns_verify(args):
 def cmd_ddns(args):
     if args.action == "uci-apply":
         return cmd_ddns_uci_apply(args)
+    if args.action == "uci-preview":
+        return cmd_ddns_uci_preview(args)
     if args.action == "verify":
         return cmd_ddns_verify(args)
     cfg = config.load()
@@ -320,9 +340,9 @@ def build_parser():
 
     ddns_parser = sub.add_parser("ddns", help="preview or write best IPs to Cloudflare DNS")
     ddns_parser.add_argument("action", nargs="?", default="show",
-                             choices=["show", "apply", "verify", "uci-apply"])
+                             choices=["show", "apply", "verify", "uci-apply", "uci-preview"])
     ddns_parser.add_argument("--result", default="",
-                             help="uci-apply: result.csv written by the shell pipeline")
+                             help="uci-apply/uci-preview: result.csv written by the shell pipeline")
     ddns_parser.add_argument("--token", default="",
                              help="verify: token to check instead of the UCI value")
     ddns_parser.add_argument("--zone-id", default="",

@@ -18,13 +18,11 @@
 		appTimer: 0,
 		tab: 'overview',
 		logPos: 0,
-		resultFilter: '',
 		lastRunning: false,
 		pollTimer: 0,
 		logTimer: 0,
 		coreTimer: 0,
 		elapsedTimer: 0,
-		chart: null,
 		// 日志读取串行化，避免切页/定时器/手动刷新并发读到同一段而重复追加。
 		logChain: Promise.resolve(),
 	};
@@ -41,16 +39,6 @@
 		failed: '失败',
 	};
 
-	const PALETTE = [
-		['#2fbf71', 'rgba(47,191,113,0.18)'],
-		['#ff6b5e', 'rgba(255,107,94,0.18)'],
-		['#4da3ff', 'rgba(77,163,255,0.18)'],
-		['#e0a340', 'rgba(224,163,64,0.18)'],
-		['#9b7bff', 'rgba(155,123,255,0.18)'],
-		['#ff9f43', 'rgba(255,159,67,0.18)'],
-		['#20c4cb', 'rgba(32,196,203,0.18)'],
-		['#f368a8', 'rgba(243,104,168,0.18)'],
-	];
 
 	// ── api ─────────────────────────────────────────────────────────────
 	function withToken(url) {
@@ -165,44 +153,45 @@
 	function renderStatus(status) {
 		state.status = status;
 		const running = !!status.running;
+		const last = status.last || {};
 		const dot = $('#status-dot');
 		dot.classList.toggle('running', running);
 		dot.classList.toggle('idle', !running && status.phase !== 'failed');
 		dot.classList.toggle('error', !running && status.phase === 'failed');
 
-		let text;
-		if (running) {
-			text = phaseLabel(status.phase) + ' · 已运行 ' + fmtDuration(status.elapsed) +
-				' · ' + (status.node_count || 0) + ' 个节点' +
-				(status.stop_requested ? ' · 正在停止（收尾中）' : '');
-		} else {
-			text = phaseLabel(status.phase);
-			if (status.last && status.last.last_time)
-				text += ' · 上次 ' + status.last.last_time;
-			if (status.last && status.last.best_ip)
-				text += ' · 最优 ' + status.last.best_ip;
-			if (status.last && status.last.error)
-				text += ' · ' + status.last.error;
-		}
+		const text = running
+			? phaseLabel(status.phase) + ' · 已运行 ' + fmtDuration(status.elapsed)
+			: '空闲 · ' + (last.last_time || '尚未测速');
 		setText('status-text', text);
-		setText('ov-phase', running ? phaseLabel(status.phase) : phaseLabel(status.phase));
-		setText('ov-elapsed', running
+
+		setText('st-state', running ? phaseLabel(status.phase) : '空闲');
+		setText('st-elapsed', running
 			? '已运行 ' + fmtDuration(status.elapsed) + (status.stop_requested ? ' · 正在停止' : '')
-			: (status.last && status.last.finished_at ? '上次完成于 ' + new Date(status.last.finished_at * 1000).toLocaleString() : '—'));
+			: (last.last_time ? '上次 ' + last.last_time : '—'));
+		setText('st-cron', status.cron ? '已启用' : '未启用');
+		setText('st-last', last.last_time ? '上次 ' + last.last_time : '—');
+		setText('st-workers', (status.node_count || 0) + ' / ' + resultRowCount() + ' 条');
 
 		// 已请求停止时按钮也要失效并显示「停止中…」，避免重复点。
 		const stopping = running && !!status.stop_requested;
-		const stopButton = $('#btn-stop');
-		$('#btn-start').disabled = running;
-		stopButton.disabled = !running || stopping;
-		stopButton.textContent = stopping ? '停止中…' : '停止';
-		$('#btn-retest').disabled = running;
+		['#btn-stop', '#ov-btn-stop'].forEach((id) => {
+			const button = $(id);
+			if (!button) return;
+			button.disabled = !running || stopping;
+			button.textContent = stopping ? '停止中…' : '停止';
+		});
+		['#btn-start', '#ov-btn-start', '#btn-retest', '#ov-btn-retest'].forEach((id) => {
+			const button = $(id);
+			if (button) button.disabled = running;
+		});
 
-		if (status.core) renderActiveCore(status.core);
-		setText('ov-cron', status.cron ? '已启用' : '未启用');
-		setText('ov-cron-line', status.cron_line || '—');
 		renderDdnsStatus(status.ddns);
 		syncNodeActions();
+	}
+
+	function resultRowCount() {
+		const payload = (state.best && state.best.payload) || {};
+		return payload.total || (payload.rows || []).length;
 	}
 
 	function ddnsText(info) {
@@ -217,25 +206,9 @@
 
 	function renderDdnsStatus(info) {
 		const enabled = !!(info && info.enabled);
-		let head = '—';
-		if (enabled) {
-			if (info.ok === false) head = '写入失败';
-			else if (info.at) head = '已写入';
-			else head = '等待写入';
-		}
-		setText('ov-ddns', head);
-		setText('ov-ddns-meta', ddnsText(info));
 		setText('ddns-status', enabled
 			? ('DDNS：' + ddnsText(info))
 			: 'DDNS 未启用；启用后，只有填写了 DDNS 域名的节点会写 DNS。');
-	}
-
-	function renderActiveCore(info) {
-		const type = info.type || (state.config && state.config.core && state.config.core.type) || '';
-		setText('ov-core', info.installed
-			? (type ? type + ' · ' : '') + (info.version || '已安装')
-			: (type ? type + ' · ' : '') + '未安装');
-		setText('ov-core-path', info.path || '—');
 	}
 
 	async function pollStatus() {
@@ -258,82 +231,58 @@
 		if (!status || !status.running || !status.started_at)
 			return;
 		const elapsed = Math.floor(Date.now() / 1000) - status.started_at;
-		setText('ov-elapsed', '已运行 ' + fmtDuration(elapsed) +
+		setText('st-elapsed', '已运行 ' + fmtDuration(elapsed) +
 			(status.stop_requested ? ' · 正在停止' : ''));
 	}
 
-	// ── best / table / chart ─────────────────────────────────────────────
+	// ── best / result table / history ───────────────────────────────────
 	function renderBest() {
-		const best = state.best || {};
-		const payload = best.payload || {};
-		$('#best-text').textContent = best.content || '尚无结果。';
+		const payload = (state.best && state.best.payload) || {};
 		const top = payload.best;
-		setText('ov-best-ip', top && top.ip ? top.ip : '—');
-		setText('ov-best-meta', top
+		setText('st-best', top && top.ip ? top.ip : '—');
+		setText('st-best-meta', top
 			? (fmtNumber(top.latency) + ' ms · ' +
 			   (top.speed > 0 ? fmtNumber(top.speed) + ' MB/s' : '未做下载实测') +
 			   (top.node ? ' · ' + top.node : ''))
 			: '—');
-		setText('result-time', payload.generated_at ? '生成时间：' + payload.generated_at : '');
+		setText('st-workers', ((state.status && state.status.node_count) || 0) +
+			' / ' + resultRowCount() + ' 条');
 
-		const csv = $('#dl-csv');
-		const json = $('#dl-json');
-		csv.href = withToken('/api/export/result.csv');
-		json.href = withToken('/api/export/result.json');
-		const exports = (state.config && state.config.export) || {};
-		csv.classList.toggle('hidden', exports.csv === false);
-		json.classList.toggle('hidden', exports.json === false);
-
-		renderResultTable();
+		renderResults();
 	}
 
-	function renderResultTable() {
+	function renderResults() {
+		const body = $('#result-body');
+		if (!body) return;
 		const rows = ((state.best && state.best.payload && state.best.payload.rows) || []);
-		const filter = $('#result-filter');
-		const nodes = [];
-		rows.forEach((row) => {
-			if (row.node && nodes.indexOf(row.node) < 0) nodes.push(row.node);
-		});
-		const selected = state.resultFilter;
-		filter.replaceChildren();
-		const all = document.createElement('option');
-		all.value = '';
-		all.textContent = '全部节点';
-		filter.appendChild(all);
-		nodes.forEach((name) => {
-			const option = document.createElement('option');
-			option.value = name;
-			option.textContent = name;
-			filter.appendChild(option);
-		});
-		filter.value = nodes.indexOf(selected) >= 0 ? selected : '';
-
-		const body = $('#result-table tbody');
+		const seen = {};
 		body.replaceChildren();
-		const visible = rows.filter((row) => !state.resultFilter || row.node === state.resultFilter);
-		if (!visible.length) {
+
+		if (!rows.length) {
 			const tr = document.createElement('tr');
 			const td = document.createElement('td');
 			td.colSpan = 6;
 			td.className = 'empty';
-			td.textContent = '尚无结果';
+			td.textContent = '暂无结果';
 			tr.appendChild(td);
 			body.appendChild(tr);
 			return;
 		}
-		const bestIp = rows[0] && rows[0].ip;
-		visible.forEach((row) => {
+
+		rows.forEach((row) => {
+			// result.csv 已按全局最优排序：同一节点首次出现的行就是该节点最优。
+			const best = !seen[row.node];
+			seen[row.node] = true;
 			const tr = document.createElement('tr');
-			if (row.ip === bestIp) tr.className = 'best';
-			const cells = [
-				[row.ip, 'ip'],
-				[fmtNumber(row.latency), ''],
-				[fmtNumber(row.loss), ''],
-				[row.speed > 0 ? fmtNumber(row.speed) : '—', ''],
-				[row.region || '—', ''],
+			if (best) tr.className = 'best';
+			[
 				[row.node || '—', ''],
-			];
-			cells.forEach((cell) => {
+				[row.ip || '', 'ip'],
+				[fmtNumber(row.latency) + ' ms', ''],
+				[fmtNumber((row.loss || 0) * 100) + '%', ''],
+				[row.speed > 0 ? fmtNumber(row.speed) + ' MB/s' : '—', ''],
+				[row.region || '—', ''],
+			].forEach((cell) => {
 				const td = document.createElement('td');
 				if (cell[1]) td.className = cell[1];
 				td.textContent = cell[0];
@@ -343,145 +292,42 @@
 		});
 	}
 
-	function chartTheme() {
-		const style = getComputedStyle(document.documentElement);
-		return {
-			text: style.getPropertyValue('--muted').trim() || '#667085',
-			border: style.getPropertyValue('--border').trim() || '#dbe2ea',
-			background: style.getPropertyValue('--bg-elev').trim() || '#ffffff',
-		};
-	}
+	function renderHistory() {
+		const body = $('#history-body');
+		if (!body) return;
+		// 历史文件按时间追加（旧在前）；表格显示最近的 12 次。
+		const runs = (state.history || []).slice()
+			.sort((a, b) => a.time > b.time ? -1 : (a.time < b.time ? 1 : 0))
+			.slice(0, 12);
+		body.replaceChildren();
 
-	function renderChart() {
-		if (!window.Chart) return;
-		const canvas = $('#history-chart');
-		if (!canvas) return;
-		if (state.chart) {
-			state.chart.destroy();
-			state.chart = null;
-		}
-		const runs = (state.history || []).slice().sort((a, b) => a.time > b.time ? 1 : (a.time < b.time ? -1 : 0));
 		if (!runs.length) {
-			setText('chart-hint', '暂无历史数据；完成一次测速后会出现趋势线。');
+			const tr = document.createElement('tr');
+			const td = document.createElement('td');
+			td.colSpan = 5;
+			td.className = 'empty';
+			td.textContent = '暂无历史';
+			tr.appendChild(td);
+			body.appendChild(tr);
 			return;
 		}
-		setText('chart-hint', '每个点 = 某次运行中该节点的最优 IP');
 
-		const toTimestamp = (text) => {
-			const parsed = Date.parse(String(text || '').replace(' ', 'T'));
-			return Number.isFinite(parsed) ? parsed : NaN;
-		};
-		const series = {};
-		const order = [];
 		runs.forEach((run) => {
-			const points = (run.nodes && run.nodes.length)
-				? run.nodes
-				: [{ node: '', ip: run.ip, latency: run.latency, speed: run.speed, region: run.region }];
-			const timestamp = toTimestamp(run.time);
-			if (!Number.isFinite(timestamp)) return;
-			points.forEach((point) => {
-				const key = point.node || '(全局)';
-				if (!series[key]) { series[key] = []; order.push(key); }
-				series[key].push({
-					x: timestamp,
-					y: point.latency,
-					node: point.node || '',
-					ip: point.ip,
-					speed: point.speed,
-					region: point.region,
-				});
+			const tr = document.createElement('tr');
+			[
+				[run.time || '', ''],
+				[run.ip || '', 'ip'],
+				[fmtNumber(run.latency) + ' ms', ''],
+				[run.speed > 0 ? fmtNumber(run.speed) + ' MB/s' : '—', ''],
+				[run.region || '—', ''],
+			].forEach((cell) => {
+				const td = document.createElement('td');
+				if (cell[1]) td.className = cell[1];
+				td.textContent = cell[0];
+				tr.appendChild(td);
 			});
+			body.appendChild(tr);
 		});
-
-		const theme = chartTheme();
-		const datasets = order.map((key, index) => ({
-			label: key,
-			data: series[key],
-			borderColor: PALETTE[index % PALETTE.length][0],
-			backgroundColor: PALETTE[index % PALETTE.length][1],
-			tension: 0.3,
-			fill: false,
-			pointRadius: 4,
-			pointHoverRadius: 6,
-			borderWidth: 2,
-		}));
-
-		state.chart = new Chart(canvas, {
-			type: 'line',
-			data: { datasets: datasets },
-			options: {
-				responsive: true,
-				maintainAspectRatio: false,
-				interaction: { mode: 'nearest', intersect: true },
-				onClick: function (event, elements, chart) {
-					const hits = chart.getElementsAtEventForMode(event, 'nearest', { intersect: true }, false);
-					if (!hits || !hits.length) return;
-					showPoint(chart.data.datasets[hits[0].datasetIndex].data[hits[0].index]);
-				},
-				plugins: {
-					legend: {
-						position: 'top',
-						labels: { color: theme.text, usePointStyle: true, boxWidth: 8 },
-					},
-					tooltip: {
-						mode: 'nearest',
-						intersect: true,
-						callbacks: {
-							title: (items) => '时间：' + formatChartTime(items[0].raw.x),
-							label: (item) => {
-								const raw = item.raw;
-								return (raw.node || '全局') + '：最优 ' + raw.ip + ' / ' +
-									fmtNumber(raw.y) + 'ms' +
-									(raw.speed > 0 ? ' / ' + fmtNumber(raw.speed) + ' MB/s' : '');
-							},
-						},
-					},
-				},
-				scales: {
-					x: {
-						type: 'time',
-						time: {
-							unit: 'hour',
-							displayFormats: { hour: 'MM-dd HH:mm' },
-						},
-						offset: true,
-						ticks: { color: theme.text, autoSkip: true, maxTicksLimit: 6, maxRotation: 45 },
-						grid: { color: theme.border },
-					},
-					y: {
-						type: 'linear',
-						title: { display: true, text: '延迟 (ms)', color: theme.text },
-						ticks: { color: theme.text },
-						grid: { color: theme.border },
-					},
-				},
-			},
-		});
-	}
-
-	function formatChartTime(value) {
-		if (value instanceof Date) return value.toLocaleString();
-		const number = Number(value);
-		return Number.isFinite(number) ? new Date(number).toLocaleString() : String(value || '');
-	}
-
-	function showPoint(point) {
-		setText('point-title', point.node || '全局最优');
-		const body = $('#point-body');
-		body.replaceChildren();
-		const lines = [
-			'最优 IP：' + point.ip,
-			'延迟：' + fmtNumber(point.y) + ' ms',
-			'时间：' + formatChartTime(point.x),
-		];
-		if (point.speed > 0) lines.push('下载速度：' + fmtNumber(point.speed) + ' MB/s');
-		if (point.region) lines.push('地区：' + point.region);
-		lines.forEach((line) => {
-			const p = document.createElement('p');
-			p.textContent = line;
-			body.appendChild(p);
-		});
-		$('#point-overlay').classList.remove('hidden');
 	}
 
 	async function refreshResults() {
@@ -490,7 +336,7 @@
 			state.best = results[0];
 			state.history = (results[1] && results[1].history) || [];
 			renderBest();
-			renderChart();
+			renderHistory();
 		} catch (e) {
 			/* handled by api() */
 		}
@@ -1306,10 +1152,10 @@
 		renderOverviewCronTasks(tasks);
 	}
 
-	// The overview copy is read-only apart from enable/disable, matching the
-	// LuCI console: every other edit lives on the Settings tab.
+	// The overview copy is read-only apart from enable/disable; every other
+	// edit lives on the Settings tab.
 	function renderOverviewCronTasks(tasks) {
-		const body = $('#ov-cron-body');
+		const body = $('#task-body');
 		if (!body) return;
 		body.replaceChildren();
 
@@ -1318,7 +1164,7 @@
 			const td = document.createElement('td');
 			td.colSpan = 5;
 			td.className = 'empty';
-			td.textContent = '暂无其他定时任务';
+			td.textContent = '暂无定时任务';
 			tr.appendChild(td);
 			body.appendChild(tr);
 			return;
@@ -1732,9 +1578,6 @@
 		let message = payload.message || '';
 		if (payload.error) message += (message ? '：' : '') + payload.error;
 		setText('core-message', message);
-		const active = payload.active || ((state.config && state.config.core && state.config.core.type) || '');
-		const info = (payload.cores || {})[active] || {};
-		renderActiveCore(Object.assign({}, info, { type: active }));
 	}
 
 	async function refreshCore() {
@@ -1991,7 +1834,7 @@
 		renderNodes();
 		renderIpLists();
 		renderBest();
-		renderChart();
+		renderHistory();
 		renderCore(state.core);
 		renderAppInfo(state.appInfo);
 		activateTab(initialTab());
@@ -2016,6 +1859,9 @@
 		$('#btn-start').addEventListener('click', () => startTest('start'));
 		$('#btn-stop').addEventListener('click', stopTest);
 		$('#btn-retest').addEventListener('click', () => startTest('retest'));
+		$('#ov-btn-start').addEventListener('click', () => startTest('start'));
+		$('#ov-btn-stop').addEventListener('click', stopTest);
+		$('#ov-btn-retest').addEventListener('click', () => startTest('retest'));
 
 		$('#btn-add-node').addEventListener('click', () => {
 			(state.config.nodes || (state.config.nodes = [])).push({
@@ -2045,11 +1891,6 @@
 		$('#btn-ddns-preview').addEventListener('click', previewDdns);
 		$('#btn-ddns-apply').addEventListener('click', applyDdns);
 
-		$('#result-filter').addEventListener('change', (event) => {
-			state.resultFilter = event.target.value;
-			renderResultTable();
-		});
-
 		$('#btn-log-reload').addEventListener('click', () => reloadLog(true));
 		$('#dl-log').href = withToken('/api/export/log');
 
@@ -2062,7 +1903,6 @@
 			await refreshCore();
 		});
 
-		$('#point-close').addEventListener('click', () => $('#point-overlay').classList.add('hidden'));
 		$$('.overlay').forEach((overlay) => {
 			overlay.addEventListener('click', (event) => {
 				if (event.target === overlay && overlay.id !== 'auth-overlay')
@@ -2091,12 +1931,6 @@
 			}
 		});
 
-		if (window.matchMedia) {
-			const query = window.matchMedia('(prefers-color-scheme: dark)');
-			const redraw = () => { if (state.history.length) renderChart(); };
-			if (query.addEventListener) query.addEventListener('change', redraw);
-			else if (query.addListener) query.addListener(redraw);
-		}
 	}
 
 	async function init() {

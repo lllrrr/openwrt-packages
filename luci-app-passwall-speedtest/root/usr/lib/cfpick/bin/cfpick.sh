@@ -355,35 +355,24 @@ function migrate_ip_online_regions(){
 }
 
 # 读取 node_ip 段（匿名段）→ 建 nodeid→ip_list 映射，存入 shell 变量 node_ip_list_<nodeid>。
-# 用 `uci show` 解析，避免 config_load 扰动 passwall 自身的配置加载状态（config_n_get 依赖它）。
+# 用 `uci show` 找 section 索引，再按 `cfpick.@node_ip[N].xxx` 逐项读取。不能依赖
+# uci show 的字段顺序：同一个段的 .node / .ip_list 可能任意先后出现，按行顺序解析
+# 会漏掉「ip_list 在 node 前面」的段，导致该 worker 静默回退到默认 list1。
 # node id 形如 cfg0a1b2c，是合法 shell 变量后缀。
 NODE_IP_MAP_LOADED=0
 NODE_IP_WORKERS=""
 function read_node_ip_map(){
     [ "$NODE_IP_MAP_LOADED" = "1" ] && return 0
     NODE_IP_WORKERS=""
-    local line _node=""
-    while IFS= read -r line; do
-        # 形如 cfpick.@node_ip[N].node='cfg0a1b2c' / .ip_list='list2'
-        case "$line" in
-            *".node="*)
-                _node="${line#*.node=}"
-                _node="${_node#\'}"; _node="${_node%\'}"
-                # 每行 node 字段 = 一个待测 worker 节点（统一表的 worker 来源）
-                [ -n "$_node" ] && NODE_IP_WORKERS="$NODE_IP_WORKERS $_node"
-                ;;
-            *".ip_list="*)
-                local _list="${line#*.ip_list=}"
-                _list="${_list#\'}"; _list="${_list%\'}"
-                if [ -n "$_node" ]; then
-                    eval "node_ip_list_${_node}=\${_list:-}"
-                fi
-                _node=""
-                ;;
-        esac
-    done <<EOF
-$(uci show cfpick 2>/dev/null | grep '@node_ip\[')
-EOF
+    local idx _node _list
+    for idx in $(uci show cfpick 2>/dev/null | \
+        sed -n "s/^cfpick\.@node_ip\[\([0-9][0-9]*\)\]=node_ip$/\1/p"); do
+        _node="$(uci -q get "cfpick.@node_ip[$idx].node" 2>/dev/null)"
+        _list="$(uci -q get "cfpick.@node_ip[$idx].ip_list" 2>/dev/null)"
+        [ -n "$_node" ] || continue
+        NODE_IP_WORKERS="$NODE_IP_WORKERS $_node"
+        eval "node_ip_list_${_node}=\${_list:-}"
+    done
     NODE_IP_WORKERS="${NODE_IP_WORKERS# }"
     NODE_IP_MAP_LOADED=1
 }

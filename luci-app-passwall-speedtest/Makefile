@@ -12,13 +12,22 @@ LUCI_TITLE:=CFPick - Cloudflare IP optimizer for OpenWrt
 # are the OpenWrt sub-packages that provide the modules it imports.
 LUCI_DEPENDS:=+curl +ca-bundle +python3-light +python3-urllib +python3-codecs +python3-openssl +python3-email
 LUCI_PKGARCH:=all
-PKG_VERSION:=1.0.15
+PKG_VERSION:=1.0.20
 PKG_RELEASE:=0
 PKG_LICENSE:=AGPL-3.0
 PKG_MAINTAINER:=<https://github.com/urbanescavenger/CFPick>
 
 define Package/$(PKG_NAME)/conffiles
 /etc/config/cfpick
+endef
+
+# rpcd 只在启动时加载 /usr/share/rpcd/ucode/*，升级后不重载会继续跑旧插件；
+# 新控制台按 worker 调用 api_run_start/retest/stop，旧插件会拒绝 node 参数。
+define Package/$(PKG_NAME)/postinst
+#!/bin/sh
+[ -n "$${IPKG_INSTROOT}" ] && exit 0
+/etc/init.d/rpcd reload 2>/dev/null || /etc/init.d/rpcd restart 2>/dev/null
+exit 0
 endef
 
 # The standalone engine is maintained once in debian/ (the Debian/Ubuntu

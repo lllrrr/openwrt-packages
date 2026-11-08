@@ -41,77 +41,64 @@
     <div class="cards">
       <div class="card stat">
         <span class="label">运行状态</span>
-        <strong id="ov-phase">—</strong>
-        <span id="ov-elapsed" class="sub">—</span>
+        <strong id="st-state">—</strong>
+        <span id="st-elapsed" class="sub">—</span>
       </div>
       <div class="card stat">
         <span class="label">全局最优 IP</span>
-        <strong id="ov-best-ip" class="mono">—</strong>
-        <span id="ov-best-meta" class="sub">—</span>
-      </div>
-      <div class="card stat">
-        <span class="label">代理内核</span>
-        <strong id="ov-core">—</strong>
-        <span id="ov-core-path" class="sub mono">—</span>
+        <strong id="st-best" class="mono">—</strong>
+        <span id="st-best-meta" class="sub">—</span>
       </div>
       <div class="card stat">
         <span class="label">定时任务</span>
-        <strong id="ov-cron">—</strong>
-        <span id="ov-cron-line" class="sub mono">—</span>
+        <strong id="st-cron">—</strong>
+        <span id="st-last" class="sub">—</span>
       </div>
       <div class="card stat">
-        <span class="label">DDNS</span>
-        <strong id="ov-ddns">—</strong>
-        <span id="ov-ddns-meta" class="sub">—</span>
+        <span class="label">Worker / 结果</span>
+        <strong id="st-workers">—</strong>
+        <span class="sub">本轮数据</span>
       </div>
     </div>
 
     <div class="card">
       <div class="card-head">
-        <h2>各节点最优 IP</h2>
+        <h2>操作</h2>
         <div class="card-actions">
-          <a id="dl-csv" class="btn small" href="#">下载 CSV</a>
-          <a id="dl-json" class="btn small" href="#">下载 JSON</a>
+          <button id="ov-btn-start" type="button" class="btn primary">开始测速</button>
+          <button id="ov-btn-retest" type="button" class="btn">复测现有最优</button>
+          <button id="ov-btn-stop" type="button" class="btn danger">停止</button>
         </div>
       </div>
-      <pre id="best-text" class="best-text">尚无结果。</pre>
+      <p class="muted">开始/停止走脚本原有的单实例锁与协作式收尾；停止后仍会完成已通过 IP 的下载实测和写回。</p>
     </div>
 
     <div class="card">
-      <div class="card-head">
-        <h2>历史趋势</h2>
-        <span class="muted" id="chart-hint">每个点 = 某次运行中该节点的最优 IP</span>
-      </div>
-      <div class="chart-wrap"><canvas id="history-chart"></canvas></div>
-    </div>
-
-    <div class="card">
-      <div class="card-head">
-        <h2>本次结果</h2>
-        <select id="result-filter" class="compact">
-          <option value="">全部节点</option>
-        </select>
-      </div>
+      <div class="card-head"><h2>各节点最优 IP</h2></div>
       <div class="table-wrap">
-        <table class="data" id="result-table">
-          <thead>
-            <tr><th>IP</th><th>延迟 (ms)</th><th>丢包</th><th>下载 (MB/s)</th><th>地区</th><th>节点</th></tr>
-          </thead>
-          <tbody><tr><td colspan="6" class="empty">尚无结果</td></tr></tbody>
+        <table class="data">
+          <thead><tr><th>节点</th><th>IP</th><th>延迟</th><th>丢包</th><th>下载</th><th>地区</th></tr></thead>
+          <tbody id="result-body"><tr><td colspan="6" class="empty">加载中…</td></tr></tbody>
         </table>
       </div>
-      <p class="muted" id="result-time"></p>
     </div>
 
     <div class="card">
-      <div class="card-head"><h2>已设置的任务</h2></div>
-      <p class="muted">这里显示 cfpick 定时任务，可直接启用/停用；修改计划、类型、节点或增删请到「设置」页。所有任务都是普通 crontab 行。</p>
+      <div class="card-head"><h2>历史</h2></div>
       <div class="table-wrap">
-        <table class="data cron-table" id="ov-cron-table">
-          <thead>
-            <tr><th>状态</th><th>计划</th><th>任务</th><th>节点</th><th>命令</th></tr>
-          </thead>
-          <tbody id="ov-cron-body"><tr><td colspan="5" class="empty">加载中…</td></tr></tbody>
+        <table class="data">
+          <thead><tr><th>时间</th><th>最优 IP</th><th>延迟</th><th>下载</th><th>地区</th></tr></thead>
+          <tbody id="history-body"><tr><td colspan="5" class="empty">加载中…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>定时任务</h2></div>
+      <div class="table-wrap">
+        <table class="data">
+          <thead><tr><th>状态</th><th>计划</th><th>任务</th><th>节点</th><th>命令</th></tr></thead>
+          <tbody id="task-body"><tr><td colspan="5" class="empty">加载中…</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -428,21 +415,8 @@
   </div>
 </div>
 
-<!-- Point detail dialog -->
-<div id="point-overlay" class="overlay hidden">
-  <div class="dialog">
-    <h2 id="point-title">节点</h2>
-    <div id="point-body" class="point-body"></div>
-    <div class="dialog-actions">
-      <button type="button" class="btn" id="point-close">关闭</button>
-    </div>
-  </div>
-</div>
-
 <div id="toast" class="toast hidden"></div>
 
-<script src="/vendor/chart.js"></script>
-<script src="/vendor/chartjs-adapter-date-fns.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

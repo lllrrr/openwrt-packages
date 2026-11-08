@@ -169,9 +169,9 @@ class WebTests(unittest.TestCase):
         status, text = self.request("/app.js")
         self.assertEqual(status, 200)
         self.assertIn("cfpick", text)
-        status, body = self.request("/vendor/chart.js")
+        status, body = self.request("/style.css")
         self.assertEqual(status, 200)
-        self.assertIn("Chart.js", body[:200])
+        self.assertIn("topbar", body)
 
     def test_start_requires_core_and_nodes(self):
         status, data = self.request("/api/start", method="POST", payload={"mode": "start"})

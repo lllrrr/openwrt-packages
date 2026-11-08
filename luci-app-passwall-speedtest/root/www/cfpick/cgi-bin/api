@@ -26,7 +26,8 @@ const GLOBAL_KEYS = [
 	'hour', 'node_test_node', 'stable_node',
 	'ddns_enabled', 'ddns_ip_count', 'ddns_ttl', 'ddns_api_token',
 	'ddns_zone_id', 'ddns_zone_name', 'ddns_proxied',
-	'standalone_enabled', 'standalone_core'
+	'standalone_enabled', 'standalone_core',
+	'web_bind', 'web_port'
 ];
 
 const SERVER_BOOL_KEYS = [
@@ -555,6 +556,10 @@ function read_config() {
 		global[key] = uci_get(cur, 'global', key, '');
 	}
 
+	// 令牌只回显占位符：浏览器缓存/截图不应泄露 Cloudflare Token。
+	if (global.ddns_api_token != '')
+		global.ddns_api_token = '***';
+
 	for (let i = 1; i <= 5; i++) {
 		let section = 'list' + i;
 		let regions = uci_get(cur, section, 'regions', '');
@@ -651,6 +656,23 @@ function save_config(req) {
 		node_test_node: test_node,
 		stable_node: stable
 	};
+
+	// The browser only ever sees "***"; keep the stored token then.
+	if (values.ddns_api_token == '***')
+		values.ddns_api_token = uci_get(cur, 'global', 'ddns_api_token', '');
+
+	// 只有页面确实带了这个字段才写入：旧缓存页面不能把监听地址/端口重置。
+	if (input.web_bind != null) {
+		let bind = clean_text(input.web_bind, 64) || '0.0.0.0';
+
+		if (!match(bind, /^[A-Za-z0-9_.:-]+$/))
+			return send(req, fail('监听地址无效'), '400 Bad Request');
+
+		values.web_bind = bind;
+	}
+
+	if (input.web_port != null)
+		values.web_port = to_int(input.web_port, 17544, 1, 65535);
 
 	// Validate the Cloudflare credentials before touching UCI.  An invalid
 	// token used to surface only at the end of a multi-minute speed test.
@@ -918,6 +940,84 @@ function dispatch(req) {
 	}
 	else if (action == 'nodes') {
 		send(req, ubus_call('api_nodes', {}));
+	}
+	else if (action == 'best') {
+		// 与 Debian 版一致：结果文本（按节点分组）+ 结构化行。
+		// api_results 是 rpcd 的 api_* 方法，返回的已经是 {ok,data,ts} 信封。
+		let envelope = ubus_call('api_results', { limit: 0 }) || {};
+		let rows = envelope.data || {};
+		let text = {};
+
+		try { text = ubus_call('get_best_result', {}) || {}; }
+		catch (e) { text = {}; }
+
+		send(req, ok({
+			content: text.content || '',
+			payload: {
+				generated_at: rows.generated_at || '',
+				best: rows.best || null,
+				rows: rows.rows || [],
+				total: rows.total || 0,
+				nodes: rows.nodes || []
+			}
+		}));
+	}
+	else if (action == 'ddns_preview') {
+		// 节点来自 PassWall worker，结果在 /tmp/cfpick/result.csv；用 CLI 的
+		// uci 版本读取，避免依赖 Debian 版的 config.json。
+		let out = command_output('/usr/bin/cfpick ddns uci-preview --result ' +
+			shquote('/tmp/cfpick/result.csv') + ' 2>/dev/null');
+		let preview = null;
+
+		try { preview = json(out.stdout || '{}'); }
+		catch (e) { preview = null; }
+
+		if (preview == null)
+			preview = { enabled: false, nodes: [],
+				error: 'DDNS 预览失败（exit ' + out.code + '）' };
+
+		send(req, ok({ preview: preview, last: {} }));
+	}
+	else if (action == 'ddns_apply' && method == 'POST') {
+		let out = command_output('/usr/bin/cfpick ddns uci-apply --result ' +
+			shquote('/tmp/cfpick/result.csv') + ' 2>&1');
+		let report = null;
+		let lines = split(trim(out.stdout || ''), '\n');
+
+		// uci-apply 先打印过程日志、最后一行才是 JSON 报告；顺序扫描，
+		// 保留最后一个可解析的对象。
+		for (let i = 0; i < length(lines); i++) {
+			let line = trim(lines[i]);
+
+			if (substr(line, 0, 1) != '{')
+				continue;
+
+			try {
+				let parsed = json(line);
+
+				if (parsed != null)
+					report = parsed;
+			}
+			catch (e) {}
+		}
+
+		if (report == null)
+			report = { ok: false, enabled: true, nodes: [],
+				error: 'DDNS 写入失败（exit ' + out.code + '）' };
+
+		send(req, ok({
+			report: report,
+			enabled: report.enabled !== false,
+			message: report.ok === false
+				? (report.error || '部分节点写入失败') : 'DDNS 写入完成'
+		}));
+	}
+	else if (action == 'app_status') {
+		// api_update_status 自带 {ok,data} 信封，直接透传。
+		send(req, ubus_call('api_update_status', {}));
+	}
+	else if (action == 'app_update' && method == 'POST') {
+		send(req, ubus_call('api_update_start', {}));
 	}
 	else if (action == 'log') {
 		send(req, ubus_call('api_log', {

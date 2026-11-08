@@ -1936,23 +1936,26 @@ return {
 			return api_web_reset_data();
 		}),
 
+		// rpcd 只把声明在 args 里的字段传给方法；不声明时带 node 的调用
+		// 会被 ubus 以 UBUS_STATUS_INVALID_ARGUMENT 拒绝（返回空，前端报
+		// "Cannot read properties of null"）。节点页按钮依赖 node。
 		api_run_start: api(function(req) {
 			let nodes = node_list(req);
 			let result = start(length(nodes) > 0 ? nodes[0] : '');
 			result.mode = 'start';
 			return result;
-		}),
+		}, { node: '' }),
 
 		api_run_retest: api(function(req) {
 			let nodes = node_list(req);
 			let result = start_retest(length(nodes) > 0 ? nodes[0] : '');
 			result.mode = 'retest';
 			return result;
-		}),
+		}, { node: '' }),
 
 		api_run_stop: api(function(req) {
 			return stop(node_list(req));
-		}),
+		}, { node: '' }),
 
 		// Standalone core mode: option/status and independent core updates.
 		standalone_status: {
