@@ -337,6 +337,9 @@ function read_config(){
         eval "list${_n}_name=\$(uci get cfpick.list${_n}.name 2>/dev/null)"
         eval "list${_n}_regions=\$(uci get cfpick.list${_n}.regions 2>/dev/null)"
         eval "list${_n}_port=\$(uci get cfpick.list${_n}.port 2>/dev/null)"
+        # 该列表自己的延迟上限（ms），0/空 = 跟随全局 tl。不同地区标准不同，
+        # 例：港日列表 120ms、美欧列表 300ms。
+        eval "list${_n}_latency_max=\$(uci get cfpick.list${_n}.latency_max 2>/dev/null)"
     done
 }
 
@@ -401,6 +404,29 @@ function resolve_node_list(){
         [ "$_e" = "1" ] && { echo "$_v"; return 0; }
     fi
     echo "$DEFAULT_IP_LIST"
+}
+
+# 返回某 worker 所属 CM 列表的延迟上限（ms）；0 = 跟随全局 tl。
+# 只在 command substitution 内调用；compute_default_ip_list 幂等，可在子 shell 里补算。
+function node_latency_max(){
+    local nodeid="$1" _n _v
+    compute_default_ip_list
+    _n=$(resolve_node_list "$nodeid")
+    [ -n "$_n" ] || { echo 0; return 0; }
+    eval "_v=\${list${_n#list}_latency_max:-0}"
+    case "$_v" in ''|*[!0-9]*) _v=0 ;; esac
+    echo "$_v"
+}
+
+# 任务日志里的节点显示名：只显示备注名，没有备注名时回退 ID。只读，可在 $() 内调用。
+function node_label(){
+    local _id="$1" _name
+    _name="$(uci -q get "passwall.${_id}.remarks" 2>/dev/null)"
+    if [ -n "$_name" ] && [ "$_name" != "$_id" ]; then
+        printf '%s' "$_name"
+    else
+        printf '%s' "$_id"
+    fi
 }
 
 # 滚动归档上一次运行的日志，最多保留 5 份（/tmp 内存盘，重启即清，不写 flash）。
@@ -533,6 +559,134 @@ function append_persistent_history(){
     else
         echolog "警告：$HISTORY_DIR 不可写，本次结果未持久归档"
     fi
+}
+
+# ── 任务日志（/etc/cfpick/tasklog.tsv）────────────────────────────
+# 每次测速开始/结束和运行中的特殊处理各写一行，供操作台「日志 → 任务日志」读取。
+# 与 debian/cfpick/tasklog.py 同格式（制表符分隔，11 列）：
+#   时间 kind mode status 最优节点 最优IP 延迟 速度 DDNS 说明 各节点明细
+# 明细格式 node|ip|latency|speed|status|method，多条用 ; 分隔；
+# status = ok/fail/abnormal，method = writeback/ddns/-。
+# 写文件失败只影响这条记录，不能影响测速本身。
+TASKLOG_FILE="$HISTORY_DIR/tasklog.tsv"
+TASKLOG_MAX_LINES=400
+TASKLOG_DDNS_STATUS="-"
+TASKLOG_DETAILS=""
+TASKLOG_DETAIL_IDS=""
+
+_tasklog_clean(){
+    printf '%s' "$1" | tr '\t\r\n' '   '
+}
+
+_tasklog_write(){
+    local _kind="$1" _mode="$2" _status="$3" _node="$4" _ip="$5" \
+        _lat="$6" _spd="$7" _ddns="$8" _msg="$9" _details="${10:-}" _lines
+    [ -n "$TASKLOG_FILE" ] || return 0
+    mkdir -p "$HISTORY_DIR" 2>/dev/null || return 0
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "$(date +'%Y-%m-%d %H:%M:%S')" \
+        "$(_tasklog_clean "$_kind")" "$(_tasklog_clean "$_mode")" \
+        "$(_tasklog_clean "$_status")" "$(_tasklog_clean "$_node")" \
+        "$(_tasklog_clean "$_ip")" "$(_tasklog_clean "$_lat")" \
+        "$(_tasklog_clean "$_spd")" "$(_tasklog_clean "$_ddns")" \
+        "$(_tasklog_clean "$_msg")" "$(_tasklog_clean "$_details")" \
+        >> "$TASKLOG_FILE" 2>/dev/null
+    _lines=$(wc -l < "$TASKLOG_FILE" 2>/dev/null)
+    case "$_lines" in ''|*[!0-9]*) return 0 ;; esac
+    if [ "$_lines" -gt "$TASKLOG_MAX_LINES" ]; then
+        tail -n "$TASKLOG_MAX_LINES" "$TASKLOG_FILE" > "${TASKLOG_FILE}.new" 2>/dev/null && \
+            mv -f "${TASKLOG_FILE}.new" "$TASKLOG_FILE" 2>/dev/null
+    fi
+}
+
+# 追加一个节点的本次结果。$1=worker id $2=显示名 $3=ok/fail/abnormal
+# $4=IP $5=延迟 $6=速度 $7=writeback/ddns/-
+_tasklog_detail(){
+    local _id="$1" _name="$2" _status="$3" _ip="$4" _lat="$5" _spd="$6" _method="$7" _entry
+    _name=$(printf '%s' "$_name" | tr '|;\t\r\n' '     ')
+    case "$_lat" in ''|*[!0-9.]*) _lat=0 ;; esac
+    case "$_spd" in ''|*[!0-9.]*) _spd=0 ;; esac
+    _entry="${_name}|${_ip}|${_lat}|${_spd}|${_status}|${_method}"
+    if [ -n "$TASKLOG_DETAILS" ]; then
+        TASKLOG_DETAILS="${TASKLOG_DETAILS};${_entry}"
+    else
+        TASKLOG_DETAILS="$_entry"
+    fi
+    TASKLOG_DETAIL_IDS="${TASKLOG_DETAIL_IDS} ${_id}"
+}
+
+# 取结果文件最优数据行的「延迟 速度」（tab 分隔）。$1=结果文件
+_tasklog_metrics(){
+    sed -n '2,$p' "$1" 2>/dev/null | awk -F, '
+        /^#/ || NF < 7 || $1 == "" { next }
+        { printf "%s\t%s", $5, $6; exit }'
+}
+
+# 本次任务的最优行（节点 \t IP \t 延迟 \t 速度）；只统计本次实际测的 worker。
+# $1=结果文件  $2=worker id 列表（空格分隔；为空表示不限）
+_tasklog_best(){
+    # 跳过首行表头，与 first_result_ip 一致。
+    sed -n '2,$p' "$1" 2>/dev/null | awk -F, -v ids=" $2 " '
+        /^#/ || NF < 7 || $1 == "" { next }
+        {
+            id = (NF >= 9) ? $9 : ""
+            if (ids != "  " && id != "" && index(ids, " " id " ") == 0) next
+            node = (NF >= 8 && $8 != "") ? $8 : id
+            printf "%s\t%s\t%s\t%s", node, $1, $5, $6
+            exit
+        }' 2>/dev/null
+}
+
+# 任务结束记录。$1=mode  $2=退出码
+_tasklog_finish(){
+    local _mode="$1" _rc="$2" _status="failed" _msg="" _best="" _tab \
+        _node="" _ip="" _lat="" _spd="" _ddns="$TASKLOG_DDNS_STATUS" \
+        _id _dname _ok=0 _fail=0 _abn=0 _total=0
+    [ "$_rc" -eq 0 ] && _status="ok"
+    [ "$_status" != "ok" ] && [ -f "${RUN_DIR}/.user_stop" ] && _status="stopped"
+    # 没有明细的 worker（中止/异常）补齐为 abnormal：沿用上一次结果，本次未更新。
+    for _id in $RUN_WORKERS; do
+        case " $TASKLOG_DETAIL_IDS " in
+            *" $_id "*) ;;
+            *)
+                _dname="$(node_label "$_id")"
+                _tasklog_detail "$_id" "$_dname" abnormal "" 0 0 "-"
+                ;;
+        esac
+    done
+    # 统计成功 / 失败 / 异常。用 tr+grep 而不是 for 展开：节点名可能带 [] * ?，
+    # 未加引号的展开会被当作通配符。
+    _total=$(printf '%s\n' "$TASKLOG_DETAILS" | tr ';' '\n' | grep -c .)
+    _ok=$(printf '%s\n' "$TASKLOG_DETAILS" | tr ';' '\n' | grep -c '|ok|')
+    _fail=$(printf '%s\n' "$TASKLOG_DETAILS" | tr ';' '\n' | grep -c '|fail|')
+    _abn=$((_total - _ok - _fail))
+    [ "$_abn" -ge 0 ] 2>/dev/null || _abn=0
+    local _label="测速"
+    [ "$_mode" = "retest" ] && _label="复测"
+    case "$_status" in
+        ok) _msg="${_label}任务成功：成功 ${_ok} · 失败 ${_fail} · 异常 ${_abn}" ;;
+        stopped) _msg="${_label}任务已停止：成功 ${_ok} · 失败 ${_fail} · 异常 ${_abn}" ;;
+        *) _msg="${_label}任务失败：成功 ${_ok} · 失败 ${_fail} · 异常 ${_abn}" ;;
+    esac
+    if [ "$_ddns" = "-" ]; then
+        if [ "$(uci -q get cfpick.global.ddns_enabled 2>/dev/null)" = "1" ]; then
+            _ddns="未写入"
+        else
+            _ddns="未启用"
+        fi
+    fi
+    # 失败/中止时 result.csv 还是上一次的结果，不能当成本次任务的成绩展示。
+    if [ "$_status" = "ok" ] && [ -f "$IP_FILE" ]; then
+        _best=$(_tasklog_best "$IP_FILE" "$RUN_WORKERS")
+    fi
+    if [ -n "$_best" ]; then
+        _tab="$(printf '\t')"
+        _node="${_best%%"$_tab"*}"; _best="${_best#*"$_tab"}"
+        _ip="${_best%%"$_tab"*}"; _best="${_best#*"$_tab"}"
+        _lat="${_best%%"$_tab"*}"; _spd="${_best#*"$_tab"}"
+    fi
+    _tasklog_write result "$_mode" "$_status" "$_node" "$_ip" "$_lat" "$_spd" \
+        "$_ddns" "$_msg" "$TASKLOG_DETAILS"
 }
 
 # 排序结果数据行，表头保留在首行。
@@ -1186,8 +1340,9 @@ nt_scan_running() {
 # 供普通 worker 与迭代 worker 共用。uci set+commit 经锁串行化；核心启动+探测在锁外并行。
 # stdout 输出一行: "keep sent recv loss avg"（keep=1 保留/0 丢弃）；日志不走 stdout。
 # 参数: $1=node $2=ip $3=probe_url $4=timeout $5=probes $6=socks_port $7=flag
+#       $8=该节点所属列表的延迟上限 ms（0/空 = 跟随全局 tl）
 nt_probe_one_ip() {
-    local _W=$1 _ip=$2 _purl=$3 _tmo=$4 _probes=$5 _port=$6 _flag=$7
+    local _W=$1 _ip=$2 _purl=$3 _tmo=$4 _probes=$5 _port=$6 _flag=$7 _cap=${8:-0}
     # 独立内核模式不改写节点 address；PassWall 模式仍需写 address 供 run_socks 读取。
     if [ "${standalone_enabled:-0}" != "1" ]; then
         # uci set+commit 加锁（防多 worker 并发改 staging 丢更新）
@@ -1251,8 +1406,11 @@ nt_probe_one_ip() {
     if [ $_fail -eq 1 ] || [ $_recv -lt $_probes ]; then
         _keep=0
     else
-        if [ -n "${tl:-}" ] && [ "${tl}" -gt 0 ] 2>/dev/null; then
-            [ "$(awk -v v=$_avg -v c=$tl 'BEGIN{print (v>c)?1:0}')" = "1" ] && _keep=0
+        # 列表自带的延迟上限优先；未设置（0）时回退到全局 tl。
+        local _tcap="$_cap"
+        [ "$_tcap" -gt 0 ] 2>/dev/null || _tcap="${tl:-0}"
+        if [ -n "${_tcap:-}" ] && [ "$_tcap" -gt 0 ] 2>/dev/null; then
+            [ "$(awk -v v=$_avg -v c=$_tcap 'BEGIN{print (v>c)?1:0}')" = "1" ] && _keep=0
         fi
         if [ -n "${tll:-}" ] && [ "${tll}" -gt 0 ] 2>/dev/null; then
             [ "$(awk -v v=$_avg -v c=$tll 'BEGIN{print (v<c)?1:0}')" = "1" ] && _keep=0
@@ -1452,7 +1610,8 @@ nt_retest_failed_worker() {
     rm -f "$_tmp" 2>/dev/null
     echolog "复测 [${_W}] 开始：该节点下载全部失败，用现有 result.csv/节点地址再测一轮"
     node_test_worker "$_idx" "$_W" "$_orig" "$_tmp" "$_rf" \
-        "${probe_url:-}" "${timeout:-5}" "${probes:-3}" "$_port" "$_flag"
+        "${probe_url:-}" "${timeout:-5}" "${probes:-3}" "$_port" "$_flag" \
+        "$(node_latency_max "$_W")"
     if [ -z "$(first_result_ip "$_tmp")" ]; then
         rm -f "$_tmp"
         echolog "复测 [${_W}] 没有通过延迟筛选的 IP，保留上一轮结果"
@@ -1506,6 +1665,14 @@ nt_download_stage() {
             return 0
         fi
         echolog "下载全部失败的 worker:${_failed}；其他 worker 下载结束后各复测一轮"
+        _failed_labels=""
+        for _item in $_failed; do
+            _rest=${_item#*:}
+            _lid=${_rest%%:*}
+            _failed_labels="${_failed_labels}${_failed_labels:+、}$(node_label "$_lid")"
+        done
+        _tasklog_write event download_retest info "" "" "" "" "" \
+            "下载全部失败（${_failed_labels}），加测一轮（延迟探测 + 下载实测）"
         for _item in $_failed; do
             _idx=${_item%%:*}
             _rest=${_item#*:}
@@ -1520,9 +1687,9 @@ nt_download_stage() {
 
 # 普通 worker（非迭代模式）：通过节点 $2 的链路测全部候选 IP（$5），保留行写入结果文件 $4。
 # ash 子 shell 里 local 可用（已验证）。下载实测不在这里做，见 nt_download_stage。
-# 参数: $1=idx $2=node $3=origaddr $4=result_file $5=ip_list $6=probe_url $7=timeout $8=probes $9=socks_port $10=flag
+# 参数: $1=idx $2=node $3=origaddr $4=result_file $5=ip_list $6=probe_url $7=timeout $8=probes $9=socks_port $10=flag $11=列表延迟上限(0=全局)
 node_test_worker() {
-    local _idx=$1 _W=$2 _orig=$3 _rfile=$4 _ips=$5 _purl=$6 _tmo=$7 _probes=$8 _port=$9 _flag=${10}
+    local _idx=$1 _W=$2 _orig=$3 _rfile=$4 _ips=$5 _purl=$6 _tmo=$7 _probes=$8 _port=$9 _flag=${10} _tcap=${11:-0}
     local _ip _idx2=0 _total
     # 日志用节点备注名（无 remarks 则回退节点 id）；uci -q get 直读配置，子 shell 可用
     local _Wn
@@ -1537,7 +1704,7 @@ node_test_worker() {
         wait_while_downloading || { echolog "worker [${_Wn}] 等待下载时收到停止"; break; }
         _idx2=$((_idx2 + 1))
         local _out _keep _sent _recv _loss _avg
-        _out=$(nt_probe_one_ip "$_W" "$_ip" "$_purl" "$_tmo" "$_probes" "$_port" "$_flag")
+        _out=$(nt_probe_one_ip "$_W" "$_ip" "$_purl" "$_tmo" "$_probes" "$_port" "$_flag" "$_tcap")
         _keep=${_out%% *}; _out=${_out#* }
         _sent=${_out%% *}; _out=${_out#* }
         _recv=${_out%% *}; _out=${_out#* }
@@ -1596,9 +1763,9 @@ iterate_log_final_summary(){
 # （该阈值来自独立参数 iterate_converge_count，与 download_test_count 无关）。
 # 每 IP 之间也检查 deadline/停止标志，到点跑完当前 IP 即停，无全局轮次同步。
 # 结束时把最终轮次号写入 $3.meta；最终轮完整测速结果由合并段统一打出（收尾日志逐节点汇总）。
-# 参数: $1=idx $2=node $3=result_file $4=ip_list $5=probe_url $6=timeout $7=probes $8=socks_port $9=flag $10=deadline(epoch)
+# 参数: $1=idx $2=node $3=result_file $4=ip_list $5=probe_url $6=timeout $7=probes $8=socks_port $9=flag $10=deadline(epoch) $11=列表延迟上限(0=全局)
 node_iterate_worker() {
-    local _idx=$1 _W=$2 _rfile=$3 _ips=$4 _purl=$5 _tmo=$6 _probes=$7 _port=$8 _flag=$9 _deadline=${10}
+    local _idx=$1 _W=$2 _rfile=$3 _ips=$4 _purl=$5 _tmo=$6 _probes=$7 _port=$8 _flag=$9 _deadline=${10} _tcap=${11:-0}
     local _cand="${RUN_DIR}/iterate_cand_${_W}"
     local _pass=0 _lastpass=0 _kept _ip _list _total _passfile
     # 日志用节点备注名（无 remarks 则回退节点 id）；uci -q get 直读配置，子 shell 可用
@@ -1656,7 +1823,7 @@ node_iterate_worker() {
             _idx2=$((_idx2 + 1))
             echo "$_ip" >> "$_probedfile"
             local _out _keep _sent _recv _loss _avg
-            _out=$(nt_probe_one_ip "$_W" "$_ip" "$_purl" "$_tmo" "$_probes" "$_port" "${_flag}_p${_pass}")
+            _out=$(nt_probe_one_ip "$_W" "$_ip" "$_purl" "$_tmo" "$_probes" "$_port" "${_flag}_p${_pass}" "$_tcap")
             _keep=${_out%% *}; _out=${_out#* }
             _sent=${_out%% *}; _out=${_out#* }
             _recv=${_out%% *}; _out=${_out#* }
@@ -1826,6 +1993,12 @@ node_speed_test() {
 
         if [ -n "$_sparse" ]; then
             echolog "复测候选不足 2 个的 worker: ${_sparse}；改为普通测速并重新拉取列表 IP"
+            _sparse_labels=""
+            for _w in $_sparse; do
+                _sparse_labels="${_sparse_labels}${_sparse_labels:+、}$(node_label "$_w")"
+            done
+            _tasklog_write event candidate_refresh info "" "" "" "" "" \
+                "复测候选不足 2 个（${_sparse_labels}），清空后改为普通测速重新拉取列表"
             if [ "${ip_source:-}" = "online" ]; then
                 migrate_ip_online_regions
                 fetch_online_raw || return 1
@@ -1993,7 +2166,8 @@ node_speed_test() {
                     _port=$((48900 + launched - 1))
                     _wips=$(get_worker_ips "$_w") || { echolog "worker 节点 $_w 候选 IP 不可用，跳过"; continue; }
                     [ "$(echo "$_wips" | grep -c .)" -gt 0 ] || { echolog "worker 节点 $_w 候选 IP 为空，跳过"; continue; }
-                    node_iterate_worker "$launched" "$_w" "$_rfile" "$_wips" "$probe_url" "$timeout" "$probes" "$_port" "${NODE_TEST_FLAG_BASE}_$launched" "$NT_ITER_DEADLINE" &
+                    node_iterate_worker "$launched" "$_w" "$_rfile" "$_wips" "$probe_url" "$timeout" "$probes" "$_port" "${NODE_TEST_FLAG_BASE}_$launched" "$NT_ITER_DEADLINE" \
+                        "$(node_latency_max "$_w")" &
                     NT_RUNNING="${NT_RUNNING:+$NT_RUNNING }$!:${_w}"
                 done
                 # 各 worker 到点/停止后自行退出，wait 收尸，随后按各自最终通过集合并（仅一次）
@@ -2020,7 +2194,8 @@ node_speed_test() {
                     _wtot=$(echo "$_wips" | grep -c .)
                     [ "$_wtot" -gt 0 ] || { echolog "worker 节点 $_w 候选 IP 为空，跳过"; continue; }
                     [ "$_wtot" -lt "$count" ] && echolog "worker 节点 $_w 候选 IP $_wtot < $count（其 CM 列表偏小）"
-                    node_test_worker "$launched" "$_w" "" "$_rfile" "$_wips" "$probe_url" "$timeout" "$probes" "$_port" "${NODE_TEST_FLAG_BASE}_$launched" &
+                    node_test_worker "$launched" "$_w" "" "$_rfile" "$_wips" "$probe_url" "$timeout" "$probes" "$_port" "${NODE_TEST_FLAG_BASE}_$launched" \
+                        "$(node_latency_max "$_w")" &
                     NT_RUNNING="${NT_RUNNING:+$NT_RUNNING }$!:${_w}"
                 done
                 # 排空仍运行的 worker（无提前停止时正常完成路径）
@@ -2095,6 +2270,18 @@ node_speed_test() {
                 # 迭代模式：收尾段逐节点打出该节点最终轮（最近一次落盘）的完整测速结果——
                 # worker 无论提前收敛还是跑到时限退出，此处统一按「节点名一行 + 逐行结果」汇总
                 [ "${ITERATE_MODE:-0}" = "1" ] && iterate_log_final_summary "$mwname" "$mwfile"
+                # 任务日志明细：本次该节点选中的 IP、写回方式与该 IP 的延迟/速度。
+                local _method="writeback" _met _mlat _mspd _mtab _tdname
+                nt_node_has_ddns "$mw" && _method="ddns"
+                _tdname="$(node_label "$mw")"
+                if [ -n "$mwbest" ]; then
+                    _met=$(_tasklog_metrics "$mwfile")
+                    _mtab="$(printf '\t')"
+                    _mlat="${_met%%"$_mtab"*}"; _mspd="${_met#*"$_mtab"}"
+                    _tasklog_detail "$mw" "$_tdname" ok "$mwbest" "$_mlat" "$_mspd" "$_method"
+                else
+                    _tasklog_detail "$mw" "$_tdname" fail "" 0 0 "-"
+                fi
                 # awk 过滤丢掉被杀 worker kill -9 中途截断的脏行（NF<7），正常 7 列行等价；
                 # 末两列追加节点备注名（逗号替换为空格防 CSV 断列）和 passwall section ID。
                 # ID 是稳定主键：复测/历史/DDNS 都按它匹配，改 remarks 不会再把节点认丢。
@@ -2131,8 +2318,12 @@ node_speed_test() {
             # 已在上面排除出 passwall 写回清单。DDNS 失败不影响测速结果。
             if [ "$(uci -q get cfpick.global.ddns_enabled 2>/dev/null)" = "1" ]; then
                 echolog "开始写入 DDNS：按节点最优 IP 更新 Cloudflare DNS"
-                /usr/bin/cfpick ddns uci-apply --result "$merged" >>"$LOG_FILE" 2>&1 || \
+                if /usr/bin/cfpick ddns uci-apply --result "$merged" >>"$LOG_FILE" 2>&1; then
+                    TASKLOG_DDNS_STATUS="已写入"
+                else
+                    TASKLOG_DDNS_STATUS="有节点失败"
                     echolog "警告：DDNS 有节点未完成（明细见上，不影响测速结果）"
+                fi
             fi
             # 全量任务才滚动历史；局部任务只替换自己 worker 的行，避免把别的 worker 的结果滚进 .1。
             # 只有本次真正覆盖了全部 worker 才滚动历史；被占用的 worker 跳过后
@@ -2206,9 +2397,11 @@ node_speed_test() {
     if [ "${ITERATE_MODE:-0}" = "1" ]; then
         # 限时迭代：该节点跑独立收敛循环到时限，结果文件同路径，末尾统一合并写回（仅一次）
         echolog "迭代模式：节点 ${NODE_TEST_NODE} 独立收敛循环至时限（${NT_ITER_DEADLINE} 截止）"
-        node_iterate_worker 1 "${NODE_TEST_NODE}" "$result_tmp" "$ip_list" "$probe_url" "$timeout" "$probes" 48900 "${NODE_TEST_FLAG_BASE}" "$NT_ITER_DEADLINE"
+        node_iterate_worker 1 "${NODE_TEST_NODE}" "$result_tmp" "$ip_list" "$probe_url" "$timeout" "$probes" 48900 "${NODE_TEST_FLAG_BASE}" "$NT_ITER_DEADLINE" \
+            "$(node_latency_max "${NODE_TEST_NODE}")"
     else
-        node_test_worker 1 "${NODE_TEST_NODE}" "${NODE_TEST_ORIG_ADDR}" "$result_tmp" "$ip_list" "$probe_url" "$timeout" "$probes" 48900 "${NODE_TEST_FLAG_BASE}"
+        node_test_worker 1 "${NODE_TEST_NODE}" "${NODE_TEST_ORIG_ADDR}" "$result_tmp" "$ip_list" "$probe_url" "$timeout" "$probes" 48900 "${NODE_TEST_FLAG_BASE}" \
+            "$(node_latency_max "${NODE_TEST_NODE}")"
     fi
 
     # 一轮延迟测试已结束（单节点没有并发 worker），进入下载实测阶段：主进程串行逐 IP 实测。
@@ -2240,6 +2433,9 @@ node_speed_test() {
     : > "${RUN_DIR}/.nt_committing"
 
     if [ -z "$(first_result_ip "$result_tmp")" ]; then
+        local _dname
+        _dname="$(node_label "$NODE_TEST_NODE")"
+        _tasklog_detail "$NODE_TEST_NODE" "$_dname" fail "" 0 0 "-"
         echolog "走节点测速结果 IP 数量为 0，整份回滚并保留上一次结果"
         rm -f "$result_tmp"
         trap node_test_cleanup EXIT INT TERM   # 先复原信号，回滚路径照旧
@@ -2269,6 +2465,12 @@ node_speed_test() {
         printf '%s\t%s\n' "${NODE_TEST_NODE}" "${bestip}" > "$_reapply"
         echolog "开始写回：节点 ${NODE_TEST_NODE} 最优 IP ${bestip} 写入 passwall 配置（原子替换，此阶段不可中断，请稍候）"
     fi
+    local _tmet _ttab
+    _tmet=$(_tasklog_metrics "$result_tmp")
+    _ttab="$(printf '\t')"
+    _tasklog_detail "$NODE_TEST_NODE" "$(node_label "$NODE_TEST_NODE")" ok "$bestip" \
+        "${_tmet%%"$_ttab"*}" "${_tmet#*"$_ttab"}" \
+        "$([ "$_ddns_node" = "1" ] && echo ddns || echo writeback)"
     if nt_apply_best_addresses "$_reapply"; then
         nt_request_passwall_reload
         [ "$_ddns_node" = "1" ] || \
@@ -2279,8 +2481,12 @@ node_speed_test() {
     rm -f "$_reapply"
     if [ "$(uci -q get cfpick.global.ddns_enabled 2>/dev/null)" = "1" ]; then
         echolog "开始写入 DDNS：按节点最优 IP 更新 Cloudflare DNS"
-        /usr/bin/cfpick ddns uci-apply --result "$result_tmp" >>"$LOG_FILE" 2>&1 || \
+        if /usr/bin/cfpick ddns uci-apply --result "$result_tmp" >>"$LOG_FILE" 2>&1; then
+            TASKLOG_DDNS_STATUS="已写入"
+        else
+            TASKLOG_DDNS_STATUS="有节点失败"
             echolog "警告：DDNS 有节点未完成（明细见上，不影响测速结果）"
+        fi
     fi
     [ "$RUN_IS_FULL" = "1" ] && rotate_result_files
     if ! merge_run_result "$result_tmp" "$NODE_TESTED_WORKERS"; then
@@ -2556,10 +2762,29 @@ if [ -n "$ACTION" ] ;then
     fi
     trap 'worker_locks_release; commit_lock_release; run_session_destroy' EXIT INT TERM
 
-    [ "$ACTION" == "start" ] && speed_test && ip_replace
-    [ "$ACTION" == "test" ] && speed_test
-    [ "$ACTION" == "retest" ] && { RETEST_FROM_RESULT=1; speed_test && ip_replace; }
-    [ "$ACTION" == "replace" ] && ip_replace
+    _task_rc=1
+    if [ "$ACTION" != "replace" ]; then
+        _tw=$(printf '%s\n' $RUN_WORKERS | grep -c .)
+        _tasklog_write start "$ACTION" running "" "" "" "" "" \
+            "开始测速（${_tw} 个 worker）"
+    fi
+    if [ "$ACTION" == "start" ]; then
+        speed_test && ip_replace
+        _task_rc=$?
+    elif [ "$ACTION" == "test" ]; then
+        speed_test
+        _task_rc=$?
+    elif [ "$ACTION" == "retest" ]; then
+        RETEST_FROM_RESULT=1
+        speed_test && ip_replace
+        _task_rc=$?
+    elif [ "$ACTION" == "replace" ]; then
+        ip_replace
+        _task_rc=$?
+    fi
+    if [ "$ACTION" != "replace" ]; then
+        _tasklog_finish "$ACTION" "$_task_rc"
+    fi
     worker_locks_release
     commit_lock_release
     run_session_destroy

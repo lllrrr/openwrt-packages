@@ -27,11 +27,12 @@ DEFAULT_CONFIG = {
     "custom_ip_file": "",
     "custom_allip": False,
     "ip_lists": [
-        {"enabled": True, "name": "JP/SG/KR", "regions": ["JP", "SG", "KR"], "port": 443},
-        {"enabled": False, "name": "", "regions": [], "port": 443},
-        {"enabled": False, "name": "", "regions": [], "port": 443},
-        {"enabled": False, "name": "", "regions": [], "port": 443},
-        {"enabled": False, "name": "", "regions": [], "port": 443},
+        {"enabled": True, "name": "JP/SG/KR", "regions": ["JP", "SG", "KR"],
+         "port": 443, "latency_max": 0},
+        {"enabled": False, "name": "", "regions": [], "port": 443, "latency_max": 0},
+        {"enabled": False, "name": "", "regions": [], "port": 443, "latency_max": 0},
+        {"enabled": False, "name": "", "regions": [], "port": 443, "latency_max": 0},
+        {"enabled": False, "name": "", "regions": [], "port": 443, "latency_max": 0},
     ],
     # 延迟是 curl 经内核 SOCKS 测到的全链路 time_pretransfer，天然包含节点
     # 自身 RTT；远端节点常常 >200ms，默认卡上限会把所有候选全部丢弃，故默认不限。
@@ -196,6 +197,9 @@ def _normalize_ip_lists(value):
             "name": _clean_text(item.get("name")),
             "regions": _normalize_regions(item.get("regions")),
             "port": _as_int(item.get("port"), 443, 1, 65535),
+            # Per-list latency cap (ms); 0 inherits the global latency_max.
+            # Regions differ: JP/HK can be tight while US/EU needs headroom.
+            "latency_max": _as_int(item.get("latency_max"), 0, 0, 60000),
         })
     return out
 

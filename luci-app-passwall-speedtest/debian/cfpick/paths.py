@@ -37,6 +37,8 @@ RESULT_FILE = STATE_DIR / "result.csv"
 RESULT_JSON = STATE_DIR / "result.json"
 BEST_JSON = STATE_DIR / "best.json"
 HISTORY_FILE = STATE_DIR / "history.csv"
+# Structured run/event history for the console's task log tab (see tasklog.py).
+TASKLOG_FILE = STATE_DIR / "tasklog.tsv"
 ONLINE_CACHE = STATE_DIR / "online_raw.txt"
 RUN_LOG = LOG_DIR / "speedtest.log"
 SPAWN_LOG = LOG_DIR / "spawn.log"

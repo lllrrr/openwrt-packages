@@ -24,7 +24,7 @@ import time
 import traceback
 from pathlib import Path
 
-from . import config, core, ddns, iplists, links, lock, paths, result
+from . import config, core, ddns, iplists, links, lock, paths, result, tasklog
 from .log import Logger
 
 SOCKS_PORT_BASE = 48900
@@ -68,6 +68,10 @@ class Engine:
         self.iterate_rounds = {}
         self.dl_enabled = bool(cfg.get("download_enabled", True))
         self.hard_stop = False
+        # Filled by _commit; run() writes them to the task log when the run ends.
+        self.task_summary = None
+        self.task_ddns = ""
+        self.task_details = []
         self._cores = set()
         # RLock so the SIGTERM handler can clean up even if the main thread
         # already holds this lock.
@@ -306,15 +310,18 @@ class Engine:
 
         loss = (sent - recv) / sent if sent else 1.0
         avg_ms = (sum(latencies) / len(latencies) * 1000.0) if latencies else 0.0
+        # Per-list cap (regions have different latency standards) overrides the
+        # global one; 0 falls through to the global setting.
+        latency_max = iplists.node_latency_max(self.cfg, node)
         keep = 1
         reason = ""
         if failed or recv < self.cfg["probes"]:
             keep = 0
             reason = "探测未全部成功（%d/%d 次）" % (recv, self.cfg["probes"])
         else:
-            if self.cfg["latency_max"] > 0 and avg_ms > self.cfg["latency_max"]:
+            if latency_max > 0 and avg_ms > latency_max:
                 keep = 0
-                reason = "延迟 %.0fms > 上限 %dms" % (avg_ms, self.cfg["latency_max"])
+                reason = "延迟 %.0fms > 上限 %dms" % (avg_ms, latency_max)
             if self.cfg["latency_min"] > 0 and avg_ms < self.cfg["latency_min"]:
                 keep = 0
                 reason = "延迟 %.0fms < 下限 %dms" % (avg_ms, self.cfg["latency_min"])
@@ -416,14 +423,19 @@ class Engine:
                 node["name"], index, total, index * 100 // total, ip, avg, loss,
                 "保留" if keep else ("丢弃: %s" % reason if reason else "丢弃")))
         if not rows and responded and probed:
+            latency_max = iplists.node_latency_max(self.cfg, node)
             self.log.log(
                 "worker [%s] 已测 %d 个候选全部被阈值过滤，未保留任何 IP；"
                 "探测成功者的延迟范围 %.0f–%.0fms，当前阈值：延迟上限 %s、下限 %s、丢包上限 %.2f。"
-                "若节点本身延迟较高，请到「设置」把延迟上限调大或设为 0（不限）后重测。" % (
+                "若节点本身延迟较高，请到「设置」或「IP 列表」把延迟上限调大或设为 0（不限）后重测。" % (
                     node["name"], probed, min(responded), max(responded),
-                    self.cfg["latency_max"] or "不限",
+                    latency_max or "不限",
                     self.cfg["latency_min"] or "不限",
                     self.cfg["loss_max"]))
+            tasklog.event(
+                "all_filtered",
+                "节点 %s 的候选全部被延迟/丢包阈值过滤（%d 个），沿用上一次结果" % (
+                    node["name"], probed))
         return result.sort_rows(rows, "latency")
 
     # ── iterative worker ────────────────────────────────────────────────
@@ -624,6 +636,10 @@ class Engine:
             return
         self.log.log("下载全部失败的节点: %s；其他节点下载结束后各复测一轮" % (
             "、".join(node["name"] for node in nodes)))
+        tasklog.event(
+            "download_retest",
+            "下载全部失败（%s），加测一轮（延迟探测 + 下载实测）" % (
+                "、".join(node["name"] for node in nodes)))
         try:
             candidates = iplists.retest_candidates(self.cfg, nodes, self.log)
         except iplists.IpListError as exc:
@@ -669,10 +685,12 @@ class Engine:
             return False
         lock.write_state(phase="commit")
         merged = []
+        per_node_best = {}
         for node in nodes:
             rows = result.sort_rows(rows_by_node.get(node["name"]) or [])
             if rows:
                 best = rows[0]
+                per_node_best[node["name"]] = best
                 suffix = " %.2f MB/s" % best.speed if best.speed > 0 else ""
                 self.log.log("走节点测速完成 [%s]，最优 IP %s%s" % (node["name"], best.ip, suffix))
             else:
@@ -731,6 +749,36 @@ class Engine:
         if ddns_report is not None:
             state_fields["ddns"] = ddns_report
         lock.write_state(**state_fields)
+        # The task row describes this run's own best row, not the global best
+        # that may still come from another node a partial run did not test.
+        task_best = merged[0]
+        self.task_summary = {
+            "node": task_best.node or "",
+            "ip": task_best.ip,
+            "latency": round(task_best.latency, 2),
+            "speed": round(task_best.speed, 2),
+        }
+        self.task_ddns = tasklog.ddns_label(ddns_report)
+        # Per-node description for the task log: which IP this run chose for
+        # each node, how it was applied, and that IP's performance.
+        ddns_enabled = bool((self.cfg.get("ddns") or {}).get("enabled"))
+        self.task_details = []
+        for node in nodes:
+            best_row = per_node_best.get(node["name"])
+            if best_row is None:
+                self.task_details.append({
+                    "node": node["name"], "status": "fail", "method": "-"})
+                continue
+            method = ("ddns" if ddns_enabled and node.get("ddns_domain")
+                      else "writeback")
+            self.task_details.append({
+                "node": node["name"],
+                "ip": best_row.ip,
+                "latency": round(best_row.latency, 2),
+                "speed": round(best_row.speed, 2),
+                "status": "ok",
+                "method": method,
+            })
         suffix = " %.2f MB/s" % best.speed if best.speed > 0 else ""
         self.log.log("全部完成，全局最优 IP %s（延迟 %.2fms%s），结果已导出到 %s" % (
             best.ip, best.latency, suffix, paths.STATE_DIR))
@@ -867,10 +915,13 @@ def run(mode="start", node_names=None):
 
     engine = Engine(cfg, logger, mode, binary, core_type, run_lock.run_dir,
                     node_names=acquired, full_run=full_run)
+    tasklog.start(mode, acquired)
     ok = False
+    error_text = ""
     try:
         ok = engine.execute() == 0
     except Exception as exc:  # keep the previous result on any engine failure
+        error_text = str(exc)
         logger.log("测速失败: %s" % exc)
         logger.log(traceback.format_exc())
         lock.write_state(phase="failed", error=str(exc))
@@ -881,6 +932,31 @@ def run(mode="start", node_names=None):
             phase="done" if ok else "failed",
             finished_at=int(time.time()),
             stop_requested=lock.stop_requested(),
+        )
+        if ok:
+            status = "ok"
+        elif lock.stop_requested():
+            status = "stopped"
+        else:
+            status = "failed"
+        # A run that ends before _commit has no per-node rows; those nodes are
+        # "abnormal" (nothing was updated this time) rather than silently gone.
+        details = engine.task_details or [
+            {"node": name, "status": "abnormal", "method": "-"}
+            for name in acquired]
+        message = tasklog.result_message(mode, status, details)
+        if error_text:
+            message += "；错误：%s" % error_text
+        summary = engine.task_summary or {}
+        tasklog.result(
+            mode, status,
+            node=summary.get("node", ""),
+            ip=summary.get("ip", ""),
+            latency=summary.get("latency", ""),
+            speed=summary.get("speed", ""),
+            ddns=engine.task_ddns,
+            message=message,
+            details=tasklog.format_details(details),
         )
         logger.persist(paths.LAST_LOG)
         run_lock.release()

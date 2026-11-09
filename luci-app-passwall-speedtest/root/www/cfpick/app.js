@@ -18,14 +18,17 @@
 		best: null,
 		history: [],
 		tasks: null,
+		tasklog: [],
 		appInfo: null,
 		appTimer: 0,
 		coreTimer: 0,
 		tab: 'overview',
 		logPos: 0,
+		logSubtab: 'runlog',
 		lastRunning: false,
 		pollTimer: 0,
 		logTimer: 0,
+		taskTimer: 0,
 		elapsedTimer: 0,
 		coreTags: {},
 		authMode: 'login',
@@ -67,6 +70,7 @@
 		'/api/nodes': 'nodes',
 		'/api/best': 'best',
 		'/api/history': 'history',
+		'/api/tasklog': 'tasklog',
 		'/api/log': 'log',
 		'/api/cron': 'tasks',
 		'/api/ddns': 'ddns_preview',
@@ -383,7 +387,8 @@
 		if (window.location.hash !== '#' + name)
 			history.replaceState(null, '', '#' + name);
 		if (name === 'logs') {
-			reloadLog(true);
+			if (state.logSubtab === 'tasklog') refreshTaskLog();
+			else reloadLog(true);
 		} else if (name === 'core') {
 			refreshCore();
 			refreshAppInfo();
@@ -478,6 +483,7 @@
 			if (wasRunning && !status.running) {
 				await refreshResults();
 				refreshCronTasks().catch(() => {});
+				refreshTaskLog().catch(() => {});
 				toast('测速已结束，结果已刷新');
 			}
 		} catch (e) {
@@ -642,6 +648,13 @@
 		if (node && String(node.type || '').toLowerCase() === 'socks')
 			label += '（socks，不能测速）';
 		return label;
+	}
+
+	// 定时任务只显示 PassWall 备注名（去掉 list_nodes 的 "[VMESS]:" 前缀）。
+	function nodeRemark(id) {
+		const node = passwallNode(id);
+		const label = node ? (node.label || id) : id;
+		return label.replace(/^\[[^\]]*\]:/, '') || id;
 	}
 
 	function configuredWorkers() {
@@ -1040,6 +1053,20 @@
 			portCell.appendChild(port);
 			tr.appendChild(portCell);
 
+			// 该列表自己的延迟上限：不同地区（港日/美欧）标准不同；0 = 跟随全局。
+			const latencyCell = document.createElement('td');
+			const latency = document.createElement('input');
+			latency.type = 'number';
+			latency.min = '0';
+			latency.step = '1';
+			latency.placeholder = '跟随全局';
+			latency.value = parseInt(list.latency_max, 10) || 0;
+			latency.addEventListener('input', () => {
+				list.latency_max = Math.max(0, parseInt(latency.value, 10) || 0);
+			});
+			latencyCell.appendChild(latency);
+			tr.appendChild(latencyCell);
+
 			body.appendChild(tr);
 		});
 	}
@@ -1260,7 +1287,7 @@
 		configuredWorkers().forEach((worker) => {
 			if (seen.has(worker.node)) return;
 			seen.add(worker.node);
-			list.push({ id: worker.node, name: nodeLabel(worker.node), stale: false });
+			list.push({ id: worker.node, name: nodeRemark(worker.node), stale: false });
 		});
 		return list;
 	}
@@ -1312,8 +1339,13 @@
 			.map((box) => box.value);
 		function sync() {
 			const values = details._nodeValues();
-			summary.textContent = values.length ? values.join('、') : '全部节点';
-			summary.title = values.length ? values.join('、') : '全部待测节点';
+			// 收起状态显示节点名称，而不是 passwall section ID。
+			const labels = values.map((id) => {
+				const node = nodes.find((item) => item.id === id);
+				return node ? (node.stale ? (id + '（已删除）') : node.name) : nodeRemark(id);
+			});
+			summary.textContent = labels.length ? labels.join('、') : '全部节点';
+			summary.title = labels.length ? labels.join('、') : '全部待测节点';
 		}
 		list.addEventListener('change', sync);
 		sync();
@@ -1340,9 +1372,11 @@
 		// an empty array explicitly clears them (= all nodes).
 		if (nodes != null) body.nodes = nodes;
 		try {
-			const data = await api('/api/cron/task/save', { method: 'POST', body: body });
-			state.tasks = data;
-			renderTasks();
+			// 写操作的 RPC 返回的是原始 ubus 信封（entries），不是翻译后的
+			// {tasks} 结构；直接赋给 state.tasks 会把表格渲染成空。重新读取
+			// /api/cron 保证两张任务表立即显示最新内容。
+			await api('/api/cron/task/save', { method: 'POST', body: body });
+			await refreshCronTasks();
 			toast(enabled ? '定时任务已保存并启用' : '定时任务已保存并停用');
 		} catch (e) {
 			toast(e.message, true);
@@ -1354,11 +1388,11 @@
 		if (!confirm('删除定时任务？\n\n' + (entry.schedule || '') + ' ' + (entry.command || '')))
 			return;
 		try {
-			state.tasks = await api('/api/cron/task/delete', {
+			await api('/api/cron/task/delete', {
 				method: 'POST',
 				body: { source: entry.source, line: entry.line },
 			});
-			renderTasks();
+			await refreshCronTasks();
 			toast('定时任务已删除');
 		} catch (e) {
 			toast(e.message, true);
@@ -1378,7 +1412,7 @@
 			return;
 		}
 		try {
-			state.tasks = await api('/api/cron/task/add', {
+			await api('/api/cron/task/add', {
 				method: 'POST',
 				body: {
 					schedule: schedule,
@@ -1386,7 +1420,7 @@
 					nodes: nodes,
 				},
 			});
-			renderTasks();
+			await refreshCronTasks();
 			toast('定时任务已添加');
 		} catch (e) {
 			toast(e.message, true);
@@ -1455,7 +1489,7 @@
 				} else {
 					nodeCell.className = 'muted';
 					nodeCell.textContent = (entry.nodes && entry.nodes.length)
-						? entry.nodes.map(nodeLabel).join('、') : '全部节点';
+						? entry.nodes.map(nodeRemark).join('、') : '全部节点';
 				}
 			} else {
 				nodeCell.className = 'muted';
@@ -1562,7 +1596,7 @@
 
 			const nodeCell = document.createElement('td');
 			nodeCell.textContent = (entry.nodes && entry.nodes.length)
-				? entry.nodes.map(nodeLabel).join('、') : '全部节点';
+				? entry.nodes.map(nodeRemark).join('、') : '全部节点';
 			tr.appendChild(nodeCell);
 
 			const commandCell = document.createElement('td');
@@ -1692,6 +1726,7 @@
 				name: item.name || '',
 				regions: Array.isArray(item.regions) ? item.regions.join(' ') : (item.regions || ''),
 				port: parseInt(item.port, 10) || 443,
+				latency_max: Math.max(0, parseInt(item.latency_max, 10) || 0),
 			})),
 			workers: configuredWorkers()
 				.filter((item) => !!String(item.node || '').trim())
@@ -1946,9 +1981,22 @@
 	}
 
 	function tickLogs() {
-		if (state.tab !== 'logs') return;
+		if (state.tab !== 'logs' || state.logSubtab !== 'runlog') return;
 		if (!$('#log-autorefresh') || !$('#log-autorefresh').checked) return;
 		reloadLog(false);
+	}
+
+	// 「日志」页内的两个窗口：运行日志 / 任务日志。
+	function setLogSubtab(name) {
+		state.logSubtab = (name === 'tasklog') ? 'tasklog' : 'runlog';
+		$$('#log-subtabs .subtab').forEach((tab) => {
+			tab.classList.toggle('active', tab.dataset.subtab === state.logSubtab);
+		});
+		$$('.panel[data-panel="logs"] [data-subpanel]').forEach((panel) => {
+			panel.classList.toggle('active', panel.dataset.subpanel === state.logSubtab);
+		});
+		if (state.logSubtab === 'tasklog') refreshTaskLog();
+		else reloadLog(false);
 	}
 
 	async function downloadLog() {
@@ -1960,6 +2008,146 @@
 		} catch (e) {
 			toast(e.message, true);
 		}
+	}
+
+	// ── task log ────────────────────────────────────────────────────────
+	// 「日志」页的两个窗口之一：每次测速的结果是一条描述，下面展开各节点
+	// 本次更新用的 IP、写回方式以及该 IP 的延迟/速度。数据来自 tasklog.tsv。
+	const TASK_METHOD_LABELS = { ddns: '写 DNS', writeback: '写回' };
+
+	function taskCell(text, className) {
+		const td = document.createElement('td');
+		if (className) td.className = className;
+		td.textContent = text;
+		return td;
+	}
+
+	function taskDetailRow(entry) {
+		const tr = document.createElement('tr');
+		const status = entry.status || '';
+		let ip = entry.ip || '—';
+		let method = TASK_METHOD_LABELS[entry.method] || '—';
+		if (status === 'fail') {
+			tr.className = 'task-row-fail';
+			ip = '未更新（无有效结果）';
+			method = '—';
+		} else if (status === 'abnormal') {
+			tr.className = 'task-row-abnormal';
+			ip = '未完成（沿用上次结果）';
+			method = '—';
+		}
+		tr.appendChild(taskCell(entry.node || '—'));
+		tr.appendChild(taskCell(ip, 'ip'));
+		tr.appendChild(taskCell(method));
+		tr.appendChild(taskCell(entry.latency > 0 ? fmtNumber(entry.latency) + ' ms' : '—'));
+		tr.appendChild(taskCell(entry.speed > 0 ? fmtNumber(entry.speed) + ' MB/s' : '—'));
+		return tr;
+	}
+
+	function taskDetailsTable(entries) {
+		const wrap = document.createElement('div');
+		wrap.className = 'table-wrap';
+		const table = document.createElement('table');
+		table.className = 'data';
+		const thead = document.createElement('thead');
+		const headRow = document.createElement('tr');
+		['节点', '更新 IP', '方式', '延迟', '速度'].forEach((label) => {
+			const th = document.createElement('th');
+			th.textContent = label;
+			headRow.appendChild(th);
+		});
+		thead.appendChild(headRow);
+		table.appendChild(thead);
+		const tbody = document.createElement('tbody');
+		entries.forEach((entry) => tbody.appendChild(taskDetailRow(entry)));
+		table.appendChild(tbody);
+		wrap.appendChild(table);
+		return wrap;
+	}
+
+	function renderTaskLog(tasks) {
+		const list = $('#tasklog-list');
+		if (!list) return;
+		state.tasklog = tasks || [];
+		list.replaceChildren();
+
+		if (!state.tasklog.length) {
+			const empty = document.createElement('p');
+			empty.className = 'task-empty';
+			empty.textContent = '暂无任务记录；下一次测速开始后会写入这里。';
+			list.appendChild(empty);
+			return;
+		}
+
+		let expanded = false;
+		state.tasklog.forEach((task) => {
+			const block = document.createElement('article');
+			block.className = 'task-entry';
+
+			const head = document.createElement('div');
+			head.className = 'task-head';
+			const time = document.createElement('span');
+			time.className = 'task-time';
+			time.textContent = task.time || '—';
+			head.appendChild(time);
+
+			const badge = document.createElement('span');
+			if (task.kind === 'result') {
+				const ok = task.status === 'ok';
+				badge.className = 'badge ' + (ok ? 'ok' : (task.status === 'stopped' ? 'info' : 'bad'));
+				badge.textContent = ok ? '成功' : (task.status === 'stopped' ? '已停止' : '失败');
+			} else {
+				badge.className = 'badge info';
+				badge.textContent = task.kind === 'event' ? '事件' : '开始';
+			}
+			head.appendChild(badge);
+
+			const message = document.createElement('span');
+			message.className = 'task-message';
+			message.textContent = task.message || '';
+			head.appendChild(message);
+			block.appendChild(head);
+
+			if (task.kind === 'result' && task.details && task.details.length) {
+				const details = document.createElement('details');
+				details.className = 'task-details';
+				// 最新一条结果默认展开，其余折叠。
+				if (!expanded) {
+					details.open = true;
+					expanded = true;
+				}
+				const summary = document.createElement('summary');
+				let okCount = 0;
+				let failCount = 0;
+				let abnormalCount = 0;
+				task.details.forEach((entry) => {
+					if (entry.status === 'ok') okCount += 1;
+					else if (entry.status === 'fail') failCount += 1;
+					else abnormalCount += 1;
+				});
+				summary.textContent = '各节点更新情况（成功 ' + okCount +
+					' · 失败 ' + failCount + ' · 异常 ' + abnormalCount + '）';
+				details.appendChild(summary);
+				details.appendChild(taskDetailsTable(task.details));
+				block.appendChild(details);
+			}
+
+			list.appendChild(block);
+		});
+	}
+
+	async function refreshTaskLog() {
+		try {
+			const data = await api('/api/tasklog');
+			renderTaskLog((data && data.tasks) || []);
+		} catch (e) {
+			/* handled by api() */
+		}
+	}
+
+	function tickTaskLog() {
+		if (state.tab !== 'logs' || state.logSubtab !== 'tasklog') return;
+		refreshTaskLog();
 	}
 
 	// ── core modules ─────────────────────────────────────────────────────
@@ -2340,17 +2528,20 @@
 		stopPolling();
 		state.pollTimer = setInterval(pollStatus, 3000);
 		state.logTimer = setInterval(tickLogs, 2000);
+		state.taskTimer = setInterval(tickTaskLog, 5000);
 		state.elapsedTimer = setInterval(tickElapsed, 1000);
 	}
 
 	function stopPolling() {
 		clearInterval(state.pollTimer);
 		clearInterval(state.logTimer);
+		clearInterval(state.taskTimer);
 		clearInterval(state.elapsedTimer);
 		clearInterval(state.appTimer);
 		clearTimeout(state.coreTimer);
 		state.pollTimer = 0;
 		state.logTimer = 0;
+		state.taskTimer = 0;
 		state.elapsedTimer = 0;
 		state.appTimer = 0;
 		state.coreTimer = 0;
@@ -2399,7 +2590,12 @@
 		$('#btn-password').addEventListener('click', changePassword);
 		$('#btn-save-thirdparty').addEventListener('click', () => saveConfig('第三方配置已保存'));
 
+		$('#log-subtabs').addEventListener('click', (event) => {
+			const tab = event.target.closest('.subtab');
+			if (tab) setLogSubtab(tab.dataset.subtab);
+		});
 		$('#btn-log-reload').addEventListener('click', () => reloadLog(true));
+		$('#btn-tasklog-reload').addEventListener('click', refreshTaskLog);
 		$('#dl-log').addEventListener('click', (event) => {
 			event.preventDefault();
 			downloadLog();

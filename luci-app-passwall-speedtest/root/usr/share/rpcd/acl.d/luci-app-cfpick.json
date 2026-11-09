@@ -6,7 +6,7 @@
 				"cfpick": [
 					"status", "get_log", "get_history", "get_best_result", "list_nodes",
 					"api_ping", "api_status", "api_results", "api_history",
-					"api_nodes", "api_log", "api_tasks", "standalone_status",
+					"api_tasklog", "api_nodes", "api_log", "api_tasks", "standalone_status",
 					"api_update_status", "api_update_check"
 				]
 			},

@@ -46,6 +46,31 @@ class FileListTests(unittest.TestCase):
             iplists.load_file(Path(self.tmp.name) / "nope.txt")
 
 
+class LatencyCapTests(unittest.TestCase):
+    def test_list_cap_overrides_global(self):
+        cfg = {
+            "latency_max": 300,
+            "ip_lists": [
+                {"enabled": True, "latency_max": 120},
+                {"enabled": False, "latency_max": 0},
+            ],
+        }
+        self.assertEqual(iplists.node_latency_max(cfg, {"ip_list": "list1"}), 120)
+        self.assertEqual(iplists.node_latency_max(cfg, {"ip_list": "list2"}), 300)
+
+    def test_default_enabled_list(self):
+        cfg = {"latency_max": 0, "ip_lists": [
+            {"enabled": False, "latency_max": 99},
+            {"enabled": True, "latency_max": 150},
+        ]}
+        self.assertEqual(iplists.node_latency_max(cfg, {}), 150)
+
+    def test_zero_falls_back_to_global(self):
+        cfg = {"latency_max": 250,
+               "ip_lists": [{"enabled": True, "latency_max": 0}]}
+        self.assertEqual(iplists.node_latency_max(cfg, {"ip_list": "list1"}), 250)
+
+
 class OnlineTests(unittest.TestCase):
     def test_build_lists_filters_port_and_region(self):
         entries = [

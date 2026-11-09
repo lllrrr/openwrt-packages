@@ -13,6 +13,9 @@ const RUN_REGISTRY = RESULT_DIR + '/.runs';
 // 与 cfpick.sh 保持一致：下载/写回使用一个全局锁，锁被占用时节点页按钮全禁用。
 const COMMIT_LOCK_DIR = RESULT_DIR + '/.commit.lock';
 const HISTORY_FILE = '/etc/cfpick/history.csv';
+// 任务日志：cfpick.sh 每次测速开始/结束与特殊处理各写一行，
+// 格式与 debian/cfpick/tasklog.py 一致（制表符分隔）。
+const TASKLOG_FILE = '/etc/cfpick/tasklog.tsv';
 const RUN_SCRIPT = '/usr/lib/cfpick/bin/cfpick.sh';
 
 function command(cmd) {
@@ -628,6 +631,69 @@ function get_history() {
 	return {
 		history: history
 	};
+}
+
+// 任务日志明细列（第 11 列）：node|ip|latency|speed|status|method，
+// 多条用 ; 分隔。老文件没有这一列，按空数组返回。
+function parse_task_details(text) {
+	let out = [];
+	let items = split(text || '', ';');
+
+	for (let i = 0; i < length(items); i++) {
+		let p = split(items[i], '|');
+
+		if (length(p) < 6 || p[0] == '')
+			continue;
+
+		push(out, {
+			node: p[0],
+			ip: p[1],
+			latency: +p[2] || 0,
+			speed: +p[3] || 0,
+			status: p[4],
+			method: p[5]
+		});
+	}
+
+	return out;
+}
+
+// 任务日志（/etc/cfpick/tasklog.tsv）：cfpick.sh 每次测速开始/结束和特殊
+// 处理各写一行，这里按最新优先返回。格式与 debian/cfpick/tasklog.py 一致。
+function get_tasklog() {
+	let lines = read_lines(TASKLOG_FILE);
+	let tasks = [];
+
+	for (let i = length(lines) - 1; i >= 0; i--) {
+		let line = lines[i];
+
+		if (line == null || line == '')
+			continue;
+
+		let p = split(line, "\t");
+
+		if (length(p) < 10)
+			continue;
+
+		push(tasks, {
+			time: p[0],
+			kind: p[1],
+			mode: p[2],
+			status: p[3],
+			node: p[4],
+			ip: p[5],
+			latency: +p[6] || 0,
+			speed: +p[7] || 0,
+			ddns: p[8],
+			message: p[9],
+			details: (length(p) >= 11) ? parse_task_details(p[10]) : []
+		});
+
+		if (length(tasks) >= 200)
+			break;
+	}
+
+	return { tasks: tasks };
 }
 
 function get_best_result() {
@@ -1887,6 +1953,10 @@ return {
 
 		api_history: api(function() {
 			return get_history();
+		}),
+
+		api_tasklog: api(function() {
+			return get_tasklog();
 		}),
 
 		api_nodes: api(function() {

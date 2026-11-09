@@ -21,7 +21,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import __version__, config, core, cron, ddns, links, lock, paths, result
+from . import __version__, config, core, cron, ddns, links, lock, paths, result, tasklog
 from .log import Logger, read_chunk
 
 MAX_BODY = 2 * 1024 * 1024
@@ -410,6 +410,13 @@ class Handler(BaseHTTPRequestHandler):
             if not history:
                 history = result.history_from_result_files()
             self._send_json({"history": history})
+        elif route == "/api/tasklog":
+            limit = query.get("limit", ["200"])[0]
+            try:
+                limit = max(1, min(int(limit), 1000))
+            except ValueError:
+                limit = 200
+            self._send_json({"tasks": tasklog.parse(limit=limit)})
         elif route == "/api/log":
             try:
                 pos = int((query.get("pos") or ["0"])[0])

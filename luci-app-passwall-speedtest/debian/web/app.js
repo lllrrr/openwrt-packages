@@ -12,15 +12,18 @@
 		core: null,
 		best: null,
 		history: [],
+		tasklog: [],
 		nodeInfo: [],
 		coreTags: {},
 		appInfo: null,
 		appTimer: 0,
 		tab: 'overview',
 		logPos: 0,
+		logSubtab: 'runlog',
 		lastRunning: false,
 		pollTimer: 0,
 		logTimer: 0,
+		taskTimer: 0,
 		coreTimer: 0,
 		elapsedTimer: 0,
 		// 日志读取串行化，避免切页/定时器/手动刷新并发读到同一段而重复追加。
@@ -138,7 +141,8 @@
 		if (window.location.hash !== '#' + name)
 			history.replaceState(null, '', '#' + name);
 		if (name === 'logs') {
-			reloadLog(true);
+			if (state.logSubtab === 'tasklog') refreshTaskLog();
+			else reloadLog(true);
 		} else if (name === 'core') {
 			refreshCore();
 			refreshAppInfo();
@@ -219,6 +223,7 @@
 			renderStatus(status);
 			if (wasRunning && !status.running) {
 				await refreshResults();
+				refreshTaskLog().catch(() => {});
 				toast('测速已结束，结果已刷新');
 			}
 		} catch (e) {
@@ -719,6 +724,20 @@
 			port.addEventListener('input', () => { list.port = parseInt(port.value, 10) || 443; });
 			portCell.appendChild(port);
 			tr.appendChild(portCell);
+
+			// 该列表自己的延迟上限：不同地区（港日/美欧）标准不同；0 = 跟随全局。
+			const latencyCell = document.createElement('td');
+			const latency = document.createElement('input');
+			latency.type = 'number';
+			latency.min = '0';
+			latency.step = '1';
+			latency.placeholder = '跟随全局';
+			latency.value = parseInt(list.latency_max, 10) || 0;
+			latency.addEventListener('input', () => {
+				list.latency_max = Math.max(0, parseInt(latency.value, 10) || 0);
+			});
+			latencyCell.appendChild(latency);
+			tr.appendChild(latencyCell);
 
 			body.appendChild(tr);
 		});
@@ -1458,9 +1477,162 @@
 	}
 
 	function tickLogs() {
-		if (state.tab !== 'logs') return;
+		if (state.tab !== 'logs' || state.logSubtab !== 'runlog') return;
 		if (!$('#log-autorefresh') || !$('#log-autorefresh').checked) return;
 		reloadLog(false);
+	}
+
+	// 「日志」页内的两个窗口：运行日志 / 任务日志。
+	function setLogSubtab(name) {
+		state.logSubtab = (name === 'tasklog') ? 'tasklog' : 'runlog';
+		$$('#log-subtabs .subtab').forEach((tab) => {
+			tab.classList.toggle('active', tab.dataset.subtab === state.logSubtab);
+		});
+		$$('.panel[data-panel="logs"] [data-subpanel]').forEach((panel) => {
+			panel.classList.toggle('active', panel.dataset.subpanel === state.logSubtab);
+		});
+		if (state.logSubtab === 'tasklog') refreshTaskLog();
+		else reloadLog(false);
+	}
+
+	// ── task log ────────────────────────────────────────────────────────
+	// 「日志」页的两个窗口之一：每次测速的结果是一条描述，下面展开各节点
+	// 本次更新用的 IP、写回方式以及该 IP 的延迟/速度。数据来自 tasklog.tsv。
+	const TASK_METHOD_LABELS = { ddns: '写 DNS', writeback: '写回' };
+
+	function taskCell(text, className) {
+		const td = document.createElement('td');
+		if (className) td.className = className;
+		td.textContent = text;
+		return td;
+	}
+
+	function taskDetailRow(entry) {
+		const tr = document.createElement('tr');
+		const status = entry.status || '';
+		let ip = entry.ip || '—';
+		let method = TASK_METHOD_LABELS[entry.method] || '—';
+		if (status === 'fail') {
+			tr.className = 'task-row-fail';
+			ip = '未更新（无有效结果）';
+			method = '—';
+		} else if (status === 'abnormal') {
+			tr.className = 'task-row-abnormal';
+			ip = '未完成（沿用上次结果）';
+			method = '—';
+		}
+		tr.appendChild(taskCell(entry.node || '—'));
+		tr.appendChild(taskCell(ip, 'ip'));
+		tr.appendChild(taskCell(method));
+		tr.appendChild(taskCell(entry.latency > 0 ? fmtNumber(entry.latency) + ' ms' : '—'));
+		tr.appendChild(taskCell(entry.speed > 0 ? fmtNumber(entry.speed) + ' MB/s' : '—'));
+		return tr;
+	}
+
+	function taskDetailsTable(entries) {
+		const wrap = document.createElement('div');
+		wrap.className = 'table-wrap';
+		const table = document.createElement('table');
+		table.className = 'data';
+		const thead = document.createElement('thead');
+		const headRow = document.createElement('tr');
+		['节点', '更新 IP', '方式', '延迟', '速度'].forEach((label) => {
+			const th = document.createElement('th');
+			th.textContent = label;
+			headRow.appendChild(th);
+		});
+		thead.appendChild(headRow);
+		table.appendChild(thead);
+		const tbody = document.createElement('tbody');
+		entries.forEach((entry) => tbody.appendChild(taskDetailRow(entry)));
+		table.appendChild(tbody);
+		wrap.appendChild(table);
+		return wrap;
+	}
+
+	function renderTaskLog(tasks) {
+		const list = $('#tasklog-list');
+		if (!list) return;
+		state.tasklog = tasks || [];
+		list.replaceChildren();
+
+		if (!state.tasklog.length) {
+			const empty = document.createElement('p');
+			empty.className = 'task-empty';
+			empty.textContent = '暂无任务记录；下一次测速开始后会写入这里。';
+			list.appendChild(empty);
+			return;
+		}
+
+		let expanded = false;
+		state.tasklog.forEach((task) => {
+			const block = document.createElement('article');
+			block.className = 'task-entry';
+
+			const head = document.createElement('div');
+			head.className = 'task-head';
+			const time = document.createElement('span');
+			time.className = 'task-time';
+			time.textContent = task.time || '—';
+			head.appendChild(time);
+
+			const badge = document.createElement('span');
+			if (task.kind === 'result') {
+				const ok = task.status === 'ok';
+				badge.className = 'badge ' + (ok ? 'ok' : (task.status === 'stopped' ? 'info' : 'bad'));
+				badge.textContent = ok ? '成功' : (task.status === 'stopped' ? '已停止' : '失败');
+			} else {
+				badge.className = 'badge info';
+				badge.textContent = task.kind === 'event' ? '事件' : '开始';
+			}
+			head.appendChild(badge);
+
+			const message = document.createElement('span');
+			message.className = 'task-message';
+			message.textContent = task.message || '';
+			head.appendChild(message);
+			block.appendChild(head);
+
+			if (task.kind === 'result' && task.details && task.details.length) {
+				const details = document.createElement('details');
+				details.className = 'task-details';
+				// 最新一条结果默认展开，其余折叠。
+				if (!expanded) {
+					details.open = true;
+					expanded = true;
+				}
+				const summary = document.createElement('summary');
+				let okCount = 0;
+				let failCount = 0;
+				let abnormalCount = 0;
+				task.details.forEach((entry) => {
+					if (entry.status === 'ok') okCount += 1;
+					else if (entry.status === 'fail') failCount += 1;
+					else abnormalCount += 1;
+				});
+				summary.textContent = '各节点更新情况（成功 ' + okCount +
+					' · 失败 ' + failCount + ' · 异常 ' + abnormalCount + '）';
+				details.appendChild(summary);
+				details.appendChild(taskDetailsTable(task.details));
+				block.appendChild(details);
+			}
+
+			list.appendChild(block);
+		});
+	}
+
+	async function refreshTaskLog() {
+		try {
+			const data = await api('/api/tasklog');
+			renderTaskLog((data && data.tasks) || []);
+		} catch (e) {
+			/* handled by api() */
+		}
+	}
+
+	function tickTaskLog() {
+		if (state.tab !== 'logs' || state.logSubtab !== 'tasklog') return;
+		refreshTaskLog();
 	}
 
 	// ── core modules ─────────────────────────────────────────────────────
@@ -1843,9 +2015,11 @@
 	function startPolling() {
 		clearInterval(state.pollTimer);
 		clearInterval(state.logTimer);
+		clearInterval(state.taskTimer);
 		clearInterval(state.elapsedTimer);
 		state.pollTimer = setInterval(pollStatus, 3000);
 		state.logTimer = setInterval(tickLogs, 2000);
+		state.taskTimer = setInterval(tickTaskLog, 5000);
 		state.elapsedTimer = setInterval(tickElapsed, 1000);
 	}
 
@@ -1891,7 +2065,12 @@
 		$('#btn-ddns-preview').addEventListener('click', previewDdns);
 		$('#btn-ddns-apply').addEventListener('click', applyDdns);
 
+		$('#log-subtabs').addEventListener('click', (event) => {
+			const tab = event.target.closest('.subtab');
+			if (tab) setLogSubtab(tab.dataset.subtab);
+		});
 		$('#btn-log-reload').addEventListener('click', () => reloadLog(true));
+		$('#btn-tasklog-reload').addEventListener('click', refreshTaskLog);
 		$('#dl-log').href = withToken('/api/export/log');
 
 		$('#btn-core-refresh').addEventListener('click', refreshCore);

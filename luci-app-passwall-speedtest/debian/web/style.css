@@ -367,3 +367,28 @@ textarea { resize: vertical; font-family: var(--mono); font-size: 0.78rem; }
   .chart-wrap { height: 240px; }
   .save-bar { position: static; }
 }
+
+/* ── logs sub-windows / task log ─────────────────────────────────── */
+.subtabs { display: flex; gap: 6px; margin: 0 0 14px; flex-wrap: wrap; }
+.subtab {
+  appearance: none; border: 1px solid var(--border); background: var(--bg-elev);
+  color: var(--muted); padding: 6px 12px; border-radius: 8px;
+  font-size: 0.82rem; font-weight: 550; cursor: pointer;
+}
+.subtab:hover { color: var(--text); background: var(--bg-soft); }
+.subtab.active { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.subpanel { display: none; }
+.subpanel.active { display: block; }
+
+.task-entry { padding: 14px 0; border-bottom: 1px solid var(--border); }
+.task-entry:last-child { border-bottom: 0; padding-bottom: 4px; }
+.task-entry:first-child { padding-top: 4px; }
+.task-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.task-time { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); }
+.task-message { font-size: 0.84rem; }
+.task-details { margin-top: 10px; }
+.task-details summary { cursor: pointer; color: var(--accent); font-size: 0.8rem; margin-bottom: 8px; }
+.task-details table { margin-top: 2px; }
+.task-row-fail td { color: var(--danger); }
+.task-row-abnormal td { color: var(--warn); }
+.task-empty { color: var(--muted); text-align: center; padding: 24px; }

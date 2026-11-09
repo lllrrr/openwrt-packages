@@ -147,11 +147,13 @@
         仅在「IP 来源 = 在线 CM 源」时使用。五个列表共享在线源地址，各自按端口和国家码过滤；
         节点可在「节点」页指派其中一个列表，未指派的节点使用第一个启用的列表。
         端口只用于挑选候选 IP，实际探测仍走节点自己的端口。
+        延迟上限填 0 表示跟随「设置」页的全局值；不同地区标准不同（如港日 120ms、美欧 300ms），
+        可给每个列表单独设置，所属节点的探测只按该列表的上限筛选。
       </p>
       <div class="table-wrap">
         <table class="data">
           <thead>
-            <tr><th>启用</th><th>名称</th><th>国家码（不勾选 = 全部）</th><th>端口</th></tr>
+            <tr><th>启用</th><th>名称</th><th>国家码（不勾选 = 全部）</th><th>端口</th><th>延迟上限 (ms)</th></tr>
           </thead>
           <tbody id="iplists-body"></tbody>
         </table>
@@ -314,20 +316,43 @@
     </form>
   </section>
 
-  <!-- ── Logs ────────────────────────────────────────────────────── -->
+  <!-- ── Logs（运行日志 / 任务日志 两个窗口） ───────────────────── -->
   <section class="panel" data-panel="logs">
-    <div class="card">
-      <div class="card-head">
-        <h2>运行日志</h2>
-        <div class="card-actions">
-          <label class="check inline"><input id="log-follow" type="checkbox" checked> 自动滚动</label>
-          <label class="check inline"><input id="log-autorefresh" type="checkbox" checked> 每 2 秒刷新</label>
-          <button type="button" class="btn small" id="btn-log-reload">重新加载</button>
-          <a class="btn small" id="dl-log" href="#">下载日志</a>
+    <div class="subtabs" id="log-subtabs">
+      <button type="button" class="subtab active" data-subtab="runlog">运行日志</button>
+      <button type="button" class="subtab" data-subtab="tasklog">任务日志</button>
+    </div>
+
+    <div class="subpanel active" data-subpanel="runlog">
+      <div class="card">
+        <div class="card-head">
+          <h2>运行日志</h2>
+          <div class="card-actions">
+            <label class="check inline"><input id="log-follow" type="checkbox" checked> 自动滚动</label>
+            <label class="check inline"><input id="log-autorefresh" type="checkbox" checked> 每 2 秒刷新</label>
+            <button type="button" class="btn small" id="btn-log-reload">重新加载</button>
+            <a class="btn small" id="dl-log" href="#">下载日志</a>
+          </div>
         </div>
+        <pre id="log-view" class="log-view"></pre>
+        <p class="muted" id="log-meta"></p>
       </div>
-      <pre id="log-view" class="log-view"></pre>
-      <p class="muted" id="log-meta"></p>
+    </div>
+
+    <div class="subpanel" data-subpanel="tasklog">
+      <div class="card">
+        <div class="card-head">
+          <h2>任务日志</h2>
+          <div class="card-actions">
+            <button type="button" class="btn small" id="btn-tasklog-reload">重新加载</button>
+          </div>
+        </div>
+        <p class="muted">
+          每次测速的结果以一条描述展示：成功 / 失败 / 异常数量，以及各节点本次更新用的 IP、
+          写回方式和该 IP 的延迟、速度；特殊处理（下载全部失败加测、候选不足重新拉取）也会记录。
+        </p>
+        <div id="tasklog-list"><p class="empty">加载中…</p></div>
+      </div>
     </div>
   </section>
 

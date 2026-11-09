@@ -278,7 +278,7 @@ cfpick serve              # 前台启动 Web（--listen 0.0.0.0 --port 8787）
 | `ip_online_url` | CM 源 | 在线源地址，格式 `IP:PORT#CC` |
 | `custom_ip_file` | 空 | 自定义列表路径，支持 CIDR 与纯 IP |
 | `custom_allip` | `false` | 自定义 IPv4 CIDR 是否展开 /24 内全部地址 |
-| `ip_lists` | 5 行 | 在线 CM 源的五个过滤列表：`enabled` / `name` / `regions` / `port` |
+| `ip_lists` | 5 行 | 在线 CM 源的五个过滤列表：`enabled` / `name` / `regions` / `port` / `latency_max`（该列表的延迟上限，0 = 跟随全局，用于不同地区不同标准） |
 | `latency_max` | `0`（不限） | 平均延迟上限（ms），0 = 不限。延迟包含节点自身 RTT，远端节点常 >200ms，不要照搬直连阈值 |
 | `latency_min` | `40` | 平均延迟下限（ms），0 = 不限 |
 | `loss_max` | `0.2` | 丢包率上限（0–1） |

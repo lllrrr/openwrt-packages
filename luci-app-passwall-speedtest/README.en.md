@@ -64,9 +64,9 @@ Only a salted SHA-256 hash is stored in UCI (`cfpick.global.web_password`); the 
 
 *   **Overview**: run state, start/stop/retest, per-node best IPs, recent history, scheduled tasks.
 *   **Nodes**: single/stable node and the worker table (one row per PassWall node, with its CM IP list).
-*   **IP lists**: enable/name/countries/port for the five CM source lists.
+*   **IP lists**: enable/name/countries/port and a per-list latency cap for the five CM source lists (0 = follow the global cap; different regions can use different standards).
 *   **Settings**: IP source, latency/loss thresholds, probe settings, download test, time-boxed iteration, five-field cron, console account.
-*   **Logs**: live log with auto-refresh.
+*   **Logs**: two sub-windows — the live log (auto-scroll, 2s refresh, reload, download) and the task log (one description per run: success/failure/abnormal counts, each node's updated IP, write-back method, latency and speed, plus special events such as the extra round after all downloads failed).
 *   **Third-party**: write-back settings for SSR+ / PassWall / PassWall2 / Bypass / Vssr / HOST / Alibaba Cloud DNS / MosDNS / astra-dns.
 
 The console calls the same `api_*` management API, so it always shows the same data as the LuCI pages.
@@ -127,6 +127,7 @@ The rpcd object `cfpick` exposes two sets of methods:
 | `api_status` | read | — | Run state, PID, mode, phase, elapsed, cron, worker count and the global best IP |
 | `api_results` | read | `limit` (0 = all) | Structured rows from `result.csv` |
 | `api_history` | read | — | Persistent history (same data as `get_history`) |
+| `api_tasklog` | read | — | Task log: per-run result description (success/failure/abnormal counts), each node's updated IP / method / latency / speed, and special handling (extra round after all downloads failed, candidate refresh) |
 | `api_nodes` | read | — | Nodes of each installed proxy tool |
 | `api_log` | read | `pos` | Incremental log chunk starting at the previous position |
 | `api_tasks` | read | — | Only this plugin's crontab tasks (`/etc/crontabs/root`, `/etc/crontab`), with schedule, command and enabled state |

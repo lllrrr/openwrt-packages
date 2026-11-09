@@ -141,6 +141,25 @@ class WebTests(unittest.TestCase):
         status, data = self.request("/api/update-app", method="POST", payload={})
         self.assertEqual(status, 400)
 
+    def test_tasklog_endpoint(self):
+        path = self.base / "state" / "tasklog.tsv"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            "2026-01-02 03:04:05\tstart\tstart\trunning\t\t\t\t\t\t开始\n"
+            "2026-01-02 03:05:06\tresult\tstart\tok\tnode-a\t1.1.1.1\t20.50\t8.25\t"
+            "更新 1\t任务完成\n",
+            encoding="utf-8")
+        try:
+            status, data = self.request("/api/tasklog")
+        finally:
+            path.unlink()
+        self.assertEqual(status, 200)
+        self.assertEqual(len(data["tasks"]), 2)
+        self.assertEqual(data["tasks"][0]["kind"], "result")
+        self.assertEqual(data["tasks"][0]["node"], "node-a")
+        self.assertAlmostEqual(data["tasks"][0]["latency"], 20.5)
+        self.assertAlmostEqual(data["tasks"][0]["speed"], 8.25)
+
     def test_cron_listing(self):
         status, data = self.request("/api/cron")
         self.assertEqual(status, 200)

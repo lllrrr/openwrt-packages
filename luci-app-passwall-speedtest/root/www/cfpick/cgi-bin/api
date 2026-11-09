@@ -571,7 +571,9 @@ function read_config() {
 			enabled: uci_get(cur, section, 'enabled', '0') == '1',
 			name: uci_get(cur, section, 'name', ''),
 			regions: regions,
-			port: uci_get(cur, section, 'port', '443')
+			port: uci_get(cur, section, 'port', '443'),
+			// 该列表自己的延迟上限（ms），0 = 跟随全局 tl。
+			latency_max: uci_get(cur, section, 'latency_max', '0')
 		});
 	}
 
@@ -728,6 +730,8 @@ function save_config(req) {
 			// Keep the UCI list form that LuCI's MultiValue expects.
 			cur.set(CONFIG, 'list' + (i + 1), 'regions', tokens);
 			cur.set(CONFIG, 'list' + (i + 1), 'port', to_int(item.port, 443, 1, 65535));
+			cur.set(CONFIG, 'list' + (i + 1), 'latency_max',
+				to_int(item.latency_max, 0, 0, 60000));
 			changed = true;
 		}
 	}
@@ -894,6 +898,9 @@ function dispatch(req) {
 	}
 	else if (action == 'history') {
 		send(req, ubus_call('api_history', {}));
+	}
+	else if (action == 'tasklog') {
+		send(req, ubus_call('api_tasklog', {}));
 	}
 	else if (action == 'tasks') {
 		send(req, ubus_call('api_tasks', {}));

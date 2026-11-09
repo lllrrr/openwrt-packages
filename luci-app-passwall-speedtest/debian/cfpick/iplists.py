@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List
 
-from . import paths, result
+from . import paths, result, tasklog
 
 ONLINE_LINE = re.compile(r"^([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+):([0-9]+)#([A-Za-z0-9]+)$")
 MIN_ONLINE_LINES = 50
@@ -239,6 +239,38 @@ def default_list(ip_lists):
     return ""
 
 
+def node_latency_max(cfg, node):
+    """Effective latency cap (ms) for a node, 0 meaning unlimited.
+
+    A CM list can carry its own cap because regions differ: JP/HK can be kept
+    under ~120ms while US/EU candidates are usually slower.  A positive
+    per-list value overrides the global ``latency_max``; 0 inherits it.
+    """
+    lists = cfg.get("ip_lists") or []
+    chosen = str(node.get("ip_list") or "").strip()
+    if not chosen:
+        for index, item in enumerate(lists):
+            if item.get("enabled"):
+                chosen = "list%d" % (index + 1)
+                break
+    if chosen.startswith("list"):
+        try:
+            index = int(chosen[4:]) - 1
+        except ValueError:
+            index = -1
+        if 0 <= index < len(lists):
+            try:
+                limit = int(lists[index].get("latency_max") or 0)
+            except (TypeError, ValueError):
+                limit = 0
+            if limit > 0:
+                return limit
+    try:
+        return int(cfg.get("latency_max") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def retest_candidates(cfg, nodes, logger):
     rows, _ = result.read_result()
     per_node = {}
@@ -278,6 +310,10 @@ def select(cfg, nodes, mode, logger):
 
     logger.log("复测候选不足 2 个的 worker: %s；改为普通测速并重新拉取列表 IP" % (
         "、".join(node["name"] for node in sparse)))
+    tasklog.event(
+        "candidate_refresh",
+        "复测候选不足 2 个（%s），清空后改为普通测速重新拉取列表" % (
+            "、".join(node["name"] for node in sparse)))
     normal = _normal_candidates(cfg, sparse, logger)
     for node in sparse:
         name = node["name"]

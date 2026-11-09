@@ -122,6 +122,15 @@ class NormalizeTests(unittest.TestCase):
         ]})
         self.assertEqual(cfg["ip_lists"][0]["regions"], ["JP", "SG"])
 
+    def test_ip_list_latency_cap(self):
+        cfg = config.normalize({"ip_lists": [
+            {"enabled": True, "latency_max": 120},
+            {"enabled": True, "latency_max": -5},
+            {"enabled": True, "latency_max": "abc"},
+        ]})
+        self.assertEqual([item["latency_max"] for item in cfg["ip_lists"][:3]],
+                         [120, 0, 0])
+
     def test_core_type(self):
         self.assertEqual(config.normalize({})["core"]["type"], "mihomo")
         self.assertEqual(config.normalize({"core": {"type": "xray"}})["core"]["type"], "xray")
