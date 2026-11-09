@@ -24,6 +24,8 @@
 					"query_log",
 					"cache_search",
 					"resolve",
+					"compare",
+					"zone",
 					"service_state"
 				]
 			},

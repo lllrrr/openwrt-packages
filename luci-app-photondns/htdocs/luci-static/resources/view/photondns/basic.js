@@ -339,6 +339,11 @@ return view.extend({
 		o.default = ['udp://223.5.5.5', 'udp://223.6.6.6'];
 		o.depends('china_list', '1');
 
+		o = s.taboption('upstream', form.Flag, 'local_direct', _('Bypass proxy for China DNS'),
+			_('Mark these queries with the bypass fwmark so a transparent proxy on this router (e.g. Passwall) sends them out directly'));
+		o.default = '0';
+		o.depends('china_list', '1');
+
 		o = s.taboption('upstream', form.DummyValue, '_chinalist_status', _('China list status'));
 		o.depends('china_list', '1');
 		o.cfgvalue = () => L.resolveDefault(callChinaListStatus(), {}).then(st =>
@@ -354,6 +359,18 @@ return view.extend({
 		o.value('udp://9.9.9.9', _('Quad9 (UDP)'));
 		o.default = 'tcp://1.1.1.1';
 		o.rmempty = false;
+
+		o = s.taboption('upstream', form.Flag, 'upstream_direct', _('Bypass proxy for overseas DNS'),
+			_('Mark these queries with the bypass fwmark so they go out directly instead of through a transparent proxy on this router. Off = they follow your proxy rules (usually recommended in mainland China)'));
+		o.default = '0';
+
+		o = s.taboption('upstream', form.Value, 'direct_mark', _('Bypass fwmark'),
+			_('SO_MARK value set on upstream sockets of bypassing groups. Passwall / Passwall2 skip mark 255 (0xff)'));
+		o.datatype = 'range(1,4294967295)';
+		o.placeholder = '255';
+		o.default = '255';
+		o.depends('upstream_direct', '1');
+		o.depends({ china_list: '1', local_direct: '1' });
 
 		/* ---- adblock ---- */
 		o = s.taboption('adblock', form.Flag, 'adblock', _('Enable DNS ad blocking'),
@@ -419,7 +436,7 @@ return view.extend({
 		o.default = '15';
 
 		o = s.taboption('failover', form.DynamicList, 'backup_upstream', _('Backup DNS servers'),
-			_('Only used when primary servers fail; also raced as a last hedge candidate'));
+			_('Only used when every primary server is down or times out - never raced against healthy primaries, and never asked when a primary answers SERVFAIL/REFUSED (the name itself is broken)'));
 		o.value('tls://223.5.5.5', _('AliDNS (DoT)'));
 		o.value('tls://8.8.8.8', _('Google (DoT)'));
 		o.value('tls://1.1.1.1', _('Cloudflare (DoT)'));

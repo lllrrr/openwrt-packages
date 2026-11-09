@@ -238,7 +238,7 @@ msgstr ""
 msgid "Backup DNS servers"
 msgstr ""
 
-msgid "Only used when primary servers fail; also raced as a last hedge candidate"
+msgid "Only used when every primary server is down or times out - never raced against healthy primaries, and never asked when a primary answers SERVFAIL/REFUSED (the name itself is broken)"
 msgstr ""
 
 msgid "Local-domain DNS servers"
@@ -926,3 +926,267 @@ msgstr ""
 msgid "Free and open-source software, licensed under GPL-3.0-only."
 msgstr ""
 
+msgid "Bypass proxy for China DNS"
+msgstr ""
+
+msgid "Mark these queries with the bypass fwmark so a transparent proxy on this router (e.g. Passwall) sends them out directly"
+msgstr ""
+
+msgid "Bypass proxy for overseas DNS"
+msgstr ""
+
+msgid "Mark these queries with the bypass fwmark so they go out directly instead of through a transparent proxy on this router. Off = they follow your proxy rules (usually recommended in mainland China)"
+msgstr ""
+
+msgid "Bypass fwmark"
+msgstr ""
+
+msgid "SO_MARK value set on upstream sockets of bypassing groups. Passwall / Passwall2 skip mark 255 (0xff)"
+msgstr ""
+
+msgid "Reject HTTPS/SVCB (type 65) setting"
+msgstr ""
+
+msgid "Hosts rule file"
+msgstr ""
+
+msgid "Redirect rule file"
+msgstr ""
+
+msgid "LAN client name (DHCP lease / LAN hosts)"
+msgstr ""
+
+msgid "LAN client reverse lookup"
+msgstr ""
+
+msgid "Block rule file"
+msgstr ""
+
+msgid "Ad block list"
+msgstr ""
+
+msgid "Special-use TLD protection (.local, .lan, ...)"
+msgstr ""
+
+msgid "Private address PTR protection"
+msgstr ""
+
+msgid "Local Domains rule file"
+msgstr ""
+
+msgid "China domain list (geosite:cn)"
+msgstr ""
+
+msgid "No rule matched (default group)"
+msgstr ""
+
+msgid "Exact (full: entry)"
+msgstr ""
+
+msgid "Exact name"
+msgstr ""
+
+msgid "Suffix (domain and all subdomains)"
+msgstr ""
+
+msgid "%ds ago"
+msgstr ""
+
+msgid "%dm ago"
+msgstr ""
+
+msgid "%dh ago"
+msgstr ""
+
+msgid "%s matched no routing rule, so it goes to the default group \"%s\"."
+msgstr ""
+
+msgid "%s matched %s rule %s in %s, so it goes to group \"%s\"."
+msgstr ""
+
+msgid "exact"
+msgstr ""
+
+msgid "suffix"
+msgstr ""
+
+msgid "Type 65 (HTTPS/SVCB) queries are rejected by the \"Reject type 65\" setting."
+msgstr ""
+
+msgid "%s matched %s rule %s in %s, so it is answered NXDOMAIN."
+msgstr ""
+
+msgid "%s is in the hosts rule file and answers %s directly."
+msgstr ""
+
+msgid "%s is redirected to %s by the redirect rule file."
+msgstr ""
+
+msgid "%s is a known LAN client and answers %s locally."
+msgstr ""
+
+msgid "Answered by"
+msgstr ""
+
+msgid "(won the race just now)"
+msgstr ""
+
+msgid "Redirect target"
+msgstr ""
+
+msgid "(cached; filled %s, %s ms)"
+msgstr ""
+
+msgid "Why this route"
+msgstr ""
+
+msgid "Decision"
+msgstr ""
+
+msgid "forward to group"
+msgstr ""
+
+msgid "Rule source"
+msgstr ""
+
+msgid "Match type"
+msgstr ""
+
+msgid "Matched rule"
+msgstr ""
+
+msgid "Rule target"
+msgstr ""
+
+msgid "Note"
+msgstr ""
+
+msgid "No \"local\" group is configured, so the default group is used."
+msgstr ""
+
+msgid "Group upstreams"
+msgstr ""
+
+msgid "(backup)"
+msgstr ""
+
+msgid "IPv6 (AAAA) mode"
+msgstr ""
+
+msgid "%s - clients may get an empty AAAA answer"
+msgstr ""
+
+msgid "Upstream comparison"
+msgstr ""
+
+msgid "Run again"
+msgstr ""
+
+msgid "This name never reaches an upstream; showing how the default group would answer it."
+msgstr ""
+
+msgid "Asks every upstream of the group at the same time, bypassing the cache, so you can compare speed and answers. Does not affect failover health."
+msgstr ""
+
+msgid "Querying all upstreams..."
+msgstr ""
+
+msgid "Avg (EWMA)"
+msgstr ""
+
+msgid "Health"
+msgstr ""
+
+msgid "answered"
+msgstr ""
+
+msgid "fastest"
+msgstr ""
+
+msgid "failed"
+msgstr ""
+
+msgid "healthy"
+msgstr ""
+
+msgid "down"
+msgstr ""
+
+msgid "Group \"%s\" - %d upstreams"
+msgstr ""
+
+
+
+msgid "cached"
+msgstr ""
+
+msgid "(cached answer, fetched %s)"
+msgstr ""
+
+msgid "backup - only used when all primaries time out"
+msgstr ""
+
+msgid "(backup - only used when all primaries time out)"
+msgstr ""
+
+
+
+msgid "Hosting"
+msgstr ""
+
+msgid "The authoritative nameservers hold the real records; the resolvers above just ask them. A CNAME chain or the answer IPs reveal the CDN serving the site."
+msgstr ""
+
+msgid "Looking up nameservers..."
+msgstr ""
+
+msgid "DNS hosted by"
+msgstr ""
+
+msgid "unknown provider"
+msgstr ""
+
+msgid "could not find the zone"
+msgstr ""
+
+msgid "Zone"
+msgstr ""
+
+msgid "Nameservers"
+msgstr ""
+
+msgid "Site served by"
+msgstr ""
+
+msgid "no CDN detected"
+msgstr ""
+
+msgid "CNAME chain"
+msgstr ""
+
+msgid "Detected from"
+msgstr ""
+
+msgid "answer IPs are in %s address ranges"
+msgstr ""
+
+msgid "Type a domain to search what photondns currently has cached. The 15 closest cached records appear as you type (↓/↑ to move, Enter to pick); selecting one runs a full resolve (cache-first) and shows the answers, route, TTL and timing, which routing rule sent it there (suffix / exact match, China list, ad list, ...), which upstream answered, who hosts the domain (DNS provider, nameservers, CDN) and a live speed comparison of every upstream in the group. Answer IPs get a country flag (looked up by your browser at ipwho.is). URLs are reduced to their host name. Pressing Enter without a selection resolves exactly what you typed."
+msgstr ""
+
+msgid "Type a domain to search what photondns currently has cached. The 15 closest cached records appear as you type; selecting one runs a full resolve and shows the answers, route, TTL and timing, which routing rule sent it there, which upstream answered, who hosts the domain (DNS provider, nameservers, CDN) and a live speed comparison of every upstream in the group. Answer IPs get a country flag (looked up by your browser at ipwho.is). URLs are reduced to their host name."
+msgstr ""
+
+msgid "fake-IP range"
+msgstr ""
+
+msgid "private address"
+msgstr ""
+
+
+
+
+
+
+
+msgid "Type or paste a domain or URL (e.g. github.com)..."
+msgstr ""

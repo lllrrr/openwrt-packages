@@ -1,7 +1,0 @@
-config clawpanel 'main'
-	option enabled '0'
-	option disk '/mnt/sata1-1'
-	option install_path ''
-	option openclaw_dir ''
-	option port '19527'
-	option version ''
