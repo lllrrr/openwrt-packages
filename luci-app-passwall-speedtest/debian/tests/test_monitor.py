@@ -146,6 +146,23 @@ class WatchTests(unittest.TestCase):
         self.assertTrue(any("连续 3/3 次" in line for line in self.log.lines))
         self.assertEqual(self.mocks["_release"].call_count, 1)
 
+    def test_single_failure_triggers_retest_when_threshold_is_one(self):
+        # 默认阈值是 1：一次失败就复测，不再等连续 3 次。
+        self.cfg["monitor"]["failures"] = 1
+        check = mock.patch.object(
+            monitor, "_check", return_value=(False, 0.0, "探测失败"))
+        sleep = mock.patch.object(monitor, "_sleep", return_value=True)
+        check.start()
+        sleep.start()
+        self.addCleanup(check.stop)
+        self.addCleanup(sleep.stop)
+
+        monitor.watch("a")
+
+        self.assertEqual(self.mocks["_spawn_retest"].call_count, 1)
+        self.assertTrue(any("连续 1/1 次" in line for line in self.log.lines))
+        self.assertEqual(self.mocks["event"].call_count, 2)
+
     def test_success_is_logged_and_resets_failures(self):
         results = [(False, 0.0, "x"), (True, 45.2, ""), (False, 0.0, "x"),
                    (False, 0.0, "x")]
@@ -273,7 +290,7 @@ class ConfigTests(unittest.TestCase):
         settings = config.normalize({})["monitor"]
         self.assertTrue(settings["enabled"])
         self.assertEqual(settings["interval"], 60)
-        self.assertEqual(settings["failures"], 3)
+        self.assertEqual(settings["failures"], 1)
 
     def test_clamps(self):
         settings = config.normalize({"monitor": {

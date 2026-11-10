@@ -534,7 +534,7 @@ monitor_spawn() {
     else
         ( "$_script" monitor --node="$_node" </dev/null >>"$LOG_FILE" 2>&1 & )
     fi
-    echolog "监测 [$(node_label "$_node")] 已启动：每 ${monitor_interval:-60}s 复测一次成功结果，连续 ${monitor_failures:-3} 次失败触发复测"
+    echolog "监测 [$(node_label "$_node")] 已启动：每 ${monitor_interval:-60}s 复测一次成功结果，连续 ${monitor_failures:-1} 次失败触发复测"
     return 0
 }
 
@@ -572,7 +572,7 @@ monitor_worker() {
         0|no|false|off|OFF|False|No) return 0 ;;
     esac
 
-    local _iv="${monitor_interval:-60}" _max="${monitor_failures:-3}"
+    local _iv="${monitor_interval:-60}" _max="${monitor_failures:-1}"
     case "$_iv" in ''|*[!0-9]*) _iv=60 ;; esac
     [ "$_iv" -ge 10 ] 2>/dev/null || _iv=10
     [ "$_iv" -le 3600 ] 2>/dev/null || _iv=3600

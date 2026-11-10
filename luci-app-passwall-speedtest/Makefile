@@ -12,7 +12,7 @@ LUCI_TITLE:=CFPick - Cloudflare IP optimizer for OpenWrt
 # are the OpenWrt sub-packages that provide the modules it imports.
 LUCI_DEPENDS:=+curl +ca-bundle +python3-light +python3-urllib +python3-codecs +python3-openssl +python3-email
 LUCI_PKGARCH:=all
-PKG_VERSION:=1.0.23
+PKG_VERSION:=1.0.24
 PKG_RELEASE:=0
 PKG_LICENSE:=AGPL-3.0
 PKG_MAINTAINER:=<https://github.com/urbanescavenger/CFPick>

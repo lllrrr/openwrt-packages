@@ -31,7 +31,7 @@ config global 'global'
 	# 占用时监测自动退出。
 	option monitor_enabled '1'
 	option monitor_interval '60'
-	option monitor_failures '3'
+	option monitor_failures '1'
 	# 独立测速：启用后统一测速改用本机 mihomo/Xray 内核（cfpick core），
 	# 不再调用 PassWall 的 run_socks；关闭则保持原 PassWall 行为。
 	option standalone_enabled '0'
