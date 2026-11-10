@@ -21,7 +21,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import __version__, config, core, cron, ddns, links, lock, paths, result, tasklog
+from . import __version__, config, core, cron, ddns, links, lock, monitor, paths, result, tasklog
 from .log import Logger, read_chunk
 
 MAX_BODY = 2 * 1024 * 1024
@@ -478,6 +478,8 @@ class Handler(BaseHTTPRequestHandler):
             # download_active 为真时下载/写回占满 WAN，所有 worker 按钮都禁用。
             "workers": lock.worker_states(),
             "download_active": lock.commit_active(),
+            # 成功后监测：每个节点最近一次复测的延迟/连续失败数（没有监测则为空）。
+            "monitor": monitor.status(),
             "core": info,
             "core_type": active,
             "cores": cores["cores"],

@@ -126,7 +126,6 @@ done
 	--contains etc/config \
 	--contains etc/init.d \
 	--contains luci.oxidns \
-	--contains learn-reset.sh \
 	--contains targets.json \
 	--contains luci-app-oxidns.json \
 	--contains overview.js \

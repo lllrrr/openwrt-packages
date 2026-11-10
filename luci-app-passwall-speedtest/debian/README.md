@@ -56,6 +56,13 @@ Python3 标准库实现的 Web 可视化页面。
 * **下载失败复测**：某个节点的候选全部下载失败时，等其他节点的下载实测都结束后，按复测
   候选（当前 `result.csv` 行 + 节点 address/DDNS 解析）再完整测一轮；复测拿到有效下载速度
   才替换原结果，仍全失败则保留上一轮的延迟排序结果。用户手动停止时不做这轮复测。
+* **成功后监测**：worker 取得有效结果后，自动派生一个后台监测进程，每 60 秒复测一次这个
+  成功结果的延迟——普通节点测 `result.csv` 里该 worker 的最优 IP，配置了 DDNS 域名的节点
+  测域名（先解析，优先用记录里仍指向的最优 IP）。连续 3 次失败即触发该 worker 的复测
+  （`cfpick run retest --node NAME`）；该 worker 被下一次定时/手动任务占用时，监测进程立即
+  退出让位，任务成功后重新拉起。每轮只做轻量 HEAD 探测（按 `probes` 次数），不重新选 IP、
+  不写回、不占下载锁；下载实测进行期间自动跳过一次。状态显示在节点页每个 worker 的「监测 X ms」徽标，
+  明细见 `/var/log/cfpick/monitor.log`。
 
 ## 环境要求
 
@@ -294,6 +301,9 @@ cfpick serve              # 前台启动 Web（--listen 0.0.0.0 --port 8787）
 | `iterate_enabled` | `false` | 限时迭代 |
 | `iterate_minutes` | `30` | 迭代时长（分钟） |
 | `iterate_converge_count` | `5` | 迭代收敛阈值：剩余候选 ≤ N 个即停止该节点迭代（1–100，独立于 `download_count`） |
+| `monitor.enabled` | `true` | 成功后是否派生后台监测：每分钟复测一次成功结果的延迟 |
+| `monitor.interval` | `60` | 监测复测间隔（秒，10–3600） |
+| `monitor.failures` | `3` | 连续失败达到该次数即触发该 worker 的复测（1–10） |
 | `nodes` | `[]` | `{name, link, ip_list, ddns_domain, enabled}` 数组；`ddns_domain` 可填完整主机名或裸子域名（配合 `zone_name`），留空表示该节点只测速 |
 | `ddns.enabled` | `false` | 是否启用 Cloudflare DDNS 写回 |
 | `ddns.provider` | `cloudflare` | 目前仅支持 Cloudflare |

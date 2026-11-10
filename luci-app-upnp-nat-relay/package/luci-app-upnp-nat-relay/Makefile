@@ -1,8 +1,8 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-upnp-nat-relay
-PKG_VERSION:=1.3.12
-PKG_RELEASE:=1
+PKG_VERSION:=1.3.13
+PKG_RELEASE:=2
 
 PKG_MAINTAINER:=yunshu
 PKG_LICENSE:=GPL-3.0
@@ -48,7 +48,7 @@ define Build/Compile
 	done; \
 	sed -i 's/@PKG_VERSION@/$(PKG_VERSION)/g' $(PKG_BUILD_DIR)/root/usr/bin/upnp-nat-relay
 	sed -i 's/@PKG_VERSION@/$(PKG_VERSION)/g' $(PKG_BUILD_DIR)/root/usr/libexec/rpcd/upnp_nat_relay
-	sed -i 's/@PKG_VERSION@/$(PKG_VERSION)/g' $(PKG_BUILD_DIR)/htdocs/luci-static/resources/upnp-nat-relay/utils.js
+	sed -i 's/@PKG_VERSION@/$(PKG_VERSION)/g; s/@PKG_FULL_VERSION@/$(PKG_VERSION)-r$(PKG_RELEASE)/g' $(PKG_BUILD_DIR)/htdocs/luci-static/resources/upnp-nat-relay/utils.js
 endef
 
 define Package/luci-app-upnp-nat-relay/install

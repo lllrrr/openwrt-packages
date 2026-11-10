@@ -45,7 +45,6 @@ apk add --allow-untrusted --no-network ./luci-i18n-oxidns-zh-cn-<版本>.apk
 包版本高于上游，可直接覆盖升级；文案均已进 `po/`。
 
 1. **新增 `Rule Files` 页** —— 横向标签页编辑规则文件（固定 7 项 + 目录内 `.txt` 自动追加），`Save` 写盘、`Save & Restart` 生效，带 mtime 冲突检测与写前备份。
-2. **定时重置学习文件** —— `learned-cn.txt` / `learned-proxy.txt` 可每天 / 每周定时清空（cron 托管块 + 后端脚本），走管理 API 快照与文件同步清理，无需重启。
 3. **日志页直读日志文件** —— 显示 config.yaml 中 `log.file` 指定的文件（未配置时退回 `logread`），UTC 时间戳换算成 `+08:00`，「清空」原地截断日志文件，无需重启。
 4. **配置页提示优化** —— 校验 / 保存结果按状态着色，区分 `Save` 与 `Save & Restart`，操作期间按钮禁用并保留真实错误文案。
 5. **内核更新（`Update Core`）** —— 已装内核时提供更新入口：并发查询 openwrt-oxidns 与官方仓库，取版本更高者；openwrt-oxidns 的 apk 走 `apk add`（校验 Release digest），其未覆盖的架构回落官方归档；两边都不高于当前版本则只提示，不降级重装。

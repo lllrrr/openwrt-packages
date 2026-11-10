@@ -243,11 +243,14 @@ class Engine:
         except (subprocess.TimeoutExpired, OSError):
             return 124, ""
 
-    def _probe_ip(self, node, ip, tag):
+    def _probe_ip(self, node, ip, tag, apply_filters=True):
         """Return (keep, sent, recv, loss, avg_ms, reason).
 
         ``reason`` is empty when the IP is kept; otherwise it names the filter
-        that rejected it, so the log explains every ``[丢弃]``.
+        that rejected it, so the log explains every ``[丢弃]``.  The background
+        monitor passes ``apply_filters=False``: it only asks whether the
+        already chosen endpoint still answers (latency_max/latency_min/loss
+        thresholds are selection criteria, not health checks).
         """
         port = self.ports[node["name"]]
         workdir = self._node_workdir(node)
@@ -310,15 +313,15 @@ class Engine:
 
         loss = (sent - recv) / sent if sent else 1.0
         avg_ms = (sum(latencies) / len(latencies) * 1000.0) if latencies else 0.0
-        # Per-list cap (regions have different latency standards) overrides the
-        # global one; 0 falls through to the global setting.
-        latency_max = iplists.node_latency_max(self.cfg, node)
         keep = 1
         reason = ""
         if failed or recv < self.cfg["probes"]:
             keep = 0
             reason = "探测未全部成功（%d/%d 次）" % (recv, self.cfg["probes"])
-        else:
+        elif apply_filters:
+            # Per-list cap (regions have different latency standards) overrides
+            # the global one; 0 falls through to the global setting.
+            latency_max = iplists.node_latency_max(self.cfg, node)
             if latency_max > 0 and avg_ms > latency_max:
                 keep = 0
                 reason = "延迟 %.0fms > 上限 %dms" % (avg_ms, latency_max)
@@ -888,6 +891,9 @@ def run(mode="start", node_names=None):
         return 1
     acquired = list(run_lock.node_names)
     full_run = (not node_names) and set(acquired) == set(enabled_names)
+    # 这些 worker 马上要被本次任务重新测速：先结束它们上一轮成功后的后台监测。
+    from . import monitor
+    monitor.stop_for(acquired, logger)
 
     # Shared log: do not rotate/clear the stop flag of another active run.
     other = lock.other_runs_active()
@@ -960,4 +966,14 @@ def run(mode="start", node_names=None):
         )
         logger.persist(paths.LAST_LOG)
         run_lock.release()
+    # Worker locks are free again: start the per-node health monitor for every
+    # node this run committed successfully.  A failed/stopped run leaves the
+    # old monitoring state alone (its nodes were stopped at the start above).
+    if ok:
+        # Monitoring is best-effort: a spawn problem must never turn a
+        # successful speed test into a failed run.
+        try:
+            monitor.spawn_successful(engine.task_details, logger)
+        except Exception as exc:
+            logger.log("启动后台监测失败: %s" % exc)
     return 0 if ok else 1

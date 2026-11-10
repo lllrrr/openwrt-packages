@@ -44,6 +44,8 @@ RUN_LOG = LOG_DIR / "speedtest.log"
 SPAWN_LOG = LOG_DIR / "spawn.log"
 CORE_UPDATE_LOG = LOG_DIR / "core-update.log"
 DDNS_LOG = LOG_DIR / "ddns.log"
+# 成功结果的后台监测（每分钟复测一次延迟）；与测速日志分开，便于排查。
+MONITOR_LOG = LOG_DIR / "monitor.log"
 LAST_LOG = STATE_DIR / "last.log"
 STATE_FILE = STATE_DIR / "state.json"
 RUN_LOCK_DIR = STATE_DIR / ".run.lock"

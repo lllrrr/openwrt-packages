@@ -36,25 +36,6 @@ var callStatus = rpc.declare({
 	expect: {}
 });
 
-var callLearnGet = rpc.declare({
-	object: 'luci.oxidns',
-	method: 'learn_reset_get',
-	expect: {}
-});
-
-var callLearnSave = rpc.declare({
-	object: 'luci.oxidns',
-	method: 'learn_reset_save',
-	params: [ 'reset_cn', 'reset_proxy', 'freq', 'time', 'weekday', 'api_url', 'api_user', 'api_pass' ],
-	expect: {}
-});
-
-var callLearnRun = rpc.declare({
-	object: 'luci.oxidns',
-	method: 'learn_reset_run',
-	expect: {}
-});
-
 /*
  * 页面状态：
  *   dir     - 规则目录
@@ -558,243 +539,6 @@ function infoRow(label, id, value) {
 	]);
 }
 
-/*
- * 定时重置学习文件：learned-cn.txt / learned-proxy.txt 由 OxiDNS 的
- * learn_domain 执行器（dynamic_domain_set）自动写入，重置走管理 API 的
- * rules/clear，内存快照与持久化文件同步清空，无需重启服务。
- */
-var LEARN_WEEKDAYS = [
-	['0', _('Sunday')],
-	['1', _('Monday')],
-	['2', _('Tuesday')],
-	['3', _('Wednesday')],
-	['4', _('Thursday')],
-	['5', _('Friday')],
-	['6', _('Saturday')]
-];
-
-function learnInputValue(id) {
-	var node = document.getElementById(id);
-	return node ? node.value : '';
-}
-
-function handleLearnFreqChange() {
-	var select = document.getElementById('oxidns-learn-freq');
-	var row = document.getElementById('oxidns-learn-weekday-row');
-
-	if (row)
-		row.style.display = (select && select.value === 'weekly') ? '' : 'none';
-}
-
-/* silent = true：紧接着要跑「立即重置」，保存成功的提示交给调用方，别抢它的输出 */
-function saveLearnSchedule(button, silent) {
-	var resetCn = document.getElementById('oxidns-learn-cn');
-	var resetProxy = document.getElementById('oxidns-learn-proxy');
-	var cn = !!(resetCn && resetCn.checked);
-	var proxy = !!(resetProxy && resetProxy.checked);
-
-	if (!cn && !proxy) {
-		renderResult('warning', _('Select at least one learned file to reset.'), '', 'oxidns-learn-status');
-		return Promise.resolve(false);
-	}
-
-	var args = [
-		cn ? '1' : '0',
-		proxy ? '1' : '0',
-		learnInputValue('oxidns-learn-freq'),
-		learnInputValue('oxidns-learn-time'),
-		learnInputValue('oxidns-learn-weekday'),
-		learnInputValue('oxidns-learn-api-url'),
-		learnInputValue('oxidns-learn-api-user'),
-		learnInputValue('oxidns-learn-api-pass')
-	];
-
-	/* 用户名留空会被后端原样写进 UCI（该字段没有判空），重置请求就成了
-	   `curl -u ":<pass>"`。在这里拦住，别把坏值落盘。 */
-	if (!args[6]) {
-		renderResult('error', _('Save failed'), _('API username cannot be empty.'), 'oxidns-learn-status');
-		notifyResult('error', _('Save failed'));
-		return Promise.resolve(false);
-	}
-
-	return runRuleCall(button, silent ? _('Saving schedule before reset...') : _('Saving schedule...'),
-		callLearnSave, args, 'oxidns-learn-status').then(function(result) {
-		if (!result || result.ok === false) {
-			renderResult('error', _('Save failed'),
-				result && (result.message || result.error), 'oxidns-learn-status');
-			notifyResult('error', _('Save failed'));
-			return false;
-		}
-
-		/* 已保存的密码不回显：清空输入框，避免下次保存时重复提交 */
-		var passNode = document.getElementById('oxidns-learn-api-pass');
-		if (passNode)
-			passNode.value = '';
-
-		if (!silent) {
-			renderResult('success', _('Schedule saved'),
-				result.cron_line ? '%s %s'.format(result.cron_line, 'oxidns-learn-reset.sh') : '', 'oxidns-learn-status');
-			notifyResult('success', _('Schedule saved'));
-		}
-
-		return true;
-	});
-}
-
-function resetLearnedNow(button) {
-	/* 重置脚本读的是 UCI，不是输入框 —— 改了用户名/密码/API 地址却没点保存就重置，
-	   用的是旧值。所以先把表单落盘，成功后再触发。 */
-	return saveLearnSchedule(button, true).then(function(saved) {
-		if (!saved)
-			return;
-
-		return runRuleCall(button, _('Resetting learned files...'), callLearnRun, [], 'oxidns-learn-status').then(function(result) {
-			if (!result || result.ok === false) {
-				renderResult('error', _('Reset failed'),
-					result && (result.message || result.error), 'oxidns-learn-status');
-				notifyResult('error', _('Reset failed'));
-				return;
-			}
-
-			renderResult('success', _('Learned files cleared'), result.detail, 'oxidns-learn-status');
-			notifyResult('success', _('Learned files cleared'));
-		});
-	});
-}
-
-function learnRow(label, control, hint) {
-	var content = control;
-
-	if (hint)
-		content = [control, E('span', {
-			'class': 'cbi-value-description',
-			'style': 'display: block; margin-top: .35em;'
-		}, hint)];
-
-	return E('div', { 'class': 'tr' }, [
-		E('div', { 'class': 'td left', 'style': 'width: 240px' }, label),
-		E('div', { 'class': 'td left' }, content)
-	]);
-}
-
-function learnCheckbox(id, label) {
-	var input = E('input', {
-		'type': 'checkbox',
-		'id': id,
-		'style': 'margin-right: .35em; vertical-align: middle;'
-	});
-	var box = E('label', {
-		'style': 'margin-right: 1.5em; white-space: nowrap;'
-	}, [input, ' ' + label]);
-
-	return { node: box, input: input };
-}
-
-function learnResetSection(settings) {
-	var s = settings || {};
-	var cnBox = learnCheckbox('oxidns-learn-cn', _('Reset learned-cn.txt (learned_cn)'));
-	var proxyBox = learnCheckbox('oxidns-learn-proxy', _('Reset learned-proxy.txt (learned_proxy)'));
-	var weekdaySelect = E('select', {
-		'id': 'oxidns-learn-weekday',
-		'class': 'cbi-input-select'
-	}, LEARN_WEEKDAYS.map(function(day) {
-		return E('option', { 'value': day[0] }, day[1]);
-	}));
-	var freqSelect = E('select', {
-		'id': 'oxidns-learn-freq',
-		'class': 'cbi-input-select',
-		'style': 'min-width: 160px;'
-	}, [
-		E('option', { 'value': 'off' }, _('Disabled')),
-		E('option', { 'value': 'daily' }, _('Daily')),
-		E('option', { 'value': 'weekly' }, _('Weekly'))
-	]);
-	var timeInput = E('input', {
-		'type': 'time',
-		'id': 'oxidns-learn-time',
-		'style': 'min-width: 120px;'
-	});
-	var apiUrlInput = E('input', {
-		'type': 'text',
-		'id': 'oxidns-learn-api-url',
-		'class': 'cbi-input-text',
-		'style': 'min-width: 280px;'
-	});
-	var apiUserInput = E('input', {
-		'type': 'text',
-		'id': 'oxidns-learn-api-user',
-		'class': 'cbi-input-text',
-		'style': 'min-width: 180px;'
-	});
-	var apiPassInput = E('input', {
-		'type': 'password',
-		'id': 'oxidns-learn-api-pass',
-		'class': 'cbi-input-text',
-		'autocomplete': 'new-password',
-		'style': 'min-width: 220px;'
-	});
-
-	cnBox.input.checked = s.reset_cn !== false;
-	proxyBox.input.checked = s.reset_proxy !== false;
-	freqSelect.value = s.freq || 'off';
-	weekdaySelect.value = (s.weekday || '1');
-	timeInput.value = s.time || '04:00';
-	apiUrlInput.value = s.api_url || 'http://127.0.0.1:9199';
-	apiUserInput.value = s.api_user || 'admin';
-	/* 密码不回显，留空表示保持已存密码 */
-	if (s.has_pass)
-		apiPassInput.placeholder = '********';
-
-	freqSelect.addEventListener('change', handleLearnFreqChange);
-
-	var weekdayRow = learnRow(_('Day of week'), weekdaySelect);
-	weekdayRow.setAttribute('id', 'oxidns-learn-weekday-row');
-	weekdayRow.style.display = (freqSelect.value === 'weekly') ? '' : 'none';
-
-	var cronState = s.cron_installed ? _('Installed') : _('Not installed');
-
-	var learnButtons = [
-		E('button', {
-			'class': 'btn cbi-button cbi-button-positive',
-			'click': function(ev) {
-				ev.preventDefault();
-				return saveLearnSchedule(ev.currentTarget);
-			}
-		}, _('Save schedule')),
-		E('button', {
-			'class': 'btn cbi-button cbi-button-action',
-			'click': function(ev) {
-				ev.preventDefault();
-				return resetLearnedNow(ev.currentTarget);
-			}
-		}, _('Reset now'))
-	];
-
-	return {
-		buttons: learnButtons,
-		node: E('div', { 'class': 'cbi-section', 'style': 'margin-top: 1.5em;' }, [
-			E('h3', {}, _('Scheduled Reset for Learned Files')),
-			E('div', { 'class': 'cbi-map-descr' },
-				_('learned-cn.txt and learned-proxy.txt are written automatically by the OxiDNS learn_domain executor (dynamic_domain_set). A scheduled reset clears the selected rule sets through the OxiDNS admin API; no service restart is required.')),
-			E('div', { 'class': 'table cbi-section-table', 'style': 'margin-top: .5em;' }, [
-				learnRow(_('Learned files'), E('div', {}, [cnBox.node, proxyBox.node])),
-				learnRow(_('Schedule'), freqSelect),
-				weekdayRow,
-				learnRow(_('Reset time'), timeInput),
-				learnRow(_('API address'), apiUrlInput),
-				learnRow(_('API username'), apiUserInput),
-				learnRow(_('API password'), apiPassInput, _('Leave empty to keep the saved password.')),
-				learnRow(_('Cron job'), cronState)
-			]),
-			E('div', {
-				'class': 'cbi-button-row',
-				'style': 'display: flex; flex-wrap: wrap; gap: .5em; margin-top: 1em;'
-			}, learnButtons),
-			E('div', { 'id': 'oxidns-learn-status' })
-		])
-	};
-}
-
 return view.extend({
 	load: function() {
 		return L.resolveDefault(callRulesList(), null).then(function(list) {
@@ -819,15 +563,11 @@ return view.extend({
 
 			/* 首个文件在 load() 里就读出来，render() 才能同步画出编辑器内容 */
 			return L.resolveDefault(first ? callRulesRead(first) : null, null).then(function(file) {
-				return Promise.all([
-					L.resolveDefault(callStatus(), {}),
-					L.resolveDefault(callLearnGet(), null)
-				]).then(function(results) {
+				return L.resolveDefault(callStatus(), {}).then(function(status) {
 					return {
 						list: list,
 						file: file,
-						status: results[0] || {},
-						learn: results[1]
+						status: status || {}
 					};
 				});
 			});
@@ -912,11 +652,6 @@ return view.extend({
 
 		editorState.buttons = buttons;
 
-		var learn = learnResetSection(data && data.learn ? data.learn : {});
-		var allButtons = buttons.concat(learn.buttons);
-
-		editorState.buttons = allButtons;
-
 		var editor = ruleTextarea(loadFailed ? '' : (file.content || ''));
 
 		// 规则文件是纯文本列表: 不指定 mode, 但要 CodeMirror 的固定视口,
@@ -947,8 +682,7 @@ return view.extend({
 					'style': 'display: flex; flex-wrap: wrap; gap: .5em; margin-top: 1em;'
 				}, buttons),
 				E('div', { 'id': 'oxidns-rules-status' })
-			]),
-			learn.node
+			])
 		]));
 	},
 

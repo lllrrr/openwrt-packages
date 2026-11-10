@@ -21,19 +21,8 @@ msgstr "操作"
 msgid "Active firewall sections"
 msgstr "生效的防火墙配置段"
 
-msgid "API address"
-msgstr "API 地址"
-
-msgid "API password"
-msgstr "API 密码"
-
-msgid "API username"
-msgstr "API 用户名"
 msgid "Already up to date (%s)."
 msgstr "已是最新版本（%s）。"
-
-msgid "API username cannot be empty."
-msgstr "API 用户名不能为空。"
 
 msgid "Apply"
 msgstr "应用"
@@ -124,15 +113,6 @@ msgstr "内核与设置"
 msgid "Core Status"
 msgstr "内核状态"
 
-msgid "Cron job"
-msgstr "定时任务"
-
-msgid "Daily"
-msgstr "每天"
-
-msgid "Day of week"
-msgstr "星期"
-
 msgid "Delete configuration file"
 msgstr "删除配置文件"
 
@@ -205,9 +185,6 @@ msgstr "保存设置失败"
 msgid "Format: http://host:port, https://host:port, socks5://host:port, or socks5h://host:port. Use http://user:pass@host:port when authentication is required."
 msgstr "格式：http://主机:端口、https://主机:端口、socks5://主机:端口 或 socks5h://主机:端口。需要认证时使用 http://用户:密码@主机:端口。"
 
-msgid "Friday"
-msgstr "星期五"
-
 msgid "GitHub token"
 msgstr "GitHub Token"
 
@@ -241,18 +218,6 @@ msgstr "正在安装 OxiDNS 内核..."
 msgid "Installing uploaded OxiDNS core..."
 msgstr "正在安装上传的 OxiDNS 内核..."
 
-msgid "Learned files"
-msgstr "学习文件"
-
-msgid "Learned files cleared"
-msgstr "学习文件已清空"
-
-msgid "learned-cn.txt and learned-proxy.txt are written automatically by the OxiDNS learn_domain executor (dynamic_domain_set). A scheduled reset clears the selected rule sets through the OxiDNS admin API; no service restart is required."
-msgstr "learned-cn.txt 与 learned-proxy.txt 由 OxiDNS 的 learn_domain 执行器（dynamic_domain_set）自动写入。定时重置通过 OxiDNS 管理 API 清空选中的规则集，无需重启服务。"
-
-msgid "Leave empty to keep the saved password."
-msgstr "留空则保持已保存的密码不变。"
-
 msgid "Lines"
 msgstr "行数"
 
@@ -279,9 +244,6 @@ msgstr "在 LuCI 中管理 OxiDNS 运行时、服务、配置和日志。"
 
 msgid "Modified"
 msgstr "修改时间"
-
-msgid "Monday"
-msgstr "星期一"
 
 msgid "No"
 msgstr "否"
@@ -374,24 +336,6 @@ msgstr "修复重装"
 msgid "Repair reinstalling OxiDNS core..."
 msgstr "正在修复重装 OxiDNS 内核..."
 
-msgid "Reset failed"
-msgstr "重置失败"
-
-msgid "Reset learned-cn.txt (learned_cn)"
-msgstr "重置 learned-cn.txt (learned_cn)"
-
-msgid "Reset learned-proxy.txt (learned_proxy)"
-msgstr "重置 learned-proxy.txt (learned_proxy)"
-
-msgid "Reset now"
-msgstr "立即重置"
-
-msgid "Reset time"
-msgstr "重置时间"
-
-msgid "Resetting learned files..."
-msgstr "正在重置学习文件..."
-
 msgid "Restart"
 msgstr "重启"
 
@@ -415,9 +359,6 @@ msgstr "规则已写入，但防火墙重载失败。规则将在下次防火墙
 msgid "Running"
 msgstr "运行中"
 
-msgid "Saturday"
-msgstr "星期六"
-
 msgid "Save"
 msgstr "保存"
 
@@ -426,9 +367,6 @@ msgstr "保存并重启"
 
 msgid "Save failed"
 msgstr "保存失败"
-
-msgid "Save schedule"
-msgstr "保存计划"
 
 msgid "Save Settings"
 msgstr "保存设置"
@@ -448,26 +386,8 @@ msgstr "正在保存配置..."
 msgid "Saving rule file..."
 msgstr "正在保存规则文件..."
 
-msgid "Saving schedule..."
-msgstr "正在保存计划..."
-
-msgid "Saving schedule before reset..."
-msgstr "重置前正在保存设置..."
-
 msgid "Saving settings..."
 msgstr "正在保存设置..."
-
-msgid "Schedule"
-msgstr "计划"
-
-msgid "Schedule saved"
-msgstr "计划已保存"
-
-msgid "Scheduled Reset for Learned Files"
-msgstr "定时重置学习文件"
-
-msgid "Select at least one learned file to reset."
-msgstr "请至少选择一个要重置的学习文件。"
 
 msgid "Select release archive"
 msgstr "选择 release 压缩包"
@@ -514,9 +434,6 @@ msgstr "停止"
 msgid "Stopped"
 msgstr "已停止"
 
-msgid "Sunday"
-msgstr "星期日"
-
 msgid "Target"
 msgstr "目标架构"
 
@@ -537,12 +454,6 @@ msgstr "运行中的服务仍在使用旧配置，如需生效请点击「保存
 
 msgid "There are unsaved changes"
 msgstr "有未保存的修改"
-
-msgid "Thursday"
-msgstr "星期四"
-
-msgid "Tuesday"
-msgstr "星期二"
 
 msgid "Unable to load configuration."
 msgstr "无法加载配置。"
@@ -615,12 +526,6 @@ msgstr "WebUI 文件尚未安装。"
 
 msgid "WebUI listens on loopback only. Configure the HTTP listen address to a LAN-reachable address, or use an SSH tunnel."
 msgstr "WebUI 仅监听 loopback。请把 HTTP 监听地址配置为局域网可访问地址，或使用 SSH 隧道。"
-
-msgid "Wednesday"
-msgstr "星期三"
-
-msgid "Weekly"
-msgstr "每周"
 
 msgid "Whitelist"
 msgstr "白名单"

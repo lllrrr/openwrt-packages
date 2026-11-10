@@ -25,6 +25,13 @@ config global 'global'
 	# 迭代收敛阈值：每轮收敛后剩余候选 ≤ N 个即保存结果、该节点提前结束。
 	# 独立于 download_test_count（下载实测候选数），两者互不覆盖。
 	option iterate_converge_count '5'
+	# 成功后监测：worker 取得有效结果后派生后台进程，每 monitor_interval 秒
+	# 复测一次这个成功结果的延迟（有 DDNS 域名的节点测域名）；连续
+	# monitor_failures 次失败即触发该 worker 的复测。worker 被下一次任务
+	# 占用时监测自动退出。
+	option monitor_enabled '1'
+	option monitor_interval '60'
+	option monitor_failures '3'
 	# 独立测速：启用后统一测速改用本机 mihomo/Xray 内核（cfpick core），
 	# 不再调用 PassWall 的 run_socks；关闭则保持原 PassWall 行为。
 	option standalone_enabled '0'

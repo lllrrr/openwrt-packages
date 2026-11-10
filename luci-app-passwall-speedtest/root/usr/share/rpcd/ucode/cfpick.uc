@@ -12,6 +12,9 @@ const RUN_LOCK_DIR = RESULT_DIR + '/.run.lock';
 const RUN_REGISTRY = RESULT_DIR + '/.runs';
 // 与 cfpick.sh 保持一致：下载/写回使用一个全局锁，锁被占用时节点页按钮全禁用。
 const COMMIT_LOCK_DIR = RESULT_DIR + '/.commit.lock';
+// 成功后监测：每个成功 worker 一个后台 monitor（锁 + 最近一次复测状态）。
+const MONITOR_LOCK_ROOT = RESULT_DIR + '/.monitor-locks';
+const MONITOR_STATE_DIR = RESULT_DIR + '/.monitor-state';
 const HISTORY_FILE = '/etc/cfpick/history.csv';
 // 任务日志：cfpick.sh 每次测速开始/结束与特殊处理各写一行，
 // 格式与 debian/cfpick/tasklog.py 一致（制表符分隔）。
@@ -148,8 +151,11 @@ function status() {
 		}
 	}
 
-	// 走节点测速无独立二进制进程，用脚本主进程判定运行中
-	let running = (command('pgrep -f "' + run_script_pattern() + '" >/dev/null 2>&1').code == 0);
+	// 走节点测速无独立二进制进程，用脚本主进程判定运行中。
+	// 成功后的后台 monitor 也是 cfpick.sh 进程，必须排除：否则控制台会一直
+	// 显示「测速运行中」并禁用整轮测速，pid=0 还会让阶段显示成 starting。
+	let running = (command('pgrep -af "' + run_script_pattern() +
+		'" 2>/dev/null | grep -v " monitor " >/dev/null 2>&1').code == 0);
 
 	return {
 		running: running,
@@ -1087,6 +1093,48 @@ function stop_requested() {
 	return false;
 }
 
+// worker id → 最近一次后台监测状态。状态文件由 cfpick.sh monitor 写：
+// node \t target \t ip \t latency \t ok \t failures \t checked_at。
+// 定义在 worker_ids()/to_number() 之后：ucode 严格模式要求先声明后引用。
+function monitor_states() {
+	let out = {};
+	let ids = worker_ids();
+
+	for (let i = 0; i < length(ids); i++) {
+		let id = ids[i];
+		let dir = MONITOR_LOCK_ROOT + '/' + id + '.lock';
+
+		if (!fs.access(dir + '/pid', 'f') || !lock_alive(dir))
+			continue;
+
+		let fields = split(trim(read_file(MONITOR_STATE_DIR + '/' + id) || ''), '\t');
+		let entry = {
+			pid: int(trim(read_file(dir + '/pid') || '') || 0),
+			started: int(trim(read_file(dir + '/started') || '') || 0),
+			node: id,
+			target: '',
+			ip: '',
+			latency: 0,
+			ok: false,
+			failures: 0,
+			checked_at: 0
+		};
+
+		if (length(fields) >= 7) {
+			entry.target = fields[1];
+			entry.ip = fields[2];
+			entry.latency = to_number(fields[3], 0);
+			entry.ok = (fields[4] == '1');
+			entry.failures = int(to_number(fields[5], 0));
+			entry.checked_at = int(to_number(fields[6], 0));
+		}
+
+		out[id] = entry;
+	}
+
+	return out;
+}
+
 function api_status_data() {
 	let base = status();
 	let pid = run_pid();
@@ -1120,6 +1168,8 @@ function api_status_data() {
 		// 节点页三个按钮的状态来源：哪些 worker 正在测/停止中，以及下载阶段。
 		workers: worker_states(),
 		download_active: download_active(),
+		// 成功后监测：每个 worker 最近一次复测的延迟/失败计数。
+		monitor: monitor_states(),
 		stop_requested: (running && stop_requested())
 	};
 }

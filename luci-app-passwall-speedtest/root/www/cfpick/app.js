@@ -755,6 +755,11 @@
 				syncNodeActions();
 			});
 			nodeCell.appendChild(nodeSelect);
+			// 成功后监测的实时延迟；由 syncNodeActions() 按 /api/status 的 monitor 更新。
+			const monitorBadge = document.createElement('span');
+			monitorBadge.className = 'badge monitor hidden';
+			monitorBadge.dataset.nodeMonitor = '';
+			nodeCell.appendChild(monitorBadge);
 			tr.appendChild(nodeCell);
 
 			const listCell = document.createElement('td');
@@ -2415,6 +2420,7 @@
 	function syncNodeActions() {
 		const status = state.status || {};
 		const workers = status.workers || {};
+		const monitors = status.monitor || {};
 		const busy = !!status.download_active;
 
 		$$('#cfg-workers-body tr').forEach((row) => {
@@ -2423,6 +2429,24 @@
 			const running = !!info;
 			const stopping = !!(info && info.stopping);
 			row.classList.toggle('running', running);
+
+			const monitorBadge = row.querySelector('[data-node-monitor]');
+			if (monitorBadge) {
+				const mon = id ? monitors[id] : null;
+				monitorBadge.classList.toggle('hidden', !mon);
+				if (mon) {
+					const failed = mon.ok === false || mon.ok === 0;
+					monitorBadge.className = 'badge monitor ' + (failed ? 'bad' : 'ok');
+					monitorBadge.textContent = failed
+						? '监测失败 ' + (mon.failures || 0) + ' 次'
+						: '监测 ' + fmtNumber(mon.latency || 0) + ' ms';
+					monitorBadge.title = '成功结果监测：' + (mon.target || '') +
+						(mon.ip && mon.ip !== mon.target ? '（' + mon.ip + '）' : '') +
+						(mon.checked_at
+							? ' · ' + new Date(mon.checked_at * 1000).toLocaleString()
+							: ' · 等待首次复测');
+				}
+			}
 
 			row.querySelectorAll('[data-node-action]').forEach((button) => {
 				const action = button.dataset.nodeAction;

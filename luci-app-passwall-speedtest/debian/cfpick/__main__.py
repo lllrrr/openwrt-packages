@@ -7,7 +7,7 @@ import signal
 import sys
 from pathlib import Path
 
-from . import __version__, config, core, cron, ddns, engine, links, lock, paths, result
+from . import __version__, config, core, cron, ddns, engine, links, lock, monitor, paths, result
 from .log import Logger
 
 
@@ -284,6 +284,20 @@ def cmd_serve(args):
     return 0
 
 
+def cmd_monitor(args):
+    """Background health monitor for one node's committed result.
+
+    Normally spawned by ``engine.run`` after a successful commit; exposed on
+    the CLI so it can be started by hand when diagnosing monitoring.
+    """
+    name = str(args.node or "").strip()
+    if not name:
+        print("monitor 需要 --node", file=sys.stderr)
+        return 2
+    paths.ensure_dirs()
+    return monitor.watch(name)
+
+
 def cmd_run(args):
     mode = args.mode
     if mode == "replace":
@@ -312,6 +326,12 @@ def build_parser():
         "--node", action="append", default=[], metavar="NAME",
         help="only test the named node (repeatable); omit to test every node")
     run_parser.set_defaults(func=cmd_run)
+
+    monitor_parser = sub.add_parser(
+        "monitor", help="watch one node's committed result every minute")
+    monitor_parser.add_argument("--node", default="", required=True,
+                                help="node name whose result is monitored")
+    monitor_parser.set_defaults(func=cmd_monitor)
 
     status_parser = sub.add_parser("status", help="show run status")
     status_parser.set_defaults(func=cmd_status)

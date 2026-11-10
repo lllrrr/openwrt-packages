@@ -199,9 +199,6 @@ if [ -d root ]; then
 fi
 
 chmod 755 "$DATA_DIR/usr/libexec/rpcd/luci.oxidns"
-if [ -f "$DATA_DIR/usr/libexec/oxidns/learn-reset.sh" ]; then
-	chmod 755 "$DATA_DIR/usr/libexec/oxidns/learn-reset.sh"
-fi
 if [ -f "$DATA_DIR/etc/init.d/oxidns" ]; then
 	chmod 755 "$DATA_DIR/etc/init.d/oxidns"
 fi

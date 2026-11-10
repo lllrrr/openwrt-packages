@@ -124,8 +124,6 @@ if (!postrm)
 
 for (const [label, needle] of [
 	['IPKG_INSTROOT 守卫', '[ -n "$${IPKG_INSTROOT:-}" ] && exit 0'],
-	['cron 路径迁移', 's#/usr/bin/oxidns-learn-reset\\.sh#/usr/libexec/oxidns/learn-reset.sh#g'],
-	['迁移后重启 cron', '/etc/init.d/cron restart'],
 	['DNS 劫持 family 迁移（否则只劫持 IPv4）', 'firewall.$$hijack_sect.family=any'],
 ]) {
 	if (postinst && !postinst.includes(needle))
@@ -146,9 +144,6 @@ NODE
 # 顺序参数必须给满（rules_save 的 params 声明与实际调用）
 node scripts/check-rule-args.mjs
 
-# 「立即重置」必须先落盘再触发（重置读 UCI，不读输入框）
-node scripts/learn-reset-check.mjs
-
 # 规则页 UI 结构：标签条用原生 cbi-tabmenu、元信息压成一行且 id 齐全
 node scripts/rules-ui-check.mjs
 
@@ -159,7 +154,7 @@ node scripts/page-merge-render.mjs
 # CodeMirror 主题：CSS 被加载、token 全覆盖、对比度达标、深色判定正确
 node scripts/cm-theme-check.mjs
 
-for script in scripts/po2lmo.mjs scripts/strip-tar-eof.mjs scripts/write-apk-data-tar.mjs scripts/write-ar-archive.mjs scripts/check-rule-args.mjs scripts/learn-reset-check.mjs scripts/rules-ui-check.mjs scripts/cm-theme-check.mjs scripts/page-merge-check.mjs scripts/page-merge-render.mjs; do
+for script in scripts/po2lmo.mjs scripts/strip-tar-eof.mjs scripts/write-apk-data-tar.mjs scripts/write-ar-archive.mjs scripts/check-rule-args.mjs scripts/rules-ui-check.mjs scripts/cm-theme-check.mjs scripts/page-merge-check.mjs scripts/page-merge-render.mjs; do
 	node --check "$script"
 done
 node scripts/po2lmo.mjs po/zh_Hans/oxidns.po "${TMPDIR:-/tmp}/oxidns.zh-cn.lmo"
@@ -169,7 +164,6 @@ if command -v msgfmt >/dev/null 2>&1; then
 	msgfmt --check po/zh_Hans/oxidns.po -o /dev/null
 fi
 sh -n root/usr/libexec/rpcd/luci.oxidns
-sh -n root/usr/libexec/oxidns/learn-reset.sh
 sh -n root/etc/init.d/oxidns
 sh -n scripts/build-luci-package.sh
 sh -n scripts/integration-check.sh

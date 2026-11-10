@@ -12,18 +12,7 @@ msgstr ""
 msgid "Active firewall sections"
 msgstr ""
 
-msgid "API address"
-msgstr ""
-
-msgid "API password"
-msgstr ""
-
-msgid "API username"
-msgstr ""
 msgid "Already up to date (%s)."
-msgstr ""
-
-msgid "API username cannot be empty."
 msgstr ""
 
 msgid "Apply"
@@ -115,15 +104,6 @@ msgstr ""
 msgid "Core Status"
 msgstr ""
 
-msgid "Cron job"
-msgstr ""
-
-msgid "Daily"
-msgstr ""
-
-msgid "Day of week"
-msgstr ""
-
 msgid "Delete configuration file"
 msgstr ""
 
@@ -196,9 +176,6 @@ msgstr ""
 msgid "Format: http://host:port, https://host:port, socks5://host:port, or socks5h://host:port. Use http://user:pass@host:port when authentication is required."
 msgstr ""
 
-msgid "Friday"
-msgstr ""
-
 msgid "GitHub token"
 msgstr ""
 
@@ -232,18 +209,6 @@ msgstr ""
 msgid "Installing uploaded OxiDNS core..."
 msgstr ""
 
-msgid "Learned files"
-msgstr ""
-
-msgid "Learned files cleared"
-msgstr ""
-
-msgid "learned-cn.txt and learned-proxy.txt are written automatically by the OxiDNS learn_domain executor (dynamic_domain_set). A scheduled reset clears the selected rule sets through the OxiDNS admin API; no service restart is required."
-msgstr ""
-
-msgid "Leave empty to keep the saved password."
-msgstr ""
-
 msgid "Lines"
 msgstr ""
 
@@ -269,9 +234,6 @@ msgid "Manage the OxiDNS runtime, service, configuration, and logs from LuCI."
 msgstr ""
 
 msgid "Modified"
-msgstr ""
-
-msgid "Monday"
 msgstr ""
 
 msgid "No"
@@ -365,24 +327,6 @@ msgstr ""
 msgid "Repair reinstalling OxiDNS core..."
 msgstr ""
 
-msgid "Reset failed"
-msgstr ""
-
-msgid "Reset learned-cn.txt (learned_cn)"
-msgstr ""
-
-msgid "Reset learned-proxy.txt (learned_proxy)"
-msgstr ""
-
-msgid "Reset now"
-msgstr ""
-
-msgid "Reset time"
-msgstr ""
-
-msgid "Resetting learned files..."
-msgstr ""
-
 msgid "Restart"
 msgstr ""
 
@@ -406,9 +350,6 @@ msgstr ""
 msgid "Running"
 msgstr ""
 
-msgid "Saturday"
-msgstr ""
-
 msgid "Save"
 msgstr ""
 
@@ -416,9 +357,6 @@ msgid "Save & Restart"
 msgstr ""
 
 msgid "Save failed"
-msgstr ""
-
-msgid "Save schedule"
 msgstr ""
 
 msgid "Save Settings"
@@ -439,25 +377,7 @@ msgstr ""
 msgid "Saving rule file..."
 msgstr ""
 
-msgid "Saving schedule..."
-msgstr ""
-
-msgid "Saving schedule before reset..."
-msgstr ""
-
 msgid "Saving settings..."
-msgstr ""
-
-msgid "Schedule"
-msgstr ""
-
-msgid "Schedule saved"
-msgstr ""
-
-msgid "Scheduled Reset for Learned Files"
-msgstr ""
-
-msgid "Select at least one learned file to reset."
 msgstr ""
 
 msgid "Select release archive"
@@ -505,9 +425,6 @@ msgstr ""
 msgid "Stopped"
 msgstr ""
 
-msgid "Sunday"
-msgstr ""
-
 msgid "Target"
 msgstr ""
 
@@ -527,12 +444,6 @@ msgid "The running service still uses the previous configuration. Use Save & Res
 msgstr ""
 
 msgid "There are unsaved changes"
-msgstr ""
-
-msgid "Thursday"
-msgstr ""
-
-msgid "Tuesday"
 msgstr ""
 
 msgid "Unable to load configuration."
@@ -605,12 +516,6 @@ msgid "WebUI files are not installed."
 msgstr ""
 
 msgid "WebUI listens on loopback only. Configure the HTTP listen address to a LAN-reachable address, or use an SSH tunnel."
-msgstr ""
-
-msgid "Wednesday"
-msgstr ""
-
-msgid "Weekly"
 msgstr ""
 
 msgid "Whitelist"

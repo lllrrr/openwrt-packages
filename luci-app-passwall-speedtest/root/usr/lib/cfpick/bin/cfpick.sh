@@ -18,6 +18,9 @@ RUN_PID_FILE="$RESULT_DIR/current_run"
 WORKER_LOCK_ROOT="$RESULT_DIR/.worker-locks"
 COMMIT_LOCK_DIR="$RESULT_DIR/.commit.lock"
 RUN_REGISTRY="$RESULT_DIR/.runs"
+# 成功后监测：每个成功 worker 一个后台 monitor 进程（独立于任务运行锁）。
+MONITOR_LOCK_ROOT="$RESULT_DIR/.monitor-locks"
+MONITOR_STATE_DIR="$RESULT_DIR/.monitor-state"
 NT_RELOAD_PENDING="$RESULT_DIR/.passwall.reload"
 RUN_DIR=""
 IPV4_TXT='/usr/share/cfpick/ip.txt'
@@ -327,8 +330,387 @@ reap_stale_run_dirs() {
     return 0
 }
 
+# ── 成功后监测 ────────────────────────────────────────────────────────
+# worker 取得有效结果后，主流程派生一个后台 monitor 进程：每分钟复测一次
+# 这个成功结果的延迟。节点配置了 DDNS 域名时按域名测（先解析，测解析出的
+# 地址）；其余节点测 result.csv 里该 worker 的最优 IP。连续失败达到阈值就
+# 触发该 worker 的复测，monitor 退出，由复测成功后重新拉起新的 monitor。
+# worker 被下一次任务占用（worker 锁出现）时 monitor 立即退出。
+# 监测进程本身不改写 passwall 配置：普通节点测已写回的 address，DDNS 节点
+# 测仍是域名的 address；独立内核模式把解析出的 IP 传给 cfpick core。
+MONITOR_NODE=""
+MONITOR_FLAG=""
+MONITOR_CLEANED=0
+
+# 与 worker 锁不同：存活的 monitor 永远不因“持有太久”被接管（它本来就长期
+# 存在）。只有进程已死（kill -9 / 重启）才清掉残留锁。
+monitor_lock_take() {
+    local _dir="$1" _pid _mtime _age
+    mkdir -p "$(dirname "$_dir")" 2>/dev/null
+    if mkdir "$_dir" 2>/dev/null; then
+        echo "$$" > "$_dir/pid"
+        date +%s > "$_dir/started"
+        return 0
+    fi
+    if lock_owner_alive "$_dir"; then
+        return 1
+    fi
+    _pid="$(cat "$_dir/pid" 2>/dev/null)"
+    if [ -z "$_pid" ]; then
+        # mkdir 与写 pid 之间的窗口：刚创建的锁不当作残留，避免并发清掉。
+        _mtime="$(stat -c %Y "$_dir" 2>/dev/null || date -r "$_dir" +%s 2>/dev/null || echo 0)"
+        case "$_mtime" in ''|*[!0-9]*) _mtime=0 ;; esac
+        _age=0
+        [ "$_mtime" -gt 0 ] && _age=$(( $(date +%s) - _mtime ))
+        [ "$_age" -lt 10 ] && return 1
+    fi
+    rm -rf "$_dir" 2>/dev/null
+    mkdir "$_dir" 2>/dev/null || return 1
+    echo "$$" > "$_dir/pid"
+    date +%s > "$_dir/started"
+    return 0
+}
+
+# 该 worker 在 result.csv 里的最优 IP（按节点 ID 或备注名匹配，与复测候选一致）。
+monitor_result_ip() {
+    local _id="$1" _label
+    _label="$(node_label "$_id")"
+    sed -n '2,$p' "$IP_FILE" 2>/dev/null | grep -av '^#' | \
+        awk -F, -v n="$_label" -v id="$_id" \
+            'NF>=8 && $1!="" && ((NF>=9 && $9!="" && $9==id) || ((NF<9 || $9=="") && $8==n)) {print $1; exit}'
+}
+
+# 节点在 node_ip 段里配置的 DDNS 域名（DDNS 总开关关闭时为空）。
+monitor_ddns_domain() {
+    local _node="$1" _idx _id _dom=""
+    [ "$(uci -q get cfpick.global.ddns_enabled 2>/dev/null)" = "1" ] || return 0
+    for _idx in $(uci -q show cfpick 2>/dev/null | \
+        sed -n "s/^cfpick\.@node_ip\[\([0-9][0-9]*\)\]=node_ip$/\1/p"); do
+        _id="$(uci -q get "cfpick.@node_ip[$_idx].node" 2>/dev/null)"
+        [ "$_id" = "$_node" ] || continue
+        _dom="$(uci -q get "cfpick.@node_ip[$_idx].ddns_domain" 2>/dev/null)"
+        break
+    done
+    printf '%s' "$_dom"
+}
+
+# worker 是否仍在待测节点表里（节点页删除后停止监测）。
+monitor_node_configured() {
+    local _id="$1" _w
+    NODE_IP_MAP_LOADED=0
+    read_node_ip_map
+    for _w in ${NODE_IP_WORKERS:-} ${passwall_services:-}; do
+        [ "$_w" = "$_id" ] && return 0
+    done
+    [ "${node_test_node:-}" = "$_id" ] && return 0
+    return 1
+}
+
+monitor_has_target() {
+    local _dom
+    _dom="$(monitor_ddns_domain "$1")"
+    [ -n "$_dom" ] && return 0
+    [ -n "$(monitor_result_ip "$1")" ]
+}
+
+# 经节点当前配置探测一次（不改 address）：PassWall 模式用 run_socks 读节点
+# 已有 address（普通节点=最优 IP，DDNS 节点=域名）；独立内核模式把传入的
+# _ip 写进临时内核配置。成功时 NT_MON_LAT = 平均延迟(ms)，返回 0。
+# 参数: $1=node $2=ip（独立内核用，可为空）$3=probe_url $4=timeout $5=probes
+#       $6=socks_port $7=flag
+NT_MON_LAT=0
+nt_monitor_probe() {
+    local _W=$1 _ip=$2 _purl=$3 _tmo=$4 _probes=$5 _port=$6 _flag=$7
+    NT_MON_LAT=0
+    mkdir -p /tmp/etc/passwall 2>/dev/null
+    local _fail=0 _sent=0 _recv=0 _lat="" _done=0 _notready=0 _res _code _tpre _rc
+    if [ "${standalone_enabled:-0}" = "1" ]; then
+        [ -n "$_ip" ] || _fail=1
+        if [ "$_fail" = "0" ] && ! /usr/bin/cfpick core start --node "$_W" --ip "$_ip" \
+             --port "$_port" --core "${standalone_core:-xray}" --flag "$_flag" \
+             >>"$LOG_FILE" 2>&1; then
+            _fail=1
+        fi
+    else
+        NO_REC_PROCESS=1 /usr/share/passwall/app.sh run_socks \
+            flag="${_flag}" node=${_W} bind=127.0.0.1 socks_port=${_port} \
+            config_file=${_flag}.json >>$LOG_FILE 2>&1
+    fi
+    while [ "$_fail" = "0" ] && [ "$_done" -lt "$_probes" ]; do
+        _res=$(curl -x socks5h://127.0.0.1:${_port} -I -skL \
+            --connect-timeout 3 --max-time ${_tmo} \
+            -o /dev/null -w "%{http_code}:%{time_pretransfer}" "${_purl}" 2>/dev/null)
+        _rc=$?
+        if [ $_rc -eq 7 ]; then
+            _notready=$((_notready + 1))
+            [ $_notready -ge 10 ] && { _fail=1; break; }
+            sleep 1
+            continue
+        fi
+        _notready=0
+        _sent=$((_sent + 1))
+        _done=$((_done + 1))
+        _code="${_res%%:*}"
+        _tpre="${_res##*:}"
+        case "$_code" in
+            200|204|301|302|307|308|40[0-9])
+                _recv=$((_recv + 1))
+                _lat="${_lat} ${_tpre}"
+                ;;
+            *) _fail=1 ;;
+        esac
+    done
+    # 清理本次拉起的 SOCKS/内核（与 nt_probe_one_ip 相同）
+    if [ "${standalone_enabled:-0}" = "1" ]; then
+        /usr/bin/cfpick core stop --flag "$_flag" >/dev/null 2>&1
+    fi
+    local _pf
+    for _pf in /tmp/etc/passwall/*"${_flag}"*_plugin.pid; do
+        [ -s "$_pf" ] && kill -9 "$(head -n1 "$_pf")" >/dev/null 2>&1
+    done
+    busybox pgrep -af "${_flag}" 2>/dev/null | awk '! /cfpick\.sh/{print $1}' | xargs kill -9 >/dev/null 2>&1
+    rm -rf /tmp/etc/passwall/*"${_flag}"* 2>/dev/null
+    [ "$_fail" = "0" ] || return 1
+    [ "$_recv" -ge "$_probes" ] || return 1
+    if [ $_recv -gt 0 ]; then
+        NT_MON_LAT=$(echo "$_lat" | tr ' ' '\n' | grep -E '^[0-9.]+$' | \
+            awk '{s+=$1; n++} END{ if(n>0) printf "%.2f", s/n*1000 }')
+        [ -z "$NT_MON_LAT" ] && NT_MON_LAT=0
+    fi
+    return 0
+}
+
+monitor_write_state() {
+    local _node=$1 _target=$2 _ip=$3 _lat=$4 _ok=$5 _fails=$6 _tmp
+    mkdir -p "$MONITOR_STATE_DIR" 2>/dev/null || return 0
+    _tmp="$MONITOR_STATE_DIR/.$_node.$$"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "$_node" "$_target" "$_ip" "$_lat" "$_ok" "$_fails" "$(date +%s)" \
+        > "$_tmp" 2>/dev/null && mv -f "$_tmp" "$MONITOR_STATE_DIR/$_node" 2>/dev/null
+    rm -f "$_tmp" 2>/dev/null
+}
+
+monitor_cleanup() {
+    [ "${MONITOR_CLEANED:-0}" = "1" ] && return 0
+    MONITOR_CLEANED=1
+    local _pf
+    if [ -n "${MONITOR_FLAG:-}" ]; then
+        if [ "${standalone_enabled:-0}" = "1" ]; then
+            /usr/bin/cfpick core stop --flag "$MONITOR_FLAG" >/dev/null 2>&1
+        fi
+        for _pf in /tmp/etc/passwall/*"${MONITOR_FLAG}"*_plugin.pid; do
+            [ -s "$_pf" ] && kill -9 "$(head -n1 "$_pf")" >/dev/null 2>&1
+        done
+        busybox pgrep -af "${MONITOR_FLAG}" 2>/dev/null | awk '! /cfpick\.sh/{print $1}' | xargs kill -9 >/dev/null 2>&1
+        rm -rf /tmp/etc/passwall/*"${MONITOR_FLAG}"* 2>/dev/null
+    fi
+    if [ -n "${MONITOR_NODE:-}" ]; then
+        rm -f "$MONITOR_STATE_DIR/$MONITOR_NODE" 2>/dev/null
+        lock_drop "$MONITOR_LOCK_ROOT/$MONITOR_NODE.lock"
+        echolog "监测 [$(node_label "$MONITOR_NODE" 2>/dev/null)] 结束"
+    fi
+    return 0
+}
+
+# 派生一个后台 monitor；已有存活的 monitor 时不重复启动。
+monitor_spawn() {
+    local _node="$1" _script="$SCRIPT_DIR/cfpick.sh"
+    [ -n "$_node" ] || return 0
+    case "${monitor_enabled:-1}" in
+        0|no|false|off|OFF|False|No) return 0 ;;
+    esac
+    [ -x "$_script" ] || return 0
+    if [ -d "$WORKER_LOCK_ROOT/$_node.lock" ] && lock_owner_alive "$WORKER_LOCK_ROOT/$_node.lock"; then
+        return 0
+    fi
+    if [ -d "$MONITOR_LOCK_ROOT/$_node.lock" ] && lock_owner_alive "$MONITOR_LOCK_ROOT/$_node.lock"; then
+        return 0
+    fi
+    if command -v start-stop-daemon >/dev/null 2>&1; then
+        start-stop-daemon -S -b -x "$_script" -- monitor --node="$_node" \
+            </dev/null >>"$LOG_FILE" 2>&1 || return 0
+    elif command -v setsid >/dev/null 2>&1; then
+        setsid "$_script" monitor --node="$_node" </dev/null >>"$LOG_FILE" 2>&1 &
+    else
+        ( "$_script" monitor --node="$_node" </dev/null >>"$LOG_FILE" 2>&1 & )
+    fi
+    echolog "监测 [$(node_label "$_node")] 已启动：每 ${monitor_interval:-60}s 复测一次成功结果，连续 ${monitor_failures:-3} 次失败触发复测"
+    return 0
+}
+
+# 新任务开始测这些 worker 时，结束它们上一轮的后台 monitor。
+monitor_stop_for() {
+    local _w _d _pid _age
+    for _w in $1; do
+        _d="$MONITOR_LOCK_ROOT/$_w.lock"
+        [ -d "$_d" ] || continue
+        if ! lock_owner_alive "$_d"; then
+            # 刚 mkdir 还没写 pid 的锁属于正在启动的 monitor，别误删。
+            if [ ! -s "$_d/pid" ]; then
+                _age="$(stat -c %Y "$_d" 2>/dev/null || date -r "$_d" +%s 2>/dev/null || echo 0)"
+                case "$_age" in ''|*[!0-9]*) _age=0 ;; esac
+                [ "$_age" -gt 0 ] && [ $(( $(date +%s) - _age )) -lt 10 ] && continue
+            fi
+            rm -rf "$_d" 2>/dev/null
+            continue
+        fi
+        _pid="$(cat "$_d/pid" 2>/dev/null)"
+        [ -n "$_pid" ] || continue
+        if kill "$_pid" 2>/dev/null; then
+            echolog "监测 [$(node_label "$_w")] 因新任务开始而停止"
+        fi
+    done
+}
+
+# monitor 入口：cfpick.sh monitor --node=<id>
+monitor_worker() {
+    local _node="" _x
+    for _x in $NODE_FILTER; do _node="$_x"; break; done
+    [ -n "$_node" ] || { echolog "monitor 需要 --node"; return 2; }
+    MONITOR_NODE="$_node"
+    case "${monitor_enabled:-1}" in
+        0|no|false|off|OFF|False|No) return 0 ;;
+    esac
+
+    local _iv="${monitor_interval:-60}" _max="${monitor_failures:-3}"
+    case "$_iv" in ''|*[!0-9]*) _iv=60 ;; esac
+    [ "$_iv" -ge 10 ] 2>/dev/null || _iv=10
+    [ "$_iv" -le 3600 ] 2>/dev/null || _iv=3600
+    case "$_max" in ''|*[!0-9]*) _max=3 ;; esac
+    [ "$_max" -ge 1 ] 2>/dev/null || _max=1
+    [ "$_max" -le 10 ] 2>/dev/null || _max=10
+
+    if ! monitor_lock_take "$MONITOR_LOCK_ROOT/$_node.lock"; then
+        echolog "监测 [$(node_label "$_node")] 已有监测进程，跳过"
+        return 0
+    fi
+    MONITOR_FLAG="mon_$$"
+    trap 'monitor_cleanup; exit 0' EXIT INT TERM
+
+    if [ "${standalone_enabled:-0}" != "1" ] && [ ! -f /usr/share/passwall/app.sh ]; then
+        echolog "监测 [$(node_label "$_node")] 未安装 passwall 且未启用独立内核，退出"
+        monitor_cleanup
+        return 0
+    fi
+    # PassWall 模式的 run_socks 来自 utils.sh；它会覆盖 LOG_FILE/echolog，先保存再恢复。
+    if [ "${standalone_enabled:-0}" != "1" ] && [ -f /usr/share/passwall/utils.sh ]; then
+        local _pws_log_file="$LOG_FILE"
+        . /usr/share/passwall/utils.sh
+        LOG_FILE="$_pws_log_file"
+        echolog() {
+            local d="$(date "+%Y-%m-%d %H:%M:%S")"
+            echo -e "$d: $*"
+            echo -e "$d: $*" >>$LOG_FILE
+        }
+    fi
+
+    local _purl="${node_test_url:-https://www.google.com/generate_204}"
+    local _tmo="${node_test_timeout:-5}" _probes="${node_test_probes:-3}"
+    case "$_tmo" in ''|*[!0-9]*) _tmo=5 ;; esac
+    [ "$_tmo" -ge 1 ] 2>/dev/null || _tmo=5
+    case "$_probes" in ''|*[!0-9]*) _probes=3 ;; esac
+    [ "$_probes" -ge 1 ] 2>/dev/null || _probes=3
+    [ "$_probes" -le 5 ] 2>/dev/null || _probes=5
+    # 每个 monitor 用自己的 PID 派生端口，互不冲突（每次探测结束即释放）。
+    local _port=$((50000 + ($$ % 10000)))
+
+    echolog "监测 [$(node_label "$_node")] 开始：每 ${_iv}s 复测一次成功结果，连续 ${_max} 次失败触发复测"
+    local _fails=0 _domain _ip _target _ok _lat _elapsed _stop=0 _last_sig="" _sig
+    while :; do
+        read_config
+        case "${monitor_enabled:-1}" in
+            0|no|false|off|OFF|False|No)
+                echolog "监测 [$(node_label "$_node")] 已关闭，退出"
+                break
+                ;;
+        esac
+        if [ -d "$WORKER_LOCK_ROOT/$_node.lock" ] && \
+           lock_owner_alive "$WORKER_LOCK_ROOT/$_node.lock"; then
+            echolog "监测 [$(node_label "$_node")] worker 已被新任务触发，退出监测"
+            break
+        fi
+        if ! monitor_node_configured "$_node"; then
+            echolog "监测 [$(node_label "$_node")] 已从待测节点表移除，退出"
+            break
+        fi
+
+        _domain="$(monitor_ddns_domain "$_node")"
+        _ip=""
+        _target=""
+        if [ -n "$_domain" ]; then
+            _ip="$(retest_resolve_host "$_domain" | head -n1)"
+            _target="$_domain"
+        else
+            _ip="$(monitor_result_ip "$_node")"
+            _target="$_ip"
+        fi
+        if [ -z "$_target" ]; then
+            echolog "监测 [$(node_label "$_node")] 节点已删除或没有可监测的结果，退出"
+            break
+        fi
+        # 休眠期间可能已经跑完一次短任务：成功结果变了就换目标并清零失败计数。
+        _sig="${_target}|${_ip}"
+        if [ -n "$_last_sig" ] && [ "$_sig" != "$_last_sig" ]; then
+            _fails=0
+            echolog "监测 [$(node_label "$_node")] 成功结果已更新（${_target}），失败计数清零"
+        fi
+        _last_sig="$_sig"
+
+        _ok=-1
+        _lat=0
+        if [ -z "$_ip" ]; then
+            _ok=0
+            echolog "监测 [$(node_label "$_node")] ${_target} 域名无解析"
+        elif [ -d "$COMMIT_LOCK_DIR" ] && lock_owner_alive "$COMMIT_LOCK_DIR"; then
+            echolog "监测 [$(node_label "$_node")] 其他任务正在下载实测，本轮跳过"
+        elif nt_monitor_probe "$_node" "$_ip" "$_purl" "$_tmo" "$_probes" \
+             "$_port" "${MONITOR_FLAG}_$(date +%s)"; then
+            _ok=1
+            _lat="$NT_MON_LAT"
+        else
+            _ok=0
+        fi
+
+        if [ "$_ok" = "1" ]; then
+            _fails=0
+            monitor_write_state "$_node" "$_target" "$_ip" "$_lat" 1 0
+            echolog "监测 [$(node_label "$_node")] ${_target} 延迟 ${_lat}ms [正常]"
+        elif [ "$_ok" = "0" ]; then
+            _fails=$((_fails + 1))
+            monitor_write_state "$_node" "$_target" "$_ip" 0 0 "$_fails"
+            echolog "监测 [$(node_label "$_node")] ${_target} 失败（连续 ${_fails}/${_max} 次）"
+            _tasklog_write event monitor_fail info "" "" "" "" "" \
+                "监测 $(node_label "$_node") 失败（连续 ${_fails}/${_max} 次）"
+            if [ "$_fails" -ge "$_max" ]; then
+                _tasklog_write event monitor_retest info "" "" "" "" "" \
+                    "监测 $(node_label "$_node") 连续 ${_fails} 次失败，触发该 worker 复测"
+                echolog "监测 [$(node_label "$_node")] 连续 ${_max} 次失败，触发该 worker 复测"
+                "$SCRIPT_DIR/cfpick.sh" retest --node="$_node" \
+                    </dev/null >>"$LOG_FILE" 2>&1 &
+                break
+            fi
+        fi
+
+        # 等待下一分钟；期间 worker 被任务占用则立即退出，把节点让给任务。
+        _elapsed=0
+        while [ "$_elapsed" -lt "$_iv" ]; do
+            if [ -d "$WORKER_LOCK_ROOT/$_node.lock" ] && \
+               lock_owner_alive "$WORKER_LOCK_ROOT/$_node.lock"; then
+                echolog "监测 [$(node_label "$_node")] worker 已被新任务触发，退出监测"
+                _stop=1
+                break
+            fi
+            sleep 1
+            _elapsed=$((_elapsed + 1))
+        done
+        [ "$_stop" = "1" ] && break
+    done
+    monitor_cleanup
+    return 0
+}
+
 function read_config(){
-    get_global_config "enabled" "custom_cron_enabled" "custom_cron" "tl" "tll" "tlr" "ip_source" "custom_ip_file" "custom_allip" "ip_online_url" "ip_online_regions" "node_test_node" "stable_node" "node_test_url" "node_test_count" "node_test_timeout" "node_test_probes" "node_test_threads" "download_test_enabled" "download_test_count" "download_test_url" "download_test_time" "iterate_enabled" "iterate_minutes" "iterate_converge_count" "standalone_enabled" "standalone_core"
+    get_global_config "enabled" "custom_cron_enabled" "custom_cron" "tl" "tll" "tlr" "ip_source" "custom_ip_file" "custom_allip" "ip_online_url" "ip_online_regions" "node_test_node" "stable_node" "node_test_url" "node_test_count" "node_test_timeout" "node_test_probes" "node_test_threads" "download_test_enabled" "download_test_count" "download_test_url" "download_test_time" "iterate_enabled" "iterate_minutes" "iterate_converge_count" "standalone_enabled" "standalone_core" "monitor_enabled" "monitor_interval" "monitor_failures"
     get_servers_config "ssr_services" "ssr_enabled" "passwall_enabled" "passwall_services" "passwall2_enabled" "passwall2_services" "bypass_enabled" "bypass_services" "vssr_enabled" "vssr_services" "DNS_enabled" "AliDNS_ip_count" "HOST_enabled" "MosDNS_enabled" "MosDNS_ip_count" "openclash_restart" "AstraDNS_enabled" "AstraDNS_config" "AstraDNS_bin"
     # 五个 CM 备选 IP 列表（ip_list 命名段 list1..list5）
     local _n
@@ -1078,6 +1460,20 @@ nt_apply_best_addresses() {
             return 0
         fi
         return 1
+    fi
+    # 混合场景：DDNS 节点不在 _edits 里，但探测期间它们的 address 也被改写成了
+    # 候选 IP。这里把未被写回新最优的 worker 还原到测前 address（通常是域名），
+    # 否则 DDNS 节点会停在被探测过的某个 IP 上，不再跟随 DNS（后台监测也会因此
+    # 测到旧 IP 而不是域名）。
+    if [ -n "${NT_ORIG_FILE}" ] && [ -s "${NT_ORIG_FILE}" ]; then
+        local _oi _ow _oip
+        while read -r _oi _ow _oip; do
+            [ -n "$_ow" ] && [ -n "$_oip" ] || continue
+            grep -q "^config [A-Za-z0-9_]* '${_ow}'" /etc/config/passwall 2>/dev/null || continue
+            awk -F '\t' -v n="$_ow" '$1 == n { found = 1 } END { exit(found ? 0 : 1) }' \
+                "$_edits" && continue
+            printf '%s\t%s\n' "$_ow" "$_oip" >> "$_edits"
+        done < "$NT_ORIG_FILE"
     fi
     nt_lock_acquire
     if ! nt_write_address_map "$_edits"; then
@@ -2290,7 +2686,10 @@ node_speed_test() {
                     awk -F, -v n="$_nname" -v id="$mw" 'NF>=7 && $1!="" {print $0 "," n "," id}' >> "$merged"
                 rm -f "$mwfile" "${mwfile}.meta" "${mwfile}.prev" 2>/dev/null
             done < "$NT_ORIG_FILE"
-            rm -f "${NT_ORIG_FILE}"; NT_ORIG_FILE=""
+            # 注意：NT_ORIG_FILE 不能在这里删除——nt_apply_best_addresses 还要用它
+            # 还原未写回新最优的 worker（DDNS 节点）到测前 address（通常是域名）。
+            # 提前 rm 会让 DDNS 节点停在被探测过的候选 IP 上，并误报“未写入 passwall”。
+            # 会话结束时 node_test_cleanup 会统一清理。
             # 合并结果排序供 UI/图表展示（首行供 DNS/host 用）：有下载实测速度时按实测吞吐
             # 降序（下载最快的节点排前面），未测/速度 0 的行按延迟升序排在后面
             sort_result "$merged"
@@ -2704,7 +3103,7 @@ read_config
 ACTION=""
 while [ "$#" -gt 0 ]; do
     case "$1" in
-        start|test|replace|retest)
+        start|test|replace|retest|monitor)
             [ -n "$ACTION" ] || ACTION="$1"
             ;;
         --node=*)
@@ -2719,6 +3118,12 @@ while [ "$#" -gt 0 ]; do
     shift
 done
 NODE_FILTER="${NODE_FILTER# }"
+
+# 后台监测模式不参与任务锁/会话/写回：它只复测一个成功结果并在失败时触发复测。
+if [ "$ACTION" = "monitor" ]; then
+    monitor_worker
+    exit $?
+fi
 
 if [ -n "$ACTION" ] ;then
     # 按 worker 抢锁：同一 worker 只允许一个任务；不同 worker 可并行。
@@ -2746,6 +3151,8 @@ if [ -n "$ACTION" ] ;then
             echolog "所选 worker 都在被其他任务使用，本次 $ACTION 跳过"
             exit 1
         fi
+        # 这些 worker 马上要重新测速：结束它们上一轮成功后的后台监测。
+        monitor_stop_for "$ACQUIRED_WORKERS"
         _want=$(printf '%s\n' $RUN_WORKERS | grep -c .)
         _got=$(printf '%s\n' $ACQUIRED_WORKERS | grep -c .)
         if [ -z "$_requested_filter" ] && [ "$_want" = "$_got" ]; then
@@ -2787,6 +3194,12 @@ if [ -n "$ACTION" ] ;then
     fi
     worker_locks_release
     commit_lock_release
+    # 成功后为该 worker 拉起后台监测（失败/停止/局部未成功的节点不监测）。
+    if [ "$_task_rc" = "0" ] && [ "$ACTION" != "replace" ]; then
+        for _w in $RUN_WORKERS; do
+            monitor_has_target "$_w" && monitor_spawn "$_w"
+        done
+    fi
     run_session_destroy
     trap - EXIT INT TERM
     exit

@@ -19,10 +19,6 @@ DEFAULT_CORE_REPOSITORY="svenshi/oxidns"
 OPENWRT_PKG_REPOSITORY="hahaher123/openwrt-oxidns"
 DEFAULT_CORE_BUNDLE="full"
 GITHUB_API_BASE="https://api.github.com"
-LEARN_RESET_SCRIPT="${OXIDNS_LEARN_RESET_SCRIPT:-/usr/libexec/oxidns/learn-reset.sh}"
-LEARN_CRON_FILE="${OXIDNS_LEARN_CRON_FILE:-/etc/crontabs/root}"
-LEARN_CRON_BEGIN="# BEGIN luci-app-oxidns learn-reset"
-LEARN_CRON_END="# END luci-app-oxidns learn-reset"
 # 临时目录。离线测试要能把它指到别处，所以单独留一个覆盖点。
 TMP_ROOT="${OXIDNS_RPC_TMPDIR:-${TMPDIR:-/tmp}}"
 CORE_PROGRESS_DIR="$TMP_ROOT/luci-oxidns"
@@ -318,14 +314,6 @@ load_settings() {
 	CORE_BUNDLE="$(uci_get core_bundle "$DEFAULT_CORE_BUNDLE")"
 	DOWNLOAD_PROXY="$(uci_get download_proxy '')"
 	GITHUB_TOKEN="$(uci_get github_token '')"
-	LEARN_RESET_FREQ="$(uci_get learn_reset_freq off)"
-	LEARN_RESET_TIME="$(uci_get learn_reset_time 04:00)"
-	LEARN_RESET_WEEKDAY="$(uci_get learn_reset_weekday 1)"
-	LEARN_RESET_CN="$(uci_get learn_reset_cn 1)"
-	LEARN_RESET_PROXY="$(uci_get learn_reset_proxy 1)"
-	LEARN_RESET_API_URL="$(uci_get learn_reset_api_url http://127.0.0.1:9199)"
-	LEARN_RESET_API_USER="$(uci_get learn_reset_api_user admin)"
-	LEARN_RESET_API_PASS="$(uci_get learn_reset_api_pass '')"
 	# 劫持目标端口的来源：auto = 从 config.yaml 的 udp_server/tcp_server 解析；
 	# manual = 用 hijack_port 里用户填的值（配置里的监听端口可能被反代或端口映射
 	# 改写，和真正想劫持到的端口不是一回事）。
@@ -1900,232 +1888,6 @@ emit_rules_save() {
 	printf ',"message":'
 	json_string "$MESSAGE"
 	printf '}\n'
-}
-
-valid_reset_time() {
-	case "$1" in
-		[0-2][0-9]:[0-5][0-9]) ;;
-		*) return 1 ;;
-	esac
-	case "${1%%:*}" in
-		00|01|02|03|04|05|06|07|08|09|1[0-9]|2[0-3]) return 0 ;;
-		*) return 1 ;;
-	esac
-}
-
-valid_weekday() {
-	case "$1" in
-		0|1|2|3|4|5|6) return 0 ;;
-		*) return 1 ;;
-	esac
-}
-
-# freq + time (+ weekday) -> busybox crontab line "M H * * *|dow"
-learn_reset_cron_line() {
-	FREQ="$1"
-	TIME="$2"
-	WEEKDAY="$3"
-	HOUR="${TIME%%:*}"
-	MINUTE="${TIME##*:}"
-	# crond 对 08/09 的解析因实现而异，去掉前导零
-	HOUR="${HOUR#0}"
-	MINUTE="${MINUTE#0}"
-	case "$FREQ" in
-		daily)
-			printf '%s %s * * *' "$MINUTE" "$HOUR"
-			;;
-		weekly)
-			printf '%s %s * * %s' "$MINUTE" "$HOUR" "$WEEKDAY"
-			;;
-		*)
-			return 1
-			;;
-	esac
-}
-
-# $1 = cron line ("" removes the managed block)
-update_learn_reset_cron() {
-	CRON_LINE="$1"
-	if ! touch "$LEARN_CRON_FILE" 2>/dev/null; then
-		return 1
-	fi
-	if grep -qF "$LEARN_CRON_BEGIN" "$LEARN_CRON_FILE" 2>/dev/null; then
-		# 托管块标记本身以 # 开头，不能用它当 sed 地址分隔符；改用 awk 字面前缀匹配
-		TMP_CRON="$(mktemp "$TMP_ROOT/oxidns-cron.XXXXXX" 2>/dev/null)" || TMP_CRON=""
-		if [ -z "$TMP_CRON" ]; then
-			return 1
-		fi
-		awk -v beg="$LEARN_CRON_BEGIN" -v end="$LEARN_CRON_END" '
-			skip && index($0, end) == 1 { skip = 0; next }
-			skip { next }
-			index($0, beg) == 1 { skip = 1; next }
-			{ print }
-		' "$LEARN_CRON_FILE" > "$TMP_CRON" || { rm -f "$TMP_CRON"; return 1; }
-		cat "$TMP_CRON" > "$LEARN_CRON_FILE" || { rm -f "$TMP_CRON"; return 1; }
-		rm -f "$TMP_CRON"
-	fi
-	if [ -n "$CRON_LINE" ]; then
-		# 补一个换行，避免托管块拼到最后一行已有条目上
-		if [ -s "$LEARN_CRON_FILE" ] && [ -n "$(tail -c 1 "$LEARN_CRON_FILE" 2>/dev/null)" ]; then
-			printf '\n' >> "$LEARN_CRON_FILE"
-		fi
-		{
-			printf '%s\n' "$LEARN_CRON_BEGIN"
-			printf '%s %s\n' "$CRON_LINE" "$LEARN_RESET_SCRIPT"
-			printf '%s\n' "$LEARN_CRON_END"
-		} >> "$LEARN_CRON_FILE"
-	fi
-	if [ -x /etc/init.d/cron ]; then
-		/etc/init.d/cron restart >/dev/null 2>&1 || true
-	fi
-	return 0
-}
-
-learn_reset_cron_installed() {
-	grep -qF "$LEARN_CRON_BEGIN" "$LEARN_CRON_FILE" 2>/dev/null
-}
-
-emit_learn_reset_get() {
-	load_settings
-	CRON_INSTALLED=0
-	SCRIPT_INSTALLED=0
-	if learn_reset_cron_installed; then
-		CRON_INSTALLED=1
-	fi
-	if [ -x "$LEARN_RESET_SCRIPT" ]; then
-		SCRIPT_INSTALLED=1
-	fi
-	printf '{"ok":true,'
-	printf '"reset_cn":'
-	json_bool "$LEARN_RESET_CN"
-	printf ',"reset_proxy":'
-	json_bool "$LEARN_RESET_PROXY"
-	printf ',"freq":'
-	json_string "$LEARN_RESET_FREQ"
-	printf ',"time":'
-	json_string "$LEARN_RESET_TIME"
-	printf ',"weekday":'
-	json_string "$LEARN_RESET_WEEKDAY"
-	printf ',"api_url":'
-	json_string "$LEARN_RESET_API_URL"
-	printf ',"api_user":'
-	json_string "$LEARN_RESET_API_USER"
-	printf ',"has_pass":'
-	if [ -n "$LEARN_RESET_API_PASS" ]; then json_bool 1; else json_bool 0; fi
-	printf ',"cron_installed":'
-	json_bool "$CRON_INSTALLED"
-	printf ',"script_installed":'
-	json_bool "$SCRIPT_INSTALLED"
-	printf ',"script_path":'
-	json_string "$LEARN_RESET_SCRIPT"
-	printf '}\n'
-}
-
-emit_learn_reset_save() {
-	load_settings
-	INPUT="$(cat)"
-	FREQ="$(input_value freq "$INPUT")"
-	TIME="$(input_value time "$INPUT")"
-	WEEKDAY="$(input_value weekday "$INPUT")"
-	RESET_CN="$(input_bool reset_cn "$INPUT")"
-	RESET_PROXY="$(input_bool reset_proxy "$INPUT")"
-	API_URL="$(input_value api_url "$INPUT")"
-	API_USER="$(input_value api_user "$INPUT")"
-	API_PASS="$(input_value api_pass "$INPUT")"
-
-	case "$FREQ" in
-		off|daily|weekly) ;;
-		*)
-			json_error "invalid_freq" "schedule must be off, daily or weekly"
-			return 1
-			;;
-	esac
-	if ! valid_reset_time "$TIME"; then
-		json_error "invalid_time" "reset time must be HH:MM between 00:00 and 23:59"
-		return 1
-	fi
-	if [ "$FREQ" = "weekly" ] && ! valid_weekday "$WEEKDAY"; then
-		json_error "invalid_weekday" "day of week must be 0 (Sunday) to 6 (Saturday)"
-		return 1
-	fi
-	case "$API_URL" in
-		http://*|https://*) ;;
-		*)
-			json_error "invalid_api_url" "API address must start with http:// or https://"
-			return 1
-			;;
-	esac
-	API_URL="${API_URL%/}"
-
-	uci -q set "oxidns.main.learn_reset_freq=$FREQ"
-	uci -q set "oxidns.main.learn_reset_time=$TIME"
-	if [ "$FREQ" = "weekly" ]; then
-		uci -q set "oxidns.main.learn_reset_weekday=$WEEKDAY"
-	fi
-	uci -q set "oxidns.main.learn_reset_cn=$RESET_CN"
-	uci -q set "oxidns.main.learn_reset_proxy=$RESET_PROXY"
-	uci -q set "oxidns.main.learn_reset_api_url=$API_URL"
-	uci -q set "oxidns.main.learn_reset_api_user=$API_USER"
-	# 空密码 = 保持已存密码不变，避免编辑计划时把密码误清掉
-	if [ -n "$API_PASS" ]; then
-		uci -q set "oxidns.main.learn_reset_api_pass=$API_PASS"
-	fi
-	if ! uci -q commit oxidns; then
-		json_error "settings_save_failed" "unable to commit UCI changes"
-		return 1
-	fi
-
-	load_settings
-	CRON_LINE=""
-	if [ "$LEARN_RESET_FREQ" != "off" ]; then
-		CRON_LINE="$(learn_reset_cron_line "$LEARN_RESET_FREQ" "$LEARN_RESET_TIME" "$LEARN_RESET_WEEKDAY")"
-	fi
-	if ! update_learn_reset_cron "$CRON_LINE"; then
-		json_error "cron_update_failed" "unable to update the crontab at $LEARN_CRON_FILE"
-		return 1
-	fi
-
-	printf '{"ok":true,'
-	printf '"freq":'
-	json_string "$LEARN_RESET_FREQ"
-	printf ',"time":'
-	json_string "$LEARN_RESET_TIME"
-	printf ',"weekday":'
-	json_string "$LEARN_RESET_WEEKDAY"
-	printf ',"reset_cn":'
-	json_bool "$LEARN_RESET_CN"
-	printf ',"reset_proxy":'
-	json_bool "$LEARN_RESET_PROXY"
-	printf ',"cron_line":'
-	json_string "$CRON_LINE"
-	printf ',"cron_installed":'
-	if learn_reset_cron_installed; then json_bool 1; else json_bool 0; fi
-	printf '}\n'
-}
-
-emit_learn_reset_run() {
-	load_settings
-	if [ ! -x "$LEARN_RESET_SCRIPT" ]; then
-		json_error "script_missing" "reset script not found: $LEARN_RESET_SCRIPT"
-		return 1
-	fi
-	OUT="$(mktemp "$TMP_ROOT/oxidns-learn-reset.XXXXXX" 2>/dev/null)" || OUT=""
-	if [ -z "$OUT" ]; then
-		json_error "reset_failed" "unable to create a temporary file"
-		return 1
-	fi
-	if "$LEARN_RESET_SCRIPT" >"$OUT" 2>&1; then
-		DETAIL="$(cat "$OUT")"
-		rm -f "$OUT"
-		printf '{"ok":true,"detail":'
-		json_string "$DETAIL"
-		printf '}\n'
-	else
-		DETAIL="$(cat "$OUT")"
-		rm -f "$OUT"
-		json_detailed_error "reset_failed" "one or more learned sets failed to clear" "" "$DETAIL"
-		return 1
-	fi
 }
 
 emit_log_lines_json() {
@@ -3801,9 +3563,6 @@ case "${1:-}" in
 		printf '"rules_list":{},'
 		printf '"rules_read":{"name":"string"},'
 		printf '"rules_save":{"name":"string","content":"string","content_chunk":"string","upload_id":"string","chunk_offset":"integer","chunk_newlines":"integer","chunk_bytes":"integer","done":"boolean","base_mtime":"string","restart":"boolean"},'
-		printf '"learn_reset_get":{},'
-		printf '"learn_reset_save":{"reset_cn":"boolean","reset_proxy":"boolean","freq":"string","time":"string","weekday":"string","api_url":"string","api_user":"string","api_pass":"string"},'
-		printf '"learn_reset_run":{},'
 		printf '"logs_recent":{"limit":"number"},'
 		printf '"logs_clear":{},'
 		printf '"hijack_get":{},'
@@ -3870,15 +3629,6 @@ case "${1:-}" in
 				;;
 			rules_save)
 				emit_rules_save
-				;;
-			learn_reset_get)
-				emit_learn_reset_get
-				;;
-			learn_reset_save)
-				emit_learn_reset_save
-				;;
-			learn_reset_run)
-				emit_learn_reset_run
 				;;
 			settings_read)
 				emit_settings_read

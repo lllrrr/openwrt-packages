@@ -227,7 +227,11 @@ table.data .empty, .empty-note { color: var(--muted); text-align: center; paddin
 .hidden { display: none !important; }
 
 .nodes-table td { vertical-align: middle; }
-.nodes-table tr.disabled { opacity: 0.55; }
+/* 淡化禁用行时只作用于单元格内容：给整行 opacity 会让吸附在右侧的操作列
+   变半透明，横向滚动时下面的 DDNS/链接输入会透出来，看起来像按钮重影。 */
+.nodes-table tr.disabled td { opacity: 0.55; }
+.nodes-table tr.disabled td:last-child { opacity: 1; background: var(--bg-elev); }
+.nodes-table tr.disabled td:last-child > * { opacity: 0.55; }
 .nodes-table input[type="text"] { min-width: 240px; }
 .nodes-table input.ddns-input { min-width: 220px; font-family: var(--mono); font-size: 0.78rem; }
 .nodes-table input.link-input { min-width: 420px; font-family: var(--mono); font-size: 0.76rem; }
@@ -244,6 +248,14 @@ table.data .empty, .empty-note { color: var(--muted); text-align: center; paddin
   box-shadow: -8px 0 10px -8px rgba(0, 0, 0, 0.25);
 }
 .nodes-table th:last-child { background: var(--bg-soft); }
+/* 运行中的行底色 (tr.running td) 是半透明的，且优先级高于上面的吸附规则；
+   吸附的操作列必须完全不透明，否则横向滚动到 DDNS/链接列时，下面的输入框
+   会透过按钮显示成重影。这里用同色 tint 叠在不透明底色上，保持视觉一致。 */
+.nodes-table tr.running td:last-child {
+  background-color: var(--bg-elev);
+  background-image: linear-gradient(rgba(37, 99, 235, 0.06),
+                                    rgba(37, 99, 235, 0.06));
+}
 .badge {
   display: inline-block; padding: 1px 7px; border-radius: 999px;
   font-size: 0.7rem; font-weight: 600; white-space: nowrap;
@@ -251,6 +263,7 @@ table.data .empty, .empty-note { color: var(--muted); text-align: center; paddin
 .badge.ok { color: var(--ok); background: rgba(19, 138, 75, 0.12); }
 .badge.bad { color: var(--danger); background: var(--danger-soft); }
 .badge.info { color: var(--accent); background: var(--accent-soft); }
+.badge.monitor { margin-left: 6px; }
 
 /* ── forms ───────────────────────────────────────────────────────── */
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px 16px; }

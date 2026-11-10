@@ -53,6 +53,14 @@ DEFAULT_CONFIG = {
     # 每轮收敛后剩余候选 ≤ 此数量即保存结果、该节点提前结束。
     # 与 download_count 相互独立：下载实测仍按自己的候选数执行。
     "iterate_converge_count": 5,
+    # 成功后监测：worker 取得有效结果后，派生一个后台进程每分钟复测一次这个
+    # 成功结果的延迟；连续 failures 次失败即触发该 worker 的复测。节点填了
+    # DDNS 域名时测域名（解析到发布 IP）。worker 被下一次任务占用时监测退出。
+    "monitor": {
+        "enabled": True,
+        "interval": 60,
+        "failures": 3,
+    },
     "nodes": [],
     "core": {
         "type": "mihomo",
@@ -298,7 +306,8 @@ def normalize(data):
     cfg = copy.deepcopy(DEFAULT_CONFIG)
     if isinstance(data, dict):
         for key, value in data.items():
-            if key not in ("ip_lists", "nodes", "core", "schedule", "web", "export", "ddns"):
+            if key not in ("ip_lists", "nodes", "core", "schedule", "web", "export",
+                           "ddns", "monitor"):
                 cfg[key] = value
 
     cfg["ip_source"] = _clean_text(cfg.get("ip_source"), "builtin_ipv4")
@@ -325,6 +334,14 @@ def normalize(data):
     cfg["iterate_minutes"] = _as_int(cfg.get("iterate_minutes"), 30, 1, 10080)
     cfg["iterate_converge_count"] = _as_int(
         cfg.get("iterate_converge_count"), 5, 1, 100)
+
+    monitor = data.get("monitor") if isinstance(data, dict) and isinstance(data.get("monitor"), dict) else {}
+    cfg["monitor"] = {
+        "enabled": _as_bool(monitor.get("enabled"), True),
+        # 每分钟一次是默认节奏；下限 10s 防止误配把节点当成压力测试目标。
+        "interval": _as_int(monitor.get("interval"), 60, 10, 3600),
+        "failures": _as_int(monitor.get("failures"), 3, 1, 10),
+    }
 
     cfg["nodes"] = _normalize_nodes(data.get("nodes") if isinstance(data, dict) else None)
 
