@@ -403,15 +403,13 @@ detect_openclash_status() {
 load_config() {
     cfg_enabled="$(uci_get 'main.enabled')"
     cfg_interval="$(uci_get 'main.interval')"
-    cfg_backend="$(uci_get 'main.backend')"
+    cfg_backend="upnpc"
     cfg_bind_ifname="$(uci_get 'main.bind_ifname')"
     cfg_bind_ip="$(uci_get 'main.bind_ip')"
     cfg_downstream_lan_gateway="$(uci_get 'main.downstream_lan_gateway')"
     cfg_downstream_lan_subnet="$(uci_get 'main.downstream_lan_subnet')"
     cfg_downstream_wan_ip="$(uci_get 'main.downstream_wan_ip')"
     cfg_upstream_wan_if="$(uci_get 'main.upstream_wan_if')"
-    cfg_auto_config_network="$(uci_get 'main.auto_config_network')"
-    cfg_auto_config_firewall_zone="$(uci_get 'main.auto_config_firewall_zone')"
     cfg_firewall_zone_name="$(uci_get 'main.firewall_zone_name')"
     cfg_allowed_external_ports="$(uci_get 'main.allowed_external_ports')"
     cfg_protocols="$(uci_get 'main.protocols')"
@@ -425,12 +423,9 @@ load_config() {
     cfg_openclash_rule_remark="$(uci_get 'main.openclash_rule_remark')"
     cfg_openclash_auto_restart="$(uci_get 'main.openclash_auto_restart')"
     cfg_openclash_sync_interval="$(uci_get 'main.openclash_sync_interval')"
-    cfg_backend_command="$(uci_get 'upnpc.command')"
     cfg_backend_timeout="$(uci_get 'upnpc.timeout')"
 
     [ -z "${cfg_interval}" ] && cfg_interval="60"
-    [ -z "${cfg_backend}" ] && cfg_backend="upnpc"
-    [ -z "${cfg_backend_command}" ] && cfg_backend_command="upnpc"
     [ -z "${cfg_backend_timeout}" ] && cfg_backend_timeout="10"
     [ -z "${cfg_allowed_external_ports}" ] && cfg_allowed_external_ports="40000-65535"
     [ -z "${cfg_protocols}" ] && cfg_protocols="tcp udp"
@@ -640,77 +635,36 @@ check_port_conflict_single() {
         _cpc_ruleset="$(nft list ruleset 2>/dev/null)"
     fi
 
-    # Strip our own table's block from the ruleset to prevent self-conflict.
-    # This is more robust than relying on _cpc_current_table tracking inside
-    # the for loop, which can break due to pathname expansion of unquoted
-    # $nft_ruleset in the for-in loop.
-    _cpc_ruleset="$(printf '%s\n' "$_cpc_ruleset" | awk -v table="${NFT_TABLE_NAME}" '
-        /^table / { in_own = ($3 == table) }
-        !in_own { print }
-    ')"
+    _cpc_proto_lower="$(printf '%s' "$_cpc_proto" | tr 'A-Z' 'a-z')"
 
-    _cpc_proto_lower="$(echo "$_cpc_proto" | tr 'A-Z' 'a-z')"
-    _cpc_conflict_source=""
-    _cpc_current_table=""
-    _cpc_old_ifs="$IFS"
-    IFS='
-'
-    for _cpc_line in $_cpc_ruleset; do
-        IFS="$_cpc_old_ifs"
-        case "$_cpc_line" in
-            table\ *)
-                _cpc_current_table="$(echo "$_cpc_line" | awk '{print $3}')"
-                ;;
-            *"comment \"${NFT_RULE_COMMENT}\""*|*"comment ${NFT_RULE_COMMENT}"*)
-                continue
-                ;;
-        esac
-        _cpc_line_lower="$(echo "$_cpc_line" | tr 'A-Z' 'a-z')"
-        # Skip rules from our own table
-        if [ "$_cpc_current_table" = "${NFT_TABLE_NAME}" ]; then
-            continue
-        fi
-        case "$_cpc_line_lower" in
-            *"dnat"*)
-                _cpc_has_proto=0
-                case "$_cpc_line_lower" in
-                    *"$_cpc_proto_lower"*)
-                        _cpc_has_proto=1
-                        ;;
-                esac
-                [ "$_cpc_has_proto" -eq 0 ] && continue
-                _cpc_after_dport="${_cpc_line_lower#*dport }"
-                [ "$_cpc_after_dport" = "$_cpc_line_lower" ] && continue
-                _cpc_dport="${_cpc_after_dport%% *}"
-                case "$_cpc_dport" in
-                    *[!0-9-]*)
-                        continue
-                        ;;
-                esac
-                _cpc_has_port=0
-                case "$_cpc_dport" in
-                    *[-]*)
-                        _cpc_port_start="${_cpc_dport%%-*}"
-                        _cpc_port_end="${_cpc_dport##*-}"
-                        if [ "$_cpc_ext_port" -ge "$_cpc_port_start" ] 2>/dev/null && \
-                           [ "$_cpc_ext_port" -le "$_cpc_port_end" ] 2>/dev/null; then
-                            _cpc_has_port=1
-                        fi
-                        ;;
-                    *)
-                        if [ "$_cpc_dport" = "$_cpc_ext_port" ] 2>/dev/null; then
-                            _cpc_has_port=1
-                        fi
-                        ;;
-                esac
-                if [ "$_cpc_has_port" -eq 1 ]; then
-                    _cpc_conflict_source="${_cpc_current_table}"
-                    break
-                fi
-                ;;
-        esac
-    done
-    IFS="$_cpc_old_ifs"
+    # Single awk pass instead of per-line echo|tr: the old loop forked
+    # 2-3 processes for every ruleset line on every mapping.
+    _cpc_conflict_source="$(printf '%s\n' "$_cpc_ruleset" | awk \
+        -v own="${NFT_TABLE_NAME}" \
+        -v proto="${_cpc_proto_lower}" \
+        -v port="${_cpc_ext_port}" \
+        -v remark="${NFT_RULE_COMMENT}" '
+        /^table / { current = $3; next }
+        current == own { next }
+        index($0, "comment \"" remark "\"") || index($0, "comment " remark) { next }
+        {
+            line = tolower($0)
+            if (index(line, "dnat") == 0) next
+            if (index(line, proto) == 0) next
+            if (!match(line, /dport [^ ]+/)) next
+            dport = substr(line, RSTART + 6, RLENGTH - 6)
+            if (dport !~ /^[0-9-]+$/) next
+            if (index(dport, "-")) {
+                n = split(dport, range, "-")
+                if (port + 0 >= range[1] + 0 && port + 0 <= range[n] + 0) {
+                    print current
+                    exit
+                }
+            } else if (dport == port) {
+                print current
+                exit
+            }
+        }')"
 
     if [ -n "$_cpc_conflict_source" ]; then
         printf '%s' "$_cpc_conflict_source"
@@ -1872,6 +1826,14 @@ do_sync() {
         remove_rule_caches
     fi
 
+    exec 9>"${LOCK_FILE}"
+    if ! flock -n 9; then
+        log_warn "Another sync process is running, skipping"
+        printf '{"success":false,"error":"another_sync_running"}\n'
+        exec 9>&-
+        return 1
+    fi
+
     if [ -z "${cfg_bind_ip}" ] || [ -z "${cfg_downstream_wan_ip}" ] || [ -z "${cfg_upstream_wan_if}" ]; then
         _s_missing=""
         [ -z "${cfg_bind_ip}" ] && _s_missing="${_s_missing} bind_ip"
@@ -1879,14 +1841,19 @@ do_sync() {
         [ -z "${cfg_upstream_wan_if}" ] && _s_missing="${_s_missing} upstream_wan_if"
         _s_missing="$(echo "$_s_missing" | sed 's/^ //')"
         log_err "Sync failed: required config missing: ${_s_missing}"
+        if [ "${cfg_dry_run}" != "1" ]; then
+            # Required config is gone: do not leave DNAT / OpenClash return
+            # rules behind, or they keep forwarding to a stale target.
+            nft_delete_table >/dev/null 2>&1
+            rm -f "${NFT_APPLIED_CACHE}" 2>/dev/null
+            update_nft_cache_status "not_present" >/dev/null 2>&1
+            openclash_remove_per_mapping_rules >/dev/null 2>&1
+            log_warn "Stale rules cleared because required config is missing"
+        fi
+        _s_missing_running="false"
+        is_daemon_running && _s_missing_running="true"
+        write_status "$_s_missing_running" "$(get_timestamp)" "failed" "${cfg_backend}" 0 0 0 0 "" "" "missing_required_config: ${_s_missing}"
         printf '{"success":false,"error":"missing_required_config","missing":"%s"}\n' "$(json_escape "$_s_missing")"
-        return 1
-    fi
-
-    exec 9>"${LOCK_FILE}"
-    if ! flock -n 9; then
-        log_warn "Another sync process is running, skipping"
-        printf '{"success":false,"error":"another_sync_running"}\n'
         exec 9>&-
         return 1
     fi
@@ -2374,7 +2341,26 @@ do_generate_openclash_rule() {
 
 do_clear() {
     load_config
+    # Take the same lock as do_sync so a clear cannot race with an in-flight
+    # sync (which would re-create the table right after we delete it).
+    # BusyBox flock has no -w, so wait with a 1s retry loop (up to 30s).
+    exec 9>"${LOCK_FILE}"
+    _clear_wait=0
+    while ! flock -n 9; do
+        if [ "$_clear_wait" -ge 30 ]; then
+            log_warn "Clear skipped: another sync process is still running"
+            printf '{"success":false,"error":"another_sync_running"}\n'
+            exec 9>&-
+            return 1
+        fi
+        sleep 1
+        _clear_wait=$((_clear_wait + 1))
+    done
     openclash_remove_localnetwork
+    _clear_oc_removed="$(openclash_remove_per_mapping_rules 2>/dev/null)"
+    if [ "${_clear_oc_removed:-0}" -gt 0 ] 2>/dev/null; then
+        log_info "Cleared ${_clear_oc_removed} OpenClash rule section(s)"
+    fi
     if nft_delete_table; then
         rm -f "${NFT_APPLIED_CACHE}" 2>/dev/null
         update_nft_cache_status "not_present"
@@ -2383,9 +2369,11 @@ do_clear() {
             write_status "false" "$(get_timestamp)" "cleared" "${cfg_backend:-unknown}" 0 0 0 0 "" "" ""
         fi
         printf '{"success":true}\n'
+        exec 9>&-
     else
         log_warn "Failed to clear nft table ${NFT_TABLE_NAME}"
         printf '{"success":false}\n'
+        exec 9>&-
     fi
 }
 

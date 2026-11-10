@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-upnp-nat-relay
 PKG_VERSION:=1.3.13
-PKG_RELEASE:=2
+PKG_RELEASE:=4
 
 PKG_MAINTAINER:=yunshu
 PKG_LICENSE:=GPL-3.0
@@ -56,6 +56,8 @@ define Package/luci-app-upnp-nat-relay/install
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/root/usr/bin/upnp-nat-relay $(1)/usr/bin/
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_CONF) $(PKG_BUILD_DIR)/root/etc/config/upnp_nat_relay $(1)/etc/config/
+	$(INSTALL_DIR) $(1)/usr/share/upnp_nat_relay
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/root/etc/config/upnp_nat_relay $(1)/usr/share/upnp_nat_relay/config.default
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/root/etc/init.d/upnp_nat_relay $(1)/etc/init.d/
 	$(INSTALL_DIR) $(1)/etc/upnp_nat_relay
@@ -78,8 +80,10 @@ endef
 define Package/luci-app-upnp-nat-relay/postinst
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] || { \
-	if [ -f /etc/config/upnp_bridge_relay ]; then \
-		cp -p /etc/config/upnp_bridge_relay /etc/config/upnp_nat_relay 2>/dev/null || true; \
+	if [ "$${PKG_UPGRADE}" != "1" ] && [ "$$1" != "upgrade" ] && [ -f /etc/config/upnp_bridge_relay ]; then \
+		if [ ! -f /etc/config/upnp_nat_relay ] || cmp -s /etc/config/upnp_nat_relay /usr/share/upnp_nat_relay/config.default; then \
+			cp -p /etc/config/upnp_bridge_relay /etc/config/upnp_nat_relay 2>/dev/null || true; \
+		fi; \
 	fi; \
 	[ -x /etc/init.d/upnp_bridge_relay ] && /etc/init.d/upnp_bridge_relay stop 2>/dev/null; \
 	[ -x /etc/init.d/upnp_bridge_relay ] && /etc/init.d/upnp_bridge_relay disable 2>/dev/null; \

@@ -13,12 +13,6 @@ var callStatus = rpc.declare({
 	expect: { '': {} }
 });
 
-var callServiceRestart = rpc.declare({
-	object: 'upnp_nat_relay',
-	method: 'restart',
-	expect: { '': {} }
-});
-
 var callServiceStart = rpc.declare({
 	object: 'upnp_nat_relay',
 	method: 'start',
@@ -50,13 +44,6 @@ return view.extend({
 		o.placeholder = '60';
 		o.rmempty = false;
 
-		o = s.option(form.ListValue, 'backend', _('UPnP Backend'),
-			_('Command used to read UPnP mappings from the downstream router.'));
-		o.value('upnpc', 'upnpc');
-		o.value('custom', _('Custom'));
-		o.default = 'upnpc';
-		o.rmempty = false;
-
 		o = s.option(form.Flag, 'dry_run', _('Dry Run Mode'),
 			_('Read and filter mappings without creating DNAT rules.'));
 		o.default = '0';
@@ -79,16 +66,6 @@ return view.extend({
 			_('Allow setup flows to change network, firewall, and OpenClash configuration.'));
 		o.default = '0';
 		o.rmempty = false;
-
-		o = s.option(form.Flag, 'auto_config_network', _('Auto Configure Network'),
-			_('Permit setup flows to create or repair the read interface before testing.'));
-		o.default = '0';
-		o.depends('show_advanced_config', '1');
-
-		o = s.option(form.Flag, 'auto_config_firewall_zone', _('Auto Configure Firewall Zone'),
-			_('Permit setup flows to create or repair the independent firewall zone before testing.'));
-		o.default = '0';
-		o.depends('show_advanced_config', '1');
 
 		o = s.option(form.Flag, 'openclash_auto_restart', _('Auto Restart OpenClash After Rule Write'),
 			_('Restart OpenClash after rules are written so changes take effect immediately.'));
@@ -126,7 +103,6 @@ return view.extend({
 
 	handleSaveApply: function(ev, mode) {
 		var oldEnabled = uci.get('upnp_nat_relay', 'main', 'enabled') || '0';
-		var oldBackend = uci.get('upnp_nat_relay', 'main', 'backend') || '';
 
 		return this.handleSave(ev).then(function() {
 			return utils.safeApply();
@@ -134,8 +110,6 @@ return view.extend({
 			return uci.load('upnp_nat_relay');
 		}).then(function() {
 			var newEnabled = uci.get('upnp_nat_relay', 'main', 'enabled') || '0';
-			var newBackend = uci.get('upnp_nat_relay', 'main', 'backend') || '';
-			var backendChanged = oldBackend !== newBackend;
 
 			if (newEnabled !== '1') {
 				if (oldEnabled === '1') {
@@ -154,19 +128,6 @@ return view.extend({
 				}).then(function(status) {
 					if (status && status.last_result === 'starting')
 						ui.addNotification(null, E('p', _('Service started, but the first sync is still in progress. Refreshing current status.')), 'warning');
-					else
-						ui.addNotification(null, E('p', _('Configuration applied and service is ready.')), 'info');
-					utils.reloadSoon(300);
-				});
-			}
-
-			if (backendChanged) {
-				ui.addNotification(null, E('p', _('Configuration saved. Restarting service (backend changed)...')), 'info');
-				return callServiceRestart().then(utils.requireSuccess).then(function() {
-					return utils.waitForServiceReady(callStatus);
-				}).then(function(status) {
-					if (status && status.last_result === 'starting')
-						ui.addNotification(null, E('p', _('Service restarted, but the first sync is still in progress. Refreshing current status.')), 'warning');
 					else
 						ui.addNotification(null, E('p', _('Configuration applied and service is ready.')), 'info');
 					utils.reloadSoon(300);

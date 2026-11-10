@@ -25,7 +25,6 @@ start_service() {
 	procd_set_param stdout 1
 	procd_set_param pidfile /var/run/upnp_nat_relay.pid
 	procd_set_param file /etc/config/upnp_nat_relay
-	procd_set_param log "upnp_nat_relay"
 	procd_close_instance
 }
 
@@ -61,11 +60,10 @@ reload_service() {
 
 validate_upnp_nat_relay() {
 	uci_validate_section upnp_nat_relay service main \
-		'enabled:bool' 'interval:uinteger' 'backend:string' \
+		'enabled:bool' 'interval:uinteger' \
 		'bind_ifname:string' 'bind_ip:ipaddr' \
 		'downstream_lan_gateway:ipaddr' 'downstream_lan_subnet:string' \
 		'downstream_wan_ip:ipaddr' 'upstream_wan_if:string' \
-		'auto_config_network:bool' 'auto_config_firewall_zone:bool' \
 		'firewall_zone_name:string' \
 		'allowed_external_ports:string' 'protocols:string' \
 		'failure_grace_count:uinteger' 'clear_on_stop:bool' \
@@ -80,8 +78,5 @@ validate_upnp_nat_relay() {
 		'port:list(port)'
 
 	uci_validate_section upnp_nat_relay backend upnpc \
-		'enabled:bool' 'command:string' 'timeout:uinteger'
-
-	uci_validate_section upnp_nat_relay backend custom \
-		'enabled:bool' 'command:string' 'output_format:string'
+		'timeout:uinteger'
 }

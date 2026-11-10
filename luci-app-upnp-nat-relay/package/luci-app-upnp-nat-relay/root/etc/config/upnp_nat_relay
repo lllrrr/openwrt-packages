@@ -1,7 +1,6 @@
 config service 'main'
 	option enabled '0'
 	option interval '60'
-	option backend 'upnpc'
 
 	option bind_ifname 'eth2'
 	option bind_ip '192.168.3.50'
@@ -11,8 +10,6 @@ config service 'main'
 	option upstream_wan_if 'pppoe-wan'
 
 	option show_advanced_config '0'
-	option auto_config_network '0'
-	option auto_config_firewall_zone '0'
 	option firewall_zone_name 'upnp_nat'
 
 	option allowed_external_ports '40000-65535'
@@ -56,11 +53,4 @@ config deny_ports 'default'
 	list port '8443'
 
 config backend 'upnpc'
-	option enabled '1'
-	option command 'upnpc'
 	option timeout '10'
-
-config backend 'custom'
-	option enabled '0'
-	option command ''
-	option output_format 'json'
