@@ -7,7 +7,7 @@
 <link rel="icon" type="image/svg+xml" href="favicon.svg?v=1.0.12">
 <link rel="icon" href="favicon.ico?v=1.0.12" sizes="any">
 <meta name="theme-color" content="#2563eb">
-<link rel="stylesheet" href="style.css?v=1.0.24">
+<link rel="stylesheet" href="style.css?v=1.0.25">
 </head>
 <body>
 <header class="topbar">
@@ -126,7 +126,7 @@
       </p>
       <div class="grid three">
         <label>单节点测速（无 worker 时使用） <select id="cfg-test-node"></select></label>
-        <label>稳定节点（必选） <select id="cfg-stable-node"></select></label>
+        <label>稳定节点（旧版，已不使用） <select id="cfg-stable-node"></select></label>
       </div>
       <div class="table-wrap">
         <table class="data nodes-table workers-table">
@@ -382,8 +382,8 @@
         </div>
       </div>
       <div class="grid">
-        <label class="check"><input id="sa-enabled" type="checkbox"> 启用独立内核
-          <span class="muted">（启用后「开始测速」走本机内核；关闭则依赖 PassWall run_socks）</span>
+        <label class="check"><input id="sa-enabled" type="checkbox" checked disabled> 独立内核（固定启用）
+          <span class="muted">（测速固定走本机内核；PassWall 只在读取节点链接和写回最优 IP 时使用）</span>
         </label>
         <label>当前使用的内核
           <select id="core-type">
@@ -400,8 +400,9 @@
         （Xray 26 也已移除 h2/http 传输）。VMess/Trojan 的 xhttp 节点请选 Xray。
       </p>
       <p class="muted">
-        独立模式不改写 PassWall 节点 address，也不切换全局节点；节点、IP 列表、探测/下载参数
-        仍用本操作台的配置。节点类型与选中内核不兼容时自动回退 PassWall run_socks。
+        测速固定走独立内核：不改写 PassWall 节点 address，也不切换全局节点；PassWall 只在
+        读取节点链接和写回最优 IP 时使用，不再调用 run_socks。节点类型与选中内核不兼容时
+        会明确报错/跳过，不会静默回退。
       </p>
       <p class="muted" id="core-message"></p>
     </div>
@@ -565,6 +566,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=1.0.24"></script>
+<script src="app.js?v=1.0.25"></script>
 </body>
 </html>

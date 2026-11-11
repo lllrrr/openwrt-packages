@@ -32,6 +32,10 @@ MODE_LABELS = {
     "start": "测速",
     "test": "测速",
     "retest": "复测",
+    # 监测失败后的第一遍：凑够下载候选即停，随后紧跟一次正常复测。
+    "retest_quick": "快速复测",
+    # 两遍复测都没有新结果时的第三轮：刷新为普通测速候选。
+    "retest_refresh": "正常测试",
 }
 
 STATUS_LABELS = {

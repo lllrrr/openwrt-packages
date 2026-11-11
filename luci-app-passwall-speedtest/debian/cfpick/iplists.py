@@ -295,8 +295,14 @@ def retest_candidates(cfg, nodes, logger):
     return CandidateSet(source="retest", per_node=per_node, limit=cfg["test_count"])
 
 
-def select(cfg, nodes, mode, logger):
-    if mode != "retest":
+def select(cfg, nodes, mode, logger, refresh=False):
+    """Pick candidate IPs for a run.
+
+    ``refresh`` forces the normal source even in retest mode: the third round
+    after a monitor failure re-fetches the online/file list instead of only
+    re-testing the current (possibly dead) rows.
+    """
+    if mode != "retest" or refresh:
         return _normal_candidates(cfg, nodes, logger)
 
     candidates = retest_candidates(cfg, nodes, logger)

@@ -1677,9 +1677,9 @@
 		};
 		const integer = (id, fallback, min, max) => Math.round(number(id, fallback, min, max));
 
+		// 测速已与 PassWall 脱钩（一律走独立内核），稳定节点不再必需；
+		// 仍保留该字段供旧配置回显，留空也能保存。
 		const stableNode = text('cfg-stable-node');
-		if (!stableNode)
-			throw new Error('请选择稳定节点（测速期间用于承载实流量）');
 
 		// Scheduled tasks are ordinary crontab lines now.  The UCI cron fields
 		// below are legacy (kept so old configs round-trip); they no longer
@@ -2245,7 +2245,8 @@
 		if (!payload) return;
 		state.core = payload;
 		const enable = $('#sa-enabled');
-		if (enable) enable.checked = !!payload.enabled;
+		// 独立内核是固定项：无论旧配置里 standalone_enabled 是什么，都显示为固定启用。
+		if (enable) { enable.checked = true; enable.disabled = true; }
 		const select = $('#core-type');
 		if (select) select.value = payload.active === 'mihomo' ? 'mihomo' : 'xray';
 		renderCoreCards(payload);
@@ -2265,7 +2266,7 @@
 			await api('/api/core/save', {
 				method: 'POST',
 				body: {
-					enabled: !!($('#sa-enabled') && $('#sa-enabled').checked),
+					enabled: true,
 					core: ($('#core-type') && $('#core-type').value === 'mihomo') ? 'mihomo' : 'xray',
 				},
 			});

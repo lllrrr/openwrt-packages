@@ -167,6 +167,15 @@ class RetestFallbackTests(unittest.TestCase):
         self.assertEqual(chosen.per_node["A"], ["5.6.7.8", "9.9.9.9"])
         self.assertEqual(chosen.per_node["B"], ["3.3.3.3", "4.4.4.4"])
 
+    def test_refresh_uses_normal_list_in_retest_mode(self):
+        nodes = [self.node("A", "2.2.2.2")]
+        rows = [types.SimpleNamespace(node="A", ip="1.1.1.1")]
+        with mock.patch("cfpick.iplists.result.read_result") as reader:
+            chosen = iplists.select(self.cfg, nodes, "retest", self.log,
+                                    refresh=True)
+            reader.assert_not_called()
+        self.assertEqual(chosen.shared, ["5.6.7.8", "9.9.9.9"])
+
     def test_start_mode_unchanged(self):
         nodes = [self.node("A", "1.1.1.1")]
         with mock.patch("cfpick.iplists.result.read_result") as reader:

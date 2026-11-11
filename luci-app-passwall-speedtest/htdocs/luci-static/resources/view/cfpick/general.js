@@ -505,15 +505,11 @@ return view.extend({
 		passwallNodes.forEach(function(n) { o.value(n.value, markSocks(n)); });
 		o.rmempty = true;
 
-		o = s.taboption('basic', form.ListValue, 'stable_node', _('Passwall stable node (required)'),
-			_('During a speed test, passwall\'s global node is temporarily switched to this stable node and restored afterwards, so your live traffic is unaffected by the tested nodes\' <em>address</em> being rewritten. <strong>Required.</strong> Must NOT equal the tested node (single-node fallback) or any selected passwall worker node. If your current global node is a shunt (分流) node, its shunt rules are suspended for the duration of the test and all traffic goes through this stable node.'));
-		o.value('', _('-- Please choose --'));
+		o = s.taboption('basic', form.ListValue, 'stable_node', _('Passwall stable node (legacy, unused)'),
+			_('No longer used. Speed tests always run through the standalone mihomo/Xray core; passwall\'s global node is not switched and node addresses are not rewritten during probing. Passwall is only read for node links and written back with the best IP.'));
+		o.value('', _('-- None --'));
 		passwallNodes.forEach(function(n) { o.value(n.value, n.label); });
-		o.rmempty = false;
-		o.validate = function(section_id, value) {
-			if (!value || !value.length) return _('Please choose a stable node');
-			return true;
-		};
+		o.rmempty = true;
 
 		o = s.taboption('basic', form.Value, 'node_test_url', _('Probe URL'),
 			_('URL probed via the node\'s local SOCKS; only the HTTP HEAD latency is measured. generate_204 / connectivity-check endpoints are preferred.'));

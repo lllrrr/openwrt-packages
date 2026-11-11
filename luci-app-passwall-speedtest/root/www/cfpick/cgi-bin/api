@@ -1083,13 +1083,13 @@ function dispatch(req) {
 		let body = body_json() || {};
 		let cur = uci.cursor();
 		try { cur.load(CONFIG); } catch (e) {}
-		cur.set(CONFIG, 'global', 'standalone_enabled',
-			to_bool(body.enabled));
+		// 独立内核是固定项，不再提供关闭开关。
+		cur.set(CONFIG, 'global', 'standalone_enabled', '1');
 		cur.set(CONFIG, 'global', 'standalone_core',
 			body.core == 'mihomo' ? 'mihomo' : 'xray');
 		cur.commit(CONFIG);
 		send(req, ok({
-			enabled: to_bool(body.enabled) == '1',
+			enabled: true,
 			core: body.core == 'mihomo' ? 'mihomo' : 'xray'
 		}));
 	}

@@ -22,7 +22,7 @@ CFPick 提供两种部署方式：
 
 ## 依赖
 
-*   **PassWall**（`openwrt-passwall`）必须已安装——测速会调用 `/usr/share/passwall/app.sh run_socks`。未安装 passwall 时测速会报错并中止。
+*   **PassWall**（`openwrt-passwall`）用于提供节点链接（节点来源）和写回最优 IP；测速本身固定走独立内核，不调用 `run_socks`。
 *   **curl**（硬依赖），用于延迟探测。
 *   至少一个 CF-CDN 前置的 passwall 节点（VLESS / VMess / Trojan / SS …）。SOCKS 类型的 passwall 节点不能用作测速节点（其 `address` 本身就是 SOCKS 服务器）。
 
@@ -33,13 +33,13 @@ CFPick 提供两种部署方式：
 *   **复测现有最优 IP**：主设置页新增「复测现有最优 IP」按钮（CLI：`/usr/lib/cfpick/bin/cfpick.sh retest`）——**不重新下载在线 IP 列表**，只取当前 `result.csv` 中该节点的行 + 节点当前 `address`，DDNS 节点再解析其域名当前指向的 IP 作为候选。候选按 passwall section ID 匹配（旧结果没有 ID 列时回退节点名），改 remarks 不会再把节点认丢。候选来源与调度方式相互独立：默认做一轮延迟测试 + 下载实测；若同时开启「限时迭代测速」，同一批候选会进入各节点的收敛循环直到 `iterate_minutes` 结束，每轮剔除未通过的 IP。结束后照常写回。适合定时跑完后快速确认现有最优是否仍然可用、或在不拉取上万条候选的情况下重新排序。
 *   **多线程 worker**：在「第三方设置」里选的 passwall 节点作为并行 worker——每个 worker 经自己的链路测全部候选 IP、各写各的最优 IP；并发上限由 `node_test_threads` 控制。
 *   **多探测 fail-fast**：每个 IP 探测 `node_test_probes` 次；任意一次失败该 IP 立即丢弃。只有全部探测都成功的 IP 才保留，确保结果稳定。
-*   **成功后监测**：worker 取得有效结果后派生后台监测进程，每 `monitor_interval` 秒（默认 60）复测一次这个成功结果的延迟：普通节点测已写回的 address（即 result.csv 里该 worker 的最优 IP），配置了 DDNS 域名的节点按域名测（先解析，优先测记录里仍指向的最优 IP）。连续 `monitor_failures` 次（默认 1，即一次失败）失败即触发该 worker 的复测；worker 被下一次定时/手动任务占用时监测自动退出让位，任务成功后重新拉起。监测只做轻量 HEAD 探测，不选 IP、不写回、不占下载锁；下载实测期间自动跳过。节点页每个 worker 显示「监测 X ms」徽标，明细见 `/tmp/cfpick.log`。可用 `monitor_enabled=0` 关闭。
+*   **成功后监测**：worker 取得有效结果后派生后台监测进程，每 `monitor_interval` 秒（默认 60）复测一次这个成功结果的延迟：普通节点测已写回的 address（即 result.csv 里该 worker 的最优 IP），配置了 DDNS 域名的节点按域名测（先解析，优先测记录里仍指向的最优 IP）。连续 `monitor_failures` 次（默认 1，即一次失败）失败即触发该 worker 的复测，且复测分两遍：先快速复测（延迟探测凑够 `download_count` 个候选即停，随即下载筛选），无论其成功与否，再正常复测一次；两遍都没有产出新结果（当前 IP/候选已失效）时，第三轮改用普通测速候选重新拉取 IP 列表。worker 被下一次定时/手动任务占用时监测自动退出让位，任务成功后重新拉起。监测只做轻量 HEAD 探测，不选 IP、不写回、不占下载锁；下载实测期间自动跳过。节点页每个 worker 显示「监测 X ms」徽标，明细见 `/tmp/cfpick.log`。可用 `monitor_enabled=0` 关闭。
 *   **限时迭代测速**：开启 `iterate_enabled` 后进入计时模式——每个待测节点跑**独立的收敛循环**直到 `iterate_minutes` 分钟：第 1 遍测完自己的候选后，每遍只测上一遍通过的 IP，候选池逐遍收敛到最稳定、延迟最低的 IP；运行期间不写 result.csv、不写回 passwall。节点候选收敛到 **≤「迭代收敛阈值」**（`iterate_converge_count`，默认 5、最多 100）即保存结果提前结束，该阈值与下载实测候选数 `download_test_count` 相互独立；不必等到计时结束；结束时日志打出各节点最终轮的完整测速结果，随后一次性写回各节点最优。
 *   **应用到代理插件**：最优 IP 自动写回 ssr / passwall / passwall2 / bypass / vssr 节点，以及 HOST / MosDNS / astra-dns / 阿里云 DDNS。
 *   **优化的界面与日志**：重新设计的状态展示；逐 IP 日志如 `进度: 走节点测速 [节点] 5/30 (16%) - 1.2.3.4 延迟 87ms 丢包 0.00 [保留]`。
-*   **中途停止不丢结果**：中途停止会触发 trap 清理 SOCKS、恢复节点 address，若无新结果则保留上一次结果。**用户手动停止第一轮时，已通过延迟的 IP 仍会完成下载实测**（每 worker 最多 `download_test_count` 个（上限 10）；所有 worker 停止探测后逐节点逐 IP 串行）后再写回；「首个 worker 已完成、其余自动提前停止」也一样，不再跳过其余 worker 的下载。
+*   **中途停止不丢结果**：中途停止会清理临时内核；测速期间不改写 PassWall 配置，若无新结果则保留上一次结果。**用户手动停止第一轮时，已通过延迟的 IP 仍会完成下载实测**（每 worker 最多 `download_test_count` 个（上限 10）；所有 worker 停止探测后逐节点逐 IP 串行）后再写回；「首个 worker 已完成、其余自动提前停止」也一样，不再跳过其余 worker 的下载。
 *   **丰富的应用集成**：优选 IP 可自动应用到 SSR+ / Passwall / PassWall2 / Bypass / Vssr / HOST / MosDNS / astra-dns / 阿里云 DDNS。
-*   **独立内核测速**：统一测速可切换到本机 mihomo / Xray-core 内核（同一套节点、IP 列表和参数），内核可独立安装/升级；启用后不再依赖 `run_socks`，也不需要改写 PassWall 节点。
+*   **独立内核测速（固定）**：统一测速始终使用本机 mihomo / Xray-core 内核（同一套节点、IP 列表和参数），内核可独立安装/升级；不再依赖 `run_socks`，测速期间不改写 PassWall 节点/切全局节点，PassWall 只在写回最优 IP 时使用。
 
 ## 界面页面
 
@@ -64,11 +64,11 @@ CFPick 提供两种部署方式：
 ### 操作台页签
 
 *   **概览**：运行状态、全局最优 IP、定时任务、Worker / 结果四张状态卡；操作卡（开始 / 停止 / 复测）；各节点最优 IP 表（同一节点首次出现的行即该节点最优）；最近 12 次历史；定时任务（可直接启用/停用）。
-*   **节点**：单节点/稳定节点，以及 worker 表（每个 PassWall 节点一行，并指派 CM IP 列表）。
+*   **节点**：单节点、worker 表（每个 PassWall 节点一行，并指派 CM IP 列表）；旧版「稳定节点」已不再使用。
 *   **IP 列表**：五个 CM 源列表的启用、名称、国家码、端口和各自的延迟上限（0 = 跟随全局；不同地区可用不同标准）。
 *   **设置**：IP 来源、延迟/丢包阈值、探测参数、下载实测、限时迭代、五段 cron、DDNS（含预览/立即写入）、内核与 Web、操作台账号。
 *   **日志**：两个窗口——运行日志（自动滚动、每 2 秒刷新、重新加载、下载）与任务日志（每次测速的结果描述：成功/失败/异常数量、各节点本次更新用的 IP、写回方式、延迟与速度，以及下载全部失败加测等特殊事件）。
-*   **内核**：独立内核开关与选择、mihomo / Xray-core 安装升级卡片、内核更新日志、程序在线更新。
+*   **内核**：固定启用独立内核与内核选择、mihomo / Xray-core 安装升级卡片、内核更新日志、程序在线更新。
 *   **第三方**：SSR+ / PassWall / PassWall2 / Bypass / Vssr / HOST / 阿里云 DNS / MosDNS / astra-dns 的写回配置。
 
 操作台与 Debian 版（`debian/web`）使用同一套界面与交互，差异只有：节点来源（OpenWrt 用 PassWall 节点，Debian 用分享链接）、鉴权方式（操作台账号 vs Web 令牌），以及 OpenWrt 版多一个「第三方」写回页签。
@@ -88,15 +88,16 @@ CFPick 提供两种部署方式：
 *   操作台默认只建议在局域网使用（明文 HTTP）；远程访问请走 VPN 或带 TLS 的反向代理，不要把 17544 直接暴露到公网。
 *   服务脚本：`/etc/init.d/cfpick-web`；端口、监听地址、用户名由 UCI 的 `web_port` / `web_bind` / `web_user` 控制，保存配置会触发服务重载。
 
-## 独立内核模式（统一测速的可选项）
+## 独立内核（固定项）
 
-可以在操作台的 **「内核」** 页签里，把**统一测速**切换到本机 mihomo / Xray-core：
+测速固定使用本机 mihomo / Xray-core；PassWall 只在**引用**（读取节点链接/节点配置）和**写回**（把最优 IP 写回节点或 DDNS）时调用：
 
-*   **启用开关**：勾选「启用独立内核」并保存。启用后，「开始测速」的每个 worker 用本机内核拉起候选 IP 的本地 SOCKS（`cfpick core start`），不再调用 PassWall 的 `run_socks`；关闭则完全保持原来的 PassWall 流程。
-*   **同一套配置**：节点仍是「节点」页里的 PassWall worker，IP 列表、探测/下载参数、定时任务都不变；不需要第二套节点或分享链接。
+*   **固定启用**：操作台「内核」页签不再提供关闭开关，只选择 mihomo 或 Xray-core。每个 worker 都用本机内核拉起候选 IP 的本地 SOCKS（`cfpick core start`），不再调用 PassWall 的 `run_socks`。
+*   **同一套配置**：节点仍是「节点」页里的 PassWall worker，IP 列表、探测/下载参数、定时任务都不变。
 *   **双内核 + 自助升级**：mihomo 与 Xray-core 二选一；页签按内核各显示一张卡片（版本、路径、来源、当前使用状态），可填版本标签后单独「安装/升级」到 `/etc/cfpick/state/core`（独立于 PassWall 的内核），也可继续复用系统 `/usr/bin/mihomo`、`/usr/bin/xray`。
-*   **不碰 PassWall**：独立模式下测速期间不改写节点 `address`、不切换全局节点；内核出站带 `mark 255`，命中 PassWall OUTPUT 链的 `meta mark 255 return`，保持「本地 SOCKS → 被测节点」单层，**不需要修改 PassWall 配置**。节点类型与所选内核不兼容（如 ss/hysteria2、带 plugin 的 SS、VMess xhttp 选 mihomo 等）时，该节点自动回退 PassWall `run_socks`，并在日志里说明。
-*   **写回**：测完仍按原逻辑把各 worker 的最优 IP 写回 PassWall 节点；如果节点配置了 DDNS 域名，则该节点只写 DNS、不回写（见下）。
+*   **测速期间不碰 PassWall**：不改写节点 `address`、不切换全局节点、不调用 `run_socks`；内核出站带 `mark 255`，命中 PassWall OUTPUT 链的 `meta mark 255 return`，保持「本地 SOCKS → 被测节点」单层。节点类型与所选内核不兼容（如 hysteria2、带 plugin 的 SS）时明确报错/跳过，不再静默回退。
+*   **写回**：测完把各 worker 的最优 IP 写回 PassWall 节点（仅非 DDNS 节点）；配置了 DDNS 域名的节点只写 DNS，不写回 passwall。
+*   **端口与内核健康**：探测前先探端口、被占用就换；启动后等内核真正监听；失败会明确报错、换端口重试，并全局暂停探测直到内核恢复。
 *   **CLI**：
     ```sh
     cfpick cores

@@ -1745,7 +1745,8 @@ function standalone_settings() {
 	let core = 'xray';
 
 	try { cur.load(STANDALONE_UCI); } catch (e) {}
-	enabled = (cur.get(STANDALONE_UCI, 'global', 'standalone_enabled') == '1');
+	// 独立内核是固定项；旧配置里的 standalone_enabled 不再生效。
+	enabled = true;
 	core = (cur.get(STANDALONE_UCI, 'global', 'standalone_core') == 'mihomo') ? 'mihomo' : 'xray';
 
 	return { enabled: enabled, core: core };

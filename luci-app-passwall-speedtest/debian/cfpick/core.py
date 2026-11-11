@@ -21,6 +21,7 @@ import socket
 import stat
 import subprocess
 import tempfile
+import time
 import urllib.error
 import urllib.request
 import zipfile
@@ -727,6 +728,61 @@ def free_port(preferred):
             except OSError:
                 continue
     raise CoreError("no free local port near %d" % preferred)
+
+
+def port_free(port):
+    """True when 127.0.0.1:port can be bound right now."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind(("127.0.0.1", int(port)))
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def port_ready(port, timeout=5.0):
+    """True when something accepts TCP connections on 127.0.0.1:port."""
+    deadline = time.time() + max(0.0, float(timeout))
+    while time.time() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", int(port)), timeout=0.3):
+                return True
+        except OSError:
+            time.sleep(0.1)
+    return False
+
+
+def _log_tail(path, limit=1500):
+    if not path:
+        return ""
+    try:
+        with open(path, "rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            handle.seek(max(0, size - limit))
+            return handle.read().decode("utf-8", "replace").strip()
+    except OSError:
+        return ""
+
+
+def wait_ready(process, port, timeout=5.0, log_path=None):
+    """Wait for a freshly started core to listen.
+
+    Returns ``(ok, error)``; ``error`` carries the core log tail so a bind
+    failure (``address already in use``) is reported instead of being
+    mistaken for a dead candidate IP.
+    """
+    deadline = time.time() + max(0.0, float(timeout))
+    while time.time() < deadline:
+        if process.proc.poll() is not None:
+            return False, _log_tail(log_path) or "内核进程已退出（返回码 %s）" % process.proc.returncode
+        try:
+            with socket.create_connection(("127.0.0.1", int(port)), timeout=0.3):
+                return True, ""
+        except OSError:
+            time.sleep(0.1)
+    return False, _log_tail(log_path) or "内核未在 %ss 内监听端口 %d" % (timeout, port)
 
 
 def find_curl():

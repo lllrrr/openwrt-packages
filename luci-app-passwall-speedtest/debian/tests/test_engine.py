@@ -16,6 +16,9 @@ class FakeLogger:
     def log(self, message):
         self.lines.append(message)
 
+    def size_guard(self, _limit=None):
+        pass
+
 
 def make_engine(nodes, selected):
     return engine.Engine(
@@ -133,6 +136,80 @@ class DownloadRetryTests(unittest.TestCase):
         with mock.patch.object(engine.iplists, "retest_candidates") as reader:
             self.eng._retest_download_failures([self.node], {})
             reader.assert_not_called()
+
+    def test_quick_latency_worker_stops_after_candidate_count(self):
+        candidates = SimpleNamespace(
+            for_node=lambda _name, _list: ["1.1.1.1", "2.2.2.2", "3.3.3.3"])
+        log = FakeLogger()
+        eng = engine.Engine(dict(self.cfg), log, "retest", "/bin/true",
+                            "mihomo", self.eng.run_dir)
+        with mock.patch.object(engine.Engine, "_probe_ip",
+                               return_value=(1, 3, 3, 0.0, 10.0, "")), \
+             mock.patch.object(engine.lock, "download_active_by_other",
+                               return_value=False):
+            rows = eng._latency_worker(self.node, candidates, stop_after=2)
+        self.assertEqual([row.ip for row in rows], ["1.1.1.1", "2.2.2.2"])
+        self.assertEqual(eng.fresh_nodes, {"a"})
+        self.assertTrue(any("已凑够 2 个下载候选" in line for line in log.lines))
+
+    def test_stale_only_result_is_not_committed(self):
+        self.eng.fresh_nodes = set()
+        rows_by_node = {"a": [self.row("1.1.1.1")]}
+        with mock.patch.object(engine.lock, "write_state"), \
+             mock.patch.object(engine.result, "append_history") as append, \
+             mock.patch.object(engine.result, "write_result") as write:
+            ok = self.eng._commit([self.node], rows_by_node)
+        self.assertFalse(ok)
+        append.assert_not_called()
+        write.assert_not_called()
+
+    def test_quick_ignores_iterate_mode(self):
+        cfg = dict(self.cfg, iterate_enabled=True)
+        eng = engine.Engine(cfg, self.log, "retest", "/bin/true", "mihomo",
+                            self.eng.run_dir, quick=True)
+        self.assertFalse(eng._iterate_mode())
+        cfg["iterate_enabled"] = False
+        self.assertFalse(eng._iterate_mode())
+
+
+class MonitorRetestChainTests(unittest.TestCase):
+    """监测失败后的复测链：先快速复测，再正常复测。"""
+
+    def setUp(self):
+        from cfpick import __main__ as cli
+
+        self.cli = cli
+        self.args = SimpleNamespace(node="a")
+
+    def test_quick_then_normal_then_refresh_when_both_fail(self):
+        with mock.patch.object(self.cli.engine, "run",
+                               side_effect=[1, 1, 0]) as run, \
+             mock.patch.object(self.cli.lock, "stop_requested", return_value=False):
+            rc = self.cli.cmd_monitor_retest(self.args)
+        self.assertEqual(rc, 0)
+        self.assertEqual(run.call_args_list, [
+            mock.call("retest", node_names=["a"], quick=True),
+            mock.call("retest", node_names=["a"]),
+            mock.call("retest", node_names=["a"], refresh=True),
+        ])
+
+    def test_successful_normal_pass_skips_refresh(self):
+        with mock.patch.object(self.cli.engine, "run",
+                               side_effect=[1, 0]) as run, \
+             mock.patch.object(self.cli.lock, "stop_requested", return_value=False):
+            rc = self.cli.cmd_monitor_retest(self.args)
+        self.assertEqual(rc, 0)
+        self.assertEqual(run.call_args_list, [
+            mock.call("retest", node_names=["a"], quick=True),
+            mock.call("retest", node_names=["a"]),
+        ])
+
+    def test_user_stop_skips_the_following_passes(self):
+        with mock.patch.object(self.cli.engine, "run", return_value=1) as run, \
+             mock.patch.object(self.cli.lock, "stop_requested", return_value=True):
+            rc = self.cli.cmd_monitor_retest(self.args)
+        self.assertEqual(rc, 1)
+        run.assert_called_once_with("retest", node_names=["a"], quick=True)
 
 
 if __name__ == "__main__":

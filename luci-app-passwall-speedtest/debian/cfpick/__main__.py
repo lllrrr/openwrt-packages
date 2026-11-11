@@ -117,6 +117,16 @@ def cmd_core(args):
     """Start/stop one standalone core for the OpenWrt shell pipeline."""
     from . import passwall
 
+    if args.action == "free-port":
+        try:
+            print(core.free_port(args.port or 18000))
+        except core.CoreError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        return 0
+    if args.action == "wait-port":
+        return 0 if core.port_ready(args.port, args.timeout) else 1
+
     if args.action == "stop":
         if not args.flag:
             print("core stop 需要 --flag", file=sys.stderr)
@@ -158,12 +168,23 @@ def cmd_core(args):
     CORE_RUN_DIR.mkdir(parents=True, exist_ok=True)
     log_path = CORE_RUN_DIR / (args.flag + ".log")
     config_name = args.flag + (".json" if args.core == "xray" else ".yaml")
+    # 端口必须由调用方先探好；这里再检查一次，抢占/占用时明确报错，
+    # 让上层换端口重试，而不是把候选 IP 记成失败。
+    if not core.port_free(args.port):
+        print("端口 %d 已被占用" % args.port, file=sys.stderr)
+        return 3
     try:
         process, config_path = core.start_core(
             str(binary), args.core, proxy, args.ip, args.port,
             str(CORE_RUN_DIR), str(log_path), config_name=config_name)
     except (core.CoreError, OSError) as exc:
         print("内核启动失败: %s" % exc, file=sys.stderr)
+        return 5
+    ready, error = core.wait_ready(process, args.port, timeout=args.timeout,
+                                   log_path=log_path)
+    if not ready:
+        process.stop()
+        print("内核启动失败: %s" % (error or "未监听端口"), file=sys.stderr)
         return 5
     (CORE_RUN_DIR / (args.flag + ".pid")).write_text(
         str(process.proc.pid), encoding="utf-8")
@@ -308,7 +329,36 @@ def cmd_run(args):
         result.export_json(rows, when)
         _print_json({"exported": str(paths.STATE_DIR), "rows": len(rows)})
         return 0
-    return engine.run(mode, node_names=getattr(args, "node", None))
+    return engine.run(mode, node_names=getattr(args, "node", None),
+                      quick=bool(getattr(args, "quick", False)),
+                      refresh=bool(getattr(args, "refresh", False)))
+
+
+def cmd_monitor_retest(args):
+    """Monitor-triggered retest chain: one quick pass, then one normal pass.
+
+    The quick pass stops latency screening as soon as ``download_count``
+    candidates pass, then download-tests them.  Whatever its outcome (success,
+    no candidates, error), a normal retest follows once, as requested.
+    """
+    name = str(args.node or "").strip()
+    if not name:
+        print("monitor-retest 需要 --node", file=sys.stderr)
+        return 2
+    first = engine.run("retest", node_names=[name], quick=True)
+    # Respect an explicit user stop instead of immediately starting the next
+    # pass after one was interrupted.
+    if lock.stop_requested():
+        return first
+    second = engine.run("retest", node_names=[name])
+    if second == 0:
+        return 0
+    # Both retest passes produced no fresh result (the current IP/candidates
+    # are dead).  Third round: a normal test with refreshed candidates.
+    if lock.stop_requested():
+        return second
+    third = engine.run("retest", node_names=[name], refresh=True)
+    return 0 if third == 0 else 1
 
 
 def build_parser():
@@ -325,7 +375,21 @@ def build_parser():
     run_parser.add_argument(
         "--node", action="append", default=[], metavar="NAME",
         help="only test the named node (repeatable); omit to test every node")
+    run_parser.add_argument(
+        "--quick", action="store_true",
+        help="retest: stop latency screening once download_count candidates "
+             "pass, then download-test them (ignores iterate mode)")
+    run_parser.add_argument(
+        "--refresh", action="store_true",
+        help="retest: re-fetch the normal candidate source instead of only "
+             "the current result rows")
     run_parser.set_defaults(func=cmd_run)
+
+    chain_parser = sub.add_parser(
+        "monitor-retest",
+        help="quick retest followed by a normal retest (monitor failure)")
+    chain_parser.add_argument("--node", default="", required=True)
+    chain_parser.set_defaults(func=cmd_monitor_retest)
 
     monitor_parser = sub.add_parser(
         "monitor", help="watch one node's committed result every minute")
@@ -373,12 +437,15 @@ def build_parser():
 
     core_parser = sub.add_parser(
         "core", help="start/stop one standalone core for the shell pipeline")
-    core_parser.add_argument("action", choices=["start", "stop"])
+    core_parser.add_argument(
+        "action", choices=["start", "stop", "free-port", "wait-port"])
     core_parser.add_argument("--node", default="", help="PassWall UCI node id")
     core_parser.add_argument("--ip", default="", help="candidate server address")
     core_parser.add_argument("--port", type=int, default=0, help="local SOCKS port")
     core_parser.add_argument("--core", default="xray", choices=["mihomo", "xray"])
     core_parser.add_argument("--flag", default="", help="unique run flag / file prefix")
+    core_parser.add_argument("--timeout", type=float, default=5.0,
+                             help="wait-port/start readiness timeout (seconds)")
     core_parser.set_defaults(func=cmd_core)
 
     serve_parser = sub.add_parser("serve", help="start the web UI")

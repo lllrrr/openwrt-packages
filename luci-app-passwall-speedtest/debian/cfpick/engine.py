@@ -27,7 +27,7 @@ from pathlib import Path
 from . import config, core, ddns, iplists, links, lock, paths, result, tasklog
 from .log import Logger
 
-SOCKS_PORT_BASE = 48900
+SOCKS_PORT_BASE = 18000  # below ip_local_port_range (32768-60999)
 DL_FAST_FAIL_BYTES = 1048576
 DL_FAST_FAIL_TIME = 5
 DL_FAST_FAIL_BPS = DL_FAST_FAIL_BYTES // DL_FAST_FAIL_TIME
@@ -45,10 +45,20 @@ class EngineError(RuntimeError):
 
 class Engine:
     def __init__(self, cfg, logger, mode, binary, core_type, run_dir,
-                 node_names=None, full_run=False):
+                 node_names=None, full_run=False, quick=False, refresh=False):
         self.cfg = cfg
         self.log = logger
         self.mode = mode
+        # Quick retest (triggered after a monitor failure): one latency pass
+        # that stops as soon as download_count IPs pass, then the download
+        # stage.  It always ignores the time-boxed iterative mode.
+        self.quick = bool(quick)
+        # Third round of the monitor chain: re-fetch the normal candidate
+        # source instead of only re-testing the current result rows.
+        self.refresh = bool(refresh)
+        # Nodes that produced at least one fresh passing candidate in this
+        # session.  A run that only carried previous rows is not a success.
+        self.fresh_nodes = set()
         # Empty means "every enabled node"; otherwise only these names run.
         self.node_names = [str(name).strip() for name in (node_names or [])
                            if str(name).strip()]
@@ -76,6 +86,16 @@ class Engine:
         # RLock so the SIGTERM handler can clean up even if the main thread
         # already holds this lock.
         self._cores_lock = threading.RLock()
+        # Core health gate: cleared when a core fails to bind/listen, set once
+        # a retry succeeds.  Workers wait on it, so a broken port pauses every
+        # probe instead of marking every candidate IP as failed.
+        self.core_ready = threading.Event()
+        self.core_ready.set()
+        self._core_recover_lock = threading.Lock()
+
+    def _iterate_mode(self):
+        """Iterative convergence only when configured and not a quick retest."""
+        return bool(self.cfg["iterate_enabled"]) and not self.quick
 
     # ── core process tracking / signal cleanup ───────────────────────────
     def _track_core(self, process):
@@ -209,27 +229,94 @@ class Engine:
             return False
         return ('server: "%s"' % ip) in text or ('"address": "%s"' % ip) in text
 
+    def _wait_core(self):
+        """Block every worker while a core startup failure is being recovered."""
+        while not self.core_ready.is_set():
+            if self.stop_event.is_set() or self.hard_stop:
+                return False
+            time.sleep(0.5)
+        return True
+
+    def _wait_or_stop(self, seconds):
+        deadline = time.time() + max(0.0, seconds)
+        while time.time() < deadline:
+            if self.stop_event.is_set() or self.hard_stop:
+                return False
+            time.sleep(min(0.5, max(0.05, deadline - time.time())))
+        return True
+
     def _start_candidate_core(self, node, ip, tag):
+        """Start a core and wait until its SOCKS port really listens.
+
+        A port collision or a core that dies on startup is *not* a dead
+        candidate IP.  The failing worker keeps picking a free port and
+        retrying with backoff; every other worker waits on ``core_ready``
+        until one start succeeds (global pause), then all continue.
+        """
         if self.hard_stop:
             raise EngineError("已收到终止信号，不再启动新内核")
         workdir = self._node_workdir(node)
-        port = self.ports[node["name"]]
         dns = (self.cfg.get("core") or {}).get("dns_nameserver", "")
-        # start_core writes the config; verify afterwards that it points at the
-        # candidate, so a stale file can never be measured as this IP.
-        # Keep one shared core log under /var/log so a failed node can be
-        # diagnosed after the per-run work directory is removed.
         paths.LOG_DIR.mkdir(parents=True, exist_ok=True)
         extension = "json" if self.core_type == "xray" else "yaml"
-        process, config_path = core.start_core(
-            self.binary, self.core_type, node["parsed"].proxy, ip, port, workdir,
-            paths.LOG_DIR / ("%s.log" % self.core_type), dns,
-            config_name="cfg-%s-%s.%s" % (node["slot"], tag, extension))
-        if not self._config_matches(config_path, ip):
-            process.stop()
-            raise EngineError("生成的 SOCKS 配置未指向候选 IP %s" % ip)
-        self._track_core(process)
-        return process, config_path
+        log_path = paths.LOG_DIR / ("%s.log" % self.core_type)
+        attempt = 0
+        recovering = False
+        while True:
+            # Only the worker that cleared core_ready may retry without waiting;
+            # waiting on our own cleared event would deadlock the recovery.
+            if not recovering and not self._wait_core():
+                raise EngineError("已收到终止信号，不再等待内核")
+            port = core.free_port(self.ports[node["name"]])
+            self.ports[node["name"]] = port
+            process = config_path = None
+            error = ""
+            try:
+                process, config_path = core.start_core(
+                    self.binary, self.core_type, node["parsed"].proxy, ip, port,
+                    workdir, log_path, dns,
+                    config_name="cfg-%s-%s.%s" % (node["slot"], tag, extension))
+                ok, error = core.wait_ready(process, port, timeout=5.0,
+                                            log_path=log_path)
+                if ok and not self._config_matches(config_path, ip):
+                    error = "生成的 SOCKS 配置未指向候选 IP %s" % ip
+                    ok = False
+                if ok:
+                    self._track_core(process)
+                    if not self.core_ready.is_set():
+                        self.core_ready.set()
+                        self.log.log("内核已恢复正常，继续探测")
+                        tasklog.event("core_ready", "内核已恢复，继续探测")
+                    return process, config_path, port
+            except core.CoreError as exc:
+                error = str(exc)
+            if process is not None:
+                process.stop()
+                self._untrack_core(process)
+            if config_path is not None:
+                try:
+                    Path(config_path).unlink()
+                except OSError:
+                    pass
+            error = "内核启动失败（端口 %d）：%s" % (port, error or "未知错误")
+            self.log.log(error)
+            with self._core_recover_lock:
+                # Another worker may have recovered while we waited for the
+                # lock; just retry the start instead of declaring a new outage.
+                if self.core_ready.is_set():
+                    continue
+                self.core_ready.clear()
+                recovering = True
+                if attempt == 0:
+                    tasklog.event(
+                        "core_error",
+                        "内核启动失败（%s，端口 %d），暂停所有探测并更换端口重试" % (
+                            node["name"], port))
+                attempt += 1
+                delay = min(30, 2 ** min(attempt, 4))
+                self.log.log("全局暂停探测：%ds 后换端口重试内核" % delay)
+                if not self._wait_or_stop(delay):
+                    raise EngineError("已收到终止信号，停止等待内核")
 
     def _curl(self, args, timeout):
         try:
@@ -252,15 +339,16 @@ class Engine:
         already chosen endpoint still answers (latency_max/latency_min/loss
         thresholds are selection criteria, not health checks).
         """
-        port = self.ports[node["name"]]
         workdir = self._node_workdir(node)
         process = config_path = None
+        port = 0
         sent = recv = 0
         latencies = []
         failed = False
         try:
             try:
-                process, config_path = self._start_candidate_core(node, ip, tag)
+                process, config_path, port = self._start_candidate_core(
+                    node, ip, tag)
             except (core.CoreError, EngineError) as exc:
                 self.log.log("核心启动失败: %s" % exc)
                 return 0, 0, 0, 1.0, 0.0, "核心启动失败"
@@ -335,11 +423,12 @@ class Engine:
 
     def _download_one(self, node, ip, tag):
         """Return speed in MB/s (0 on failure)."""
-        port = self.ports[node["name"]]
         process = config_path = None
+        port = 0
         try:
             try:
-                process, config_path = self._start_candidate_core(node, ip, tag)
+                process, config_path, port = self._start_candidate_core(
+                    node, ip, tag)
             except (core.CoreError, EngineError) as exc:
                 self.log.log("下载测速核心启动失败: %s" % exc)
                 return 0.0
@@ -396,7 +485,7 @@ class Engine:
                     pass
 
     # ── latency workers ─────────────────────────────────────────────────
-    def _latency_worker(self, node, candidates):
+    def _latency_worker(self, node, candidates, stop_after=None):
         rows = []
         ips = candidates.for_node(node["name"], node["ip_list"])
         total = len(ips)
@@ -425,6 +514,14 @@ class Engine:
             self.log.log("进度: 走节点测速 [%s] %d/%d (%d%%) - %s 延迟 %.2fms 丢包 %.2f [%s]" % (
                 node["name"], index, total, index * 100 // total, ip, avg, loss,
                 "保留" if keep else ("丢弃: %s" % reason if reason else "丢弃")))
+            if stop_after and len(rows) >= stop_after:
+                self.log.log("worker [%s] 已凑够 %d 个下载候选，停止延迟探测，进入下载筛选" % (
+                    node["name"], stop_after))
+                break
+        if rows:
+            # Rows from a plain latency pass are always fresh (no carried
+            # previous rows here); the iterative worker tracks its own flag.
+            self.fresh_nodes.add(node["name"])
         if not rows and responded and probed:
             latency_max = iplists.node_latency_max(self.cfg, node)
             self.log.log(
@@ -485,6 +582,7 @@ class Engine:
 
             if pass_rows:
                 passed_any = True
+                self.fresh_nodes.add(name)
                 passed_now = len(pass_rows)
                 truncated = len(probed) < total
                 if truncated:
@@ -517,7 +615,7 @@ class Engine:
 
     # ── worker orchestration ────────────────────────────────────────────
     def _worker_entry(self, node, candidates, semaphore, first_done, rows_by_node):
-        if self.cfg["iterate_enabled"]:
+        if self._iterate_mode():
             rows = self._iterate_worker(node, candidates)
         else:
             rows = []
@@ -526,12 +624,14 @@ class Engine:
                 semaphore.acquire()
                 acquired = True
                 if not self.stop_event.is_set():
-                    rows = self._latency_worker(node, candidates)
+                    rows = self._latency_worker(
+                        node, candidates,
+                        stop_after=self.cfg["download_count"] if self.quick else None)
             finally:
                 if acquired:
                     semaphore.release()
         rows_by_node[node["name"]] = rows
-        if rows and not self.cfg["iterate_enabled"] and not self.stop_event.is_set():
+        if rows and not self._iterate_mode() and not self.stop_event.is_set():
             self.stop_source = "first_done"
             first_done.set()
             self.stop_event.set()
@@ -540,7 +640,7 @@ class Engine:
     def _run_workers(self, nodes, candidates):
         rows_by_node = {}
         first_done = threading.Event()
-        if self.cfg["iterate_enabled"]:
+        if self._iterate_mode():
             self.log.log("迭代模式：%d 个待测节点各跑独立收敛循环至时限，全部同时运行" % len(nodes))
             semaphore = threading.Semaphore(len(nodes))
         else:
@@ -657,7 +757,9 @@ class Engine:
             original_event = self.stop_event
             self.stop_event = threading.Event()
             try:
-                rows = self._latency_worker(node, candidates)
+                rows = self._latency_worker(
+                    node, candidates,
+                    stop_after=self.cfg["download_count"] if self.quick else None)
             finally:
                 self.stop_event = original_event
             if not rows:
@@ -686,6 +788,14 @@ class Engine:
         if self.hard_stop:
             self.log.log("收到终止信号，保留上一次结果，不写入本次结果")
             return False
+        if not self.fresh_nodes:
+            # Every node only carried its previous rows (e.g. a retest whose
+            # current IP is dead): do not rewrite the result, do not re-publish
+            # the dead IP, and report the run as failed so the monitor chain
+            # can escalate to a normal candidate refresh.
+            self.log.log("本次没有产出新的可用结果（所有 worker 均沿用上一次结果），保留上一次结果")
+            lock.write_state(phase="failed", error="本次没有产出新的可用结果")
+            return False
         lock.write_state(phase="commit")
         merged = []
         per_node_best = {}
@@ -698,7 +808,7 @@ class Engine:
                 self.log.log("走节点测速完成 [%s]，最优 IP %s%s" % (node["name"], best.ip, suffix))
             else:
                 self.log.log("走节点测速 [%s] 结果为空，保留该节点上一次结果" % node["name"])
-            if self.cfg["iterate_enabled"] and rows:
+            if self._iterate_mode() and rows:
                 self._iterate_summary(node, rows)
             for row in rows:
                 row.node = node["name"]
@@ -796,12 +906,17 @@ class Engine:
             nodes = self._nodes()
             self._assign_ports(nodes)
             lock.write_state(phase="latency", core_type=self.core_type)
-            candidates = iplists.select(cfg, nodes, self.mode, self.log)
-            if cfg["iterate_enabled"]:
+            candidates = iplists.select(cfg, nodes, self.mode, self.log,
+                                        refresh=self.refresh)
+            if self._iterate_mode():
                 self.deadline = time.time() + cfg["iterate_minutes"] * 60
                 self.log.log("════ 限时迭代测速开始（时长上限 %d 分钟，各节点独立收敛）════" % cfg["iterate_minutes"])
             else:
-                self.log.log("════ 走节点测速开始（%d 个节点）════" % len(nodes))
+                if self.quick:
+                    self.log.log("════ 快速复测开始（%d 个节点；延迟探测凑够 %d 个候选即停，随后下载筛选）════" % (
+                        len(nodes), cfg["download_count"]))
+                else:
+                    self.log.log("════ 走节点测速开始（%d 个节点）════" % len(nodes))
             self._log_download_note()
             old_handlers = {}
             for sig in (signal.SIGINT, signal.SIGTERM):
@@ -835,7 +950,7 @@ class Engine:
                         pass
             return 0 if ok else 1
         finally:
-            if self.cfg["iterate_enabled"]:
+            if self._iterate_mode():
                 self.log.log("════ 迭代测速结束（累计 %ds）════" % int(time.time() - started))
 
     def _log_download_note(self):
@@ -847,13 +962,20 @@ class Engine:
                          self.cfg["download_time"]))
 
 
-def run(mode="start", node_names=None):
+def run(mode="start", node_names=None, quick=False, refresh=False):
     """Run one full test.  Returns a process exit code.
 
     ``node_names`` limits the run to those configured nodes; empty/None keeps
-    the default of testing every enabled node.
+    the default of testing every enabled node.  ``quick`` is the special
+    retest used after a monitor failure: the latency phase stops once
+    ``download_count`` candidates pass, then the download stage runs; it
+    bypasses the time-boxed iterative mode.  ``refresh`` is the third round:
+    a retest that re-fetches the normal candidate source instead of only the
+    current result rows.
     """
     mode = mode if mode in ("start", "test", "retest") else "start"
+    quick = bool(quick)
+    refresh = bool(refresh) and not quick
     node_names = [str(name).strip() for name in (node_names or [])
                   if str(name).strip()]
     cfg = config.load()
@@ -885,7 +1007,8 @@ def run(mode="start", node_names=None):
         return 1
 
     run_lock = lock.RunLock(logger)
-    if not run_lock.acquire(iterate=cfg["iterate_enabled"],
+    iterate = cfg["iterate_enabled"] and not quick
+    if not run_lock.acquire(iterate=iterate,
                             iterate_minutes=cfg["iterate_minutes"],
                             nodes=requested):
         return 1
@@ -902,26 +1025,36 @@ def run(mode="start", node_names=None):
         lock.clear_stop()
     # 清掉本进程可能残留的单 worker 停止请求（上一轮异常退出等）。
     lock.clear_stop(os.getpid())
-    label = "复测现有最优 IP" if mode == "retest" else "Cloudflare IP 测速"
+    if quick:
+        label = "快速复测（凑够下载候选即停）"
+    elif refresh:
+        label = "正常测试（刷新候选 IP）"
+    elif mode == "retest":
+        label = "复测现有最优 IP"
+    else:
+        label = "Cloudflare IP 测速"
     logger.log("════ %s 开始 ════" % label)
     lock.write_state(
         running=True,
         pid=os.getpid(),
-        mode=mode,
+        mode=("retest_quick" if quick else ("retest_refresh" if refresh else mode)),
         phase="starting",
         started_at=int(time.time()),
         finished_at=0,
         stop_requested=False,
         error="",
-        iterate=bool(cfg["iterate_enabled"]),
+        iterate=bool(iterate),
         node_count=len(acquired),
         nodes=acquired if not full_run else [],
         core_type=core_type,
     )
 
     engine = Engine(cfg, logger, mode, binary, core_type, run_lock.run_dir,
-                    node_names=acquired, full_run=full_run)
-    tasklog.start(mode, acquired)
+                    node_names=acquired, full_run=full_run, quick=quick,
+                    refresh=refresh)
+    tasklog_mode = ("retest_quick" if quick
+                    else ("retest_refresh" if refresh else mode))
+    tasklog.start(tasklog_mode, acquired)
     ok = False
     error_text = ""
     try:
@@ -950,12 +1083,12 @@ def run(mode="start", node_names=None):
         details = engine.task_details or [
             {"node": name, "status": "abnormal", "method": "-"}
             for name in acquired]
-        message = tasklog.result_message(mode, status, details)
+        message = tasklog.result_message(tasklog_mode, status, details)
         if error_text:
             message += "；错误：%s" % error_text
         summary = engine.task_summary or {}
         tasklog.result(
-            mode, status,
+            tasklog_mode, status,
             node=summary.get("node", ""),
             ip=summary.get("ip", ""),
             latency=summary.get("latency", ""),
@@ -969,7 +1102,9 @@ def run(mode="start", node_names=None):
     # Worker locks are free again: start the per-node health monitor for every
     # node this run committed successfully.  A failed/stopped run leaves the
     # old monitoring state alone (its nodes were stopped at the start above).
-    if ok:
+    # A quick retest is always followed by a normal retest, so it must not
+    # spawn a monitor that the normal run would immediately stop again.
+    if ok and not quick:
         # Monitoring is best-effort: a spawn problem must never turn a
         # successful speed test into a failed run.
         try:

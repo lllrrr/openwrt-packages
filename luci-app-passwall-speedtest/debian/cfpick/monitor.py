@@ -13,10 +13,15 @@ After a run commits a node's best row, ``engine.run`` spawns one detached
 A probe uses the normal throw-away core + SOCKS path but ignores the selection
 thresholds (latency_min/latency_max/loss_max): those decide which IP to keep,
 not whether the already chosen one still answers.  ``failures`` consecutive
-failed checks trigger one ``cfpick run retest --node NAME``; the monitor then
-exits so the retest can take the worker lock and, if it succeeds, spawn a new
-monitor.  The monitor also exits as soon as a task takes that worker's lock,
-which is what "until the worker is triggered again" means.
+failed checks trigger the retest chain from ``cfpick monitor-retest``: a quick
+retest (latency screening stops once ``download_count`` candidates pass, then
+the download stage) followed by one normal retest whatever the quick result
+was.  If neither pass produced a fresh result (the current IP/candidates are
+dead), a third round re-fetches the normal candidate source instead of only
+re-testing the stale rows.  The monitor then exits so the retest can take the
+worker lock and, if a pass succeeds, spawn a new monitor.  The monitor also exits as soon
+as a task takes that worker's lock, which is what "until the worker is
+triggered again" means.
 
 Monitor processes are intentionally lightweight and stateless across process
 restarts: ``result.csv`` is the source of truth for the target, so a monitor
@@ -393,11 +398,11 @@ def spawn_successful(details, logger=None):
 def _spawn_retest(name, logger):
     try:
         process = _spawn_detached(
-            [sys.executable, "-m", "cfpick", "run", "retest", "--node", name], logger)
+            [sys.executable, "-m", "cfpick", "monitor-retest", "--node", name], logger)
     except OSError as exc:
         logger.log("监测触发复测失败 [%s]: %s" % (name, exc))
         return False
-    logger.log("已触发节点 %s 的复测（PID %d）" % (name, process.pid))
+    logger.log("已触发节点 %s 的快速复测 + 正常复测（PID %d）" % (name, process.pid))
     return True
 
 

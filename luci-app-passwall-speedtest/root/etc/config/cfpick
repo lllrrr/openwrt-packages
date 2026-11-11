@@ -27,14 +27,15 @@ config global 'global'
 	option iterate_converge_count '5'
 	# 成功后监测：worker 取得有效结果后派生后台进程，每 monitor_interval 秒
 	# 复测一次这个成功结果的延迟（有 DDNS 域名的节点测域名）；连续
-	# monitor_failures 次失败即触发该 worker 的复测。worker 被下一次任务
-	# 占用时监测自动退出。
+	# monitor_failures 次失败即触发该 worker 的复测（先快速复测：凑够下载候选
+	# 即停并下载筛选；随后无论成败再正常复测一次；两遍都无新结果时第三轮
+	# 改用普通测速候选刷新 IP 列表）。worker 被下一次任务占用时监测自动退出。
 	option monitor_enabled '1'
 	option monitor_interval '60'
 	option monitor_failures '1'
-	# 独立测速：启用后统一测速改用本机 mihomo/Xray 内核（cfpick core），
-	# 不再调用 PassWall 的 run_socks；关闭则保持原 PassWall 行为。
-	option standalone_enabled '0'
+	# 独立内核（固定启用）：测速一律用本机 mihomo/Xray 内核（cfpick core），
+	# 不再调用 PassWall 的 run_socks；PassWall 只在读取节点链接和写回最优 IP 时使用。
+	option standalone_enabled '1'
 	option standalone_core 'xray'
 	# 按节点 DDNS：worker 表里填了 ddns_domain 的节点只写 Cloudflare DNS，
 	# 不回写 PassWall 节点。
