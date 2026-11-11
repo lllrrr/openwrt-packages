@@ -14,7 +14,7 @@ uclient-fetch -O /tmp/install-pulse.sh https://raw.githubusercontent.com/w931527
 
 ## Features
 
-- Live network traffic with a five-minute chart
+- Live network traffic with a one-minute chart
 - CPU, memory, temperature, connections, and disk usage
 - Ethernet link status, negotiated speed, IP addresses, and DNS
 - Docker container status (optional)

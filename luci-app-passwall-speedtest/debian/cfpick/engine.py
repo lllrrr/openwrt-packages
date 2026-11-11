@@ -502,7 +502,6 @@ class Engine:
                 break
             if not self._wait_for_download():
                 break
-            self.log.size_guard()
             probed = index
             keep, sent, recv, loss, avg, reason = self._probe_ip(
                 node, ip, "p%d-%d" % (index, int(time.time() * 1000) % 100000))
@@ -518,9 +517,10 @@ class Engine:
                 self.log.log("worker [%s] 已凑够 %d 个下载候选，停止延迟探测，进入下载筛选" % (
                     node["name"], stop_after))
                 break
-        if rows:
-            # Rows from a plain latency pass are always fresh (no carried
-            # previous rows here); the iterative worker tracks its own flag.
+        if rows and not self.dl_enabled:
+            # With downloads enabled the latency pass alone is not a usable
+            # result; _download_phase marks the node fresh only when at least
+            # one candidate really downloaded.
             self.fresh_nodes.add(node["name"])
         if not rows and responded and probed:
             latency_max = iplists.node_latency_max(self.cfg, node)
@@ -569,8 +569,7 @@ class Engine:
                     break
                 if not self._wait_for_download():
                     break
-                self.log.size_guard()
-                probed.add(ip)
+                    probed.add(ip)
                 keep, sent, recv, loss, avg, reason = self._probe_ip(
                     node, ip, "p%d-%d-%d" % (round_no, index, int(time.time() * 1000) % 100000))
                 if keep:
@@ -582,7 +581,8 @@ class Engine:
 
             if pass_rows:
                 passed_any = True
-                self.fresh_nodes.add(name)
+                if not self.dl_enabled:
+                    self.fresh_nodes.add(name)
                 passed_now = len(pass_rows)
                 truncated = len(probed) < total
                 if truncated:
@@ -686,7 +686,6 @@ class Engine:
                 break
             speed = self._download_one(
                 node, row.ip, "d%d-%d" % (index, int(time.time() * 1000) % 100000))
-            self.log.size_guard()
             if speed > 0:
                 row.speed = speed
                 kept.append(row)
@@ -696,12 +695,13 @@ class Engine:
                 self.log.log("下载测速 [%s] %d/%d - %s 下载失败 [丢弃]" % (
                     node["name"], index, len(tested), row.ip))
         if kept:
+            self.fresh_nodes.add(node["name"])
             out = result.sort_rows(kept, "speed") + rest
             best = out[0]
             self.log.log("下载测速 [%s] 完成：成功 %d/%d，最优 %s %.2f MB/s" % (
                 node["name"], len(kept), len(tested), best.ip, best.speed))
             return out, len(kept)
-        self.log.log("下载测速 [%s] 未取得任何有效速度，保留延迟排序结果" % node["name"])
+        self.log.log("下载测速 [%s] 未取得任何有效速度，该节点本轮不视为有效结果" % node["name"])
         return ordered, 0
 
     def _download_stage(self, nodes, rows_by_node):
@@ -788,37 +788,50 @@ class Engine:
         if self.hard_stop:
             self.log.log("收到终止信号，保留上一次结果，不写入本次结果")
             return False
-        if not self.fresh_nodes:
-            # Every node only carried its previous rows (e.g. a retest whose
-            # current IP is dead): do not rewrite the result, do not re-publish
-            # the dead IP, and report the run as failed so the monitor chain
-            # can escalate to a normal candidate refresh.
-            self.log.log("本次没有产出新的可用结果（所有 worker 均沿用上一次结果），保留上一次结果")
-            lock.write_state(phase="failed", error="本次没有产出新的可用结果")
-            return False
         lock.write_state(phase="commit")
+        node_names = [node["name"] for node in nodes]
         merged = []
         per_node_best = {}
         for node in nodes:
-            rows = result.sort_rows(rows_by_node.get(node["name"]) or [])
+            name = node["name"]
+            rows = result.sort_rows(rows_by_node.get(name) or [])
+            if name not in self.fresh_nodes:
+                # The node produced no usable result this session (latency or
+                # every download failed).  Drop its old rows below so the next
+                # retest cannot pick the dead IPs again.
+                self.log.log("走节点测速 [%s] 本轮无可提交结果（延迟/下载全部失败），"
+                             "清除该节点旧结果" % name)
+                continue
             if rows:
                 best = rows[0]
-                per_node_best[node["name"]] = best
+                per_node_best[name] = best
                 suffix = " %.2f MB/s" % best.speed if best.speed > 0 else ""
-                self.log.log("走节点测速完成 [%s]，最优 IP %s%s" % (node["name"], best.ip, suffix))
+                self.log.log("走节点测速完成 [%s]，最优 IP %s%s" % (name, best.ip, suffix))
             else:
-                self.log.log("走节点测速 [%s] 结果为空，保留该节点上一次结果" % node["name"])
+                self.log.log("走节点测速 [%s] 结果为空，清除该节点旧结果" % name)
+                continue
             if self._iterate_mode() and rows:
                 self._iterate_summary(node, rows)
             for row in rows:
-                row.node = node["name"]
+                row.node = name
                 row.node_id = str(node.get("id") or "")
                 merged.append(row)
 
         merged = result.sort_rows(merged, "speed")
         if not merged:
-            self.log.log("所有 worker 结果均为空，保留上一次结果")
-            lock.write_state(phase="failed", error="所有 worker 结果为空")
+            # Nothing usable this run: remove the tested nodes' old rows (keep
+            # other nodes), do not publish them to DDNS, and fail the run so the
+            # monitor chain escalates to the normal-candidate refresh.
+            when = result.now_text()
+            combined = result.merge_result([], node_names)
+            result.write_result(paths.RESULT_FILE, combined, when)
+            if self.cfg.get("export", {}).get("json", True):
+                result.export_json(combined, when)
+            self.log.log("本次没有产出可提交的结果，已清除本次 worker 的旧结果")
+            lock.write_state(phase="failed", error="本次没有产出可提交的结果")
+            self.task_details = [
+                {"node": name, "status": "abnormal", "method": "-"}
+                for name in node_names]
             return False
 
         when = result.now_text()
@@ -980,7 +993,7 @@ def run(mode="start", node_names=None, quick=False, refresh=False):
                   if str(name).strip()]
     cfg = config.load()
     paths.ensure_dirs()
-    logger = Logger(paths.RUN_LOG)
+    logger = Logger(paths.run_log_path())
 
     enabled = [node for node in cfg.get("nodes", [])
                if node.get("enabled", True)]
@@ -1021,7 +1034,8 @@ def run(mode="start", node_names=None, quick=False, refresh=False):
     # Shared log: do not rotate/clear the stop flag of another active run.
     other = lock.other_runs_active()
     if not other:
-        logger.rotate()
+        # 运行日志按天分文件，不再每次运行滚动；只清理超过 10 天的旧日志。
+        paths.prune_run_logs()
         lock.clear_stop()
     # 清掉本进程可能残留的单 worker 停止请求（上一轮异常退出等）。
     lock.clear_stop(os.getpid())

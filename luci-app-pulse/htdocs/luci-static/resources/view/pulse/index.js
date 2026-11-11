@@ -74,9 +74,10 @@ function networkBadges(names,zones){
  });
 }
 var trafficRPC=rpc.declare({object:'pulse',method:'history',params:['device'],expect:{'':{}},reject:true});
-function loadTraffic(data){
- var names=visibleDeviceNames(data[0]),saved=prefs();
- var device=names.includes(saved)?saved:defaultDevice(names,data[1]);
+// Restore preferences once; active tabs keep independent interface selections.
+function loadTraffic(data,choice){
+ var names=visibleDeviceNames(data[0]);
+ var device=names.includes(choice)?choice:defaultDevice(names,data[1]);
  return Promise.all([L.resolveDefault(trafficRPC(device),null),loadDocker(),loadZones()]).then(function(results){return data.slice(0,10).concat(results);});
 }
 // Generated from Makefile; generate-version.sh refreshes this on build/deploy.
@@ -236,9 +237,9 @@ function plot(host, samples, keys, colors, id, percent){
 }
 return view.extend({
  handleSaveApply:null,handleSave:null,handleReset:null,
- load:function(){return Promise.all([devicesRPC(),interfacesRPC(),infoRPC(),boardRPC(),Promise.resolve(''),L.resolveDefault(fs.read('/etc/resolv.conf'),''),L.resolveDefault(loadStorage(),null),Promise.resolve({}),Promise.resolve(null),loadPorts()]).then(loadTraffic);},
+ load:function(){var choice=this.deviceChoice=prefs();return Promise.all([devicesRPC(),interfacesRPC(),infoRPC(),boardRPC(),Promise.resolve(''),L.resolveDefault(fs.read('/etc/resolv.conf'),''),L.resolveDefault(loadStorage(),null),Promise.resolve({}),Promise.resolve(null),loadPorts()]).then(function(data){return loadTraffic(data,choice);});},
  render:function(data){
- var history=[],flow=[],drawFlow=[],choice=prefs(),selected='',latest=data, refs={},storageFetched=Date.now(),optionSignature='';
+ var history=[],flow=[],drawFlow=[],choice=this.deviceChoice,selected='',latest=data, refs={},storageFetched=Date.now(),optionSignature='';
  var select=E('select',{'aria-label':_('Monitored network device','pulse')});
  function syncSelection(devices,interfaces) {
   var names=visibleDeviceNames(devices);
@@ -525,11 +526,11 @@ return view.extend({
   if(portNameObserver)refs.ports.querySelectorAll('.hd-port-summary').forEach(function(label){portNameObserver.observe(label);});
  }
 
- var related=ifs.filter(function(i){return i.l3_device===selected||i.device===selected;});var dns=[];related.forEach(function(i){dns=dns.concat(i['dns-server']||[]);});dns=dns.filter(Boolean);var dnsLabel='';if(!dns.length){dns=d[5].split('\n').filter(function(l){return /^\s*nameserver\s/.test(l);}).map(function(l){return l.trim().split(/\s+/)[1];}).filter(Boolean);dnsLabel=dns.length?' '+_('(system resolver)','pulse'):'';}
+ var networks=deviceNetworks(selected,devices,ifs),related=ifs.filter(function(i){return networks.includes(i.interface);});var dns=[];related.forEach(function(i){dns=dns.concat(i['dns-server']||[]);});dns=dns.filter(Boolean);var dnsLabel='';if(!dns.length){dns=d[5].split('\n').filter(function(l){return /^\s*nameserver\s/.test(l);}).map(function(l){return l.trim().split(/\s+/)[1];}).filter(Boolean);dnsLabel=dns.length?' '+_('(system resolver)','pulse'):'';}
  updateAddresses('ipv4',dev,deviceAddresses(selected,devices,ifs,4));updateAddresses('ipv6',dev,deviceAddresses(selected,devices,ifs,6));text(refs.dns,dns.length?Array.from(new Set(dns)).join(', ')+dnsLabel:_('Unavailable','pulse'));
  var sec=info.uptime||0;text(refs.uptime,(sec>=86400?_('%sd %sh %sm','pulse').format(Math.floor(sec/86400),Math.floor(sec%86400/3600),Math.floor(sec%3600/60)):_('%sh %sm','pulse').format(Math.floor(sec/3600),Math.floor(sec%3600/60))));var state=connectionState(dev);text(refs.connection,state.label);refs.connection.className='hd-stat hd-connection-status hd-status-'+state.kind;
  }
- select.addEventListener('change',function(){choice=select.value;try{if(choice)localStorage.setItem('pulse.device',choice);else localStorage.removeItem('pulse.device');}catch(e){}hideHover();update(latest);loadTraffic(latest).then(update);});
+ select.addEventListener('change',function(){choice=select.value;try{if(choice)localStorage.setItem('pulse.device',choice);else localStorage.removeItem('pulse.device');}catch(e){}hideHover();update(latest);loadTraffic(latest,choice).then(update);});
  big.addEventListener('pointermove',function(e){
   var box=canvas.getBoundingClientRect();
   if(!flow.length||e.clientX<box.left||e.clientX>box.right){hideHover();return;}
@@ -541,7 +542,7 @@ return view.extend({
  big.addEventListener('pointerleave',hideHover);
 
  update(data);
- poll.add(function(){var diskRequest=Date.now()-storageFetched>=15000?L.resolveDefault(loadStorage(),null).then(function(disks){storageFetched=Date.now();return disks;}):Promise.resolve(latest[6]);return Promise.all([devicesRPC(),interfacesRPC(),infoRPC(),Promise.resolve(latest[3]),Promise.resolve(''),L.resolveDefault(fs.read('/etc/resolv.conf'),''),diskRequest,Promise.resolve({}),Promise.resolve(null),loadPorts()]).then(loadTraffic).then(update).catch(function(){text(refs.upLegend,'—');text(refs.downLegend,'—');});},2);
+ poll.add(function(){var diskRequest=Date.now()-storageFetched>=15000?L.resolveDefault(loadStorage(),null).then(function(disks){storageFetched=Date.now();return disks;}):Promise.resolve(latest[6]);return Promise.all([devicesRPC(),interfacesRPC(),infoRPC(),Promise.resolve(latest[3]),Promise.resolve(''),L.resolveDefault(fs.read('/etc/resolv.conf'),''),diskRequest,Promise.resolve({}),Promise.resolve(null),loadPorts()]).then(function(data){return loadTraffic(data,choice);}).then(update).catch(function(){text(refs.upLegend,'—');text(refs.downLegend,'—');});},2);
  return root;
  }
 });

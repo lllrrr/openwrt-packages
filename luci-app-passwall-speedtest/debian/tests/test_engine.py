@@ -141,8 +141,9 @@ class DownloadRetryTests(unittest.TestCase):
         candidates = SimpleNamespace(
             for_node=lambda _name, _list: ["1.1.1.1", "2.2.2.2", "3.3.3.3"])
         log = FakeLogger()
-        eng = engine.Engine(dict(self.cfg), log, "retest", "/bin/true",
-                            "mihomo", self.eng.run_dir)
+        # 下载开启时只靠延迟通过不算有效；本测试只验证早停，关掉下载。
+        eng = engine.Engine(dict(self.cfg, download_enabled=False), log,
+                            "retest", "/bin/true", "mihomo", self.eng.run_dir)
         with mock.patch.object(engine.Engine, "_probe_ip",
                                return_value=(1, 3, 3, 0.0, 10.0, "")), \
              mock.patch.object(engine.lock, "download_active_by_other",
@@ -152,16 +153,29 @@ class DownloadRetryTests(unittest.TestCase):
         self.assertEqual(eng.fresh_nodes, {"a"})
         self.assertTrue(any("已凑够 2 个下载候选" in line for line in log.lines))
 
-    def test_stale_only_result_is_not_committed(self):
+    def test_download_success_marks_node_fresh(self):
+        eng = engine.Engine(dict(self.cfg), self.log, "retest", "/bin/true",
+                            "mihomo", self.eng.run_dir)
+        with mock.patch.object(engine.Engine, "_download_one", return_value=5.0):
+            _rows, kept = eng._download_phase(self.node, [self.row("1.1.1.1")])
+        self.assertEqual(kept, 1)
+        self.assertIn("a", eng.fresh_nodes)
+
+    def test_stale_only_result_clears_the_node(self):
         self.eng.fresh_nodes = set()
         rows_by_node = {"a": [self.row("1.1.1.1")]}
         with mock.patch.object(engine.lock, "write_state"), \
              mock.patch.object(engine.result, "append_history") as append, \
-             mock.patch.object(engine.result, "write_result") as write:
+             mock.patch.object(engine.result, "merge_result",
+                               return_value=[]) as merge, \
+             mock.patch.object(engine.result, "write_result") as write, \
+             mock.patch.object(engine.result, "export_json") as export:
             ok = self.eng._commit([self.node], rows_by_node)
         self.assertFalse(ok)
         append.assert_not_called()
-        write.assert_not_called()
+        merge.assert_called_once_with([], ["a"])
+        write.assert_called_once()
+        export.assert_called_once()
 
     def test_quick_ignores_iterate_mode(self):
         cfg = dict(self.cfg, iterate_enabled=True)

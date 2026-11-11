@@ -14,7 +14,7 @@ uclient-fetch -O /tmp/install-pulse.sh https://raw.githubusercontent.com/w931527
 
 ## 기능
 
-- 실시간 네트워크 트래픽과 최근 5분 그래프
+- 실시간 네트워크 트래픽과 최근 1분 그래프
 - CPU, 메모리, 온도, 연결 수 및 디스크 사용량
 - 이더넷 링크 상태, 협상된 속도, IP 주소 및 DNS
 - Docker 컨테이너 상태(선택 사항)

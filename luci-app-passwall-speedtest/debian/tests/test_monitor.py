@@ -78,17 +78,26 @@ class ResolveTests(unittest.TestCase):
             self.assertEqual(monitor._resolve_target(target), "")
         self.assertEqual(target["ip"], "1.2.3.4")
 
-    def test_uses_first_address_when_committed_ip_is_gone(self):
+    def test_stale_dns_falls_back_to_committed_ip(self):
         target = {"kind": "domain", "domain": "jp.example.com",
                   "expected": "1.2.3.4", "ip": None}
         with mock.patch.object(monitor, "resolve_host",
                                return_value=["9.9.9.9"]):
             self.assertEqual(monitor._resolve_target(target), "")
-        self.assertEqual(target["ip"], "9.9.9.9")
+        self.assertEqual(target["ip"], "1.2.3.4")
+        self.assertTrue(target.get("dns_pending"))
 
-    def test_no_dns_answer_is_a_failure(self):
+    def test_no_dns_answer_falls_back_to_committed_ip(self):
         target = {"kind": "domain", "domain": "jp.example.com",
                   "expected": "1.2.3.4", "ip": None}
+        with mock.patch.object(monitor, "resolve_host", return_value=[]):
+            self.assertEqual(monitor._resolve_target(target), "")
+        self.assertEqual(target["ip"], "1.2.3.4")
+        self.assertTrue(target.get("dns_pending"))
+
+    def test_no_dns_and_no_committed_ip_still_fails(self):
+        target = {"kind": "domain", "domain": "jp.example.com",
+                  "expected": "", "ip": None}
         with mock.patch.object(monitor, "resolve_host", return_value=[]):
             self.assertEqual(monitor._resolve_target(target), "域名无解析")
         self.assertIsNone(target["ip"])
@@ -229,9 +238,10 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(ctor.call_args.kwargs["node_names"], ["a"])
         fake_engine.stop_all_cores.assert_called_once()
 
-    def test_unresolvable_domain_never_starts_a_core(self):
+    def test_unresolvable_domain_without_result_never_starts_a_core(self):
+        # 没有已发布 IP 兜底时才判 DNS 失败；有 expected 时改用 expected 探测。
         target = {"kind": "domain", "domain": "jp.example.com",
-                  "expected": "1.2.3.4", "ip": None}
+                  "expected": "", "ip": None}
         with mock.patch.object(monitor, "resolve_host", return_value=[]), \
              mock.patch.object(monitor.core, "ensure_core") as ensure:
             ok, latency, detail = monitor._check(

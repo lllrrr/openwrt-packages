@@ -1,6 +1,10 @@
 #!/bin/sh
 
-LOG_FILE='/tmp/cfpick.log'
+# 运行日志按天分文件：/tmp/cfpick-YYYYMMDD.log；/tmp/cfpick.log 是指向当日文件的软链。
+LOG_PREFIX='/tmp/cfpick'
+LOG_LINK="${LOG_PREFIX}.log"
+LOG_DAY="$(date +%Y%m%d)"
+LOG_FILE="${LOG_PREFIX}-${LOG_DAY}.log"
 PERSIST_LOG='/etc/config/cfpick.log'
 RESULT_DIR='/tmp/cfpick'
 IP_FILE="$RESULT_DIR/result.csv"
@@ -74,6 +78,7 @@ function get_servers_config(){
 
 echolog() {
     local d="$(date "+%Y-%m-%d %H:%M:%S")"
+    log_day_guard
     echo -e "$d: $*"
     echo -e "$d: $*" >>$LOG_FILE
 }
@@ -695,7 +700,7 @@ monitor_worker() {
     local _port=$((MONITOR_PORT_BASE + ($$ % 4000)))
 
     echolog "监测 [$(node_label "$_node")] 开始：每 ${_iv}s 复测一次成功结果，连续 ${_max} 次失败触发复测"
-    local _fails=0 _domain _ip _target _ok _lat _elapsed _stop=0 _last_sig="" _sig
+    local _fails=0 _domain _ip _target _result_ip _ok _lat _elapsed _stop=0 _last_sig="" _sig
     while :; do
         read_config
         case "${monitor_enabled:-1}" in
@@ -720,6 +725,18 @@ monitor_worker() {
         if [ -n "$_domain" ]; then
             _ip="$(retest_resolve_host "$_domain" | head -n1)"
             _target="$_domain"
+            # DDNS 刚更新时本机 DNS 常有负缓存/延迟：域名解析为空或仍指向旧 IP
+            # 时不能当成节点失败，否则 monitor 每分钟触发复测形成死循环。
+            # 先测已发布的最优 IP，等域名解析追上来再切回域名。
+            _result_ip="$(monitor_result_ip "$_node")"
+            if [ -n "$_result_ip" ] && [ "$_ip" != "$_result_ip" ]; then
+                if [ -z "$_ip" ]; then
+                    echolog "监测 [$(node_label "$_node")] ${_domain} 暂未解析，先测已发布的最优 IP ${_result_ip}"
+                else
+                    echolog "监测 [$(node_label "$_node")] ${_domain} 解析为 ${_ip}，与最新结果 ${_result_ip} 不一致，先测已发布的最优 IP"
+                fi
+                _ip="$_result_ip"
+            fi
         else
             _ip="$(monitor_result_ip "$_node")"
             _target="$_ip"
@@ -905,6 +922,34 @@ function node_label(){
     fi
 }
 
+# ── 每日运行日志 ───────────────────────────────────────────────────
+# 每天一个 /tmp/cfpick-YYYYMMDD.log，/tmp/cfpick.log 软链到当天文件；最多保留
+# 10 个每日文件。任务日志 (/etc/cfpick/tasklog.tsv) 不受影响，保持全部。
+function ensure_daily_log(){
+    local _today _f _count _n
+    _today="$(date +%Y%m%d)"
+    LOG_DAY="$_today"
+    LOG_FILE="${LOG_PREFIX}-${_today}.log"
+    if [ -f "$LOG_LINK" ] && [ ! -L "$LOG_LINK" ]; then
+        cat "$LOG_LINK" >> "$LOG_FILE" 2>/dev/null
+        rm -f "$LOG_LINK" 2>/dev/null
+    fi
+    ln -sf "$LOG_FILE" "$LOG_LINK" 2>/dev/null
+    rm -f "${LOG_LINK}".[0-9] "${LOG_LINK}".[0-9][0-9] 2>/dev/null
+    _count=$(ls -1 "${LOG_PREFIX}"-*.log 2>/dev/null | wc -l)
+    case "$_count" in ''|*[!0-9]*) _count=0 ;; esac
+    if [ "$_count" -gt 10 ] 2>/dev/null; then
+        _n=$((_count - 10))
+        ls -1 "${LOG_PREFIX}"-*.log 2>/dev/null | sort | head -n "$_n" |             while read -r _f; do rm -f "$_f" 2>/dev/null; done
+    fi
+}
+
+function log_day_guard(){
+    [ -n "${LOG_DAY:-}" ] || { ensure_daily_log; return 0; }
+    [ "$(date +%Y%m%d)" = "$LOG_DAY" ] && return 0
+    ensure_daily_log
+}
+
 # 滚动归档上一次运行的日志，最多保留 5 份（/tmp 内存盘，重启即清，不写 flash）。
 # .log.1 = 上一次运行，.log.5 = 最旧；本次运行写 .log 本体。SSH 查看：cat /tmp/cfpick.log.1
 function rotate_log_files(){
@@ -921,8 +966,11 @@ function rotate_log_files(){
 # 拖慢 LuCI 日志页首次加载。超 10MB 就滚动归档（echolog 按路径追加，rename 后自动写新文件）。
 # 在 worker 每 IP 循环里调用（每次探测 5~10s 一回，wc -c 开销可忽略）。
 function log_size_guard(){
-    [ "$(wc -c < "$LOG_FILE" 2>/dev/null || echo 0)" -gt 10485760 ] && rotate_log_files && \
-        echolog "日志已超 10MB，滚动归档到 .log.1"
+    # 每日一个文件：超过 20MB 时清空当日日志，而不是再滚一个 .1 文件。
+    [ "$(wc -c < "$LOG_FILE" 2>/dev/null || echo 0)" -gt 20971520 ] && {
+        : > "$LOG_FILE"
+        echolog "当日日志超过 20MB，已清空当日日志"
+    }
     return 0
 }
 
@@ -1243,6 +1291,19 @@ function merge_run_result(){
     return 1
 }
 
+# 某个/某些 worker 本次没有可提交结果时，把它们的旧结果行从 result.csv 清除，
+# 避免下一轮复测继续拿坏 IP 当候选。其他 worker 的行保留。
+clear_result_workers() {
+    local _workers="$1" _empty _rc
+    [ -n "$_workers" ] || return 0
+    _empty="$(mktemp "${RUN_DIR}/result.csv.empty.XXXXXX")" || return 1
+    echo "IP 地址,已发送,已接收,丢包率,平均延迟,下载速度(MB/s),地区码,节点,节点ID" > "$_empty"
+    merge_run_result "$_empty" "$_workers"
+    _rc=$?
+    rm -f "$_empty"
+    return $_rc
+}
+
 # 从在线 CM 源下载原始候选列表。源格式: IP:PORT#国家码 (如 1.2.3.4:443#JP)
 # 输出两份：
 #   ONLINE_RAW_FULL = 全部端口的 IP:PORT#CC 行（去重），供 build_ip_list_file 按各列表的
@@ -1366,7 +1427,7 @@ function speed_test(){
     # 日志只在整次测速入口处理一次：上次运行日志滚动归档为 .log.1~.log.5。
     # 并发任务共用 /tmp/cfpick.log，还有别的任务在跑时不能轮转，否则会把对方
     # 正在写的日志挪走；单任务时保持原来的滚动行为。
-    nt_other_runs_active || rotate_log_files
+    nt_other_runs_active || ensure_daily_log
     # 节点 -> DDNS 域名映射：配置了域名的节点只写 DNS、不回写 passwall。
     nt_build_ddns_map
     # 走节点测速：独立内核（mihomo/Xray）拉起本地 SOCKS，候选 CF IP 写进临时内核配置；
@@ -1606,7 +1667,7 @@ node_test_cleanup() {
     rm -f "${NT_SNAP_FILE}" "${NT_ORIG_FILE}" 2>/dev/null
     # 清理首完成即停用的完成标记、迭代轮次临时结果、轮次 meta 与停止标志（含中断退出残留）；
     # .nt_committing 是「提交阶段勿强杀」标记，正常路径收尾已删，这里兜底中途退出的残留
-    rm -f "${RUN_DIR}"/result.csv.tmp.*.done "${RUN_DIR}"/result.csv.tmp.*.end "${RUN_DIR}"/result.csv.tmp.*.pass "${RUN_DIR}"/result.csv.tmp.*.probed "${RUN_DIR}"/result.csv.tmp.*.carry "${RUN_DIR}"/result.csv.tmp.*.union "${RUN_DIR}"/result.csv.tmp.*.meta "${RUN_DIR}"/result.csv.tmp.*.fresh "${RUN_DIR}/.nt_stop" "${RUN_DIR}/.nt_committing" "${RUN_DIR}/.user_stop" 2>/dev/null
+    rm -f "${RUN_DIR}"/result.csv.tmp.*.done "${RUN_DIR}"/result.csv.tmp.*.end "${RUN_DIR}"/result.csv.tmp.*.pass "${RUN_DIR}"/result.csv.tmp.*.probed "${RUN_DIR}"/result.csv.tmp.*.carry "${RUN_DIR}"/result.csv.tmp.*.union "${RUN_DIR}"/result.csv.tmp.*.meta "${RUN_DIR}"/result.csv.tmp.*.fresh "${RUN_DIR}"/result.csv.tmp.*.dlok "${RUN_DIR}/.nt_stop" "${RUN_DIR}/.nt_committing" "${RUN_DIR}/.user_stop" 2>/dev/null
 }
 
 # uci staging 是跨进程共享的，这里用一把全局锁（不再放在会话目录里）。
@@ -2089,10 +2150,12 @@ nt_download_phase() {
         # 按下载速度降序（未测到的行速度 0 排在后面，同速度按延迟升序）
         sort_result "$_out"
         mv -f "$_out" "$_rfile"
+        # 只有真的下载成功才算该节点本轮有效；延迟通过但下载全挂不能提交。
+        : > "${_rfile}.dlok"
         echolog "下载测速 [${_Wn}] 完成：成功 ${_tested}/${_cnt}，失败 ${_failed}，最优 ${_best_ip} ${_best_spd} MB/s"
     else
-        rm -f "$_out"
-        echolog "下载测速 [${_Wn}] 未取得任何有效速度（测试 URL 可能经该节点不可达），保留延迟排序结果"
+        rm -f "$_out" "${_rfile}.dlok"
+        echolog "下载测速 [${_Wn}] 未取得任何有效速度（测试 URL 可能经该节点不可达），该节点本轮不视为有效结果"
         NT_DL_FAILED=1
     fi
     return 0
@@ -2140,9 +2203,10 @@ nt_retest_failed_worker() {
     if [ "$NT_DL_FAILED" != "1" ]; then
         mv -f "$_tmp" "$_rfile"
         [ -f "${_tmp}.fresh" ] && : > "${_rfile}.fresh"
+        [ -f "${_tmp}.dlok" ] && : > "${_rfile}.dlok"
         echolog "复测 [${_wn}] 下载成功，已用复测结果替换该节点结果"
     else
-        rm -f "$_tmp" "${_tmp}.fresh"
+        rm -f "$_tmp" "${_tmp}.fresh" "${_tmp}.dlok"
         echolog "复测 [${_wn}] 下载仍全部失败，保留上一轮结果"
     fi
     return 0
@@ -2768,7 +2832,12 @@ node_speed_test() {
                 [ -n "$mw" ] || continue
                 mwfile="${RUN_DIR}/result.csv.tmp.$mw"
                 _fresh=0
-                [ -f "${mwfile}.fresh" ] && { _fresh=1; _any_fresh=1; }
+                if [ "${DL_TEST_ENABLED:-1}" = "1" ]; then
+                    # 下载实测开启时，必须至少一个候选下载成功；延迟通过但下载全挂不算有效。
+                    [ -f "${mwfile}.fresh" ] && [ -f "${mwfile}.dlok" ] && { _fresh=1; _any_fresh=1; }
+                else
+                    [ -f "${mwfile}.fresh" ] && { _fresh=1; _any_fresh=1; }
+                fi
                 # 被杀 worker 的部分结果文件未经其自身排序；这里补排，使 first_result_ip
                 # 取到该 worker 的最优 IP 写回 passwall address。排序键与 worker 内一致：
                 # 有下载实测速度时按速度降序，否则（全 0/未测）按延迟升序。对已完成 worker 幂等。
@@ -2822,7 +2891,8 @@ node_speed_test() {
             # 不再写回/发 DDNS（否则会把已经失效的旧 IP 重新发布），并返回失败，
             # 让监测链进入第三轮“刷新候选”的正常测试。
             if [ "$_any_fresh" != "1" ]; then
-                echolog "本次没有产出新的可用结果（所有 worker 均沿用上一次结果），保留上一次结果"
+                echolog "本次没有产出可提交的结果（延迟或下载全部失败），清除本次 worker 的旧结果"
+                clear_result_workers "$NODE_TESTED_WORKERS"
                 rm -f "$merged" "$reapply"
                 trap node_test_cleanup EXIT INT TERM
                 node_test_cleanup; trap - EXIT INT TERM
@@ -2964,13 +3034,20 @@ node_speed_test() {
     trap '' INT TERM
     : > "${RUN_DIR}/.nt_committing"
 
-    if [ ! -f "${result_tmp}.fresh" ]; then
-        # 本轮没有产出任何通过延迟筛选的新候选（结果文件里的行都是沿用的旧结果）。
+    _fresh_ok=0
+    if [ "${DL_TEST_ENABLED:-1}" = "1" ]; then
+        [ -f "${result_tmp}.fresh" ] && [ -f "${result_tmp}.dlok" ] && _fresh_ok=1
+    else
+        [ -f "${result_tmp}.fresh" ] && _fresh_ok=1
+    fi
+    if [ "$_fresh_ok" != "1" ]; then
+        # 本轮没有产出可提交的结果（没有通过延迟筛选，或下载实测全部失败）。
         local _dname
         _dname="$(node_label "$NODE_TEST_NODE")"
         _tasklog_detail "$NODE_TEST_NODE" "$_dname" fail "" 0 0 "-"
-        echolog "本次没有产出新的可用结果（沿用上一次结果），保留上一次结果"
-        rm -f "$result_tmp" "${result_tmp}.fresh"
+        echolog "本次没有产出可提交的结果（延迟或下载全部失败），清除该节点旧结果"
+        clear_result_workers "$NODE_TESTED_WORKERS"
+        rm -f "$result_tmp" "${result_tmp}.fresh" "${result_tmp}.dlok"
         trap node_test_cleanup EXIT INT TERM
         node_test_cleanup; trap - EXIT INT TERM
         return 1
@@ -3244,6 +3321,7 @@ function alidns_ip(){
 }
 
 read_config
+ensure_daily_log
 
 # 启动参数: <mode> [--node=<passwall section> ...] [--quick]
 # 兼容 `--node=id` 与 `--node id` 两种写法；没有 --node 时保持旧行为（全部节点）。

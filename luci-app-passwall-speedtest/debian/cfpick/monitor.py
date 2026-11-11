@@ -279,13 +279,27 @@ def resolve_host(domain):
 
 
 def _resolve_target(target):
-    """Fill in ``target['ip']``; return an error text on failure."""
+    """Fill in ``target['ip']``; return an error text on failure.
+
+    A DDNS record that was just updated is often still served as an empty/
+    stale answer from the local resolver's negative cache.  That is not a
+    node failure: probe the committed best IP until the domain catches up,
+    otherwise the monitor would trigger a retest every minute forever.
+    """
     if target["kind"] != "domain":
         return ""
     addresses = resolve_host(target["domain"])
-    if not addresses:
-        return "域名无解析"
     expected = target.get("expected") or ""
+    if not addresses:
+        if expected:
+            target["ip"] = expected
+            target["dns_pending"] = True
+            return ""
+        return "域名无解析"
+    if expected and expected not in addresses:
+        target["ip"] = expected
+        target["dns_pending"] = True
+        return ""
     target["ip"] = expected if expected in addresses else addresses[0]
     return ""
 
@@ -301,6 +315,9 @@ def _check(cfg, name, target, logger):
     error = _resolve_target(target)
     if error:
         return False, 0.0, error
+    if target.get("dns_pending"):
+        logger.log("监测 [%s] 域名解析未跟上最新结果，先测已发布 IP %s" % (
+            name, target.get("ip") or ""))
     try:
         binary, core_type = core.ensure_core(cfg)
     except core.CoreError as exc:

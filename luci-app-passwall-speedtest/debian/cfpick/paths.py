@@ -6,6 +6,7 @@ under /opt/cfpick.
 """
 
 import os
+import time
 from pathlib import Path
 
 
@@ -40,6 +41,8 @@ HISTORY_FILE = STATE_DIR / "history.csv"
 # Structured run/event history for the console's task log tab (see tasklog.py).
 TASKLOG_FILE = STATE_DIR / "tasklog.tsv"
 ONLINE_CACHE = STATE_DIR / "online_raw.txt"
+# 运行日志按天分文件（speedtest-YYYY-MM-DD.log）；speedtest.log 仅作旧路径保留。
+RUN_LOG_PREFIX = "speedtest"
 RUN_LOG = LOG_DIR / "speedtest.log"
 SPAWN_LOG = LOG_DIR / "spawn.log"
 CORE_UPDATE_LOG = LOG_DIR / "core-update.log"
@@ -68,3 +71,24 @@ def ensure_dirs():
         os.chmod(CONFIG_DIR, 0o700)
     except OSError:
         pass
+
+
+def run_log_path(when=None):
+    """Today's run log (one file per day)."""
+    stamp = time.localtime(when) if when is not None else time.localtime()
+    return LOG_DIR / ("%s-%s.log" % (RUN_LOG_PREFIX, time.strftime("%Y-%m-%d", stamp)))
+
+
+def prune_run_logs(keep=10):
+    """Keep the newest ``keep`` daily run logs."""
+    try:
+        files = sorted(LOG_DIR.glob(RUN_LOG_PREFIX + "-*.log"))
+    except OSError:
+        return
+    if keep <= 0:
+        return
+    for path in files[:-keep]:
+        try:
+            path.unlink()
+        except OSError:
+            pass

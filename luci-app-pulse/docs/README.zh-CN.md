@@ -14,7 +14,7 @@ uclient-fetch -O /tmp/install-pulse.sh https://raw.githubusercontent.com/w931527
 
 ## 功能
 
-- 实时网络流量与最近 5 分钟曲线
+- 实时网络流量与最近 1 分钟曲线
 - CPU、内存、温度、连接数和磁盘用量
 - 网口状态、协商速率、IP 地址与 DNS
 - Docker 容器状态（可选）

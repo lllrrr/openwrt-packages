@@ -12,7 +12,7 @@ PKG_VERSION:=$(PULSE_VERSION)
 ifeq ($(strip $(PKG_VERSION)),)
   $(error Pulse version must not be empty)
 endif
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 
 define Build/Prepare/luci-app-pulse
 	$(SHELL) $(CURDIR)/generate-version.sh --write "$(PKG_VERSION)" $(PKG_BUILD_DIR)/htdocs/luci-static/resources/view/pulse/index.js

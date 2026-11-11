@@ -396,9 +396,22 @@ function stop(nodes) {
 	return { stopped: true };
 }
 
+// 每日一个运行日志：优先读当天的 /tmp/cfpick-YYYYMMDD.log；
+// 当天文件不存在时回退到兼容软链 /tmp/cfpick.log。
+function current_log_file() {
+	let out = command_output('date +%Y%m%d');
+	let day = trim((out && out.stdout) || '');
+
+	// 只返回当天的文件；当天没有运行就没有日志，不再回退到软链（避免显示昨天）。
+	if (day != '')
+		return '/tmp/cfpick-' + day + '.log';
+
+	return LOG_FILE;
+}
+
 function get_log(req) {
 	let pos = int(req.args.pos || 0);
-	let chunk = read_file_chunk(LOG_FILE, pos, (pos == 0) ? 262144 : 0);
+	let chunk = read_file_chunk(current_log_file(), pos, (pos == 0) ? 262144 : 0);
 
 	// 原样返回整行（含 [节点] / [保留] 等方括号段）——此前把 [..] 替换成换行
 	// 会把节点 ID 和保留/丢弃标签从日志页吞掉，无法按节点核对轮次。

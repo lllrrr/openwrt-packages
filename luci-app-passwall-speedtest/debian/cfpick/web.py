@@ -423,7 +423,7 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError:
                 pos = 0
             tail = 262144 if pos == 0 else 0
-            self._send_json(read_chunk(paths.RUN_LOG, pos, first_tail=tail))
+            self._send_json(read_chunk(paths.run_log_path(), pos, first_tail=tail))
         elif route == "/api/cron":
             self._send_json(cron.list_tasks())
         elif route == "/api/ddns":
@@ -513,7 +513,7 @@ class Handler(BaseHTTPRequestHandler):
         cfg = config.load()
         exports = cfg.get("export", {})
         if name == "log":
-            self._serve_file(paths.RUN_LOG, "speedtest.log", cache=False)
+            self._serve_file(paths.run_log_path(), "speedtest.log", cache=False)
         elif name == "result.csv":
             if not exports.get("csv", True):
                 self._send_error(404, "CSV export is disabled")
@@ -1033,6 +1033,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def serve(listen=None, port=None):
     paths.ensure_dirs()
+    paths.prune_run_logs()
     cfg = config.load()
     address = listen or cfg["web"]["listen"]
     number = int(port or cfg["web"]["port"])
