@@ -456,10 +456,10 @@ return view.extend({
 		o.default = 'builtin_ipv4';
 		o.rmempty = false;
 
-		o = s.taboption('basic', form.Value, 'ip_online_url', _('Online source URL'),
-			_('Source list in <code>IP:PORT#country</code> format. Shared by all 5 CM IP lists below; each list keeps only its own port.'));
+		o = s.taboption('basic', form.Value, 'ip_online_url', _('Online source URLs'),
+			_('One or more source lists in <code>IP:PORT#country</code> format, separated by spaces. All enabled sources are downloaded and merged; a source that fails is skipped. Shared by all 5 CM IP lists below; each list keeps only its own port.'));
 		o.depends('ip_source', 'online');
-		o.default = 'https://zip.cm.edu.kg/all.txt';
+		o.default = 'https://raw.githubusercontent.com/urbanescavenger/Cloudflare-IP/main/ip_libs.txt https://zip.cm.edu.kg/all.txt';
 		o.rmempty = false;
 
 		o = s.taboption('basic', form.Value, 'custom_ip_file', _('Custom IP list file'),

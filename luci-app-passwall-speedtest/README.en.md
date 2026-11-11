@@ -7,7 +7,7 @@
 
 **CFPick is a Cloudflare CDN IP optimizer: it measures from your own machine through a real proxy core and picks the fastest CDN edge IP for your particular line.**
 
-*   **Candidates can come from the latest online preferred-IP list**: with the online CM source selected, every run downloads the current list (`IP:PORT#CC`, filterable by country and port, with a customizable URL); built-in IPv4 / IPv6 lists or a custom IP file also work. The list is only a set of candidates, not the answer.
+*   **Candidates can come from the latest online preferred-IP list**: with the online source selected, every run downloads the current list (`IP:PORT#CC`, filterable by country and port). The default address is our merged library `Cloudflare-IP/main/ip_libs.txt` (an Action in that repository normalises and merges CM, IPDB, LancelotRar, HandsomeMJZ, HostMonit, VPS789 and more every hour); if GitHub is unreachable it falls back to the CM source `zip.cm.edu.kg/all.txt`. The field accepts several space/newline separated URLs, downloaded and merged with de-duplication; a failing source is skipped. Built-in IPv4 / IPv6 lists or a custom IP file also work. The list is only a set of candidates, not the answer.
 *   **Real kernel, real connections**: each candidate IP is temporarily written into a node config, and your local mihomo / Xray-core kernel or your existing [PassWall](https://github.com/xiaorouji/openwrt-passwall) node brings up a local SOCKS proxy to make real connections to it and measure.
 *   **Local optimum, not list ranking**: every candidate is latency-screened first, then the best few are ranked by a real fixed-size download; the winner is whatever actually performs best from your machine, not what someone else's list says.
 

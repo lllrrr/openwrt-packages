@@ -36,14 +36,14 @@ smartmwand --reclaim                 # 一次性回收本插件全部内核对�
 |---|---:|---|
 | `lib` 核心 | 6 | 标记字段往返；所有权区间覆盖全部合法标记且不含他人典型值；`RULE_MASK` 只隔离槽位；UTF-8 安全截断；槽位 0 被拒 |
 | `config` | 51 | UCI 文本 round-trip；未知键保留；缺字段落默认；迁移旧键；枚举非法值报错而非静默回退；默认关闭；diff/fingerprint 稳定；20 条校验规则（含同优先级规则范围重叠） |
-| `system` | 118 | netlink 报文编解码逐字段；`plan()` 只在 usable 时成对产出规则与路由；`Diff::blocking()` 拦住 Error 级冲突；`Applier` 回滚逆序；优先级带所有权判定；`exec` 超时杀进程/白名单/输出封顶；conntrack 行数上限与标记解析；nft 程序文本黄金样本（含 IPv6 关闭不建 v6 集合、占位文件单一 hook、**每个条件必须出现在规则文本里**、同族多目的条件各出一条规则、能力不足时不下发该条件也不留兜底）；**能力探测判定**（8 条脚本全通过 ⇒ 含 `jhash_seed` 在内逐项开启、全失败 ⇒ `nft_exists` 仍为真而高风险语法一律关闭、`jhash_map` 以 `ct_mark_range` 为前提；`Nft::version()` 只在退出 0 且有输出时给版本号）；netlink 会话成功 ACK 后终止；路由 dump 按表号过滤（内核不理会 dump 请求里的 rtm_table）；`nft -c` 必须带 `-f` |
-| `health` | 50 | 探测四类均绑定设备与源地址；`Unsupported`/`LocalError` 不改状态；并发额度如实反映配置；取消路径能真正中断批次；滑窗指标与置信门槛；状态机全部迁移边 + 预热 + 时间驱动 `tick()` |
-| `scheduler` | 60 | 权重比例 3:1→桶 48:16；DEGRADED 半权重；不可用线路 0 桶；全零映射必带原因；`WeightedEcmp` 返回 `Unsupported`；`buckets=0` 报配置错；相同输入 0 搬动；交织场景搬动数在预算内；动态算法「采样不可信」降级注记；优势闸门 0 搬动；消失槽位强制清出；连接上限触发迁移；`interval_elapsed` 的 0 语义与回绕；回切四条件；强制切换与目标不可用时保留指令；主备顺序不捏造线路 |
-| `rules` | 53 | CIDR 网络位归一与按族分拣；坏值**报错不跳过**；端口拒绝 `0`/`0-1024`/逆序/取反；MAC 三种写法统一小写；域名拒通配符与 URL；slug 归一且去重确定性（`-2`/`-3`）；预置项**代码零内置**、缺 `source` 拒绝、空目的拒绝、文件内与跨文件重复 id 拒绝、坏文件整批失败、>512KiB 拒绝；域名注册表按域对账（增/删/保留/v6 跳过/满额拒绝/截断计数）、过期与两寿命陈旧窗口、**解析失败不清空旧元素**；`compile()` 合并语义（目的与域名并集、端口与协议规则赢、客户端条件只来自规则）、四种不产出情形、超上限报错不截断、`pin` 指向不存在/未启用槽位报错、mark 为 0 报错、无条件匹配报错；**端到端**：`compile()` 产物直接喂 `firewall::build()` 并断言集合声明与规则文本同时出现 |
+| `system` | 119 | netlink 报文编解码逐字段；`plan()` 只在 usable 时成对产出规则与路由；`Diff::blocking()` 拦住 Error 级冲突；`Applier` 回滚逆序；优先级带所有权判定；`exec` 超时杀进程/白名单/输出封顶；conntrack 行数上限与标记解析；nft 程序文本黄金样本（含 IPv6 关闭不建 v6 集合、占位文件单一 hook、**每个条件必须出现在规则文本里**、同族多目的条件各出一条规则、能力不足时不下发该条件也不留兜底）；**能力探测判定**（8 条脚本全通过 ⇒ 含 `jhash_seed` 在内逐项开启、全失败 ⇒ `nft_exists` 仍为真而高风险语法一律关闭、`jhash_map` 以 `ct_mark_range` 为前提；`Nft::version()` 只在退出 0 且有输出时给版本号）；netlink 会话成功 ACK 后终止；路由 dump 按表号过滤（内核不理会 dump 请求里的 rtm_table）；`nft -c` 必须带 `-f` |
+| `health` | 51 | 探测四类均绑定设备与源地址；`Unsupported`/`LocalError` 不改状态；并发额度如实反映配置；取消路径能真正中断批次；滑窗指标与置信门槛；状态机全部迁移边 + 预热 + 时间驱动 `tick()` |
+| `scheduler` | 63 | 权重比例 3:1→桶 48:16；DEGRADED 半权重；不可用线路 0 桶；全零映射必带原因；`WeightedEcmp` 返回 `Unsupported`；`buckets=0` 报配置错；相同输入 0 搬动；交织场景搬动数在预算内；动态算法「采样不可信」降级注记；优势闸门 0 搬动；消失槽位强制清出；连接上限触发迁移；`interval_elapsed` 的 0 语义与回绕；回切四条件；强制切换与目标不可用时保留指令；主备顺序不捏造线路 |
+| `rules` | 55 | CIDR 网络位归一与按族分拣；坏值**报错不跳过**；端口拒绝 `0`/`0-1024`/逆序/取反；MAC 三种写法统一小写；域名拒通配符与 URL；slug 归一且去重确定性（`-2`/`-3`）；预置项**代码零内置**、缺 `source` 拒绝、空目的拒绝、文件内与跨文件重复 id 拒绝、坏文件整批失败、>512KiB 拒绝；域名注册表按域对账（增/删/保留/v6 跳过/满额拒绝/截断计数）、过期与两寿命陈旧窗口、**解析失败不清空旧元素**；`compile()` 合并语义（目的与域名并集、端口与协议规则赢、客户端条件只来自规则）、四种不产出情形、超上限报错不截断、`pin` 指向不存在/未启用槽位报错、mark 为 0 报错、无条件匹配报错；**端到端**：`compile()` 产物直接喂 `firewall::build()` 并断言集合声明与规则文本同时出现 |
 | `logging` | 5 | 等级过滤；环形缓冲上限与 `dropped()` 计数；轮转；敏感字段脱敏 |
-| `rpc` | 25 | 方法表与架构文档逐条对齐（29 个、无重名、全部带命名空间、写方法标对）；信封形状（成功不带 error、失败不带 data、protocol/timestamp 必填）；12 个错误码映射逐条锁定；帧编解码 round-trip、零长/超大/EOF 三态；陌生 uid 在分发前被拒且错误信息带 uid；无主循环时写方法明确报错（不假装成功）；缺参数是 validate 错误；`validate` 不落任何文件；密钥字段递归脱敏（密码/token/key 不进日志）；`wwwdata` 从 `/etc/passwd` 解析而非猜测、文件缺失时只允许 root；socketpair 上取 `SO_PEERCRED`；未测量时线路状态必须是 unknown/未测量（不许显示健康）；`apply` 回执原样透传（ok=false 也 ok=true 送出，rollback 字段不丢）|
+| `rpc` | 26 | 方法表与架构文档逐条对齐（29 个、无重名、全部带命名空间、写方法标对）；信封形状（成功不带 error、失败不带 data、protocol/timestamp 必填）；12 个错误码映射逐条锁定；帧编解码 round-trip、零长/超大/EOF 三态；陌生 uid 在分发前被拒且错误信息带 uid；无主循环时写方法明确报错（不假装成功）；缺参数是 validate 错误；`validate` 不落任何文件；密钥字段递归脱敏（密码/token/key 不进日志）；`wwwdata` 从 `/etc/passwd` 解析而非猜测、文件缺失时只允许 root；socketpair 上取 `SO_PEERCRED`；未测量时线路状态必须是 unknown/未测量（不许显示健康）；`apply` 回执原样透传（ok=false 也 ok=true 送出，rollback 字段不丢）|
 | `transaction` | 24 | 阶段顺序固定（validate→plan→nft 试算→路由下发→路由复核→nft 下发→nft 复核→快照）且阶段名对日志/RPC 稳定；单事务锁串行化（第二个提交者卡在入口）；试算失败不动内核也不留状态文件；路由失败绝不进 nft 提交；nft apply 失败回滚路由并如实报告回滚结果；nft 复核失败**按逆序**回滚（先 nft 后路由）且不写快照；外来优先级冲突在任何副作用之前拦下；无 nft 通道时拒绝 enabled 提交但允许停用；幂等第二次提交（`[check, apply, check]`，`changed=false`）；快照写失败不得报成功；停用⇒自有对象全清；`reclaim()` 只删自己的规则/路由/表并列出他人对象；游戏规则从 UCI 段一路落到最终 nft 文本；`best` 无结论进 `pending` 不编造线路；事务 id 唯一且写进快照。**限定**：nft 通道是 `FirewallExec::Sim` 替身，只验编排顺序，**不验证 nft 语法** |
-| `bin`（main.rs） | 2 | `--reclaim` 的配置回落：配置不可读（目录/坏内容）与不存在都回落默认参数继续清场 |
+| `bin`（main.rs） | 5 | `--reclaim` 的配置回落：配置不可读（目录/坏内容）与不存在都回落默认参数继续清场 |
 | `tests/`（集成） | 33 | 跨层集成测试：配置→校验→事务、主备回切条件、健康状态机、规则编译→nft 文本、调度桶图、事务编排；见 §4 |
 
 `tests/` 集成测试已落地（6 个文件 / 33 条用例，全部通过）。它们补上了 lib 单测
@@ -99,11 +99,11 @@ gcc 14.4.0），`make package/luci-app-smartmwan/compile V=s` → **BUILD OK**�
 |---|---|---|
 | 1 | 能在 OpenWrt 25.12+ 安装 | **是（真机实证）**：ImmortalWrt SNAPSHOT 真机安装/升级/卸载全部通过，post-install/pre-deinstall 钩子按预期执行 |
 | 2 | 能构建 | **两侧都能**：`cargo build --offline`（WSL）+ 真实 SDK `make package/.../compile`（aarch64 musl）都通过 |
-| 3 | 能测试 | 能：395 lib + 4 bin 单测 + 33 条跨层集成测试（`tests/` 6 个文件）+ Lua 红线脚本 + WSL 真 nft/netlink 端到端 + 真机 ubus 29 方法往返 |
+| 3 | 能测试 | 能：400 lib + 5 bin 单测 + 33 条跨层集成测试（`tests/` 6 个文件）+ Lua 红线脚本 + WSL 真 nft/netlink 端到端 + 真机 ubus 29 方法往返 |
 | 4 | 零 Lua | 是，且有自动化证明（两个方向实测）；包依赖里也无任何 Lua 包 |
 | 5 | 后端为模块化 Rust 常驻服务 | **是（真机实证）**：守护进程常驻、procd 托管、SIGHUP 重载、SIGTERM 优雅关停、崩溃回收、幂等复核都在真机运转 |
 | 6 | 前端 7 页可用 | **服务端可用（真机实证）**：`admin/network/smartmwan` 7 页全部 200、菜单树正确下发；浏览器渲染待人工确认（需退出重登刷新菜单缓存） |
-| 7 | 数据面真实生效 | **是（真机单线路实证）**：enabled=1 后 ip rule 优先级 1000 + 槽位掩码精确落位、表 101 完整镜像、`inet smw` 保护/绕行集合正确、modem0 healthy、实际出网成功；**双 WAN 均衡/主备切换待第二线路接入** |
+| 7 | 数据面真实生效 | **是（真机单线路 + 虚拟机双 WAN 实证）**：enabled=1 后 ip rule 优先级 1000 + 槽位掩码精确落位、表 101 完整镜像、`inet smw` 保护/绕行集合正确、modem0 healthy、实际出网成功；OpenWrt / ImmortalWrt x86_64 KVM 虚拟机已完成双 WAN 失败槽位 `unreachable`、默认路由撤销与单健康线路保留验证；**物理真机双 WAN 切换仍待第二线路接入** |
 | 8 | 安全清单落实 | **是**：注入/配置只读/残留/探测负载/并发事务锁/RPC ACL（SO_PEERCRED + uid 白名单）/审计（脱敏）/前端轮询自停/方法级 ACL（acl.d，无通配）均有实现与验证 |
 | 9 | 不把模拟数据当实时状态 | **是（真机实证）**：未测量时线路显示 unknown/未测量；停用后决策与数据面一致（carries_traffic=false）；探测不可用时 WARN 诚实告警 |
 | 10 | 列出未完成特性 | 是：`README.md`、`CHANGELOG.md`「已知缺失」、`docs/REQUIREMENTS.md` 状态列、`docs/PROGRESS.md` §4 |
@@ -116,11 +116,12 @@ gcc 14.4.0），`make package/luci-app-smartmwan/compile V=s` → **BUILD OK**�
 | `cargo clippy` | **可用** | 0 警告（`-D warnings`）；首轮 20 条风格警告已在 `32b97ad` 清零 |
 | `cargo fmt` | **可用** | `cargo fmt --all -- --check` 无差异 |
 | `nft` 二进制 / netfilter 内核模块 | **WSL 与真机均可用** | WSL nft 1.1.3 完成端到端编排验证；真机 nft 1.1.7 完成能力探测与数据面验证。两版都缺 `dynamic,timeout` 集合与 jhash 种子参数 —— 能力探测如实报「不可用」，域名规则走降级路径并给可见告警 |
-| 真实路由/规则下发 | **真机已执行** | 真机（ImmortalWrt SNAPSHOT，mediatek/filogic aarch64，内核 6.18.55）完成：安装/升级/卸载、enabled=0 零触碰、enabled=1 数据面（ip rule 1000 / 表 101 / inet smw）、状态机全链路、幂等复核、停用回收、管理面不失联。**双 WAN 切换场景待第二线路接入** |
+| 真实路由/规则下发 | **真机 + 虚拟机已执行** | 物理真机（ImmortalWrt SNAPSHOT，mediatek/filogic aarch64，内核 6.18.55）完成：安装/升级/卸载、enabled=0 零触碰、enabled=1 数据面（ip rule 1000 / 表 101 / inet smw）、状态机全链路、幂等复核、停用回收、管理面不失联。OpenWrt / ImmortalWrt x86_64 KVM 虚拟机完成双 WAN 失败槽位 `ip rule ... unreachable`、`table 101/102` 默认路由撤销、带 mark ICMP 端到端与单健康线路选择性保留。**物理真机双 WAN 切换仍待第二线路接入** |
 | OpenWrt SDK / 交叉工具链 | **可用（WSL）** | 真实 25.12 SDK（mediatek/filogic aarch64 musl）完成 apk 构建，产物校验见 §5 |
 | 设备 SSH | **已解决** | dropbear 密码认证正常（Windows 侧 paramiko；此前失败是设备当时的瞬时状态） |
 | ping socket（健康探测前提） | **需部署配置** | ImmortalWrt 内核默认 `net.ipv4.ping_group_range=1 0` 禁用 ping socket；部署需 `sysctl -w net.ipv4.ping_group_range='0 2147483647'` 并持久化到 `/etc/sysctl.conf`。未解锁时健康探测全部诚实告警（线路状态 unknown，不伪造） |
 | `raw.githubusercontent.com` | TLS 中断 | 上游源码引用改走镜像站与本地已核对文件 |
 
-结论：**「端到端可运行 + 可打包 + 真机数据面生效」已全部证实**。剩余真机项：双 WAN
+结论：**「端到端可运行 + 可打包 + 真机数据面生效」已全部证实**。双 WAN 的失败槽位
+fail-fast 已在 OpenWrt / ImmortalWrt x86_64 KVM 虚拟机上完成；剩余物理真机项：双 WAN
 均衡/主备切换（需第二线路接入）、断电重启幂等、浏览器侧人工确认。

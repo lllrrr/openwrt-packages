@@ -69,11 +69,16 @@
 | `probe_timeout` | ms | `800` | 单次探测超时 |
 | `failure_threshold` | int | `3` | 连续失败 N 次判 FAILED |
 | `recovery_threshold` | int | `5` | 连续成功 N 次进入 RECOVERING；小于故障阈值会告警 |
+| `reliability` | int | `1` | 每轮至少多少个探测目标可达才判该线路「本轮正常」。`1` 保持旧行为；多目标线路建议 `2`，避免单个目标被运营商屏蔽导致整线误切。运行时按本轮有效结果数钳制，`Unsupported`/`LocalError` 不会把线路永久判死 |
 | `recover_warmup_ms` | ms | `5000` | RECOVERING 预热期，期间不参与分流 |
 | `degraded_rtt_ms` | ms | `150` | RTT 超阈判 DEGRADED |
 | `degraded_loss_pmm` | ‰ | `20` | 丢包率（千分比）超阈判 DEGRADED |
 | `degraded_jitter_ms` | ms | `40` | 抖动超阈判 DEGRADED |
 | `max_concurrent_probes` | int | `16` | 全局并发上限，防止探测压垮设备；`0` 是错误 |
+
+> **多目标探测按轮投票，不按目标逐条计分。** 同一轮内 4 个目标 2 通 2 断、`reliability=2` 时，
+> 该线路只记一次成功，而不是先消耗两次失败阈值再被两次成功清零。判定结果不再取决于
+> 并发探测的完成顺序。
 
 > **这些默认值不是普适最优。** 5G/4G 模组的蜂窝链路 RTT 基线本身可能在 30–150ms 之间波动，
 > 运营商侧对 ICMP 限速或丢弃也很常见。默认参数偏保守，只保证「不会误判到立刻切换」，

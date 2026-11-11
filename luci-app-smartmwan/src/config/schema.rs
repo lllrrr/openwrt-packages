@@ -280,6 +280,14 @@ pub struct HealthConfig {
     pub failure_threshold: u32,
     /// 连续成功多少次进入 RECOVERING。
     pub recovery_threshold: u32,
+    /// 每轮至少多少个探测目标可达才把该线路判为「本轮正常」。
+    ///
+    /// 这是 mwan3 `reliability` 的等价语义：多目标线路不再让每一个目标的
+    /// 结果单独驱动状态机，而是每轮先投票、再记一次状态。默认 1 保持旧行为
+    /// （任一目标可达即算正常）；多目标线路建议设为 2，避免单个目标被运营商
+    /// 或防火墙屏蔽就整线误切。运行时会被有效探测结果数钳制，不会因为某个
+    /// 目标返回 Unsupported/LocalError 而永远无法恢复。
+    pub reliability: u32,
     /// RECOVERING 预热时间（毫秒），期间不参与分流。
     pub warmup_ms: u64,
     /// RTT 超过该值判定 DEGRADED。
@@ -301,6 +309,7 @@ impl Default for HealthConfig {
             timeout_ms: 800,
             failure_threshold: 3,
             recovery_threshold: 5,
+            reliability: 1,
             warmup_ms: 5000,
             degraded_rtt_ms: 150,
             degraded_loss_pmm: 20,

@@ -199,10 +199,21 @@ impl RuleEntry {
         if slot == 0 || slot > marks::MAX_WANS {
             return false;
         }
-        if self.table != marks::table_of(slot) {
+        if !crate::system::route::is_our_priority(self.priority) {
             return false;
         }
-        crate::system::route::is_our_priority(self.priority)
+        match self.action {
+            FR_ACT_TO_TBL => {
+                self.table == marks::table_of(slot)
+                    && self.priority == crate::system::route::prio_for_slot(slot)
+            }
+            // 失败槽位的 fail-fast 规则：表号无意义（内核回报 0），
+            // 用「优先级 + mark + 掩码 + action」四元组认领，绝不误删别人的规则。
+            FR_ACT_UNREACHABLE => {
+                self.table == 0 && self.priority == crate::system::route::prio_for_unreachable(slot)
+            }
+            _ => false,
+        }
     }
 }
 
@@ -275,6 +286,8 @@ pub struct RuleSpec {
     /// 槽位标记值（低 8 位）。
     pub fwmark: u32,
     pub fwmask: u32,
+    /// `FR_ACT_TO_TBL` 或 `FR_ACT_UNREACHABLE`；其余动作本插件不使用。
+    pub action: u8,
 }
 
 /// 要安装/删除的路由。`dst_len == 0 && dst == None` 表示默认路由。
@@ -483,7 +496,7 @@ fn table_byte(table: u32) -> u8 {
 
 /// 生成一条规则的安装/删除报文。
 pub fn encode_rule(msg_type: u16, seq: u32, pid: u32, spec: &RuleSpec, create: bool) -> Vec<u8> {
-    let mut b = fib_rule_hdr(spec.family, table_byte(spec.table), FR_ACT_TO_TBL);
+    let mut b = fib_rule_hdr(spec.family, table_byte(spec.table), spec.action);
     b.attr_u32(FRA_PRIORITY, spec.priority);
     if spec.fwmask != u32::MAX {
         // 只有非全 1 掩码才需要显式下发；但为了语义明确我们始终成对下发。
@@ -1531,7 +1544,7 @@ impl RouteOps for FakeNetlink {
             family: spec.family,
             priority: spec.priority,
             table: spec.table,
-            action: FR_ACT_TO_TBL,
+            action: spec.action,
             fwmark: Some(spec.fwmark),
             fwmask: Some(spec.fwmask),
             iifname: None,
@@ -1657,6 +1670,7 @@ mod tests {
             table: 101,
             fwmark: 1,
             fwmask: 0xff,
+            action: FR_ACT_TO_TBL,
         };
         let m = encode_rule(RTM_NEWRULE, 7, 4242, &spec, true);
         let len = u32::from_le_bytes([m[0], m[1], m[2], m[3]]) as usize;
@@ -1805,6 +1819,7 @@ mod tests {
             table: 100,
             fwmark: 0,
             fwmask: 0xff,
+            action: FR_ACT_TO_TBL,
         };
         let m = encode_rule(RTM_NEWRULE, 11, 99, &spec, true);
         let (parsed, done, skipped) = parse_stream(RTM_NEWRULE, 12, 4242, &m).unwrap();
@@ -1896,6 +1911,16 @@ mod tests {
         let mut m4 = base.clone();
         m4.fwmark = Some(0);
         assert!(!m4.is_ours());
+
+        // 失败槽位的 unreachable：表号为 0，靠 action + 第二段优先级认领。
+        let mut u = base.clone();
+        u.action = FR_ACT_UNREACHABLE;
+        u.table = 0;
+        u.priority = crate::system::route::prio_for_unreachable(1);
+        assert!(u.is_ours());
+        // 同样的 action 但优先级落在查表段：形状不符，不能认领。
+        u.priority = crate::system::route::prio_for_slot(1);
+        assert!(!u.is_ours());
     }
 
     #[test]
@@ -1907,6 +1932,7 @@ mod tests {
             table: 100,
             fwmark: 1,
             fwmask: 0xff,
+            action: FR_ACT_TO_TBL,
         };
         f.add_rule(&spec).unwrap();
         assert_eq!(f.dump_rules(Family::V4).unwrap().len(), 1);

@@ -4,7 +4,36 @@
 版本号遵循语义化版本。**未发布**段落反映当前工作树，而非某个已归档标签。
 ## [未发布]
 
-（暂无）
+### 变更
+
+* **CI 全量升级至 Node 24 运行时（2026-11-12）**：`.github/workflows/build.yml` 共 8 处
+  `uses:` 升级 —— `actions/checkout@v5` → `v7`、`actions/setup-node@v5` → `v7`、
+  `actions/upload-artifact@v6` → `v7`、`actions/download-artifact@v7` → `v8`。
+* GitHub 已于 2026-09-23 从托管 runner 移除 Node 20 运行时，仍声明 `node20` 的 action 会被强制跑在 Node 24 上并打印 `Node.js 20 is deprecated` 告警，属于未验证状态；本次按各 action 的 `action.yml` 逐一核对 `runs.using` 后统一升级。
+* **仅改 CI 配置**：项目源码、`node-version` / `python-version` / `go-version` 等工具链版本、产物命名与 Release 流程均未改动。告警指的是 action 自身声明的运行时，不是项目构建所用的 Node 版本。
+  本条与同日的 `0.7.0` 发版无关，不改变健康判定、动态均衡与 fail-fast 逻辑。
+* 升级后全仓复扫 59 个工作流/Action 文件：`node20` / `node16` / `node12` 引用残留为 0，所有 YAML 均可解析。
+
+## [0.7.0] — 2026-11-12
+
+### 变更
+
+* **多目标健康判定改为按轮投票**（`health.reliability`，默认 `1`）：同一线路的一轮探测
+  只向状态机提交一次结论，`可达目标数 >= reliability` 即正常。默认值保持旧配置行为；
+  多目标线路建议设为 `2`。`Unsupported`/`LocalError` 仍不计失败，法定人数按有效结果钳制。
+* **动态均衡纳入配置权重**：`least_traffic` / `least_new_connections` 的分配权重改为
+  「剩余容量 × 有效权重」，DEGRADED 线路继续半权。修复低负载时 10:1 被拉成 1:1 的问题。
+* **失败槽位 fail-fast**：线路不可用时撤掉该槽位默认路由并安装
+  `fwmark <slot>/0xff unreachable`；旧连接立即收到 ICMP 不可达，不再静默黑洞。
+  `ip rule` 保留区间由 24 扩展到 48（查表 1000–1023，fail-fast 1024–1047）。
+
+### 修复
+
+* `logging::tests::recent_filters_by_level` 并行执行时把「最后一条恰好不是本模块」
+  误判为 `limit` 失效；改为只验证全局截断长度。
+* **线路级 `probe_interval` 之前只写不读**：主循环固定使用全局周期。现在取所有启用
+  线路中最小的 `interval_ms` 作为轮周期，单线加速探测才会真正生效；没有启用线路时
+  退回全局值。
 
 ## [0.6.0] — 2026-11-01
 

@@ -64,6 +64,11 @@ pub struct Outcome {
     pub notes: Vec<String>,
     /// 每条线路实际分到的桶数（按桶数降序，展示真实比例）。
     pub share: Vec<(String, usize)>,
+    /// 当前不可用、需要 fail-fast 的槽位（已排序去重）。
+    ///
+    /// 事务层会撤掉这些槽位的默认路由并追加 `unreachable` 规则：
+    /// 已建立连接仍带着旧标记，但会立刻收到 ICMP 不可达，而不是被静默黑洞。
+    pub failed_slots: Vec<u8>,
     /// 相对上一轮搬动了多少个桶。
     pub moved: usize,
     /// 本轮决策时间（unix 毫秒）。
@@ -114,6 +119,8 @@ pub struct Scheduler {
     buckets: Vec<u8>,
     /// 上次桶图变化的时间，用于动态算法的最小重排间隔。
     last_rebalance_ms: u64,
+    /// 上一轮的失败槽位，用于判断「桶图没变但拓扑可用性变了」。
+    failed_slots: Vec<u8>,
     /// 最近的变更历史（有界）：RPC 的「最近事件」列表。
     history: VecDeque<(u64, String)>,
 }
@@ -134,6 +141,7 @@ impl Scheduler {
             picker: latency::Picker::new(),
             buckets: Vec::new(),
             last_rebalance_ms: 0,
+            failed_slots: Vec::new(),
             history: VecDeque::new(),
         }
     }
@@ -202,6 +210,8 @@ impl Scheduler {
     pub fn on_config_change(&mut self) {
         self.failover.reset_debounce();
         self.last_rebalance_ms = 0;
+        // 配置变更后槽位可能重排；旧的失败槽位编号不再有意义。
+        self.failed_slots.clear();
     }
 
     /// 游戏规则被删除/停用时清理其选路状态，避免长跑留下垃圾条目。
@@ -234,6 +244,7 @@ impl Scheduler {
             let changed =
                 self.buckets.len() == bucket_count && self.buckets.iter().any(|b| *b != 0);
             self.buckets = vec![0; bucket_count];
+            self.failed_slots.clear();
             return Ok(Outcome {
                 mode: cfg.global.mode,
                 algorithm: cfg.global.algorithm,
@@ -246,6 +257,7 @@ impl Scheduler {
                 reason: "插件已停用：全部流量走系统原路由（main 表），插件不接管".to_string(),
                 notes: vec!["已停用：如需启用请先完成线路与健康探测配置".to_string()],
                 share: Vec::new(),
+                failed_slots: Vec::new(),
                 moved: 0,
                 at_ms: now_ms,
             });
@@ -371,12 +383,17 @@ impl Scheduler {
             }
         };
 
-        let changed = buckets != self.buckets;
+        let failed_slots = failed_slots(cfg, &lines);
+        // 桶图没变、但某条线路刚恢复/刚失效时也必须提交：数据面要撤掉或补上
+        // 该槽位的默认路由与 unreachable 规则。否则低权重线路即使拿到 0 个桶，
+        // 它的旧连接仍会一直黑洞。
+        let changed = buckets != self.buckets || failed_slots != self.failed_slots;
         if changed {
             self.last_rebalance_ms = now_ms;
             self.push_history(now_ms, &format!("{}｜{reason}", cfg.global.mode.as_str()));
         }
         self.buckets = buckets.clone();
+        self.failed_slots = failed_slots.clone();
 
         Ok(Outcome {
             mode: cfg.global.mode,
@@ -390,6 +407,7 @@ impl Scheduler {
             reason,
             notes,
             share: share_of(&self.buckets, &slots),
+            failed_slots,
             moved,
             at_ms: now_ms,
         })
@@ -531,6 +549,30 @@ fn candidates(
     out
 }
 
+/// 当前不可用、需要 fail-fast 的槽位。
+///
+/// 只包含「本来会参与选路」的线路：停用、维护、monitor 角色与没有槽位的线路
+/// 不在此列，避免给从未承载流量的槽位制造内核规则。
+fn failed_slots(cfg: &Config, lines: &[LineState]) -> Vec<u8> {
+    let mut out: Vec<u8> = lines
+        .iter()
+        .filter(|l| {
+            l.enabled
+                && !l.maintenance
+                && l.slot > 0
+                && !l.usable_as_active()
+                && cfg
+                    .wan(&l.name)
+                    .map(|w| w.role != WanRole::Monitor)
+                    .unwrap_or(false)
+        })
+        .map(|l| l.slot)
+        .collect();
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
 /// 桶图 → 每条线路的桶数（按桶数降序、同数按名称，保证 UI 顺序稳定）。
 fn share_of(buckets: &[u8], slots: &BTreeMap<String, u8>) -> Vec<(String, usize)> {
     let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
@@ -668,6 +710,30 @@ mod tests {
             ],
             true,
         )
+    }
+
+    #[test]
+    fn failed_slots_are_reported_and_trigger_a_submit_once() {
+        let c = cfg(
+            Mode::Balance,
+            Algorithm::SrcIp,
+            vec![wan("wan1", 1, 10), wan("wan2", 1, 20)],
+        );
+        let s = snap(
+            vec![
+                health("wan1", State::Healthy, None),
+                health("wan2", State::Failed, None),
+            ],
+            true,
+        );
+        let mut m = Scheduler::new();
+        let a = m.decide(&c, &s, &BTreeMap::new(), 1_000).unwrap();
+        assert_eq!(a.failed_slots, vec![2], "失败线路的槽位必须交给事务层");
+        assert!(a.changed, "首次发现失败槽位必须触发一次提交");
+
+        let b = m.decide(&c, &s, &BTreeMap::new(), 2_000).unwrap();
+        assert_eq!(b.failed_slots, vec![2]);
+        assert!(!b.changed, "失败槽位集合不变时不得重复提交");
     }
 
     #[test]

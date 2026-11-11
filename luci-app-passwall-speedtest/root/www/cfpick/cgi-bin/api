@@ -17,7 +17,7 @@ const SESSION_FILE = '/tmp/cfpick-web.session';
 const DEFAULT_TIMEOUT = 3600;
 const MAX_BODY = 1024 * 1024;
 const GLOBAL_KEYS = [
-	'enabled', 'ip_source', 'ip_online_url', 'custom_ip_file', 'custom_allip',
+	'enabled', 'ip_source', 'ip_online_url', 'ip_online_disabled', 'custom_ip_file', 'custom_allip',
 	'tl', 'tll', 'tlr', 'node_test_url', 'node_test_count', 'node_test_timeout',
 	'node_test_probes', 'node_test_threads', 'download_test_enabled',
 	'download_test_count', 'download_test_url', 'download_test_time',
@@ -628,6 +628,7 @@ function save_config(req) {
 		enabled: to_bool(input.enabled),
 		ip_source: ip_source || 'builtin_ipv4',
 		ip_online_url: clean_text(input.ip_online_url, 500),
+		ip_online_disabled: clean_text(input.ip_online_disabled, 500),
 		custom_ip_file: clean_text(input.custom_ip_file, 500),
 		custom_allip: to_bool(input.custom_allip),
 		tl: to_int(input.tl, 200, 0, 60000),
@@ -644,7 +645,7 @@ function save_config(req) {
 		download_test_time: to_int(input.download_test_time, 10, 1, 60),
 		iterate_enabled: to_bool(input.iterate_enabled),
 		iterate_minutes: to_int(input.iterate_minutes, 30, 1, 10080),
-		iterate_converge_count: to_int(input.iterate_converge_count, 5, 1, 100),
+		iterate_converge_count: to_int(input.iterate_converge_count, 5, 1, 3000),
 		ddns_enabled: to_bool(input.ddns_enabled),
 		ddns_ip_count: to_int(input.ddns_ip_count, 1, 1, 10),
 		ddns_ttl: to_int(input.ddns_ttl, 300, 1, 86400),

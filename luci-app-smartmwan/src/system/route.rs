@@ -23,7 +23,8 @@ use std::net::IpAddr;
 use crate::config::validate::{Issue, Severity};
 use crate::marks;
 use crate::system::netlink::{
-    Family, RouteEntry, RouteOps, RouteSpec, RuleEntry, RuleSpec, RTN_BROADCAST, RTN_LOCAL,
+    Family, RouteEntry, RouteOps, RouteSpec, RuleEntry, RuleSpec, FR_ACT_TO_TBL,
+    FR_ACT_UNREACHABLE, RTN_BROADCAST, RTN_LOCAL,
 };
 use crate::{Error, Result};
 
@@ -34,8 +35,13 @@ use crate::{Error, Result};
 /// 同时我们的规则必须早于 `main` 生效，否则标记不产生作用。
 pub const RULE_PRIO_BASE: u32 = 1000;
 
-/// 保留区间的宽度：每个槽位占一个优先级。
-pub const RULE_PRIO_SPAN: u32 = marks::MAX_WANS as u32;
+/// 保留区间的宽度：每个槽位占两个优先级（查表 + 不可达）。
+///
+/// 布局：`1000..1024` 查表，`1024..1048` 失败槽位的 `unreachable`。
+/// 失败槽位的查表规则仍在，但其默认路由会被撤掉；内核查表失败后会继续
+/// 匹配后面的规则，于是落到 `unreachable`，旧连接立刻收到 ICMP 不可达，
+/// 而不是被静默黑洞到 TCP 超时。
+pub const RULE_PRIO_SPAN: u32 = 2 * marks::MAX_WANS as u32;
 
 pub fn is_our_priority(p: u32) -> bool {
     (RULE_PRIO_BASE..RULE_PRIO_BASE + RULE_PRIO_SPAN).contains(&p)
@@ -45,6 +51,22 @@ pub fn is_our_priority(p: u32) -> bool {
 pub fn prio_for_slot(slot: u8) -> u32 {
     assert!((1..=marks::MAX_WANS).contains(&slot), "槽位越界 {slot}");
     RULE_PRIO_BASE + (slot as u32) - 1
+}
+
+/// 失败槽位的 `unreachable` 规则优先级：排在全部查表规则之后。
+pub fn prio_for_unreachable(slot: u8) -> u32 {
+    assert!((1..=marks::MAX_WANS).contains(&slot), "槽位越界 {slot}");
+    RULE_PRIO_BASE + marks::MAX_WANS as u32 + (slot as u32) - 1
+}
+
+/// 表号 → 槽位（仅接受本插件约定的表号区间）。
+pub fn slot_of_table(table: u32) -> Option<u8> {
+    let base = marks::TABLE_BASE;
+    if table > base && table <= base + marks::MAX_WANS as u32 {
+        Some((table - base) as u8)
+    } else {
+        None
+    }
 }
 
 /// 一条线路的内核侧目标信息（由 `interface.rs` 解析后传入）。
@@ -101,6 +123,56 @@ pub struct Diff {
     pub del_routes: Vec<RouteSpec>,
     /// 与其它组件冲突的客观事实；`Error` 级别时调用方必须拒绝提交。
     pub conflicts: Vec<Issue>,
+}
+
+impl Desired {
+    /// 为失败槽位追加 `unreachable` 规则。
+    ///
+    /// 即使该槽位此刻没有查表规则（5G 掉线、网关消失）也要装：旧连接仍带着
+    /// 这个槽位的 ct mark，必须让它们快速失败，而不是落回 main 表碰运气。
+    pub fn add_unreachable(&mut self, slots: &[u8], families: &[Family]) -> Result<()> {
+        for &slot in slots {
+            if slot == 0 || slot > marks::MAX_WANS {
+                return Err(Error::Config(format!("失败槽位 {slot} 非法")));
+            }
+            for fam in families {
+                let priority = prio_for_unreachable(slot);
+                if self
+                    .rules
+                    .iter()
+                    .any(|r| r.family == *fam && r.priority == priority)
+                {
+                    continue;
+                }
+                self.rules.push(RuleSpec {
+                    family: *fam,
+                    priority,
+                    table: 0,
+                    fwmark: u32::from(slot),
+                    fwmask: marks::RULE_MASK,
+                    action: FR_ACT_UNREACHABLE,
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// 撤掉失败槽位的默认路由。
+    ///
+    /// 这是 `unreachable` 能生效的前提：查表规则仍命中，但表里没有默认路由，
+    /// 内核查表失败后继续匹配后面的规则，落到 fail-fast。直连/镜像路由保留，
+    /// 避免把「访问本机或 LAN」的标记包也一起判死。
+    pub fn drop_default_routes(&mut self, slots: &[u8]) {
+        self.routes.retain(|r| {
+            if r.dst.is_some() || r.dst_len != 0 {
+                return true;
+            }
+            match slot_of_table(r.table) {
+                Some(slot) => !slots.contains(&slot),
+                None => true,
+            }
+        });
+    }
 }
 
 impl Diff {
@@ -171,6 +243,7 @@ pub fn plan(targets: &[WanTarget], mirror: &MirrorSet, families: &[Family]) -> R
                 table,
                 fwmark: t.slot as u32,
                 fwmask: marks::RULE_MASK,
+                action: FR_ACT_TO_TBL,
             });
             // 有网关走网关；点对点蜂窝链路（`default dev wwan0 scope link`）没有网关，
             // 就装同样形式的默认路由，绝不编造一个网关地址。
@@ -191,6 +264,7 @@ pub fn plan(targets: &[WanTarget], mirror: &MirrorSet, families: &[Family]) -> R
                 table,
                 fwmark: t.slot as u32,
                 fwmask: marks::RULE_MASK,
+                action: FR_ACT_TO_TBL,
             });
             d.routes.push(RouteSpec {
                 family: Family::V6,
@@ -358,6 +432,7 @@ pub fn reconcile(
             diff.del_rules.push(RuleSpec {
                 family: have.family,
                 priority: have.priority,
+                action: have.action,
                 table: have.table,
                 fwmark: mark,
                 fwmask: have.fwmask.unwrap_or(marks::RULE_MASK),
@@ -414,6 +489,7 @@ fn rule_matches(have: &RuleEntry, want: &RuleSpec) -> bool {
     have.family == want.family
         && have.priority == want.priority
         && have.table == want.table
+        && have.action == want.action
         && have.fwmark == Some(want.fwmark)
         && have.fwmask == Some(want.fwmask)
 }
@@ -643,8 +719,8 @@ impl<'a> Applier<'a> {
 mod tests {
     use super::*;
     use crate::system::netlink::{
-        FakeNetlink, FR_ACT_TO_TBL, OUR_RTPROT, RTN_LOCAL, RTN_UNICAST, RTPROT_KERNEL,
-        RT_SCOPE_HOST, RT_SCOPE_LINK, RT_SCOPE_UNIVERSE,
+        FakeNetlink, FR_ACT_TO_TBL, FR_ACT_UNREACHABLE, OUR_RTPROT, RTN_LOCAL, RTN_UNICAST,
+        RTPROT_KERNEL, RT_SCOPE_HOST, RT_SCOPE_LINK, RT_SCOPE_UNIVERSE,
     };
     use std::net::Ipv4Addr;
 
@@ -708,7 +784,13 @@ mod tests {
         assert_eq!(prio_for_slot(1), RULE_PRIO_BASE);
         assert_eq!(prio_for_slot(24), RULE_PRIO_BASE + 23);
         assert!(is_our_priority(prio_for_slot(24)));
-        assert!(!is_our_priority(prio_for_slot(24) + 1));
+        // 失败槽位的 unreachable 规则占用紧随其后的第二段区间。
+        assert_eq!(
+            prio_for_unreachable(1),
+            RULE_PRIO_BASE + marks::MAX_WANS as u32
+        );
+        assert!(is_our_priority(prio_for_unreachable(24)));
+        assert!(!is_our_priority(prio_for_unreachable(24) + 1));
     }
 
     #[test]
@@ -724,6 +806,47 @@ mod tests {
         assert_eq!(d.rules[0].table, 101);
         assert_eq!(d.rules[1].table, 102);
         assert_eq!(d.rules[0].priority, prio_for_slot(1));
+    }
+
+    #[test]
+    fn failed_slot_gets_unreachable_and_loses_default_route() {
+        let ts = vec![
+            target(1, "wan1", "eth1", "10.0.0.1"),
+            target(2, "wan2", "eth2", "10.1.1.1"),
+        ];
+        let mut d = plan(&ts, &MirrorSet::default(), &[Family::V4]).unwrap();
+        assert_eq!(d.routes.iter().filter(|r| r.dst.is_none()).count(), 2);
+
+        d.add_unreachable(&[2], &[Family::V4]).unwrap();
+        d.drop_default_routes(&[2]);
+
+        // 查表规则保留（否则旧连接的 ct mark 无处可去），默认路由撤掉，
+        // 于是内核查表失败后继续匹配后面的 unreachable。
+        assert!(d
+            .rules
+            .iter()
+            .any(|r| r.action == FR_ACT_TO_TBL && marks::slot_of(r.fwmark) == 2));
+        let u = d
+            .rules
+            .iter()
+            .find(|r| r.action == FR_ACT_UNREACHABLE)
+            .expect("失败槽位必须装 unreachable");
+        assert_eq!(u.priority, prio_for_unreachable(2));
+        assert_eq!(u.table, 0);
+        assert_eq!(u.fwmark, 2);
+        assert_eq!(u.fwmask, marks::RULE_MASK);
+        assert!(
+            !d.routes
+                .iter()
+                .any(|r| r.table == marks::table_of(2) && r.dst.is_none()),
+            "失败槽位的默认路由必须撤掉"
+        );
+        assert!(
+            d.routes
+                .iter()
+                .any(|r| r.table == marks::table_of(1) && r.dst.is_none()),
+            "健康槽位的默认路由不能受牵连"
+        );
     }
 
     #[test]
@@ -887,6 +1010,7 @@ mod tests {
                     table: 101,
                     fwmark: 1,
                     fwmask: 0xff,
+                    action: FR_ACT_TO_TBL,
                 },
                 RuleSpec {
                     family: Family::V4,
@@ -894,6 +1018,7 @@ mod tests {
                     table: 102,
                     fwmark: 2,
                     fwmask: 0xff,
+                    action: FR_ACT_TO_TBL,
                 },
             ],
             add_routes: vec![RouteSpec::default_v4(
@@ -931,6 +1056,7 @@ mod tests {
                 table: 101,
                 fwmark: 1,
                 fwmask: 0xff,
+                action: FR_ACT_TO_TBL,
             }],
             ..Diff::default()
         };
@@ -1045,6 +1171,7 @@ mod tests {
             table: 101,
             fwmark: 1,
             fwmask: 0xff,
+            action: FR_ACT_TO_TBL,
         };
         fake.add_rule(&old).unwrap();
         fake.fail_add_rule
@@ -1057,6 +1184,7 @@ mod tests {
             table: 102,
             fwmark: 2,
             fwmask: 0xff,
+            action: FR_ACT_TO_TBL,
         };
         let diff = Diff {
             del_rules: vec![old.clone()],
@@ -1086,6 +1214,7 @@ mod tests {
             table: 101,
             fwmark: 1,
             fwmask: 0xff,
+            action: FR_ACT_TO_TBL,
         };
         let b = RuleSpec {
             family: Family::V4,
@@ -1093,6 +1222,7 @@ mod tests {
             table: 102,
             fwmark: 2,
             fwmask: 0xff,
+            action: FR_ACT_TO_TBL,
         };
         fake.fail_add_rule
             .lock()

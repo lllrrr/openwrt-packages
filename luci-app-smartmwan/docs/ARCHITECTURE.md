@@ -104,8 +104,15 @@ RPC 层不得只回一个 bool —— 那等于把「内核现在是什么状态
 * **gen（代际）**：纯粹为了可观测性 —— 排查「这条标记是哪一轮打的」时能区分同槽位的不同批次，
   不参与任何决策。
 * **class**：区分 normal/game/manual/local-policy，用于计数器与 UI 归因，同样不参与选表。
-* **`ip rule` 优先级带**：`RULE_PRIO_BASE(1000) .. +MAX_WANS(24)`，`is_our_priority()` 判定所有权，
-  带外规则一律视为用户的，只审计不改动。
+* **`ip rule` 优先级带**：`RULE_PRIO_BASE(1000) .. +2*MAX_WANS(48)`。前 24 个是查表规则，
+  后 24 个是失败槽位的 `unreachable` 规则；`is_our_priority()` 判定所有权，带外规则一律
+  视为用户的，只审计不改动。两段都要求「优先级 + 槽位 mark + 掩码 + action」四元组匹配
+  才敢删除。
+* **失败槽位 fail-fast**：线路不可用时保留它的查表规则、撤掉表内默认路由，并追加
+  `fwmark <slot>/0xff unreachable`。内核查表失败后会继续匹配后面的规则，于是旧连接
+  立刻收到 ICMP 不可达，而不是被静默黑洞到 TCP 超时。线路恢复时反向操作：
+  先补默认路由，再删 `unreachable`。`Outcome.changed` 与热替换门控都包含失败槽位集合，
+  避免「桶图没变但拓扑可用性变了」被漏提交。
 
 ## 5. nftables 对象命名与安装路径
 

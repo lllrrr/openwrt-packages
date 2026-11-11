@@ -347,6 +347,7 @@ mod tests {
             timeout_ms: 800,
             failure_threshold: 3,
             recovery_threshold: 5,
+            reliability: 1,
             warmup_ms: 5000,
             degraded_rtt_ms: 150,
             degraded_loss_pmm: 50,

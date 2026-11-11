@@ -152,6 +152,9 @@ pub struct Decision {
     pub bucket_map: Vec<u8>,
     /// 游戏规则名 → 选定槽位。`rules::compile` 用它判断 `selection = best` 能否下发。
     pub picks: BTreeMap<String, u8>,
+    /// 当前不可用的槽位：撤默认路由并装 `unreachable`，让旧连接快速失败。
+    #[serde(default)]
+    pub failed_slots: Vec<u8>,
     /// 标记里的代际（bit12..15，仅观测用）。
     pub gen: u8,
     /// 本轮决策时间（写进摘要，便于把内核状态和日志对上）。
@@ -824,6 +827,17 @@ impl Coordinator {
             // 回收完全走 `reconcile` 的所有权判定，不在这里自己拼删除命令：
             // 「我们拥有的才删」这条规则只允许有一份实现。
             ob.desired = Desired::default();
+            ob.diff = route::reconcile(&ob.rules, &ob.routes, &ob.desired);
+        } else {
+            // 失败槽位：先撤默认路由，再补 unreachable。查表规则仍保留，
+            // 内核查表失败后会继续匹配后面的规则，命中 fail-fast。
+            let families: Vec<Family> = if cfg.global.enable_ipv6 {
+                vec![Family::V4, Family::V6]
+            } else {
+                vec![Family::V4]
+            };
+            ob.desired.drop_default_routes(&d.failed_slots);
+            ob.desired.add_unreachable(&d.failed_slots, &families)?;
             ob.diff = route::reconcile(&ob.rules, &ob.routes, &ob.desired);
         }
 
@@ -1729,6 +1743,7 @@ mod tests {
         Decision {
             bucket_map: (0..n).map(|i| if i % 2 == 0 { 1 } else { 2 }).collect(),
             picks: BTreeMap::new(),
+            failed_slots: Vec::new(),
             gen: 3,
             now_ms: 1_700_000_000_000,
         }

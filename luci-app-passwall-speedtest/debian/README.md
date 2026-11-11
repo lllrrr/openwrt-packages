@@ -31,7 +31,7 @@ Python3 标准库实现的 Web 可视化页面。
 * **多 worker 调度**：并发上限可配；首个 worker 完成全部候选且取得有效结果时，其余 worker
   跑完当前 IP 即停（与 OpenWrt 版一致）。
 * **限时迭代收敛**：每个节点独立循环，每遍只复测上一遍通过的 IP，直到时长结束或候选收敛到
-  ≤ `iterate_converge_count`（迭代收敛阈值，默认 5、最多 100，独立于下载候选数）。
+  ≤ `iterate_converge_count`（迭代收敛阈值，默认 5、最多 3000，独立于下载候选数）。
 * **复测现有最优**：`cfpick run retest` 只使用当前 `result.csv` 中该节点的行与链接里的原始 IP，
   不重新下载在线列表。
 * **候选 IP 来源**：内置 IPv4/IPv6 CIDR 列表（每个 /24 取样，可选扫描整个 /24）、在线 CM 源
@@ -285,7 +285,7 @@ cfpick serve              # 前台启动 Web（--listen 0.0.0.0 --port 8787）
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
 | `ip_source` | `builtin_ipv4` | `builtin_ipv4` / `builtin_ipv6` / `online` / `custom_file` |
-| `ip_online_url` | CM 源 | 在线源地址，格式 `IP:PORT#CC` |
+| `ip_online_url` | 合并库 + CM 源 | 在线源地址，格式 `IP:PORT#CC`；可填多个（空格/换行分隔），逐个下载合并，单个源失败只跳过它 |
 | `custom_ip_file` | 空 | 自定义列表路径，支持 CIDR 与纯 IP |
 | `custom_allip` | `false` | 自定义 IPv4 CIDR 是否展开 /24 内全部地址 |
 | `ip_lists` | 5 行 | 在线 CM 源的五个过滤列表：`enabled` / `name` / `regions` / `port` / `latency_max`（该列表的延迟上限，0 = 跟随全局，用于不同地区不同标准） |
@@ -303,7 +303,7 @@ cfpick serve              # 前台启动 Web（--listen 0.0.0.0 --port 8787）
 | `download_time` | `10` | 单 IP 下载时限（秒），截断部分仍按已下载字节算平均速度 |
 | `iterate_enabled` | `false` | 限时迭代 |
 | `iterate_minutes` | `30` | 迭代时长（分钟） |
-| `iterate_converge_count` | `5` | 迭代收敛阈值：剩余候选 ≤ N 个即停止该节点迭代（1–100，独立于 `download_count`） |
+| `iterate_converge_count` | `5` | 迭代收敛阈值：剩余候选 ≤ N 个即停止该节点迭代（1–3000，独立于 `download_count`） |
 | `monitor.enabled` | `true` | 成功后是否派生后台监测：每分钟复测一次成功结果的延迟 |
 | `monitor.interval` | `60` | 监测复测间隔（秒，10–3600） |
 | `monitor.failures` | `1` | 连续失败达到该次数即触发该 worker 的复测（1–10；默认 1 = 一次失败） |

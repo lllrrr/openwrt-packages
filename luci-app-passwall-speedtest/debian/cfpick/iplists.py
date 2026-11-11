@@ -155,39 +155,68 @@ def _fetch_text(url, timeout, logger):
         return response.read().decode("utf-8", "replace")
 
 
-def fetch_online(url, logger, timeout=30, retries=3):
-    """Download and validate the CM source. Returns [(ip, port, region)]."""
-    text = ""
-    last_error = ""
-    for attempt in range(1, retries + 1):
-        try:
-            logger.log("下载在线 CM IP 列表: %s" % url)
-            text = _fetch_text(url, timeout, logger)
-            if text.strip():
-                break
-            last_error = "响应为空"
-        except (urllib.error.URLError, OSError) as exc:
-            last_error = str(exc)
-        if attempt < retries:
-            logger.log("下载失败(第 %d 次): %s,重试..." % (attempt, last_error))
+def split_urls(value):
+    """`ip_online_url` 允许空格/换行/逗号分隔多个地址。"""
+    return [item for item in re.split(r"[\s,]+", value or "") if item]
 
-    entries = []
-    if text.strip():
-        seen = set()
-        for line in text.splitlines():
-            match = ONLINE_LINE.match(line.strip())
-            if not match:
-                continue
-            key = (match.group(1), int(match.group(2)), match.group(3))
-            if key not in seen:
-                seen.add(key)
-                entries.append(key)
+
+def _parse_online_text(text):
+    entries, seen = [], set()
+    for line in text.splitlines():
+        match = ONLINE_LINE.match(line.strip())
+        if not match:
+            continue
+        key = (match.group(1), int(match.group(2)), match.group(3))
+        if key not in seen:
+            seen.add(key)
+            entries.append(key)
+    return entries
+
+
+def fetch_online(value, logger, timeout=30, retries=3):
+    """Download every configured online source. Returns [(ip, port, region)].
+
+    ``value`` may hold several space separated URLs (our merged library plus
+    the CM source as a fallback, for example).  A source that fails or yields
+    no valid line is skipped; the run only fails when every source is empty
+    and there is no cache to fall back to.
+    """
+    urls = split_urls(value)
+    if not urls:
+        raise IpListError("在线源地址为空")
+
+    entries, seen = [], set()
+    for url in urls:
+        text = ""
+        last_error = ""
+        for attempt in range(1, retries + 1):
+            try:
+                logger.log("下载在线 IP 列表: %s" % url)
+                text = _fetch_text(url, timeout, logger)
+                if text.strip():
+                    break
+                last_error = "响应为空"
+            except (urllib.error.URLError, OSError) as exc:
+                last_error = str(exc)
+            if attempt < retries:
+                logger.log("下载失败(第 %d 次): %s,重试..." % (attempt, last_error))
+
+        parsed = _parse_online_text(text) if text.strip() else []
+        if not parsed:
+            logger.log("在线源无有效条目，跳过: %s（%s）" % (url, last_error or "空响应"))
+            continue
+        added = 0
+        for item in parsed:
+            if item not in seen:
+                seen.add(item)
+                entries.append(item)
+                added += 1
+        logger.log("在线源就绪: %d 条（新增 %d） <- %s" % (len(parsed), added, url))
+
+    if entries:
         ipv4_443 = {ip for ip, port, _ in entries if port == 443}
         if len(ipv4_443) < MIN_ONLINE_LINES:
-            logger.log("在线 IP 行数过少 (%d < %d)，疑似源异常" % (len(ipv4_443), MIN_ONLINE_LINES))
-            entries = []
-    else:
-        logger.log("在线列表下载失败: %s" % last_error)
+            logger.log("在线 IP 行数偏少 (%d < %d)，继续使用" % (len(ipv4_443), MIN_ONLINE_LINES))
 
     if not entries:
         if paths.ONLINE_CACHE.exists():

@@ -270,10 +270,10 @@ fn dynamic(req: &Request, mode: SpareMode) -> Result<Assignment> {
         return Ok(a);
     }
 
-    let weights: Vec<u64> = usable
-        .iter()
-        .map(|c| c.load.spare_permille(mode).unwrap_or(1).max(1) as u64)
-        .collect();
+    // 动态算法只能在「配置权重允许的比例」内按剩余容量微调，不能把 10:1 的
+    // 线路拉成 1:1。这里把剩余容量与有效权重相乘：权重是容量意图，剩余容量
+    // 是当下可用空间，二者缺一不可（mwan3 的 weight 语义同理，只是它是静态的）。
+    let weights: Vec<u64> = usable.iter().map(|c| capacity_score(c, mode)).collect();
     let total: u64 = weights.iter().sum();
     let mut counts: Vec<usize> = Vec::with_capacity(usable.len());
     for w in &weights {
@@ -328,8 +328,10 @@ fn dynamic(req: &Request, mode: SpareMode) -> Result<Assignment> {
             let dst = usable.iter().find(|c| c.slot == wanted[idx]);
             let better = match (cur, dst) {
                 (Some(c), Some(d)) => {
-                    let cs = c.load.spare_permille(mode).unwrap_or(0);
-                    let ds = d.load.spare_permille(mode).unwrap_or(0);
+                    // 用「权重 × 剩余容量」比较：同为空闲时，高权重线路仍值得接桶；
+                    // 同权重时退化为纯剩余容量比较，与旧行为一致。
+                    let cs = capacity_score(c, mode);
+                    let ds = capacity_score(d, mode);
                     advantage_permille(ds as f64, cs as f64) >= req.min_advantage_permille as i64
                         || c.load.conn_capped()
                 }
@@ -478,6 +480,18 @@ fn fill_slots(buckets: &mut [u8], cands: &[&Candidate], counts: &[usize]) {
         let idx = (*b as usize) - 1;
         *b = slots.get(idx).copied().unwrap_or(0);
     }
+}
+
+/// 「这条线路还能接多少」的统一口径：剩余容量 × 有效权重。
+///
+/// 有效权重已经包含 `degraded` 半权与 `usable` 归零，因此动态算法不会再把
+/// 降级线路当成满血线路。返回 0 时调用方会按 1 处理（保证还能拿到桶）。
+fn capacity_score(c: &Candidate, mode: SpareMode) -> u64 {
+    let spare = u64::from(c.load.spare_permille(mode).unwrap_or(1).max(1));
+    let weight = c.effective_weight_permille().max(1);
+    // spare ∈ [1,1000]，weight_permille ∈ [1,1_000_000]；除法保留整数比例，
+    // 避免浮点在长跑进程中引入不可复现的分配。
+    (spare * weight) / 1000
 }
 
 fn tally(buckets: &[u8], cands: &[&Candidate]) -> Vec<usize> {
@@ -723,6 +737,35 @@ mod tests {
             b.moved <= 22,
             "交错铺开应把变更压到接近理论下限 11，实测 {}",
             b.moved
+        );
+    }
+
+    #[test]
+    fn dynamic_respects_configured_weight_when_loads_are_equal() {
+        // 两条线路都空闲：旧实现会把 64 个桶均分，完全抹掉 10:1 的配置意图。
+        let mut fast = measured("wan1", 1, 100_000, 1_000_000);
+        fast.weight = 10;
+        let slow = measured("wan2", 2, 100_000, 1_000_000);
+        let cands = vec![fast, slow];
+        let a = assign(&req(Algorithm::LeastTraffic, &cands, None)).unwrap();
+        assert_eq!(
+            counts(&a),
+            vec![(1, 58), (2, 6)],
+            "动态算法必须在权重比例内微调，而不是把 10:1 拉成 1:1"
+        );
+    }
+
+    #[test]
+    fn dynamic_halves_degraded_line_even_when_it_is_idle() {
+        let fast = measured("wan1", 1, 100_000, 1_000_000);
+        let mut slow = measured("wan2", 2, 100_000, 1_000_000);
+        slow.degraded = true;
+        let cands = vec![fast, slow];
+        let a = assign(&req(Algorithm::LeastNewConnections, &cands, None)).unwrap();
+        assert_eq!(
+            counts(&a),
+            vec![(1, 43), (2, 21)],
+            "DEGRADED 线路在动态算法里也必须半权"
         );
     }
 

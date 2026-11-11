@@ -8,7 +8,7 @@
 
 * 这是 OpenWrt/ImmortalWrt **25.12+** 的多 WAN 智能选路插件，**后端 Rust、前端 LuCI JS + ucode，全项目零 Lua**；
 * 已完成：全部代码（后端七层 + 守护进程 + 前端 + 打包）+ **M10 真机验收第一轮**
-  （395 lib + 4 bin + 33 集成测试全绿，clippy/fmt 双零）；
+  （400 lib + 5 bin + 33 集成测试全绿，clippy/fmt 双零）；
 * 真机（ImmortalWrt SNAPSHOT / mediatek-filogic aarch64 / nft 1.1.7）：安装/升级/卸载、
   数据面、健康探测状态机、幂等回收、管理面不失联全部实测通过；抓出**六处真机必爆缺陷**
   全部修复（`docs/PROGRESS.md` §6.20–6.25）—— 每一条在单测/WSL 里都是绿的；
@@ -280,7 +280,7 @@ UCI 文件 `/etc/config/smartmwan`，段类型 `smartmwan`(global) / `wan` / `ga
 |---|---|
 | 无 `nft` 二进制、无 netfilter 内核支持 | 所有 nft/`ip rule` 行为只到「文本正确 + 单测」，不能声称设备可用 |
 | `raw.githubusercontent.com` TLS 中断 | 上游源码引用改用本地已核对文件/镜像站 |
-| 沙箱网络改动有风险 | **已变通**：开发/验证迁到 WSL（Debian，独立网络命名空间）。WSL 里真 netlink + 真 nft 可用，本插件的对象只落在自己的表（101–124）与 `inet smw` 表、自己的优先级带（1000–1023），对 WSL 网络零影响；M7 的全部端到端结论都在这里取得。**仍不要**在共享网络/宿主上直接试 |
+| 沙箱网络改动有风险 | **已变通**：开发/验证迁到 WSL（Debian，独立网络命名空间）。WSL 里真 netlink + 真 nft 可用，本插件的对象只落在自己的表（101–124）与 `inet smw` 表、自己的优先级带（1000–1047：查表 1000–1023，失败槽位 fail-fast 1024–1047），对 WSL 网络零影响；M7 的全部端到端结论都在这里取得。**仍不要**在共享网络/宿主上直接试 |
 | `cargo --offline` | 构建/测试一律加 `--offline`（WSL 内依赖已缓存；`cargo fetch` 走 tuna 镜像 + 代理） |
 
 **已解除的限制（2026-10-26）**：clippy 与 rustfmt 之前不可用（1.98.1 的组件包在镜像 404），
@@ -337,7 +337,7 @@ UCI 文件 `/etc/config/smartmwan`，段类型 `smartmwan`(global) / `wan` / `ga
 2. **M0–M6 已完成**（配置 / 系统 / 健康 / 调度 / 规则 / 事务），`src/transaction.rs` 2322 行 / 24 单测：
    八阶段固定顺序、单事务锁、逆序回滚、last-good 快照、`reclaim()` 残留回收。
    动它之前先读 §2.8。
-3. **M7 已完成**（`src/rpc/mod.rs` 2638 行 / 26 单测 + `src/main.rs` 1653 行 / 4 bin 单测）：
+3. **M7 已完成**（`src/rpc/mod.rs` 2638 行 / 26 单测 + `src/main.rs` 1653 行 / 5 bin 单测）：
    29 方法 + 统一信封 + `SO_PEERCRED` ACL + 脱敏审计 + tokio 监督循环
    （探测环 / 调度环 / 域名刷新环 / SIGHUP / SIGTERM）+ `--dump-include` / `--reclaim`。
    动它们之前先读 §2.9。**别把 WSL 上的端到端通过当成设备验收** —— 目标设备的 nft 版本、

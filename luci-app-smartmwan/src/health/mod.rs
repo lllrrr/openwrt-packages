@@ -200,38 +200,96 @@ impl Tracker {
     }
 
     /// 记入一次探测结果。返回本次是否发生状态迁移。
+    ///
+    /// 保留单结果入口给单测与旧的调用方；生产路径走 [`Tracker::record_batch`]，
+    /// 这样多目标线路每轮只产生一次状态迁移，而不是「每个目标各算一次」。
     pub fn record(&mut self, res: &ProbeResult, now_ms: u64) -> bool {
+        self.record_batch(std::slice::from_ref(res), 1, now_ms)
+    }
+
+    /// 记入同一线路在同一轮内的全部探测结果（mwan3 `reliability` 语义）。
+    ///
+    /// * 有效样本全部进指标窗口（RTT/丢包仍按目标粒度统计）；
+    /// * 状态机每轮只收到一次结论：`可达目标数 >= reliability` 即 `ok`；
+    /// * `Unsupported`/`LocalError` 既不算成功也不算失败，且法定人数会被
+    ///   有效结果数钳制——否则一个没有 ICMP 权限的目标会让线路永远无法恢复。
+    pub fn record_batch(&mut self, results: &[ProbeResult], reliability: u32, now_ms: u64) -> bool {
         // 先做时间推进：否则一次「预热恰好结束」会被推迟到下一次探测才生效。
         self.tick(now_ms);
-        self.probes_total += 1;
-        self.last_outcome = Some(res.outcome.describe());
+        if results.is_empty() {
+            return false;
+        }
+        self.probes_total += results.len() as u64;
+
+        let mut ok_count = 0usize;
+        let mut valid = 0usize;
+        let mut ignored = 0usize;
+        let mut last_ignored: Option<String> = None;
+        let mut at = now_ms;
+        for res in results {
+            if res.at_ms > at {
+                at = res.at_ms;
+            }
+            match res.sample() {
+                Some(sample) => {
+                    valid += 1;
+                    self.window.push(sample);
+                    if res.outcome.is_reply() {
+                        ok_count += 1;
+                    }
+                }
+                None => {
+                    ignored += 1;
+                    last_ignored = Some(res.outcome.describe());
+                }
+            }
+        }
+        self.probes_ignored += ignored as u64;
 
         // 本地错误 / 探测方式不支持：既不进窗口，也不进状态机。
-        let sample = match res.sample() {
-            Some(s) => s,
-            None => {
-                self.probes_ignored += 1;
-                // 反复被忽略说明配置或权限有问题，但这是运行问题，不是断线。
-                if self.probes_ignored == 3 || self.probes_ignored % 30 == 0 {
-                    logging::warn_ctx(
-                        "health",
-                        "probe-ignored",
-                        &format!(
-                            "线路 {} 已累计 {} 次探测未产生有效结论：{}",
-                            self.name,
-                            self.probes_ignored,
-                            res.outcome.describe()
-                        ),
-                        &[("wan", self.name.clone())],
-                    );
-                }
-                return false;
+        if valid == 0 {
+            self.last_outcome =
+                Some(last_ignored.unwrap_or_else(|| "本轮没有产生有效探测结果".to_string()));
+            // 反复被忽略说明配置或权限有问题，但这是运行问题，不是断线。
+            if self.probes_ignored <= 3 || self.probes_ignored % 30 == 0 {
+                logging::warn_ctx(
+                    "health",
+                    "probe-ignored",
+                    &format!(
+                        "线路 {} 累计 {} 次探测未产生有效结论（本轮 {} 个）：{}",
+                        self.name,
+                        self.probes_ignored,
+                        ignored,
+                        self.last_outcome.as_deref().unwrap_or("未知原因")
+                    ),
+                    &[("wan", self.name.clone())],
+                );
             }
-        };
-        self.window.push(sample);
+            return false;
+        }
 
-        let ok = res.outcome.is_reply();
-        let at = if res.at_ms == 0 { now_ms } else { res.at_ms };
+        // 法定人数不能超过本轮有效结果数：被 Unsupported/LocalError 丢弃的目标
+        // 不应把一个本来健康的线路永久判死。
+        let need = (reliability.max(1) as usize).min(valid);
+        let ok = ok_count >= need;
+        // `last_outcome` 的契约是「最近一次探测的原始结果」，保持单结果调用方
+        // （以及 UI 的既有展示）不变；按轮的投票摘要只进日志。
+        self.last_outcome = results.last().map(|r| r.outcome.describe());
+        logging::debug_ctx(
+            "health",
+            "round-quorum",
+            &format!(
+                "线路 {} 本轮 {}，可达 {}/{}（法定 ≥{}，无效 {}）",
+                self.name,
+                if ok { "正常" } else { "异常" },
+                ok_count,
+                valid,
+                need,
+                ignored
+            ),
+            &[("wan", self.name.clone())],
+        );
+
         let degraded = ok
             && self.window.is_degraded(
                 at,
@@ -356,20 +414,31 @@ impl Registry {
     /// 没有迁移」与「没找到」是两件事：曾经把两者混为一个 bool，于是一次普通的
     /// 无迁移探测也会打出「已丢弃」的假日志 —— 排障时它会把人带偏。
     pub fn record(&self, res: &ProbeResult, now_ms: u64) -> bool {
+        self.record_round(&res.req.wan, std::slice::from_ref(res), 1, now_ms)
+    }
+
+    /// 记入同一线路在同一轮内的全部结果：一次投票、一次状态迁移。
+    pub fn record_round(
+        &self,
+        wan: &str,
+        results: &[ProbeResult],
+        reliability: u32,
+        now_ms: u64,
+    ) -> bool {
         let mut found = false;
         let mut transitioned = false;
         self.with(|m| {
-            if let Some(t) = m.get_mut(&res.req.wan) {
+            if let Some(t) = m.get_mut(wan) {
                 found = true;
-                transitioned = t.record(res, now_ms);
+                transitioned = t.record_batch(results, reliability, now_ms);
             }
         });
         if !found {
             logging::debug_ctx(
                 "health",
                 "probe-orphan",
-                &format!("收到未知线路 {} 的探测结果，已丢弃", res.req.wan),
-                &[("wan", res.req.wan.clone())],
+                &format!("收到未知线路 {wan} 的探测结果，已丢弃"),
+                &[("wan", wan.to_string())],
             );
         }
         transitioned
@@ -610,14 +679,24 @@ pub async fn run_round<P: Prober + ?Sized>(
         let deadline = std::time::Duration::from_millis(plan.batch_deadline_ms);
         let results = probe_batch(prober, plan.requests, deadline, cancel).await;
         info.cancelled = results.len() < info.planned;
+
+        // 按线路聚合后再写入追踪器：状态机每轮只应看到一次「这条线是否正常」，
+        // 而不是 N 个目标各自的成败。否则一个目标被屏蔽就会消耗 N 次失败阈值，
+        // 而另一个目标的成功又会把计数清零，判定结果取决于探测完成顺序。
+        let mut grouped: BTreeMap<String, Vec<ProbeResult>> = BTreeMap::new();
         for res in results {
             if res.sample().is_none() {
                 info.ignored += 1;
             }
-            if registry.record(&res, logging::now_ms()) {
+            info.completed += 1;
+            grouped.entry(res.req.wan.clone()).or_default().push(res);
+        }
+        let at = logging::now_ms();
+        for (wan, rs) in grouped {
+            let reliability = cfg.wan(&wan).map(|w| w.health.reliability).unwrap_or(1);
+            if registry.record_round(&wan, &rs, reliability, at) {
                 info.transitions += 1;
             }
-            info.completed += 1;
         }
     }
     if info.completed > 0 {
@@ -861,6 +940,48 @@ mod tests {
             s.probes_total > s.probes_ignored,
             "总数必须同时包含有效与无效"
         );
+    }
+
+    #[test]
+    fn round_quorum_decides_once_and_clamps_to_valid_results() {
+        let mut h = hc();
+        h.failure_threshold = 1;
+        h.recovery_threshold = 1;
+        h.warmup_ms = 0;
+        let mut t = Tracker::new("wan1", &h, 0);
+
+        let ok = res(ProbeProto::Icmp, Outcome::Reply { rtt_ms: 10 }, 100);
+        let bad = res(ProbeProto::Icmp, Outcome::Timeout, 100);
+        let unsupported = res(
+            ProbeProto::Icmp,
+            Outcome::Unsupported("没有 ICMP 权限".into()),
+            100,
+        );
+
+        // 4 个目标、2 通 2 断、法定 2：整轮判健康，而不是被两个失败目标拖死。
+        let batch = vec![ok.clone(), ok.clone(), bad.clone(), bad.clone()];
+        assert!(t.record_batch(&batch, 2, 100));
+        assert_eq!(t.state(), State::Healthy);
+        assert_eq!(t.snapshot(100).probes_total, 4);
+
+        // 同样的结果、法定 3：一轮即判失败（failure_threshold=1）。
+        assert!(t.record_batch(&batch, 3, 200));
+        assert_eq!(t.state(), State::Failed);
+
+        // 无效结果不计成功/失败，并把法定人数钳制到有效结果数：
+        // 1 个可达 + 3 个不支持、法定 4 仍应判健康，否则“没有 ICMP 权限”会
+        // 让线路永远无法回到池子。用一个干净的追踪器，避免上一批的丢包窗口
+        // 把本轮判成 DEGRADED。
+        let mut t2 = Tracker::new("wan1", &h, 0);
+        let mixed = vec![
+            ok.clone(),
+            unsupported.clone(),
+            unsupported.clone(),
+            unsupported.clone(),
+        ];
+        assert!(t2.record_batch(&mixed, 4, 300));
+        assert_eq!(t2.state(), State::Healthy, "法定人数应被有效结果数钳制");
+        assert_eq!(t2.snapshot(300).probes_ignored, 3);
     }
 
     #[test]

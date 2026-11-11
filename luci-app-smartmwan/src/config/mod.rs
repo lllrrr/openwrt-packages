@@ -274,6 +274,7 @@ fn decode_health(sec: &Section, base: &HealthConfig) -> HealthConfig {
         timeout_ms: number(sec, "probe_timeout", base.timeout_ms),
         failure_threshold: number(sec, "failure_threshold", base.failure_threshold),
         recovery_threshold: number(sec, "recovery_threshold", base.recovery_threshold),
+        reliability: number(sec, "reliability", base.reliability),
         warmup_ms: number(sec, "recover_warmup_ms", base.warmup_ms),
         degraded_rtt_ms: number(sec, "degraded_rtt_ms", base.degraded_rtt_ms),
         degraded_loss_pmm: number(sec, "degraded_loss_pmm", base.degraded_loss_pmm),
@@ -477,6 +478,7 @@ fn encode_health(sec: &mut Section, h: &HealthConfig) {
     sec.set_option("probe_timeout", &h.timeout_ms.to_string());
     sec.set_option("failure_threshold", &h.failure_threshold.to_string());
     sec.set_option("recovery_threshold", &h.recovery_threshold.to_string());
+    sec.set_option("reliability", &h.reliability.to_string());
     sec.set_option("recover_warmup_ms", &h.warmup_ms.to_string());
     sec.set_option("degraded_rtt_ms", &h.degraded_rtt_ms.to_string());
     sec.set_option("degraded_loss_pmm", &h.degraded_loss_pmm.to_string());

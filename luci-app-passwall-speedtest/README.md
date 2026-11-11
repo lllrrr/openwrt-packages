@@ -7,7 +7,7 @@
 
 **CFPick 是一个 Cloudflare CDN 优选 IP 工具：用真实的代理内核在本机实测，从 Cloudflare 真实的 CDN 边缘节点中挑出对你这条线路最快的 IP。**
 
-*   **候选可以来自最新的在线优选 IP 列表**：选择在线 CM 源后，每轮测速前都会实时拉取最新列表（`IP:PORT#国家码`，可按国家和端口筛选，URL 可自定义）；也可改用内置 IPv4 / IPv6 列表或自定义 IP 文件。列表只是候选，不是最终结论。
+*   **候选可以来自最新的在线优选 IP 列表**：选择在线源后，每轮测速前都会实时拉取最新列表（`IP:PORT#国家码`，可按国家和端口筛选）。默认地址是我们的合并库 `Cloudflare-IP/main/ip_libs.txt`（由该仓库 Action 每小时把 CM、IPDB、LancelotRar、HandsomeMJZ、HostMonit、VPS789 等多个库归一化合并），GitHub 不可达时自动退到 CM 源 `zip.cm.edu.kg/all.txt`；设置页把在线源做成了列表：一行一个源，勾选表示启用（可多选），最下方输入框回车即添加；启用的源逐个下载后合并去重，单个源失败只跳过它。也可改用内置 IPv4 / IPv6 列表或自定义 IP 文件。列表只是候选，不是最终结论。
 *   **用真实内核、真实链路测速**：每个候选 IP 都临时写进节点配置，由本机 mihomo / Xray-core 内核，或你已有的 [PassWall](https://github.com/xiaorouji/openwrt-passwall) 节点拉起本地 SOCKS，对候选 IP 发起真实连接并实测。
 *   **选的是本地最优，而不是列表排名**：先对全部候选测延迟，再对延迟最优的若干 IP 真实下载固定大小文件测吞吐；最终选哪个 IP 取决于你本机的实际网络，而不是别人测出来的排序。
 
@@ -33,11 +33,11 @@ CFPick 提供两种部署方式：
 *   **复测现有最优 IP**：主设置页新增「复测现有最优 IP」按钮（CLI：`/usr/lib/cfpick/bin/cfpick.sh retest`）——**不重新下载在线 IP 列表**，只取当前 `result.csv` 中该节点的行 + 节点当前 `address`，DDNS 节点再解析其域名当前指向的 IP 作为候选。候选按 passwall section ID 匹配（旧结果没有 ID 列时回退节点名），改 remarks 不会再把节点认丢。候选来源与调度方式相互独立：默认做一轮延迟测试 + 下载实测；若同时开启「限时迭代测速」，同一批候选会进入各节点的收敛循环直到 `iterate_minutes` 结束，每轮剔除未通过的 IP。结束后照常写回。适合定时跑完后快速确认现有最优是否仍然可用、或在不拉取上万条候选的情况下重新排序。
 *   **多线程 worker**：在「第三方设置」里选的 passwall 节点作为并行 worker——每个 worker 经自己的链路测全部候选 IP、各写各的最优 IP；并发上限由 `node_test_threads` 控制。
 *   **多探测 fail-fast**：每个 IP 探测 `node_test_probes` 次；任意一次失败该 IP 立即丢弃。只有全部探测都成功的 IP 才保留，确保结果稳定。
-*   **成功后监测**：worker 取得有效结果后派生后台监测进程，每 `monitor_interval` 秒（默认 60）复测一次这个成功结果的延迟：普通节点测已写回的 address（即 result.csv 里该 worker 的最优 IP），配置了 DDNS 域名的节点按域名测（先解析，优先测记录里仍指向的最优 IP）。连续 `monitor_failures` 次（默认 1，即一次失败）失败即触发该 worker 的复测，且复测分两遍：先快速复测（延迟探测凑够 `download_count` 个候选即停，随即下载筛选），无论其成功与否，再正常复测一次；两遍都没有产出新结果（当前 IP/候选已失效）时，第三轮改用普通测速候选重新拉取 IP 列表。下载实测全部失败的节点不算有效结果，不会写回/发 DDNS，也会触发刷新候选。worker 被下一次定时/手动任务占用时监测自动退出让位，任务成功后重新拉起。监测只做轻量 HEAD 探测，不选 IP、不写回、不占下载锁；下载实测期间自动跳过。节点页每个 worker 显示「监测 X ms」徽标，明细见 `/tmp/cfpick.log`。可用 `monitor_enabled=0` 关闭。
-*   **限时迭代测速**：开启 `iterate_enabled` 后进入计时模式——每个待测节点跑**独立的收敛循环**直到 `iterate_minutes` 分钟：第 1 遍测完自己的候选后，每遍只测上一遍通过的 IP，候选池逐遍收敛到最稳定、延迟最低的 IP；运行期间不写 result.csv、不写回 passwall。节点候选收敛到 **≤「迭代收敛阈值」**（`iterate_converge_count`，默认 5、最多 100）即保存结果提前结束，该阈值与下载实测候选数 `download_test_count` 相互独立；不必等到计时结束；结束时日志打出各节点最终轮的完整测速结果，随后一次性写回各节点最优。
+*   **成功后监测**：worker 取得有效结果后派生后台监测进程，每 `monitor_interval` 秒（默认 60，刚启动的首轮也先等满一个间隔再探）复测一次这个成功结果的延迟：普通节点测已写回的 address（即 result.csv 里该 worker 的最优 IP），配置了 DDNS 域名的节点按域名测（先解析，优先测记录里仍指向的最优 IP）。连续 `monitor_failures` 次（默认 1，即一次失败）失败即触发该 worker 的复测，且复测分两遍：先快速复测（延迟探测凑够 `download_count` 个候选即停，随即下载筛选），无论其成功与否，再正常复测一次；两遍都没有产出新结果（当前 IP/候选已失效）时，第三轮改用普通测速候选重新拉取 IP 列表。下载实测全部失败的节点不算有效结果，不会写回/发 DDNS，也会触发刷新候选。worker 被下一次定时/手动任务占用时监测自动退出让位，任务成功后重新拉起。监测只做轻量 HEAD 探测，不选 IP、不写回、不占下载锁；下载实测期间自动跳过。节点页每个 worker 显示「监测 X ms」徽标，明细见 `/tmp/cfpick.log`。可用 `monitor_enabled=0` 关闭。
+*   **限时迭代测速**：开启 `iterate_enabled` 后进入计时模式——每个待测节点跑**独立的收敛循环**直到 `iterate_minutes` 分钟：第 1 遍测完自己的候选后，每遍只测上一遍通过的 IP，候选池逐遍收敛到最稳定、延迟最低的 IP；运行期间不写 result.csv、不写回 passwall。节点候选收敛到 **≤「迭代收敛阈值」**（`iterate_converge_count`，默认 5、最多 3000）即保存结果提前结束，该阈值与下载实测候选数 `download_test_count` 相互独立；不必等到计时结束；结束时日志打出各节点最终轮的完整测速结果，随后一次性写回各节点最优。
 *   **应用到代理插件**：最优 IP 自动写回 ssr / passwall / passwall2 / bypass / vssr 节点，以及 HOST / MosDNS / astra-dns / 阿里云 DDNS。
 *   **优化的界面与日志**：重新设计的状态展示；逐 IP 日志如 `进度: 走节点测速 [节点] 5/30 (16%) - 1.2.3.4 延迟 87ms 丢包 0.00 [保留]`。
-*   **中途停止不丢结果**：中途停止会清理临时内核；测速期间不改写 PassWall 配置，若无新结果则保留上一次结果。**用户手动停止第一轮时，已通过延迟的 IP 仍会完成下载实测**（每 worker 最多 `download_test_count` 个（上限 10）；所有 worker 停止探测后逐节点逐 IP 串行）后再写回；「首个 worker 已完成、其余自动提前停止」也一样，不再跳过其余 worker 的下载。
+*   **中途停止不丢结果**：中途停止会清理临时内核；测速期间不改写 PassWall 配置，若无新结果则保留上一次结果。**用户手动停止第一轮时，已通过延迟的 IP 仍会完成下载实测**（每 worker 最多 `download_test_count` 个（上限 10）；多 worker 并行时各 worker 一跑完自己的候选就抢全局下载锁立即实测，其它 worker 的探测暂停让路，不必等最慢的 worker；未提前下载的再由主进程补测）后再写回；「首个 worker 已完成、其余自动提前停止」也一样，不再跳过其余 worker 的下载。
 *   **丰富的应用集成**：优选 IP 可自动应用到 SSR+ / Passwall / PassWall2 / Bypass / Vssr / HOST / MosDNS / astra-dns / 阿里云 DDNS。
 *   **独立内核测速（固定）**：统一测速始终使用本机 mihomo / Xray-core 内核（同一套节点、IP 列表和参数），内核可独立安装/升级；不再依赖 `run_socks`，测速期间不改写 PassWall 节点/切全局节点，PassWall 只在写回最优 IP 时使用。
 
@@ -97,7 +97,7 @@ CFPick 提供两种部署方式：
 *   **双内核 + 自助升级**：mihomo 与 Xray-core 二选一；页签按内核各显示一张卡片（版本、路径、来源、当前使用状态），可填版本标签后单独「安装/升级」到 `/etc/cfpick/state/core`（独立于 PassWall 的内核），也可继续复用系统 `/usr/bin/mihomo`、`/usr/bin/xray`。
 *   **测速期间不碰 PassWall**：不改写节点 `address`、不切换全局节点、不调用 `run_socks`；内核出站带 `mark 255`，命中 PassWall OUTPUT 链的 `meta mark 255 return`，保持「本地 SOCKS → 被测节点」单层。节点类型与所选内核不兼容（如 hysteria2、带 plugin 的 SS）时明确报错/跳过，不再静默回退。
 *   **写回**：测完把各 worker 的最优 IP 写回 PassWall 节点（仅非 DDNS 节点）；配置了 DDNS 域名的节点只写 DNS，不写回 passwall。
-*   **端口与内核健康**：探测前先探端口、被占用就换；启动后等内核真正监听；失败会明确报错、换端口重试，并全局暂停探测直到内核恢复。
+*   **端口与内核健康**：每个任务启动时独占一段探测端口（并发复测/测速不会互相抢 18000）；探测前先探端口、被占用就换；启动后等内核真正监听；失败会明确报错、换端口重试，并暂停本任务的探测直到内核恢复。
 *   **CLI**：
     ```sh
     cfpick cores

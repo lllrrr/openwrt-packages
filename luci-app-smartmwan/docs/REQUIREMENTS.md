@@ -77,9 +77,9 @@
 | # | 要求 | 状态 |
 |---|---|---|
 | 5.1 | `UNKNOWN→HEALTHY→DEGRADED→FAILED→RECOVERING→HEALTHY` | 完成（`health/state.rs`） |
-| 5.2 | 迁移条件可配 | 完成（`HealthConfig` 8 个阈值，线路级覆盖） |
+| 5.2 | 迁移条件可配 | 完成（`HealthConfig` 9 个阈值，含每轮法定探测目标数 `reliability`，线路级覆盖） |
 | 5.3 | 单测覆盖迁移 | 完成（`health` 模块测试 + 时间驱动 `tick()`） |
-| 5.4 | 默认 1000/800/3/5/5000ms，并声明「不适合所有 5G 模组」 | 完成（默认值 + 注释 + 本文件 §9） |
+| 5.4 | 默认 1000/800/3/5/5000ms、`reliability=1`，并声明「不适合所有 5G 模组」 | 完成（默认值 + 注释 + 本文件 §9） |
 | 5.5 | 探测不得计为线路失败的类型 | 完成：`Unsupported`/`LocalError` 不改状态；`Reply/Timeout/Unreachable` 才计分 |
 | 5.6 | 探测必须绑定出口设备与源地址 | 完成：`SO_BINDTODEVICE`(25) + 显式 bind + ping socket（无需 `CAP_NET_RAW`） |
 

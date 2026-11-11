@@ -278,6 +278,14 @@ pub fn validate(cfg: &Config) -> Report {
             None,
         );
     }
+    if h.reliability == 0 {
+        err(
+            &mut r,
+            "smartmwan.global.health.reliability",
+            "每轮法定探测目标数必须 ≥1".into(),
+            Some("1 表示任一目标可达即算正常；多目标线路建议 2".into()),
+        );
+    }
     if h.recovery_threshold < h.failure_threshold {
         warn(
             &mut r,
@@ -459,6 +467,25 @@ pub fn validate(cfg: &Config) -> Report {
                 &format!("{base}.probe_targets"),
                 format!("探测目标 {} 个偏多", w.probe_targets.len()),
                 Some("3~5 个足以避免单目标屏蔽 ICMP 造成误判".into()),
+            );
+        }
+        if w.health.reliability == 0 {
+            err(
+                &mut r,
+                &format!("{base}.reliability"),
+                "每轮法定探测目标数必须 ≥1".into(),
+                None,
+            );
+        } else if w.health.reliability as usize > w.probe_targets.len().max(1) {
+            warn(
+                &mut r,
+                &format!("{base}.reliability"),
+                format!(
+                    "法定目标数 {} 大于已配置的探测目标数 {}，运行时会按有效结果数钳制",
+                    w.health.reliability,
+                    w.probe_targets.len().max(1)
+                ),
+                Some("建议 reliability ≤ 探测目标数；没有显式目标时按网关 1 个目标计算".into()),
             );
         }
         for (j, t) in w.probe_targets.iter().enumerate() {

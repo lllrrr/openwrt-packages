@@ -673,6 +673,8 @@ struct Daemon {
     /// 上次成功应用时的游戏择优结果。择优变化改的是游戏规则的标记（槽位位），
     /// 只替换桶规则会把游戏流量留在旧出口，因此它必须参与「要不要提交 / 能否热替换」的判断。
     last_picks: BTreeMap<String, u8>,
+    /// 上次成功应用时的失败槽位。失败槽位变化要改路由规则，绝不能走桶热替换。
+    last_failed_slots: Vec<u8>,
     /// 上次提交是否成功收敛（热替换的前置条件，也是失败重试的依据）。
     last_ok: bool,
     /// 决策代际（4bit）。只在**完整事务**提交时递增：热替换要求程序文本除桶图外
@@ -790,6 +792,7 @@ impl Daemon {
             shutdown_ctl,
             last_applied_fp: None,
             last_picks: BTreeMap::new(),
+            last_failed_slots: Vec::new(),
             last_ok: false,
             gen: 0,
             last_probe_ms: 0,
@@ -902,7 +905,7 @@ impl Daemon {
     async fn tick(&mut self) {
         let now = logging::now_ms();
         let cfg = self.st.cfg_snapshot();
-        let interval = u64::from(cfg.global.health.interval_ms.max(100));
+        let interval = probe_interval_ms(&cfg);
         if self.last_probe_ms == 0 || now.saturating_sub(self.last_probe_ms) >= interval {
             self.probe_round(&cfg, now).await;
             self.last_probe_ms = now;
@@ -954,7 +957,7 @@ impl Daemon {
                 let now = logging::now_ms();
                 // RPC 触发：探测到期就先补一轮（用户可能刚改了配置），再强制提交一次，
                 // 让回执如实反映「我检查过了，有没有变更」。
-                let interval = u64::from(cfg.global.health.interval_ms.max(100));
+                let interval = probe_interval_ms(&cfg);
                 if self.last_probe_ms == 0 || now.saturating_sub(self.last_probe_ms) >= interval {
                     self.probe_round(&cfg, now).await;
                     self.last_probe_ms = now;
@@ -1104,6 +1107,7 @@ impl Daemon {
                 let decision = Decision {
                     bucket_map: outcome.buckets.clone(),
                     picks,
+                    failed_slots: outcome.failed_slots.clone(),
                     gen: self.gen,
                     now_ms: now,
                 };
@@ -1227,9 +1231,16 @@ impl Daemon {
     ) -> Option<Receipt> {
         let fp = config::fingerprint(cfg);
         let picks_changed = decision.picks != self.last_picks;
+        let failed_slots_changed = decision.failed_slots != self.last_failed_slots;
         let same_config = self.last_applied_fp.as_deref() == Some(fp.as_str());
         if !force
-            && hot_replace_allowed(self.nft.is_some(), self.last_ok, same_config, picks_changed)
+            && hot_replace_allowed(
+                self.nft.is_some(),
+                self.last_ok,
+                same_config,
+                picks_changed,
+                failed_slots_changed,
+            )
         {
             match self.hot_replace(cfg, decision).await {
                 Ok(rec) => {
@@ -1237,6 +1248,7 @@ impl Daemon {
                     self.last_ok = true;
                     self.last_applied_fp = Some(fp);
                     self.last_picks = decision.picks.clone();
+                    self.last_failed_slots = decision.failed_slots.clone();
                     return Some(rec);
                 }
                 Err(e) => {
@@ -1260,6 +1272,7 @@ impl Daemon {
         if receipt.ok {
             self.last_applied_fp = Some(fp);
             self.last_picks = applied.picks.clone();
+            self.last_failed_slots = applied.failed_slots.clone();
             // 让 UI 看到的决策与真正下发的代际一致。
             *self.st.decision.write().unwrap_or_else(|p| p.into_inner()) = applied;
             self.next_retry_ms = 0;
@@ -1398,6 +1411,21 @@ impl Daemon {
 /// `last_ok == false` 表示上一次提交失败：此时即使「本轮没有任何新变化」也必须重试。
 /// 否则一次桶图提交失败后，下一轮 `outcome_changed` / `cfg_changed` 都是相对上一轮
 /// **决策**算出来的假，`cycle` 会在退避检查之前提前返回，失败永远不收敛。
+/// 本轮探测的实际周期：取所有启用线路中最小的 `health.interval_ms`。
+///
+/// 线路级 `probe_interval` 是文档承诺的可覆盖项，但旧实现只读全局值，
+/// 导致单条线路配的更快探测永远不会生效。一轮探测会覆盖全部线路，
+/// 因此用「最快的那条」作为轮周期；没有启用线路时退回全局值。
+fn probe_interval_ms(cfg: &Config) -> u64 {
+    cfg.wans
+        .iter()
+        .filter(|w| w.enabled && !w.maintenance)
+        .map(|w| u64::from(w.health.interval_ms.max(100)))
+        .min()
+        .unwrap_or_else(|| u64::from(cfg.global.health.interval_ms.max(100)))
+        .max(100)
+}
+
 fn needs_submit(
     force: bool,
     outcome_changed: bool,
@@ -1418,8 +1446,11 @@ fn hot_replace_allowed(
     last_ok: bool,
     same_config: bool,
     picks_changed: bool,
+    failed_slots_changed: bool,
 ) -> bool {
-    has_nft && last_ok && same_config && !picks_changed
+    // 失败槽位变化要撤/补默认路由和 unreachable 规则；桶热替换只改 nft map，
+    // 放过去会让内核里的策略路由与决策脱节。
+    has_nft && last_ok && same_config && !picks_changed && !failed_slots_changed
 }
 
 // ==================== 旁路环 ====================
@@ -1624,6 +1655,36 @@ mod tests {
     }
 
     #[test]
+    fn per_line_probe_interval_is_honoured() {
+        use smartmwan::config::schema::{HealthConfig, WanConfig};
+        let mut c = Config::default();
+        c.global.health.interval_ms = 1000;
+        c.wans = vec![
+            WanConfig {
+                name: "a".into(),
+                health: HealthConfig {
+                    interval_ms: 250,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            WanConfig {
+                name: "b".into(),
+                health: HealthConfig {
+                    interval_ms: 900,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        ];
+        assert_eq!(probe_interval_ms(&c), 250, "取启用线路中最快的周期");
+        c.wans[0].enabled = false;
+        assert_eq!(probe_interval_ms(&c), 900, "停用线路不参与取最小值");
+        c.wans.clear();
+        assert_eq!(probe_interval_ms(&c), 1000, "没有启用线路时退回全局值");
+    }
+
+    #[test]
     fn failed_submit_is_retried_even_without_new_changes() {
         // 关键回归：桶图提交失败后，下一轮「相对上一轮决策」看起来毫无变化。
         // 若门控只看变化标志，退避重试永远不可达 —— 一次失败就永久停在不收敛状态。
@@ -1642,12 +1703,14 @@ mod tests {
     fn hot_replace_is_refused_when_picks_change() {
         // 择优变化改的是游戏规则标记（槽位位），而热替换只 replace 桶规则：
         // 放过去会让游戏流量继续走旧出口。必须回退完整事务。
-        assert!(!hot_replace_allowed(true, true, true, true));
+        assert!(!hot_replace_allowed(true, true, true, true, false));
+        // 失败槽位变化同样必须回退完整事务。
+        assert!(!hot_replace_allowed(true, true, true, false, true));
         // 其余条件任一不满足都拒绝。
-        assert!(!hot_replace_allowed(false, true, true, false));
-        assert!(!hot_replace_allowed(true, false, true, false));
-        assert!(!hot_replace_allowed(true, true, false, false));
-        // 四项都满足才允许。
-        assert!(hot_replace_allowed(true, true, true, false));
+        assert!(!hot_replace_allowed(false, true, true, false, false));
+        assert!(!hot_replace_allowed(true, false, true, false, false));
+        assert!(!hot_replace_allowed(true, true, false, false, false));
+        // 五项都满足才允许。
+        assert!(hot_replace_allowed(true, true, true, false, false));
     }
 }

@@ -295,6 +295,16 @@ input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent);
 select.compact { width: auto; min-width: 140px; min-height: 30px; padding: 4px 8px; font-size: 0.8rem; }
 textarea { resize: vertical; font-family: var(--mono); font-size: 0.78rem; }
 
+/* 在线源列表：一行一个源，勾选启用，底部输入框回车添加。 */
+.online-sources {
+  grid-column: 1 / -1; display: flex; flex-direction: column; gap: 6px;
+}
+.online-sources-title { font-size: 0.8rem; color: var(--muted); font-weight: 550; }
+.source-list { display: flex; flex-direction: column; gap: 6px; }
+.source-row { display: flex; align-items: center; gap: 8px; }
+.source-row input[type="text"] { flex: 1; min-width: 0; }
+.source-row .btn { flex: 0 0 auto; }
+
 .save-bar {
   display: flex; align-items: center; gap: 16px; justify-content: flex-end;
   position: sticky; bottom: 12px; padding: 10px 14px; margin: 0 0 16px;

@@ -106,6 +106,57 @@ class _Log:
         self.lines.append(str(message))
 
 
+class MultiSourceTests(unittest.TestCase):
+    """在线源支持多个地址，逐个下载后合并；单个源失败只跳过它。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+        self.log = _Log()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_split_urls(self):
+        self.assertEqual(iplists.split_urls("https://a https://b\nhttps://c,https://d"),
+                         ["https://a", "https://b", "https://c", "https://d"])
+        self.assertEqual(iplists.split_urls(""), [])
+
+    def fetch(self, value, pages):
+        def fake(url, timeout, logger):
+            if url not in pages:
+                raise OSError("boom")
+            return pages[url]
+
+        with mock.patch("cfpick.iplists._fetch_text", side_effect=fake), \
+                mock.patch.object(iplists.paths, "ONLINE_CACHE",
+                                  self.dir / "online_raw.txt"), \
+                mock.patch.object(iplists.paths, "STATE_DIR", self.dir):
+            return iplists.fetch_online(value, self.log)
+
+    def test_merges_sources_and_dedupes(self):
+        entries = self.fetch(
+            "https://a\nhttps://b",
+            {"https://a": "1.1.1.1:443#JP\n2.2.2.2:443#US\n",
+             "https://b": "2.2.2.2:443#US\n3.3.3.3:8443#SG\n"})
+        self.assertEqual(entries, [("1.1.1.1", 443, "JP"),
+                                   ("2.2.2.2", 443, "US"),
+                                   ("3.3.3.3", 8443, "SG")])
+
+    def test_failed_source_is_skipped(self):
+        entries = self.fetch(
+            "https://bad https://a",
+            {"https://a": "5.6.7.8:443#JP\n"})
+        self.assertEqual(entries, [("5.6.7.8", 443, "JP")])
+        self.assertTrue(any("跳过" in line for line in self.log.lines))
+
+    def test_uses_cache_when_all_sources_fail(self):
+        (self.dir / "online_raw.txt").write_text("9.9.9.9:443#SG\n",
+                                                 encoding="utf-8")
+        entries = self.fetch("https://bad", {})
+        self.assertEqual(entries, [("9.9.9.9", 443, "SG")])
+
+
 class RetestFallbackTests(unittest.TestCase):
     """复测只有 0/1 个候选的 worker 应退回普通测速重新取列表。"""
 

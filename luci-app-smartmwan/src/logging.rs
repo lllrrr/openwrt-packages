@@ -527,13 +527,8 @@ mod tests {
         assert_eq!(only_err.len(), 1);
         assert_eq!(only_err[0].level, "ERROR");
         assert_eq!(mine("lg-recent").len(), 2);
-        assert_eq!(
-            recent(None, 1)
-                .into_iter()
-                .filter(|e| e.module == "lg-recent")
-                .count(),
-            1,
-            "limit 必须生效"
-        );
+        // `limit` 是全局环形缓冲的截断：并行测试也会写日志，先 filter 再数
+        // 会把「最后 1 条恰好不是本模块」误判成 limit 失效。只验证长度。
+        assert_eq!(recent(None, 1).len(), 1, "limit 必须生效");
     }
 }

@@ -12,6 +12,8 @@
 
 	const state = {
 		config: null,
+		// 在线源列表：[{ url, enabled }]，enabled=false 的仍保留在配置里但不用。
+		onlineSources: [],
 		providers: {},
 		status: null,
 		core: null,
@@ -1629,7 +1631,8 @@
 		const check = (id, value) => { const node = $('#' + id); if (node) node.checked = (value === true || value === 1 || value === '1'); };
 
 		set('ip_source', g.ip_source || 'builtin_ipv4');
-		set('ip_online_url', g.ip_online_url);
+		state.onlineSources = onlineSourcesFromConfig(g);
+		renderOnlineSources();
 		set('custom_ip_file', g.custom_ip_file);
 		check('custom_allip', g.custom_allip);
 		set('latency_max', g.tl);
@@ -1689,11 +1692,25 @@
 			!/^@(reboot|hourly|daily|weekly|monthly|yearly|annually|midnight)$/.test(cron))
 			throw new Error('定时任务计划无效');
 
+		// 还没回车提交的输入框内容也算一个源，避免用户直接点保存时丢掉。
+		const pending = $('#ip_online_new');
+		if (pending && pending.value.trim()) {
+			addOnlineSources(pending.value);
+			pending.value = '';
+		}
+		// 启用的源写进 ip_online_url；未启用的单独存，回显时还留在列表里。
+		const sources = state.onlineSources.filter((item) => /^https?:\/\//.test(item.url || ''));
+		const onlineUrl = sources.filter((item) => item.enabled !== false)
+			.map((item) => item.url).join(' ');
+		const onlineDisabled = sources.filter((item) => item.enabled === false)
+			.map((item) => item.url).join(' ');
+
 		return {
 			global: {
 				enabled: g.enabled === '1',
 				ip_source: text('ip_source') || 'builtin_ipv4',
-				ip_online_url: text('ip_online_url'),
+				ip_online_url: onlineUrl,
+				ip_online_disabled: onlineDisabled,
 				custom_ip_file: text('custom_ip_file'),
 				custom_allip: check('custom_allip'),
 				tl: integer('latency_max', 0, 0, 60000),
@@ -1710,7 +1727,7 @@
 				download_test_time: integer('download_time', 10, 1, 60),
 				iterate_enabled: check('iterate_enabled'),
 				iterate_minutes: integer('iterate_minutes', 30, 1, 10080),
-				iterate_converge_count: integer('iterate_converge_count', 5, 1, 100),
+				iterate_converge_count: integer('iterate_converge_count', 5, 1, 3000),
 				ddns_enabled: check('ddns_enabled'),
 				ddns_ip_count: integer('ddns_ip_count', 1, 1, 10),
 				ddns_ttl: integer('ddns_ttl', 300, 1, 86400),
@@ -1876,6 +1893,80 @@
 			if (key === 'online') visible = source === 'online';
 			else if (key === 'custom_file') visible = source === 'custom_file';
 			node.classList.toggle('hidden', !visible);
+		});
+	}
+
+	// ── 在线源列表 ──────────────────────────────────────────────────────
+	// 一行一个源，勾选 = 启用；底部输入框回车添加。启用的源保存到
+	// ip_online_url（空格分隔，引擎逐个下载合并），未启用的存到
+	// ip_online_disabled，回显时不丢。
+	function parseSourceUrls(value) {
+		return String(value || '').split(/[\s,]+/)
+			.filter((item) => /^https?:\/\//.test(item));
+	}
+
+	function onlineSourcesFromConfig(global) {
+		const enabled = parseSourceUrls(global.ip_online_url);
+		const disabled = parseSourceUrls(global.ip_online_disabled)
+			.filter((url) => enabled.indexOf(url) < 0);
+		return enabled.map((url) => ({ url, enabled: true }))
+			.concat(disabled.map((url) => ({ url, enabled: false })));
+	}
+
+	function renderOnlineSources() {
+		const box = $('#ip_online_list');
+		if (!box) return;
+		box.textContent = '';
+		state.onlineSources.forEach((item, index) => {
+			const row = document.createElement('div');
+			row.className = 'source-row';
+
+			const check = document.createElement('input');
+			check.type = 'checkbox';
+			check.checked = item.enabled !== false;
+			check.title = '启用该源';
+			check.addEventListener('change', () => { item.enabled = check.checked; });
+
+			const input = document.createElement('input');
+			input.type = 'text';
+			input.spellcheck = false;
+			input.value = item.url;
+			input.addEventListener('input', () => { item.url = input.value.trim(); });
+
+			const del = document.createElement('button');
+			del.type = 'button';
+			del.className = 'btn small danger';
+			del.textContent = '删除';
+			del.addEventListener('click', () => {
+				state.onlineSources.splice(index, 1);
+				renderOnlineSources();
+			});
+
+			row.appendChild(check);
+			row.appendChild(input);
+			row.appendChild(del);
+			box.appendChild(row);
+		});
+	}
+
+	function addOnlineSources(text) {
+		let added = false;
+		parseSourceUrls(text).forEach((url) => {
+			if (state.onlineSources.some((item) => item.url === url)) return;
+			state.onlineSources.push({ url, enabled: true });
+			added = true;
+		});
+		if (added) renderOnlineSources();
+		return added;
+	}
+
+	function bindOnlineSourceInput() {
+		const input = $('#ip_online_new');
+		if (!input) return;
+		input.addEventListener('keydown', (event) => {
+			if (event.key !== 'Enter' || event.isComposing) return;
+			event.preventDefault();
+			if (addOnlineSources(input.value)) input.value = '';
 		});
 	}
 
@@ -2606,6 +2697,7 @@
 			saveConfig('设置已保存');
 		});
 		$('#ip_source').addEventListener('change', updateFieldVisibility);
+		bindOnlineSourceInput();
 		$('#btn-cron-refresh').addEventListener('click', refreshCronTasks);
 		mountScheduleEditor('cron-add-schedule', '0 3 * * *');
 		mountNodePicker('cron-add-nodes', []);

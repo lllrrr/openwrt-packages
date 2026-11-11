@@ -23,7 +23,14 @@ REGION_CODES = [
 
 DEFAULT_CONFIG = {
     "ip_source": "builtin_ipv4",          # builtin_ipv4 | builtin_ipv6 | online | custom_file
-    "ip_online_url": "https://zip.cm.edu.kg/all.txt",
+    # 可填多个地址（空格/换行分隔），逐个下载后合并；第一个失败会继续用后面的。
+    # 自己的合并库（CFIP 仓库每小时生成）已包含 CM 源，保留 CM 作为 GitHub
+    # 不可达时的兜底。
+    "ip_online_url": ("https://raw.githubusercontent.com/urbanescavenger/"
+                      "Cloudflare-IP/main/ip_libs.txt "
+                      "https://zip.cm.edu.kg/all.txt"),
+    # 界面上取消勾选的源存在这里，只为回显，不参与测速。
+    "ip_online_disabled": "",
     "custom_ip_file": "",
     "custom_allip": False,
     "ip_lists": [
@@ -313,7 +320,14 @@ def normalize(data):
     cfg["ip_source"] = _clean_text(cfg.get("ip_source"), "builtin_ipv4")
     if cfg["ip_source"] not in ("builtin_ipv4", "builtin_ipv6", "online", "custom_file"):
         cfg["ip_source"] = "builtin_ipv4"
-    cfg["ip_online_url"] = _clean_text(cfg.get("ip_online_url"), DEFAULT_CONFIG["ip_online_url"])
+    # 在线源支持多个地址（空格/换行/逗号分隔），统一归一成空格分隔。
+    online_urls = [item for item in
+                   re.split(r"[\s,]+", _clean_text(cfg.get("ip_online_url")))
+                   if item.startswith(("http://", "https://"))]
+    cfg["ip_online_url"] = " ".join(online_urls) or DEFAULT_CONFIG["ip_online_url"]
+    cfg["ip_online_disabled"] = " ".join(
+        item for item in re.split(r"[\s,]+", _clean_text(cfg.get("ip_online_disabled")))
+        if item.startswith(("http://", "https://")))
     cfg["custom_ip_file"] = _clean_text(cfg.get("custom_ip_file"))
     cfg["custom_allip"] = _as_bool(cfg.get("custom_allip"), False)
 
@@ -333,7 +347,7 @@ def normalize(data):
     cfg["iterate_enabled"] = _as_bool(cfg.get("iterate_enabled"), False)
     cfg["iterate_minutes"] = _as_int(cfg.get("iterate_minutes"), 30, 1, 10080)
     cfg["iterate_converge_count"] = _as_int(
-        cfg.get("iterate_converge_count"), 5, 1, 100)
+        cfg.get("iterate_converge_count"), 5, 1, 3000)
 
     monitor = data.get("monitor") if isinstance(data, dict) and isinstance(data.get("monitor"), dict) else {}
     cfg["monitor"] = {

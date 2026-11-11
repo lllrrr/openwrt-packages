@@ -181,9 +181,11 @@
               <option value="custom_file">自定义文件</option>
             </select>
           </label>
-          <label data-when="online">在线源地址
-            <input id="ip_online_url" type="text" spellcheck="false" placeholder="https://zip.cm.edu.kg/all.txt">
-          </label>
+          <div data-when="online" class="online-sources">
+            <div class="online-sources-title">在线源地址（勾选启用的源，回车添加）</div>
+            <div id="ip_online_list" class="source-list"></div>
+            <input id="ip_online_new" type="text" spellcheck="false" placeholder="输入新的源地址，回车添加">
+          </div>
           <label data-when="custom_file">自定义 IP 文件
             <input id="custom_ip_file" type="text" spellcheck="false" placeholder="/etc/cfpick/ip.txt">
           </label>
@@ -230,9 +232,9 @@
         <div class="grid three">
           <label class="check"><input id="iterate_enabled" type="checkbox"> 启用限时迭代收敛</label>
           <label>迭代时长（分钟） <input id="iterate_minutes" type="number" min="1" step="1"></label>
-          <label>迭代收敛阈值 <input id="iterate_converge_count" type="number" min="1" max="100" step="1" title="剩余候选 ≤ N 个即停止迭代，与下载测速候选数无关"></label>
+          <label>迭代收敛阈值 <input id="iterate_converge_count" type="number" min="1" max="3000" step="1" title="剩余候选 ≤ N 个即停止迭代，与下载测速候选数无关"></label>
         </div>
-        <p class="muted">每个节点独立循环：第一遍测初始候选，之后每遍只复测上一遍通过的 IP，直到时长结束或候选收敛到 ≤「迭代收敛阈值」（默认 5，最多 100）。该阈值与下载测速候选数相互独立；迭代期间不写结果，结束后统一导出并对最终候选做下载实测。</p>
+        <p class="muted">每个节点独立循环：第一遍测初始候选，之后每遍只复测上一遍通过的 IP，直到时长结束或候选收敛到 ≤「迭代收敛阈值」（默认 5，最多 3000）。阈值设得较大（如 3000）时第一遍跑完即结束，相当于整表测一遍后直接进入下载实测。该阈值与下载测速候选数相互独立；迭代期间不写结果，结束后统一导出并对最终候选做下载实测。</p>
       </div>
 
       <div class="card">

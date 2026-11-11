@@ -35,6 +35,7 @@ fn decision(bucket_map: Vec<u8>) -> Decision {
     Decision {
         bucket_map,
         picks: Default::default(),
+        failed_slots: Vec::new(),
         gen: 0,
         now_ms: logging::now_ms(),
     }

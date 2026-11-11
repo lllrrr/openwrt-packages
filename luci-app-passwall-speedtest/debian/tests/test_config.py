@@ -31,8 +31,8 @@ class NormalizeTests(unittest.TestCase):
         })
         self.assertEqual(cfg["probes"], 5)
         self.assertEqual(cfg["download_count"], 1)
-        # Convergence threshold is independent of download_count and capped at 100.
-        self.assertEqual(cfg["iterate_converge_count"], 100)
+        # Convergence threshold is independent of download_count and capped at 3000.
+        self.assertEqual(cfg["iterate_converge_count"], 999)
         self.assertEqual(cfg["test_count"], 1)
         self.assertEqual(cfg["loss_max"], 1.0)
         self.assertEqual(cfg["web"]["port"], 65535)
