@@ -490,8 +490,12 @@ textarea { resize: vertical; font-family: var(--mono); font-size: 0.78rem; }
   font-family: var(--mono); font-size: 0.7rem; color: var(--muted);
 }
 .cell-sub { display: block; color: var(--muted); font-size: 0.7rem; margin-top: 1px; }
-.dl-tasklog { display: flex; flex-direction: column; gap: 10px; max-height: 680px; overflow-y: auto; padding-right: 2px; }
+/* 轮次列表沿用任务日志的块级排布：每轮保持自然高度。
+   不要用 flex 列容器——子项 overflow:hidden 会让 min-height 变 0，
+   轮数一多就会被压扁重叠。 */
+.dl-tasklog { display: block; max-height: 680px; overflow-y: auto; padding-right: 2px; }
 .dl-tasklog .task { border: 1px solid var(--border); border-radius: 10px; background: var(--bg-elev); overflow: hidden; }
+.dl-tasklog .task + .task { margin-top: 10px; }
 .dl-tasklog .task > summary {
   list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px;
   flex-wrap: wrap; padding: 10px 12px; background: var(--bg-soft);

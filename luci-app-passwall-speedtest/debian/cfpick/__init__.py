@@ -8,4 +8,4 @@ optionally measures real download throughput, and exposes a small web UI plus
 CSV/JSON export.
 """
 
-__version__ = "1.0.31"
+__version__ = "1.0.32"

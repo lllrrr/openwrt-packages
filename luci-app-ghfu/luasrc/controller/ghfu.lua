@@ -374,12 +374,12 @@ local function fetch_previous_release_with_assets(repo, timeout, accept_header, 
 end
 
 fetch_github_json = function(url, timeout, accept_header)
-    local cmd = "uclient-fetch -T " .. tostring(timeout) .. " -H " .. util.shellquote(accept_header) .. " -qO- " .. util.shellquote(url) .. " 2>/dev/null"
+    local cmd = "wget -T " .. tostring(timeout) .. " --header=" .. util.shellquote(accept_header) .. " -qO- " .. util.shellquote(url) .. " 2>/dev/null"
     local raw = sys.exec(cmd)
 
-    -- Fallback for uclient-fetch variants without custom-header support.
+    -- Fallback for wget variants without custom-header support.
     if not raw or raw == "" then
-        local fallback = "uclient-fetch -T " .. tostring(timeout) .. " -qO- " .. util.shellquote(url) .. " 2>/dev/null"
+        local fallback = "wget -T " .. tostring(timeout) .. " -qO- " .. util.shellquote(url) .. " 2>/dev/null"
         raw = sys.exec(fallback)
     end
 
@@ -593,6 +593,7 @@ function action_download()
     local repo = normalize_repo(http.formvalue("repo") or "")
     local selected_release = trim(http.formvalue("selected_release") or "")
     local keep_config = to_bool(http.formvalue("keep_config")) and "1" or "0"
+    local cfg = get_cfg()
     local asset_url = trim(http.formvalue("asset_url") or "")
     local asset_name = trim(http.formvalue("asset_name") or "firmware.bin.gz")
     local asset_size = tonumber(trim(http.formvalue("asset_size") or "")) or 0
@@ -637,6 +638,12 @@ function action_download()
     local fw_path = "/tmp/ghfu_" .. clean_name
     local progress_log = "/tmp/ghfu-download-progress.log"
     local raw_log = "/tmp/ghfu-download-raw.log"
+    local download_timeout = math.floor(tonumber(cfg.fetch_timeout) or 15)
+    if download_timeout < 120 then
+        download_timeout = 120
+    elseif download_timeout > 300 then
+        download_timeout = 300
+    end
     fs.unlink(progress_log)
     fs.unlink(raw_log)
 
@@ -645,10 +652,20 @@ function action_download()
         "raw_log=", util.shellquote(raw_log), "\n",
         "target=", util.shellquote(fw_path), "\n",
         "total=", tostring(math.max(0, math.floor(asset_size))), "\n",
+        "timeout=", tostring(download_timeout), "\n",
         "url=", util.shellquote(asset_url), "\n",
         ": > \"$progress_log\"\n",
         ": > \"$raw_log\"\n",
-        "uclient-fetch -qO \"$target\" \"$url\" >\"$raw_log\" 2>&1 &\n",
+        "(\n",
+        "if command -v wget >/dev/null 2>&1; then\n",
+        "    wget -T \"$timeout\" -O \"$target\" \"$url\" >\"$raw_log\" 2>&1\n",
+        "    rc=$?\n",
+        "else\n",
+        "    echo \"wget is not installed\" >\"$raw_log\"\n",
+        "    rc=127\n",
+        "fi\n",
+        "exit \"$rc\"\n",
+        ") &\n",
         "dlpid=$!\n",
         "prev_size=0\n",
         "prev_ts=$(date +%s)\n",
@@ -769,13 +786,13 @@ function action_download_status()
         else
             local status2, done_size, done_total, target2 = line:match("^DONE|([A-Z]+)|(%d+)|(%d+)|(.+)$")
             if status2 then
-                if tonumber(done_total) and tonumber(done_total) > 0 then
-                    logs[#logs + 1] = tr("Download finished: ") .. human_bytes(done_size) .. "/" .. human_bytes(done_total)
-                else
-                    logs[#logs + 1] = tr("Download finished: ") .. human_bytes(done_size)
-                end
-
                 if status2 == "OK" then
+                    if tonumber(done_total) and tonumber(done_total) > 0 then
+                        logs[#logs + 1] = tr("Download finished: ") .. human_bytes(done_size) .. "/" .. human_bytes(done_total)
+                    else
+                        logs[#logs + 1] = tr("Download finished: ") .. human_bytes(done_size)
+                    end
+
                     local name2 = tostring(target2 or ""):match("/tmp/ghfu_(.+)$")
                     if name2 and name2 ~= "" then
                         logs[#logs + 1] = name2 .. tr(" downloaded successfully")
