@@ -903,7 +903,7 @@ monitor_worker() {
 }
 
 function read_config(){
-    get_global_config "enabled" "custom_cron_enabled" "custom_cron" "tl" "tll" "tlr" "ip_source" "custom_ip_file" "custom_allip" "ip_online_url" "ip_online_regions" "node_test_node" "stable_node" "node_test_url" "node_test_count" "node_test_timeout" "node_test_probes" "node_test_threads" "download_test_enabled" "download_test_count" "download_test_url" "download_test_time" "iterate_enabled" "iterate_minutes" "iterate_converge_count" "standalone_enabled" "standalone_core" "monitor_enabled" "monitor_interval" "monitor_failures"
+    get_global_config "enabled" "custom_cron_enabled" "custom_cron" "tl" "tll" "tlr" "ip_source" "custom_ip_file" "custom_allip" "ip_online_url" "ip_online_regions" "node_test_node" "stable_node" "node_test_url" "node_test_count" "node_test_timeout" "node_test_probes" "node_test_threads" "download_test_enabled" "download_test_count" "download_test_size" "download_test_url" "download_test_time" "iterate_enabled" "iterate_minutes" "iterate_converge_count" "standalone_enabled" "standalone_core" "monitor_enabled" "monitor_interval" "monitor_failures"
     get_servers_config "ssr_services" "ssr_enabled" "passwall_enabled" "passwall_services" "passwall2_enabled" "passwall2_services" "bypass_enabled" "bypass_services" "vssr_enabled" "vssr_services" "DNS_enabled" "AliDNS_ip_count" "HOST_enabled" "MosDNS_enabled" "MosDNS_ip_count" "openclash_restart" "AstraDNS_enabled" "AstraDNS_config" "AstraDNS_bin"
     # 五个 CM 备选 IP 列表（ip_list 命名段 list1..list5）
     local _n
@@ -2322,11 +2322,15 @@ nt_probe_one_ip() {
 # 分两阶段的原因：延迟探测便宜，可以覆盖全部候选；真实下载贵，只值得测最有希望的 N 个。
 # 结果经全局变量 NT_DL_SPEED 返回（两位小数 MB/s，失败为 0），不用 stdout：
 # 本函数内部会 echolog（stdout 也有一份），若用 $(...) 取返回值会把日志混进速度值。
+# 失败原因经 NT_DL_DIAG 返回（curl 退出码 / HTTP 状态码 / 已下载字节 / 平均速度），
+# 供调用方打印到“下载失败”日志，区分 403/429、TLS 证书（rc 60）、连接重置（rc 56/52）等。
 # 参数: $1=node $2=ip $3=download_url $4=max_time $5=socks_port $6=flag
 NT_DL_SPEED=0
+NT_DL_DIAG=""
 nt_download_one_ip() {
     local _W=$1 _ip=$2 _durl=$3 _tmo=$4 _port=$5 _flag=$6
     NT_DL_SPEED=0
+    NT_DL_DIAG=""
     mkdir -p /tmp/etc/passwall 2>/dev/null
     # 先删掉同 flag 的旧配置：保证下面校验用的一定是本次刚生成的文件，而不是历史残留
     # （flag 含 PID+IP 序号，正常情况下不会重名，这里再兜一层）。独立内核用 .yaml。
@@ -2334,6 +2338,7 @@ nt_download_one_ip() {
         "/tmp/etc/passwall/${_flag}.json_test.log" 2>/dev/null
     if ! nt_start_core_with_retry "$_W" "$_ip" "$_port" "$_flag"; then
         NT_DL_SPEED=0
+        NT_DL_DIAG="core-start-failed"
         return 0
     fi
     _port="${NT_STARTED_PORT:-$_port}"
@@ -2342,13 +2347,13 @@ nt_download_one_ip() {
     # <flag>.yaml（mihomo）。这份配置就是本地 SOCKS 进程实际使用的出站配置，其中出站
     # 服务器地址必须是我们刚写入节点 address / 传给 cfpick 的候选 IP。文件缺失或不含该 IP
     # 时，测出的速度与候选 IP 无关，直接判本次失败，绝不把脏速度写进结果。
-    local _cfg="/tmp/etc/passwall/${_flag}.json" _verify=1
+    local _cfg="/tmp/etc/passwall/${_flag}.json" _verify=1 _verr=""
     [ -s "$_cfg" ] || _cfg="/tmp/etc/passwall/${_flag}.yaml"
     if [ ! -s "$_cfg" ]; then
-        _verify=0
+        _verify=0; _verr="config-missing"
         echolog "下载测速校验失败：内核配置 ${_cfg} 不存在（未生成配置），跳过该 IP"
     elif ! grep -qF -- "$_ip" "$_cfg" 2>/dev/null; then
-        _verify=0
+        _verify=0; _verr="config-ip-mismatch"
         echolog "下载测速校验失败：内核配置未指向候选 IP ${_ip}，跳过该 IP"
     fi
     # 就绪轮询（curl rc 7 = SOCKS 尚未就绪）+ 一次下载测速。--max-time 截断时 curl 返回 28，
@@ -2374,16 +2379,18 @@ nt_download_one_ip() {
     done
     busybox pgrep -af "${_flag}" 2>/dev/null | awk '! /cfpick\.sh/{print $1}' | xargs kill -9 >/dev/null 2>&1
     rm -rf /tmp/etc/passwall/*"${_flag}"* 2>/dev/null
-    [ "$_verify" = "1" ] || { NT_DL_SPEED=0; return 0; }
+    [ "$_verify" = "1" ] || { NT_DL_SPEED=0; NT_DL_DIAG="$_verr"; return 0; }
     _code="${_res%% *}"; _res="${_res#* }"
     _bytes="${_res%% *}"; _bps="${_res##* }"
+    # 失败诊断：原样记录 curl 退出码 / HTTP 状态 / 已下载字节 / 平均速度，写进“下载失败”日志。
+    NT_DL_DIAG="rc=${_rc:-?} http=${_code:-?} bytes=${_bytes:-0} speed=${_bps:-0}"
     case "$_code" in 2[0-9][0-9]) ;; *) NT_DL_SPEED=0; return 0 ;; esac
     case "$_rc" in 0|28) ;; *) NT_DL_SPEED=0; return 0 ;; esac
-    # 快速死亡：--speed-limit/--speed-time 在前 5s 平均不足 1MB 时主动中止（也是 rc=28，
+    # 快速死亡：--speed-limit/--speed-time 在前 5s 平均速度低于 1MB/5s 时主动中止（也是 rc=28，
     # 与 --max-time 截断同码）。此时这段低速不能当有效速度，直接判失败。
     if [ "$_rc" = "28" ] && \
         [ "$(awk -v s="${_bps:-0}" -v lim="$DL_FAST_FAIL_BPS" 'BEGIN{print ((s+0) < (lim+0)) ? 1 : 0}')" = "1" ]; then
-        echolog "下载测速快速死亡：${_ip} ${DL_FAST_FAIL_TIME}s 内仅下载 ${_bytes:-0} 字节（不足 ${DL_FAST_FAIL_BYTES}），判失败"
+        echolog "下载测速快速死亡：${_ip} 平均 ${_bps:-0} 字节/秒（低于 ${DL_FAST_FAIL_BPS} 字节/秒 持续 ${DL_FAST_FAIL_TIME}s），已下载 ${_bytes:-0} 字节，判失败"
         NT_DL_SPEED=0
         return 0
     fi
@@ -2497,7 +2504,7 @@ nt_download_phase() {
                 echolog "下载测速 [${_Wn}] ${_i}/${_cnt} - ${_ip} 速度 ${_spd} MB/s [保留]"
             else
                 _failed=$((_failed + 1))
-                echolog "下载测速 [${_Wn}] ${_i}/${_cnt} - ${_ip} 下载失败 [丢弃]"
+                echolog "下载测速 [${_Wn}] ${_i}/${_cnt} - ${_ip} 下载失败 [丢弃]${NT_DL_DIAG:+（${NT_DL_DIAG}）}"
             fi
             # 记录本轮下载明细（供概览页任务日志）：IP、延迟、丢包、速度、ASN/机房、结果。
             _dllat=$(printf '%s' "$_line" | cut -d, -f5)
@@ -2570,7 +2577,7 @@ nt_download_worker() {
         [ -n "$(monitor_result_ip "$_W")" ] || return 0
     _Wn="$(uci -q get "passwall.${_W}.remarks" 2>/dev/null)"; _Wn="${_Wn:-${_W}}"
     nt_download_phase "$_W" "$_rfile" "$_Wn" "${DL_TEST_COUNT:-5}" \
-        "${DL_TEST_URL:-https://speed.cloudflare.com/__down?bytes=10000000}" \
+        "${DL_TEST_URL:-https://speed.cloudflare.com/__down?bytes=999999}" \
         "${DL_TEST_TIME:-10}" "$_port" "$_flag"
 }
 
@@ -2628,7 +2635,7 @@ nt_retest_failed_worker() {
     _wn="$(uci -q get "passwall.${_W}.remarks" 2>/dev/null)"; _wn="${_wn:-${_W}}"
     NT_DL_FAILED=0
     nt_download_phase "$_W" "$_tmp" "$_wn" "${DL_TEST_COUNT:-5}" \
-        "${DL_TEST_URL:-https://speed.cloudflare.com/__down?bytes=10000000}" \
+        "${DL_TEST_URL:-https://speed.cloudflare.com/__down?bytes=999999}" \
         "${DL_TEST_TIME:-10}" "$_port" "${_flag}_dl"
     if [ "$NT_DL_FAILED" != "1" ]; then
         mv -f "$_tmp" "$_rfile"
@@ -2990,14 +2997,25 @@ node_speed_test() {
     DL_TEST_COUNT="${download_test_count:-5}"
     case "$DL_TEST_COUNT" in ''|*[!0-9]*) DL_TEST_COUNT=5 ;; esac
     [ "$DL_TEST_COUNT" -ge 1 ] 2>/dev/null || DL_TEST_COUNT=5
-    # 每个候选要真实下载一个 10MB 文件，候选越多越费流量/时间；硬上限 10 个
+    # 每个候选要真实下载一个固定大小的文件（默认 999999 字节，硬上限 999999），
+    # 候选越多越费流量/时间；下载候选数硬上限 10 个。
     [ "$DL_TEST_COUNT" -le 10 ] 2>/dev/null || DL_TEST_COUNT=10
     # 快速复测（监测失败后的第一遍）：延迟探测凑够 DL_TEST_COUNT 个通过候选
     # 就停止，马上进入下载筛选；0 = 不限制（普通复测）。
     QUICK_STOP_AFTER=0
     [ "${QUICK_RETEST:-0}" = "1" ] && QUICK_STOP_AFTER=$DL_TEST_COUNT
-    DL_TEST_URL="${download_test_url:-https://speed.cloudflare.com/__down?bytes=10000000}"
-    [ -n "$DL_TEST_URL" ] || DL_TEST_URL='https://speed.cloudflare.com/__down?bytes=10000000'
+    # 下载源固定为 Cloudflare 测速端点，不再允许自定义链接。Cloudflare 对
+    # bytes>=10000000 的请求有未公开限流（HTTP 429，Retry-After 可达 1 小时），
+    # 所以大小硬限制在 999999 字节；旧配置的 download_test_url 只用来迁移大小。
+    DL_TEST_SIZE="${download_test_size:-}"
+    case "$DL_TEST_SIZE" in ''|*[!0-9]*) DL_TEST_SIZE="" ;; esac
+    if [ -z "$DL_TEST_SIZE" ]; then
+        DL_TEST_SIZE=$(printf '%s' "${download_test_url:-}" | sed -n 's/.*[?&]bytes=\([0-9][0-9]*\).*/\1/p')
+    fi
+    case "$DL_TEST_SIZE" in ''|*[!0-9]*) DL_TEST_SIZE=999999 ;; esac
+    [ "$DL_TEST_SIZE" -ge 16384 ] 2>/dev/null || DL_TEST_SIZE=16384
+    [ "$DL_TEST_SIZE" -le 999999 ] 2>/dev/null || DL_TEST_SIZE=999999
+    DL_TEST_URL="https://speed.cloudflare.com/__down?bytes=${DL_TEST_SIZE}"
     DL_TEST_TIME="${download_test_time:-10}"
     case "$DL_TEST_TIME" in ''|*[!0-9]*) DL_TEST_TIME=10 ;; esac
     [ "$DL_TEST_TIME" -ge 1 ] 2>/dev/null || DL_TEST_TIME=10
@@ -3373,8 +3391,12 @@ node_speed_test() {
             # 不再写回/发 DDNS（否则会把已经失效的旧 IP 重新发布），并返回失败，
             # 让监测链进入第三轮“刷新候选”的正常测试。
             if [ "$_any_fresh" != "1" ]; then
-                echolog "本次没有产出可提交的结果（延迟或下载全部失败），清除本次 worker 的旧结果"
-                clear_result_workers "$NODE_TESTED_WORKERS"
+                if [ "${QUICK_RETEST:-0}" = "1" ]; then
+                    echolog "快速复测没有产出可提交的结果，保留原 result.csv 候选名单"
+                else
+                    echolog "本次没有产出可提交的结果（延迟或下载全部失败），清除本次 worker 的旧结果"
+                    clear_result_workers "$NODE_TESTED_WORKERS"
+                fi
                 rm -f "$merged" "$reapply"
                 trap node_test_cleanup EXIT INT TERM
                 node_test_cleanup; trap - EXIT INT TERM
@@ -3391,7 +3413,9 @@ node_speed_test() {
                 return 1
             fi
             echo "# Speed test time: $(date +'%Y-%m-%d %H:%M:%S')" >> "$merged"
-            append_persistent_history "$merged"
+            # 快速复测的名单只是本轮的临时数组：不写 result.csv / 不追加历史，
+            # 测完即随 $merged 删除，原候选名单原封不动留给随后的正常复测。
+            [ "${QUICK_RETEST:-0}" != "1" ] && append_persistent_history "$merged"
             # ── 写回配置 → 重启生效 → 发布结果 ──
             # 顺序固定：先把配置写全（原子替换 + 读回校验），再 restart 让运行时生效，最后才发布
             # result.csv —— 保证「UI 看到新结果」就一定意味着「各节点已拿到自己的最优 IP」。
@@ -3420,8 +3444,10 @@ node_speed_test() {
             # 全量任务才滚动历史；局部任务只替换自己 worker 的行，避免把别的 worker 的结果滚进 .1。
             # 只有本次真正覆盖了全部 worker 才滚动历史；被占用的 worker 跳过后
             # 结果是局部的，滚动会把上一次的完整结果挪进 .1。
-            [ "$RUN_IS_FULL" = "1" ] && rotate_result_files
-            if ! merge_run_result "$merged" "$NODE_TESTED_WORKERS"; then
+            [ "$RUN_IS_FULL" = "1" ] && [ "${QUICK_RETEST:-0}" != "1" ] && rotate_result_files
+            if [ "${QUICK_RETEST:-0}" = "1" ]; then
+                echolog "快速复测：不写入 result.csv，保留原候选名单供随后的正常复测使用"
+            elif ! merge_run_result "$merged" "$NODE_TESTED_WORKERS"; then
                 echolog "警告：合并 result.csv 失败，保留上一次结果"
             fi
             rm -f "$merged"

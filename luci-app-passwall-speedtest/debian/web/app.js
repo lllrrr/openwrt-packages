@@ -1876,7 +1876,7 @@
 		set('probe_url', cfg.probe_url);
 		check('download_enabled', cfg.download_enabled);
 		set('download_count', cfg.download_count);
-		set('download_url', cfg.download_url);
+		set('download_size', cfg.download_size);
 		set('download_time', cfg.download_time);
 		check('iterate_enabled', cfg.iterate_enabled);
 		set('iterate_minutes', cfg.iterate_minutes);
@@ -1938,7 +1938,7 @@
 		cfg.probe_url = text('probe_url');
 		cfg.download_enabled = check('download_enabled');
 		cfg.download_count = integer('download_count', 5, 1, 10);
-		cfg.download_url = text('download_url');
+		cfg.download_size = integer('download_size', 999999, 16384, 999999);
 		cfg.download_time = integer('download_time', 10, 1, 60);
 		cfg.iterate_enabled = check('iterate_enabled');
 		cfg.iterate_minutes = integer('iterate_minutes', 30, 1, 10080);

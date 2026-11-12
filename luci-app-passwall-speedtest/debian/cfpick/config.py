@@ -54,7 +54,10 @@ DEFAULT_CONFIG = {
     "max_workers": 5,
     "download_enabled": True,
     "download_count": 5,
-    "download_url": "https://speed.cloudflare.com/__down?bytes=10000000",
+    # 下载源固定为 Cloudflare 测速端点，只允许调大小。Cloudflare 对
+    # bytes>=10000000 的请求有未公开限流（HTTP 429），硬上限 999999。
+    "download_size": 999999,
+    "download_url": "https://speed.cloudflare.com/__down?bytes=999999",
     "download_time": 10,
     "iterate_enabled": False,
     "iterate_minutes": 30,
@@ -383,7 +386,14 @@ def normalize(data):
     cfg["max_workers"] = _as_int(cfg.get("max_workers"), 5, 0, 128)
     cfg["download_enabled"] = _as_bool(cfg.get("download_enabled"), True)
     cfg["download_count"] = _as_int(cfg.get("download_count"), 5, 1, 10)
-    cfg["download_url"] = _clean_text(cfg.get("download_url"), DEFAULT_CONFIG["download_url"])
+    # 固定 Cloudflare 源：只接受 download_size（旧的 download_url 仅用于迁移大小）。
+    raw_size = cfg.get("download_size")
+    if raw_size is None and cfg.get("download_url"):
+        match = re.search(r"[?&]bytes=(\d+)", str(cfg.get("download_url")))
+        if match:
+            raw_size = match.group(1)
+    cfg["download_size"] = _as_int(raw_size, 999999, 16384, 999999)
+    cfg["download_url"] = "https://speed.cloudflare.com/__down?bytes=%d" % cfg["download_size"]
     cfg["download_time"] = _as_int(cfg.get("download_time"), 10, 1, 60)
     cfg["iterate_enabled"] = _as_bool(cfg.get("iterate_enabled"), False)
     cfg["iterate_minutes"] = _as_int(cfg.get("iterate_minutes"), 30, 1, 10080)

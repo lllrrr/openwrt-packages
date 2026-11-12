@@ -3,7 +3,7 @@ msgstr ""
 "Project-Id-Version: luci-app-gately-plus\n"
 "Language: zh_Hans\n"
 "Language-Team: Chinese (Simplified)\n"
-"PO-Revision-Date: 2026-10-27 00:00+0800\n"
+"PO-Revision-Date: 2026-11-12 00:00+0800\n"
 "Last-Translator: Gately Packager\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
@@ -43,12 +43,6 @@ msgstr "自动更新设置已保存。"
 msgid "Background Decoration"
 msgstr "背景装饰"
 
-msgid "Backup restored successfully."
-msgstr "备份恢复成功。"
-
-msgid "Basic Service"
-msgstr "基本服务"
-
 msgid "Binary Path"
 msgstr "二进制路径"
 
@@ -87,9 +81,6 @@ msgstr "清除缓存"
 
 msgid "Clear failed."
 msgstr "清除失败。"
-
-msgid "Click a file to restore it:"
-msgstr "点击文件进行恢复："
 
 msgid "Click to check for updates"
 msgstr "点击检查更新"
@@ -301,12 +292,6 @@ msgstr "内存"
 msgid "N/A"
 msgstr "暂无"
 
-msgid "No backup files found."
-msgstr "未找到备份文件。"
-
-msgid "No Backups"
-msgstr "无备份"
-
 msgid "(No log)"
 msgstr "（无日志）"
 
@@ -382,21 +367,6 @@ msgstr "重启 Gately"
 msgid "Restore All Defaults"
 msgstr "恢复全部默认"
 
-msgid "Restore Backup"
-msgstr "恢复备份"
-
-msgid "Restore backup: %s ?"
-msgstr "恢复备份：%s ？"
-
-msgid "Restored"
-msgstr "已恢复"
-
-msgid "Restore failed"
-msgstr "恢复失败"
-
-msgid "Restore Gately config from a previous backup"
-msgstr "从之前的备份恢复 Gately 配置"
-
 msgid "Run Auto Update Now"
 msgstr "立即执行一次自动更新"
 
@@ -423,9 +393,6 @@ msgstr "保存失败"
 
 msgid "Save Failed"
 msgstr "保存失败"
-
-msgid "Select Backup to Restore"
-msgstr "选择要恢复的备份"
 
 msgid "Settings saved successfully."
 msgstr "设置保存成功。"
@@ -616,14 +583,8 @@ msgstr "版本"
 msgid "Clear"
 msgstr "清空"
 
-msgid "Confirm Restore"
-msgstr "确认恢复"
-
 msgid "This only clears cached downloads and logs, it does not affect the current binary or configuration."
 msgstr "仅清除下载缓存与日志，不影响当前的二进制文件和配置。"
-
-msgid "The configuration will be overwritten with the contents of this backup and the service will restart."
-msgstr "配置将被该备份的内容覆盖，并重启服务。"
 
 msgid "Save"
 msgstr "保存"

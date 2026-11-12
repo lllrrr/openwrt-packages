@@ -546,12 +546,12 @@ return view.extend({
 		o.rmempty = false;
 
 		o = s.taboption('basic', form.Flag, 'download_test_enabled', _('Real download speed test'),
-			_('After latency screening, download a real file through up to 10 lowest-latency IPs of each worker to measure actual throughput (MB/s). The final best IP is chosen by download speed; IPs whose download test fails are dropped. If every download test fails (e.g. the URL is unreachable through that node), the latency ranking is kept. Each download runs through the node\'s local SOCKS exactly like the latency probe, and the generated SOCKS config is verified to point at the candidate IP before it is accepted. Fast-death: a candidate that downloads less than 1 MB in the first 5 seconds is aborted and marked failed.'));
+			_('After latency screening, download a real file through the lowest-latency IPs of each worker to measure actual throughput (MB/s). The currently published best IP is tested first, and one representative of every datacenter (ASN) is guaranteed a download slot, so the tested count may slightly exceed N. The final best IP is chosen by download speed; IPs whose download test fails are dropped. If every download test fails (e.g. the URL is unreachable through that node), the latency ranking is kept. Each download runs through the node\'s local SOCKS exactly like the latency probe, and the generated SOCKS config is verified to point at the candidate IP before it is accepted. Fast-death: a candidate that downloads less than 1 MB in the first 5 seconds is aborted and marked failed.'));
 		o.default = '1';
 		o.rmempty = false;
 
 		o = s.taboption('basic', form.Value, 'download_test_count', _('Download-test candidates per worker'),
-			_('Only the N lowest-latency IPs of each worker are download-tested (default 5, max 10). Each candidate downloads the file below (10 MB by default), so keep it small to limit proxy traffic and runtime.'));
+			_('The N lowest-latency IPs of each worker are download-tested (default 5, max 10), plus the current best IP and one representative per datacenter (ASN); the tested count is raised a little beyond N when needed. Each candidate downloads the fixed Cloudflare file (999999 bytes by default), so keep it small to limit proxy traffic and runtime.'));
 		o.datatype = 'uinteger';
 		o.default = '5';
 		o.depends('download_test_enabled', '1');
@@ -562,11 +562,10 @@ return view.extend({
 			return true;
 		};
 
-		o = s.taboption('basic', form.Value, 'download_test_url', _('Download test URL'),
-			_('A fixed-size file downloaded through the node\'s local SOCKS. Cloudflare\'s speed endpoint works best for CF-fronted nodes. The response must be HTTP 2xx with at least 16 KB.'));
-		o.default = 'https://speed.cloudflare.com/__down?bytes=10000000';
-		o.value('https://speed.cloudflare.com/__down?bytes=10000000', _('Cloudflare 10 MB'));
-		o.value('https://speed.cloudflare.com/__down?bytes=20000000', _('Cloudflare 20 MB'));
+		o = s.taboption('basic', form.Value, 'download_test_size', _('Download test size (bytes)'),
+			_('The download source is fixed to Cloudflare\'s speed endpoint. The size is capped at 999999 bytes because Cloudflare rate-limits (HTTP 429) requests of 10 MB or more; the tool needs at least 16 KB.'));
+		o.datatype = 'range(16384,999999)';
+		o.default = '999999';
 		o.depends('download_test_enabled', '1');
 		o.rmempty = false;
 

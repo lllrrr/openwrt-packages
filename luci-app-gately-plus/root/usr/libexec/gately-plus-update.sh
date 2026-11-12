@@ -110,6 +110,33 @@ init_dir() {
     mkdir -p "$RUN_DIR"
 }
 
+# /tmp 是 tmpfs，占用的是内存。更新过程里唯一的大文件是「下载包 + 解压出来的二进制」，
+# 两者都放在本进程独占的 $RUN_DIR 里，由 EXIT trap 统一删除，失败路径也不会漏。
+# 这里额外回收历史遗留：
+#   - 2.0.3 及更早每次更新前会把数据目录打包成 gately_<ver>_<ts>.tar.gz，且从不删除
+#   - 老版本下载中断时，几十 MB 的 tar.gz 会留在原地
+#   - 被 kill -9 打断时留下的 .run_<pid> / extract
+clean_stale() {
+    local f n=0 total=0 size
+    for f in "$UPDATE_DIR"/*.tar.gz; do
+        [ -f "$f" ] || continue
+        size=$(wc -c < "$f" 2>/dev/null | tr -d ' ')
+        case "$size" in ''|*[!0-9]*) size=0 ;; esac
+        if rm -f "$f"; then
+            n=$((n + 1))
+            total=$((total + size))
+        fi
+    done
+    rm -rf "$UPDATE_DIR/extract"
+    for f in "$UPDATE_DIR"/.run_*; do
+        [ -d "$f" ] || continue
+        [ "$f" = "$RUN_DIR" ] && continue
+        rm -rf "$f"
+    done
+    [ "$n" -gt 0 ] && log "Cleaned $n leftover file(s) from /tmp, freed $(fmt_size "$total")"
+    return 0
+}
+
 tag_to_ver() { echo "$1" | sed 's/^v//'; }
 
 uci_get() {
@@ -439,7 +466,7 @@ do_download() {
     log "Downloading: $filename"
     log "URL: $url"
 
-    local f="$UPDATE_DIR/$filename"
+    local f="$RUN_DIR/$filename"
 
     local total_size
     total_size=$(curl -sIL --connect-timeout 15 "$url" 2>/dev/null \
@@ -496,6 +523,7 @@ cmd_check() {
 
     init_dir
     acquire_lock || die "busy" "Another update task is already running"
+    clean_stale
     write_status "checking"
     log "Checking upstream versions (channel=$reltype arch=$arch)"
     if [ -n "$GH_MIRROR" ]; then
@@ -529,28 +557,21 @@ cmd_check() {
     write_status "ready:$count"
 }
 
-backup_config() {
-    local configdir
-    configdir=$(uci_get configdir "")
-    { [ -z "$configdir" ] || [ ! -d "$configdir" ]; } && return 0
-    local ver; ver=$(uci_get installed_version "")
-    [ -z "$ver" ] && ver="unknown"
-    local backup_file="$UPDATE_DIR/gately_${ver}_$(date +%Y%m%d%H%M%S).tar.gz"
-    tar -czf "$backup_file" -C "$(dirname "$configdir")" "$(basename "$configdir")" 2>/dev/null
-    log "Config backed up: $backup_file"
-}
-
+# 更新只替换 binpath 指向的二进制，数据目录（configdir）由 Gately 自己维护，
+# 升级不会碰它，因此不再打包备份 —— 数据目录可能有几十 MB，备份落在 /tmp（tmpfs）
+# 会直接吃掉路由器内存，且此前从不自动删除，每更新一次就多一份。
 cmd_download() {
     local tag="$1" filename="$2" binpath="${3:-$(uci_get binpath /usr/bin/gately)}"
     [ -z "$tag" ]      && die "invalid_request" "download: missing tag"
     [ -z "$filename" ] && die "invalid_request" "download: missing filename"
     acquire_lock || die "busy" "Another update task is already running"
+    clean_stale
 
     local dl
     dl=$(do_download "$RELEASES_FILE" "$tag" "$filename") || exit 1
     write_status "installing:$tag"
 
-    local xdir="$UPDATE_DIR/extract"
+    local xdir="$RUN_DIR/extract"
     rm -rf "$xdir" && mkdir -p "$xdir"
     log "Extracting..."
     case "$filename" in
@@ -564,7 +585,6 @@ cmd_download() {
     log "Found binary: $bin"
 
     mkdir -p "$(dirname "$binpath")"
-    backup_config
     log "Stopping service..."
     /etc/init.d/gately-plus stop 2>/dev/null; sleep 1
 
@@ -638,6 +658,9 @@ cmd_auto() {
         log "ERROR: another update task is already running"
         exit 1
     fi
+
+    # 每次 cron 触发都回收一遍历史残留，避免升级前积压的大文件继续占着内存
+    clean_stale
 
     if [ "$trigger" != "manual" ] && ! auto_due; then
         local skip_ver

@@ -480,7 +480,16 @@ const api = {
     },
 
     clean_update: () => {
-        sys(`rm -rf '${DIR}' && mkdir -p '${DIR}'`);
+        // 不能直接 rm -rf DIR：gately 的 stdout 一直重定向到 DIR 里的运行日志，
+        // 文件被删后它会继续往「已删除的 inode」里写 —— 空间不释放，界面也再看不到日志。
+        // 这里先把日志本体挪到隐藏名（不进 DIR/* 的匹配范围），清完再挪回并截断。
+        sys(`mkdir -p '${DIR}' && { ` +
+            `[ -f '${SLOG}' ] && mv -f '${SLOG}' '${DIR}/.log.keep'; ` +
+            `rm -rf '${DIR}'/* '${DIR}'/.run_* '${DIR}'/.lock '${DIR}'/extract; ` +
+            `[ -f '${DIR}/.log.keep' ] && mv -f '${DIR}/.log.keep' '${SLOG}'; ` +
+            `} >/dev/null 2>&1`);
+        let f = open(SLOG, 'w');
+        if (f) f.close();
         return { result: 'ok' };
     },
 
@@ -524,37 +533,6 @@ const api = {
         };
     },
 
-    list_backups: () => {
-        let files = [];
-        let out = exec(`ls -1t '${DIR}'/*.tar.gz 2>/dev/null`);
-        if (!out) return { files: [] };
-        for (let name in split(out, '\n')) {
-            name = trim(name);
-            if (!length(name)) continue;
-            push(files, {
-                name: replace(name, DIR + '/', ''),
-            });
-        }
-        return { files };
-    },
-
-    restore_backup: (a) => {
-        let filename = a.filename || '';
-        if (!length(filename) || index(filename, '/') >= 0)
-            return { result: 'error', msg: 'invalid filename' };
-        let filepath = `${DIR}/${filename}`;
-        if (!exists(filepath))
-            return { result: 'error', msg: 'file not found' };
-        let configdir = ucv('configdir');
-        if (!length(configdir))
-            return { result: 'error', msg: 'configdir not set' };
-        let parent = exec(`dirname '${configdir}'`);
-        let ret = sys(`tar -xzf '${filepath}' -C '${parent}' 2>/dev/null`);
-        if (ret === 0 && !scheduleServiceAction('restart'))
-            return { result: 'error' };
-        return { result: ret === 0 ? 'ok' : 'error' };
-    },
-
 };
 
 const SIGS = {
@@ -578,8 +556,6 @@ const SIGS = {
     toggle_service:         { action: 'String' },
     get_upstream_version:   { release_type: 'String', arch: 'String' },
     do_update:              { tag: 'String', filename: 'String' },
-    list_backups:    {},
-    restore_backup:  { filename: 'String' },
 };
 
 for (let k in SETTINGS) SIGS.save_settings[k] = 'String';

@@ -6,6 +6,7 @@ USE_PROCD=1
 CRON_FILE=/etc/crontabs/root
 CRON_TAG=luci-app-gately-plus-autoupdate
 UPDATE_SCRIPT=/usr/libexec/gately-plus-update.sh
+LOGTRIM_SCRIPT=/usr/libexec/gately-plus-logtrim.sh
 LOGFILE=/tmp/gately-plus-update/gately-start.log
 
 log_msg() { logger -t gately-plus -p daemon.info "$1"; }
@@ -199,7 +200,19 @@ start_service() {
     procd_set_param limits nofile="65535 65535"
     procd_close_instance
 
+    start_log_guard
+
     log_msg "Gately started (port=${PORT} configdir=${CONFDIR})"
+}
+
+# 日志守卫：tmpfs 上的日志不能无限增长。
+# 走 procd 第二个实例，随服务一起 stop/restart，进程意外退出也会被拉回来。
+start_log_guard() {
+    [ -x "$LOGTRIM_SCRIPT" ] || return 0
+    procd_open_instance log_guard
+    procd_set_param command "$LOGTRIM_SCRIPT" "$LOGFILE"
+    procd_set_param respawn 3600 5 0
+    procd_close_instance
 }
 
 stop_service() {

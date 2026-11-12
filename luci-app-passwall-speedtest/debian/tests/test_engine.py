@@ -226,5 +226,137 @@ class MonitorRetestChainTests(unittest.TestCase):
         run.assert_called_once_with("retest", node_names=["a"], quick=True)
 
 
+class DatacenterPreservationTests(unittest.TestCase):
+    """每个机房（ASN）至少一个代表进入下载实测，当前最优 IP 保送。"""
+
+    def setUp(self):
+        self.cfg = {
+            "nodes": [],
+            "download_enabled": True,
+            "download_count": 2,
+            "download_url": "https://example.test/dl",
+            "download_time": 1,
+            "iterate_enabled": False,
+            "probe_url": "https://example.test/probe",
+            "probe_timeout": 1,
+            "probes": 1,
+            "latency_max": 100,
+            "latency_min": 0,
+            "loss_max": 0.2,
+            "ip_lists": [],
+        }
+        self.log = FakeLogger()
+        self.eng = engine.Engine(self.cfg, self.log, "start", "/bin/true",
+                                 "mihomo", tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.eng.run_dir, True)
+        self.node = {"name": "a", "id": "id-a", "slot": 1, "ip_list": "",
+                     "parsed": SimpleNamespace(server="1.1.1.1")}
+
+    @staticmethod
+    def row(ip, latency):
+        return result.Row(ip=ip, latency=latency, sent=3, recv=3, loss=0.0)
+
+    def _download_ips(self, rows, asn_map):
+        with mock.patch.object(engine.Engine, "_current_best_ip", return_value=""), \
+             mock.patch.object(engine.asn, "lookup",
+                               side_effect=lambda ip: {"asn": asn_map[ip]}), \
+             mock.patch.object(engine.Engine, "_download_one",
+                               return_value=5.0) as download:
+            self.eng._download_phase(self.node, rows)
+        return [call.args[1] for call in download.call_args_list]
+
+    def test_one_representative_per_asn_enters_download(self):
+        rows = [self.row("1.1.1.1", 10), self.row("1.1.1.2", 11),
+                self.row("2.2.2.2", 12), self.row("3.3.3.3", 13)]
+        asn_map = {"1.1.1.1": "AS1", "1.1.1.2": "AS1",
+                   "2.2.2.2": "AS2", "3.3.3.3": "AS3"}
+        # download_count=2, but three datacenters need representatives.
+        self.assertEqual(
+            self._download_ips(rows, asn_map),
+            ["1.1.1.1", "2.2.2.2", "3.3.3.3", "1.1.1.2"])
+        self.assertTrue(any("共 3 个机房代表" in line for line in self.log.lines))
+
+    def test_configured_count_still_applies_without_extra_datacenters(self):
+        rows = [self.row("1.1.1.1", 10), self.row("1.1.1.2", 11),
+                self.row("1.1.1.3", 12), self.row("2.2.2.2", 13),
+                self.row("1.1.1.4", 14), self.row("1.1.1.5", 15)]
+        asn_map = {"1.1.1.1": "AS1", "1.1.1.2": "AS1", "1.1.1.3": "AS1",
+                   "2.2.2.2": "AS2", "1.1.1.4": "AS1", "1.1.1.5": "AS1"}
+        cfg = dict(self.cfg, download_count=5)
+        self.eng.cfg = cfg
+        # 2 representatives need only 3 slots; the configured 5 still apply.
+        self.assertEqual(len(self._download_ips(rows, asn_map)), 5)
+
+    def test_current_best_is_tested_even_when_not_in_rows(self):
+        self.cfg["download_count"] = 5
+        with mock.patch.object(engine.Engine, "_current_best_ip",
+                               return_value="9.9.9.9"), \
+             mock.patch.object(engine.Engine, "_previous_row", return_value=None), \
+             mock.patch.object(engine.asn, "lookup", return_value=None), \
+             mock.patch.object(engine.Engine, "_download_one",
+                               return_value=5.0) as download:
+            self.eng._download_phase(self.node, [self.row("1.1.1.1", 10)])
+        self.assertEqual([call.args[1] for call in download.call_args_list],
+                         ["9.9.9.9", "1.1.1.1"])
+        self.assertTrue(any("不在本轮候选内，直接补测" in line
+                            for line in self.log.lines))
+
+    def test_current_best_enters_download_with_no_latency_rows(self):
+        # 延迟探测一个都没保留时，当前已发布的最优 IP 仍要直接进下载列表。
+        self.cfg["download_count"] = 5
+        with mock.patch.object(engine.Engine, "_current_best_ip",
+                               return_value="9.9.9.9"), \
+             mock.patch.object(engine.Engine, "_previous_row", return_value=None), \
+             mock.patch.object(engine.asn, "lookup", return_value=None), \
+             mock.patch.object(engine.Engine, "_download_one",
+                               return_value=5.0) as download:
+            _rows, kept, details = self.eng._download_phase(self.node, [])
+        self.assertEqual([call.args[1] for call in download.call_args_list],
+                         ["9.9.9.9"])
+        self.assertEqual(kept, 1)
+        self.assertIn("a", self.eng.fresh_nodes)
+        self.assertEqual(details[0]["ip"], "9.9.9.9")
+
+    def test_no_rows_and_no_current_best_skips_downloads(self):
+        with mock.patch.object(engine.Engine, "_current_best_ip",
+                               return_value=""), \
+             mock.patch.object(engine.Engine, "_download_one") as download:
+            rows, kept, details = self.eng._download_phase(self.node, [])
+        self.assertEqual((rows, kept, details), ([], 0, []))
+        download.assert_not_called()
+
+    def test_filter_keeps_first_asn_rep_over_threshold(self):
+        with mock.patch.object(engine.asn, "lookup",
+                               side_effect=lambda ip: {"asn": "AS1" if ip.startswith("1.") else "AS2"}):
+            seen = set()
+            keep, reason = self.eng._filter_candidate(
+                self.node, "1.1.1.1", 500.0, 0.0, seen_asns=seen)
+            self.assertEqual((keep, reason), (1, "机房代表"))
+            # Same datacenter again: thresholds apply (500ms > 100ms cap).
+            keep, _reason = self.eng._filter_candidate(
+                self.node, "1.1.1.2", 500.0, 0.0, seen_asns=seen)
+            self.assertEqual(keep, 0)
+            # A different datacenter still gets its representative slot.
+            keep, reason = self.eng._filter_candidate(
+                self.node, "2.2.2.2", 500.0, 0.0, seen_asns=seen)
+            self.assertEqual((keep, reason), (1, "机房代表"))
+
+    def test_filter_skips_thresholds_for_current_best_asn(self):
+        with mock.patch.object(engine.asn, "lookup", return_value={"asn": "AS1"}):
+            keep, reason = self.eng._filter_candidate(
+                self.node, "1.1.1.2", 500.0, 0.0,
+                current_ip="1.1.1.1", current_asn="AS1", seen_asns={"AS1"})
+        self.assertEqual((keep, reason), (1, "当前最优同机房"))
+
+    def test_current_best_ip_matches_by_stable_id_first(self):
+        rows = [result.Row(ip="1.1.1.1", node="renamed", node_id="id-a"),
+                result.Row(ip="2.2.2.2", node="a")]
+        with mock.patch.object(engine.result, "read_result",
+                               return_value=(rows, "")):
+            self.assertEqual(self.eng._current_best_ip(self.node), "1.1.1.1")
+            self.assertEqual(
+                self.eng._current_best_ip({"name": "a", "id": ""}), "2.2.2.2")
+
+
 if __name__ == "__main__":
     unittest.main()

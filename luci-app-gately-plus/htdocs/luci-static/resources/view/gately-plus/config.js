@@ -12,9 +12,7 @@ var SAVE_KEYS = KEYS.concat(['admin_password']);
 var api = {
     settings:      C.rpc('get_settings'),
     arch:          C.rpc('get_arch'),
-    save:          C.rpc('save_settings', SAVE_KEYS),
-    listBackups:   C.rpc('list_backups'),
-    restoreBackup: C.rpc('restore_backup', ['filename'])
+    save:          C.rpc('save_settings', SAVE_KEYS)
 };
 
 return view.extend({
@@ -63,110 +61,6 @@ return view.extend({
     render: function(data) {
         var cfg  = data[0] || {};
         var arch = (data[1] || {}).arch || _('Unknown');
-
-        var restoreBtn = E('button', {
-            type: 'button',
-            id: '_f_restore',
-            class: 'gately-btn gately-btn-primary',
-            click: function() {
-                restoreBtn.disabled = true;
-                L.resolveDefault(api.listBackups(), {}).then(function(res) {
-                    restoreBtn.disabled = false;
-                    var files = (res && res.files) ? res.files : [];
-
-                    if (!files.length) {
-                        C.showToast({
-                            ok: false,
-                            title: _('No Backups'),
-                            msg: _('No backup files found.'),
-                            timeout: 2500
-                        });
-                        return;
-                    }
-
-                    var overlay;
-                    function closePanel() {
-                        if (overlay && overlay.parentNode)
-                            overlay.parentNode.removeChild(overlay);
-                    }
-
-                    function buildFileBtn(f) {
-                        return E('button', {
-                            type: 'button',
-                            class: 'gately-file-btn',
-                            title: f.name,
-                            click: function() {
-                                closePanel();
-
-                                var doRestore = function() {
-                                    L.hideModal();
-                                    L.resolveDefault(
-                                        api.restoreBackup(f.name), {}
-                                    ).then(function(r) {
-                                        var ok = r && r.result === 'ok';
-                                        C.showToast({
-                                            ok:      ok,
-                                            title:   ok ? _('Restored') : _('Failed'),
-                                            msg:     ok
-                                                ? _('Backup restored successfully.')
-                                                : _('Restore failed'),
-                                            timeout: ok ? 2500 : 0
-                                        });
-                                    });
-                                };
-
-                                var cancelBtn = E('button', {
-                                    type: 'button',
-                                    class: 'gately-btn',
-                                    click: function() { L.hideModal(); }
-                                }, [E('span', {}, _('Cancel'))]);
-
-                                var okBtn = E('button', {
-                                    type: 'button',
-                                    class: 'gately-btn gately-btn-success',
-                                    click: doRestore
-                                }, [C.icon('check', 14), E('span', {}, _('Confirm Restore'))]);
-
-                                L.showModal(_('Restore Backup'), [
-                                    E('div', { class: 'gately-modal' }, [
-                                        E('div', { class: 'gately-modal-head' }, [
-                                            C.icon('folder', 20),
-                                            E('span', {}, _('Restore backup: %s ?').format(f.name))
-                                        ]),
-                                        E('p', { class: 'gately-modal-note' },
-                                            _('The configuration will be overwritten with the contents of this backup and the service will restart.')),
-                                        E('div', { class: 'gately-modal-actions' }, [cancelBtn, okBtn])
-                                    ])
-                                ]);
-                            }
-                        }, f.name);
-                    }
-
-                    var card = E('div', { class: 'gately-panel' }, [
-                        E('h3', { class: 'gately-panel-title' },
-                            [C.icon('folder', 16), E('span', {}, _('Select Backup to Restore'))]),
-                        E('p', { class: 'gately-panel-desc' }, _('Click a file to restore it:')),
-                        E('div', { class: 'gately-file-list' }, files.map(buildFileBtn)),
-                        E('div', { class: 'gately-panel-foot' }, [
-                            E('button', {
-                                type: 'button',
-                                class: 'gately-btn gately-btn-danger',
-                                click: closePanel
-                            }, _('Cancel'))
-                        ])
-                    ]);
-
-                    overlay = E('div', { class: 'gately-panel-overlay' }, [card]);
-                    overlay.addEventListener('click', function(ev) {
-                        if (ev.target === overlay) closePanel();
-                    });
-                    card.addEventListener('click', function(ev) {
-                        ev.stopPropagation();
-                    });
-                    document.body.appendChild(overlay);
-                });
-            }
-        }, [C.icon('folder', 14), E('span', {}, _('Restore Backup'))]);
 
         // 管理员密码：总保存时一并应用；留空则保持原密码不变
         var pwdInput = E('input', {
@@ -229,19 +123,6 @@ return view.extend({
                         ]),
                         pwdInput)
                 ], { icon: 'shield' }),
-                C.buildCard(_('Basic Service'), [
-                    C.buildFormRow('number', 'delay', _('Delayed Start (s)'),
-                        cfg.delay || '60',
-                        _('Delay before starting after boot (only when uptime < 120s)'),
-                        { style: 'width:80px;', min: '0' }),
-                    C.buildFormRow('custom', 'restore', _('Restore Backup'),
-                        null,
-                        _('Restore Gately config from a previous backup'),
-                        restoreBtn)
-                ], { icon: 'gear' })
-            ]),
-
-            C.buildGrid(280, [
                 C.buildCard(_('Path & Architecture'), [
                     C.buildFormRow('text', 'configdir', _('Data Directory'),
                         cfg.configdir || '/etc/gately',
@@ -272,6 +153,10 @@ return view.extend({
                     C.buildFormRow('number', 'respawn_retry', _('Max Retries'),
                         cfg.respawn_retry || '5',
                         descRetry,
+                        { style: 'width:80px;', min: '0' }),
+                    C.buildFormRow('number', 'delay', _('Delayed Start (s)'),
+                        cfg.delay || '60',
+                        _('Delay before starting after boot (only when uptime < 120s)'),
                         { style: 'width:80px;', min: '0' })
                 ], { icon: 'refresh' })
             ])

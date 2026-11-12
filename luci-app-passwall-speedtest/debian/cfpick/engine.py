@@ -59,6 +59,10 @@ class Engine:
         # Nodes that produced at least one fresh passing candidate in this
         # session.  A run that only carried previous rows is not a success.
         self.fresh_nodes = set()
+        # Diagnostic for the last download attempt (curl rc / HTTP code /
+        # bytes / average speed) so a failed IP's log line says why.  The
+        # download stage is serial, so one slot is enough.
+        self._dl_diag = ""
         # Empty means "every enabled node"; otherwise only these names run.
         self.node_names = [str(name).strip() for name in (node_names or [])
                            if str(name).strip()]
@@ -92,6 +96,10 @@ class Engine:
         self.core_ready = threading.Event()
         self.core_ready.set()
         self._core_recover_lock = threading.Lock()
+        # True once execute() started the background ASN classification.  Direct
+        # Engine users (tests) leave it false so candidate selection never
+        # blocks on DNS for data the shell edition pre-classifies in advance.
+        self.asn_prewarmed = False
 
     def _iterate_mode(self):
         """Iterative convergence only when configured and not a quick retest."""
@@ -202,6 +210,83 @@ class Engine:
         directory = self.run_dir / ("w%d" % node["slot"])
         directory.mkdir(parents=True, exist_ok=True)
         return directory
+
+    # ── ASN / datacenter helpers (shell parity) ──────────────────────────
+    def _asn_of(self, ip, learn=False):
+        """Return the IP's ``ASxxxx`` id, or "" when unknown.
+
+        ``learn=True`` resolves one uncached IP through Team Cymru (used for
+        the currently published best IP); the whole candidate list is
+        pre-classified in the background by ``_prewarm_asn``.
+        """
+        text = str(ip or "").strip()
+        if not text:
+            return ""
+        info = asn.lookup(text)
+        if info is None and learn:
+            asn.backfill_ips([text], max_workers=1, max_lookups=1)
+            info = asn.lookup(text)
+        return (info or {}).get("asn", "") or ""
+
+    def _node_result_rows(self, node):
+        """Rows of ``result.csv`` that belong to this node, best first."""
+        rows, _when = result.read_result()
+        name = str(node.get("name") or "")
+        node_id = str(node.get("id") or "")
+        out = []
+        for row in rows:
+            # Stable identity: a row with an id only matches that id; legacy
+            # rows without one fall back to the display name (shell parity).
+            if node_id and row.node_id:
+                if row.node_id == node_id:
+                    out.append(row)
+            elif name and row.node == name:
+                out.append(row)
+        return out
+
+    def _current_best_ip(self, node):
+        """The IP this node currently publishes (best row of result.csv)."""
+        rows = self._node_result_rows(node)
+        return rows[0].ip if rows else ""
+
+    def _previous_row(self, node, ip):
+        """Build a zero-speed row for ``ip`` from result.csv, if present."""
+        for row in self._node_result_rows(node):
+            if row.ip == ip:
+                return result.Row(ip=row.ip, sent=row.sent, recv=row.recv,
+                                  loss=row.loss, latency=row.latency,
+                                  speed=0.0, region=row.region)
+        return None
+
+    def _prewarm_asn(self, nodes, candidates):
+        """Classify every candidate's ASN in the background.
+
+        The download stage keeps one representative per datacenter, so the
+        table has to be warm before probing ends.  This mirrors the shell
+        edition's background ``asn_classify_files`` job; failures are
+        best-effort and never fail the run.
+        """
+        ips = []
+        seen = set()
+        for node in nodes:
+            for ip in candidates.for_node(node["name"], node["ip_list"]):
+                text = str(ip or "").strip()
+                if text and text not in seen:
+                    seen.add(text)
+                    ips.append(text)
+        if not ips:
+            return
+        self.asn_prewarmed = True
+        self.log.log("ASN 分类：后台补全 %d 个候选的机房信息（下载阶段每个机房保留代表）"
+                     % len(ips))
+
+        def classify():
+            try:
+                asn.backfill_ips(ips, max_workers=8)
+            except Exception as exc:  # background thread: never crash the run
+                self.log.log("ASN 分类后台任务异常: %s" % exc)
+
+        threading.Thread(target=classify, name="asn-prewarm", daemon=True).start()
 
     # ── stop watcher ─────────────────────────────────────────────────────
     def _start_stop_watcher(self):
@@ -331,7 +416,8 @@ class Engine:
         except (subprocess.TimeoutExpired, OSError):
             return 124, ""
 
-    def _probe_ip(self, node, ip, tag, apply_filters=True):
+    def _probe_ip(self, node, ip, tag, apply_filters=True,
+                  current_ip="", current_asn="", seen_asns=None):
         """Return (keep, sent, recv, loss, avg_ms, reason).
 
         ``reason`` is empty when the IP is kept; otherwise it names the filter
@@ -339,6 +425,9 @@ class Engine:
         monitor passes ``apply_filters=False``: it only asks whether the
         already chosen endpoint still answers (latency_max/latency_min/loss
         thresholds are selection criteria, not health checks).
+
+        ``current_ip`` / ``current_asn`` / ``seen_asns`` carry the download-stage
+        exceptions from the shell edition (see ``_filter_candidate``).
         """
         workdir = self._node_workdir(node)
         process = config_path = None
@@ -402,35 +491,64 @@ class Engine:
 
         loss = (sent - recv) / sent if sent else 1.0
         avg_ms = (sum(latencies) / len(latencies) * 1000.0) if latencies else 0.0
+        if apply_filters and current_ip and ip == current_ip:
+            # 已发布的最优 IP 无条件进入下载实测：它本轮的样本可能刚好抖动
+            # 超标甚至探测失败，不能因此丢掉唯一稳定的高速 IP（与 shell 版一致）。
+            return 1, sent, recv, loss, avg_ms, "当前最优"
         keep = 1
         reason = ""
         if failed or recv < self.cfg["probes"]:
             keep = 0
             reason = "探测未全部成功（%d/%d 次）" % (recv, self.cfg["probes"])
         elif apply_filters:
-            # Per-list cap (regions have different latency standards) overrides
-            # the global one; 0 falls through to the global setting.
-            latency_max = iplists.node_latency_max(self.cfg, node)
-            if latency_max > 0 and avg_ms > latency_max:
-                keep = 0
-                reason = "延迟 %.0fms > 上限 %dms" % (avg_ms, latency_max)
-            if self.cfg["latency_min"] > 0 and avg_ms < self.cfg["latency_min"]:
-                keep = 0
-                reason = "延迟 %.0fms < 下限 %dms" % (avg_ms, self.cfg["latency_min"])
-            if loss > self.cfg["loss_max"]:
-                keep = 0
-                reason = "丢包 %.2f > 上限 %.2f" % (loss, self.cfg["loss_max"])
+            keep, reason = self._filter_candidate(
+                node, ip, avg_ms, loss, current_ip, current_asn, seen_asns)
         return keep, sent, recv, loss, avg_ms, reason
+
+    def _filter_candidate(self, node, ip, avg_ms, loss,
+                          current_ip="", current_asn="", seen_asns=None):
+        """Apply the latency/loss thresholds with datacenter preservation.
+
+        Mirrors the shell edition:
+
+        * the first successfully probed IP of each ASN stays even above the
+          threshold, so every datacenter has a representative in the download
+          stage;
+        * IPs of the currently published best IP's ASN skip the thresholds too
+          (the same provider is a promising standby);
+        * everything else is filtered as usual.
+        """
+        if current_ip and ip == current_ip:
+            return 1, "当前最优"
+        info = asn.lookup(ip) if (seen_asns is not None or current_asn) else None
+        asn_id = (info or {}).get("asn", "") or ""
+        if asn_id and seen_asns is not None and asn_id not in seen_asns:
+            seen_asns.add(asn_id)
+            return 1, "机房代表"
+        if current_asn and asn_id == current_asn:
+            return 1, "当前最优同机房"
+        # Per-list cap (regions have different latency standards) overrides
+        # the global one; 0 falls through to the global setting.
+        latency_max = iplists.node_latency_max(self.cfg, node)
+        if latency_max > 0 and avg_ms > latency_max:
+            return 0, "延迟 %.0fms > 上限 %dms" % (avg_ms, latency_max)
+        if self.cfg["latency_min"] > 0 and avg_ms < self.cfg["latency_min"]:
+            return 0, "延迟 %.0fms < 下限 %dms" % (avg_ms, self.cfg["latency_min"])
+        if loss > self.cfg["loss_max"]:
+            return 0, "丢包 %.2f > 上限 %.2f" % (loss, self.cfg["loss_max"])
+        return 1, ""
 
     def _download_one(self, node, ip, tag):
         """Return speed in MB/s (0 on failure)."""
         process = config_path = None
         port = 0
+        self._dl_diag = ""
         try:
             try:
                 process, config_path, port = self._start_candidate_core(
                     node, ip, tag)
             except (core.CoreError, EngineError) as exc:
+                self._dl_diag = "core-start-failed"
                 self.log.log("下载测速核心启动失败: %s" % exc)
                 return 0.0
 
@@ -455,9 +573,16 @@ class Engine:
                     rc, out = self._curl(args, self.cfg["download_time"] + 10)
                     if rc != 7:
                         break
+            parts = out.split()
+            if len(parts) >= 3:
+                # Keep the raw numbers before any acceptance check: this is
+                # what tells an HTTP 403/429 from a TLS/reset failure.
+                self._dl_diag = "rc=%d http=%s bytes=%s speed=%s" % (
+                    rc, parts[0], parts[1], parts[2])
+            else:
+                self._dl_diag = "rc=%d no-output" % rc
             if rc not in (0, 28):
                 return 0.0
-            parts = out.split()
             if len(parts) < 3:
                 return 0.0
             code, size, speed = parts[0], parts[1], parts[2]
@@ -471,8 +596,8 @@ class Engine:
             if size < 16384 or speed <= 0:
                 return 0.0
             if rc == 28 and speed < DL_FAST_FAIL_BPS:
-                self.log.log("下载测速快速死亡：%s %ds 内不足 %d 字节，判失败" % (
-                    ip, DL_FAST_FAIL_TIME, DL_FAST_FAIL_BYTES))
+                self.log.log("下载测速快速死亡：%s 平均 %.0f 字节/秒（低于 %d 字节/秒 持续 %ds），已下载 %.0f 字节，判失败" % (
+                    ip, speed, DL_FAST_FAIL_BPS, DL_FAST_FAIL_TIME, size))
                 return 0.0
             return round(speed / 1048576.0, 2)
         finally:
@@ -493,6 +618,11 @@ class Engine:
         if not total:
             self.log.log("worker [%s] 候选 IP 为空，跳过" % node["name"])
             return rows
+        # 已发布的最优 IP 与每个机房的第一个成功 IP 不受阈值过滤：前者可能正好
+        # 抖动超标，后者保证每个机房都有代表进入下载实测（与 shell 版一致）。
+        current_ip = self._current_best_ip(node)
+        current_asn = self._asn_of(current_ip, learn=bool(current_ip))
+        seen_asns = set()
         # 记录收到有效响应的延迟，用于「阈值全灭」时给出诊断信息。
         responded = []
         probed = 0
@@ -505,15 +635,21 @@ class Engine:
                 break
             probed = index
             keep, sent, recv, loss, avg, reason = self._probe_ip(
-                node, ip, "p%d-%d" % (index, int(time.time() * 1000) % 100000))
+                node, ip, "p%d-%d" % (index, int(time.time() * 1000) % 100000),
+                current_ip=current_ip, current_asn=current_asn,
+                seen_asns=seen_asns)
             if recv > 0 and avg > 0:
                 responded.append(avg)
             if keep:
                 rows.append(result.Row(ip=ip, sent=sent, recv=recv, loss=loss,
                                        latency=avg, speed=0.0))
+            if keep:
+                status = "保留" + ("（%s）" % reason if reason else "")
+            else:
+                status = "丢弃: %s" % reason if reason else "丢弃"
             self.log.log("进度: 走节点测速 [%s] %d/%d (%d%%) - %s 延迟 %.2fms 丢包 %.2f [%s]" % (
                 node["name"], index, total, index * 100 // total, ip, avg, loss,
-                "保留" if keep else ("丢弃: %s" % reason if reason else "丢弃")))
+                status))
             if stop_after and len(rows) >= stop_after:
                 self.log.log("worker [%s] 已凑够 %d 个下载候选，停止延迟探测，进入下载筛选" % (
                     node["name"], stop_after))
@@ -551,6 +687,11 @@ class Engine:
             self.log.log("迭代 [%s] 初始候选为空，跳过" % name)
             return current
 
+        # 当前最优 IP 与每个机房的代表同样豁免延迟阈值；每轮重新计数机房代表，
+        # 与 shell 版「每轮一个代表」一致。
+        current_ip = self._current_best_ip(node)
+        current_asn = self._asn_of(current_ip, learn=bool(current_ip))
+
         keep_max = self.cfg["iterate_converge_count"]
         passed_any = False
         round_no = 0
@@ -560,6 +701,7 @@ class Engine:
             round_no += 1
             pass_rows = []
             probed = set()
+            seen_asns = set()
             total = len(ips)
             for index, ip in enumerate(ips, start=1):
                 if self.stop_event.is_set():
@@ -570,15 +712,21 @@ class Engine:
                     break
                 if not self._wait_for_download():
                     break
-                    probed.add(ip)
+                probed.add(ip)
                 keep, sent, recv, loss, avg, reason = self._probe_ip(
-                    node, ip, "p%d-%d-%d" % (round_no, index, int(time.time() * 1000) % 100000))
+                    node, ip, "p%d-%d-%d" % (round_no, index, int(time.time() * 1000) % 100000),
+                    current_ip=current_ip, current_asn=current_asn,
+                    seen_asns=seen_asns)
                 if keep:
                     pass_rows.append(result.Row(ip=ip, sent=sent, recv=recv, loss=loss,
                                                 latency=avg, speed=0.0))
+                if keep:
+                    status = "保留" + ("（%s）" % reason if reason else "")
+                else:
+                    status = "丢弃: %s" % reason if reason else "丢弃"
                 self.log.log("迭代: [%s] 第 %d 轮 %d/%d (%d%%) - %s 延迟 %.2fms 丢包 %.2f [%s]" % (
                     name, round_no, index, total, index * 100 // total, ip, avg, loss,
-                    "保留" if keep else ("丢弃: %s" % reason if reason else "丢弃")))
+                    status))
 
             if pass_rows:
                 passed_any = True
@@ -666,23 +814,81 @@ class Engine:
         return rows_by_node
 
     # ── download stage ──────────────────────────────────────────────────
+    def _download_candidates(self, node, rows):
+        """Return ``(ordered rows, how many to download)``.
+
+        Mirrors the shell edition's ``nt_download_phase`` selection:
+
+        * the currently published best IP is tested first even when this
+          round's latency pass dropped it (or never probed it);
+        * the lowest-latency IP of every ASN/datacenter is tested, so the
+          configured N cannot all be filled by the same provider and a
+          distinct but slower datacenter is not crowded out;
+        * the configured count is raised to fit the representatives (+1 for
+          the current best IP), capped by the number of available rows.
+        """
+        ordered = result.sort_rows(rows, "latency")
+        if self.asn_prewarmed:
+            # execute() already classifies candidates in the background;
+            # finish any stragglers now that probing has stopped.  Direct
+            # Engine users never block on DNS just to build this list.
+            asn.backfill_ips([row.ip for row in ordered], max_workers=8)
+        current_ip = self._current_best_ip(node)
+        if current_ip:
+            current = next((row for row in ordered if row.ip == current_ip), None)
+            if current is not None:
+                ordered = [current] + [row for row in ordered if row.ip != current_ip]
+                self.log.log("下载测速 [%s] 当前最优 IP %s 跳过延迟筛选，优先实测" % (
+                    node["name"], current_ip))
+            else:
+                previous = self._previous_row(node, current_ip)
+                ordered = [previous or result.Row(ip=current_ip)] + ordered
+                self.log.log("下载测速 [%s] 当前最优 IP %s 不在本轮候选内，直接补测" % (
+                    node["name"], current_ip))
+        seen_asns = set()
+        reps = []
+        for row in ordered:
+            info = asn.lookup(row.ip)
+            asn_id = (info or {}).get("asn", "") or ""
+            if not asn_id or asn_id in seen_asns:
+                continue
+            seen_asns.add(asn_id)
+            reps.append(row)
+        if reps:
+            self.log.log("下载测速 [%s] 共 %d 个机房代表优先实测" % (
+                node["name"], len(reps)))
+        # Same order as the shell edition: current/lowest-latency row first,
+        # then the datacenter representatives, then the remaining rows.
+        merged = []
+        seen_ips = set()
+        for row in [ordered[0]] + reps + ordered:
+            if row.ip in seen_ips:
+                continue
+            seen_ips.add(row.ip)
+            merged.append(row)
+        count = max(self.cfg["download_count"], len(reps) + 1)
+        return merged, min(count, len(merged))
+
     def _download_phase(self, node, rows):
         """Download-test the node's best IPs.
 
         Returns ``(rows, kept, details)``.  ``details`` is the per-IP record
         written to downloads.tsv so the overview card can show every round;
         ``kept`` is how many IPs passed the download test.
+
+        The currently published best IP goes straight into the download list
+        even when the latency pass kept nothing: that is exactly the case
+        where a threshold wobble must not cost the node its only stable IP.
         """
-        if not rows:
+        if not rows and not self._current_best_ip(node):
             return rows, 0, []
-        ordered = result.sort_rows(rows, "latency")
-        count = self.cfg["download_count"]
+        ordered, count = self._download_candidates(node, rows)
         tested = ordered[:count]
         rest = ordered[count:]
         kept = []
         details = []
         detail_by_ip = {}
-        self.log.log("下载测速 [%s] 开始：对延迟最优的 %d 个 IP 实测下载（%s，单 IP 上限 %ds）" % (
+        self.log.log("下载测速 [%s] 开始：对 %d 个 IP 实测下载（含当前最优 IP 与各机房代表；%s，单 IP 上限 %ds）" % (
             node["name"], len(tested), self.cfg["download_url"], self.cfg["download_time"]))
         for index, row in enumerate(tested, start=1):
             if self.hard_stop:
@@ -708,8 +914,9 @@ class Engine:
                 self.log.log("下载测速 [%s] %d/%d - %s 速度 %.2f MB/s [保留]" % (
                     node["name"], index, len(tested), row.ip, speed))
             else:
-                self.log.log("下载测速 [%s] %d/%d - %s 下载失败 [丢弃]" % (
-                    node["name"], index, len(tested), row.ip))
+                diag = ("（%s）" % self._dl_diag) if self._dl_diag else ""
+                self.log.log("下载测速 [%s] %d/%d - %s 下载失败 [丢弃]%s" % (
+                    node["name"], index, len(tested), row.ip, diag))
         if kept:
             self.fresh_nodes.add(node["name"])
             out = result.sort_rows(kept, "speed") + rest
@@ -851,15 +1058,22 @@ class Engine:
 
         merged = result.sort_rows(merged, "speed")
         if not merged:
-            # Nothing usable this run: remove the tested nodes' old rows (keep
-            # other nodes), do not publish them to DDNS, and fail the run so the
-            # monitor chain escalates to the normal-candidate refresh.
             when = result.now_text()
-            combined = result.merge_result([], node_names, node_ids=node_ids)
-            result.write_result(paths.RESULT_FILE, combined, when)
-            if self.cfg.get("export", {}).get("json", True):
-                result.export_json(combined, when)
-            self.log.log("本次没有产出可提交的结果，已清除本次 worker 的旧结果")
+            if self.quick:
+                # The quick pass only owns a temporary candidate array.  Keep
+                # the original result.csv so the following normal retest can
+                # still use the full candidate list.
+                self.log.log("快速复测没有产出可提交的结果，保留原 result.csv 候选名单")
+            else:
+                # Nothing usable this run: remove the tested nodes' old rows
+                # (keep other nodes), do not publish them to DDNS, and fail the
+                # run so the monitor chain escalates to the normal-candidate
+                # refresh.
+                combined = result.merge_result([], node_names, node_ids=node_ids)
+                result.write_result(paths.RESULT_FILE, combined, when)
+                if self.cfg.get("export", {}).get("json", True):
+                    result.export_json(combined, when)
+                self.log.log("本次没有产出可提交的结果，已清除本次 worker 的旧结果")
             lock.write_state(phase="failed", error="本次没有产出可提交的结果")
             self.task_details = [
                 {"node": name, "status": "abnormal", "method": "-"}
@@ -869,29 +1083,35 @@ class Engine:
         when = result.now_text()
         # Cache the best IPs' ASN now; the API also lazily fills old history.
         asn.backfill_ips([row.ip for row in merged], max_workers=8)
-        result.append_history(merged, when)
-        # Prune against every configured node, not just the nodes this run
-        # touched: a partial run must not erase other nodes' history.
-        configured_ids = [
-            (item.get("id") or config.node_id_for_link(item.get("link")))
-            for item in self.cfg.get("nodes", []) if isinstance(item, dict)
-        ]
-        configured_names = [
-            (item.get("name") or "").strip()
-            for item in self.cfg.get("nodes", []) if isinstance(item, dict)
-        ]
-        result.prune_history(configured_ids, configured_names)
-        # Full runs replace the whole file (and rotate history); partial runs
-        # replace only their own nodes and keep the other nodes' rows.
-        if self.full_run:
-            result.rotate_results()
-        node_names = [node["name"] for node in nodes]
-        combined = result.merge_result(merged, node_names, node_ids=node_ids)
-        if not combined:
+        if self.quick:
+            # The quick pass is a temporary array: do not touch result.csv or
+            # history.  The following normal retest reads the original list.
             combined = merged
-        result.write_result(paths.RESULT_FILE, combined, when)
-        if self.cfg.get("export", {}).get("json", True):
-            result.export_json(combined, when)
+            self.log.log("快速复测：不写入 result.csv，保留原候选名单供随后的正常复测使用")
+        else:
+            result.append_history(merged, when)
+            # Prune against every configured node, not just the nodes this run
+            # touched: a partial run must not erase other nodes' history.
+            configured_ids = [
+                (item.get("id") or config.node_id_for_link(item.get("link")))
+                for item in self.cfg.get("nodes", []) if isinstance(item, dict)
+            ]
+            configured_names = [
+                (item.get("name") or "").strip()
+                for item in self.cfg.get("nodes", []) if isinstance(item, dict)
+            ]
+            result.prune_history(configured_ids, configured_names)
+            # Full runs replace the whole file (and rotate history); partial
+            # runs replace only their own nodes and keep the other nodes' rows.
+            if self.full_run:
+                result.rotate_results()
+            node_names = [node["name"] for node in nodes]
+            combined = result.merge_result(merged, node_names, node_ids=node_ids)
+            if not combined:
+                combined = merged
+            result.write_result(paths.RESULT_FILE, combined, when)
+            if self.cfg.get("export", {}).get("json", True):
+                result.export_json(combined, when)
 
         # DDNS is opt-in and isolated: a DNS failure must never turn a
         # successful speed test into a failed run.
@@ -951,8 +1171,12 @@ class Engine:
                 "method": method,
             })
         suffix = " %.2f MB/s" % best.speed if best.speed > 0 else ""
-        self.log.log("全部完成，全局最优 IP %s（延迟 %.2fms%s），结果已导出到 %s" % (
-            best.ip, best.latency, suffix, paths.STATE_DIR))
+        if self.quick:
+            self.log.log("快速复测完成（不写 result.csv），最优 IP %s（延迟 %.2fms%s）" % (
+                best.ip, best.latency, suffix))
+        else:
+            self.log.log("全部完成，全局最优 IP %s（延迟 %.2fms%s），结果已导出到 %s" % (
+                best.ip, best.latency, suffix, paths.STATE_DIR))
         return True
 
     # ── entry ───────────────────────────────────────────────────────────
@@ -966,6 +1190,10 @@ class Engine:
             lock.write_state(phase="latency", core_type=self.core_type)
             candidates = iplists.select(cfg, nodes, self.mode, self.log,
                                         refresh=self.refresh)
+            # Shell parity: classify candidate ASNs in the background while
+            # latency probing runs, so the download stage can keep one
+            # representative per datacenter without pausing for DNS.
+            self._prewarm_asn(nodes, candidates)
             if self._iterate_mode():
                 self.deadline = time.time() + cfg["iterate_minutes"] * 60
                 self.log.log("════ 限时迭代测速开始（时长上限 %d 分钟，各节点独立收敛）════" % cfg["iterate_minutes"])
@@ -1015,7 +1243,8 @@ class Engine:
         if not self.dl_enabled:
             return
         self.log.log("下载实测已启用：所有 worker 完成一轮延迟测试后，逐节点串行实测每个 worker "
-                     "延迟最优的 %d 个 IP（%s，单 IP 上限 %ds）" % (
+                     "延迟最优的 %d 个 IP，并额外保证当前最优 IP 与每个机房（ASN）至少一个代表"
+                     "（%s，单 IP 上限 %ds）" % (
                          self.cfg["download_count"], self.cfg["download_url"],
                          self.cfg["download_time"]))
 

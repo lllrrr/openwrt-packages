@@ -27,7 +27,8 @@ Python3 标准库实现的 Web 可视化页面。
 * **延迟初筛 + 多探测 fail-fast**：每个 IP 探测 N 次，任意一次失败立即丢弃；全部成功才保留，
   再按 `tl` / `tll` / `tlr` 阈值过滤（延迟上限默认不限，见下方配置表说明）。
 * **真实下载实测**：所有 worker 停止探测后，逐节点串行测延迟最优的前 N 个 IP（默认 5，最多 10），
-  用 curl `speed_download` 换算 MB/s；5 秒内不足 1 MB 的候选会被快速中止并判失败。
+  用 curl `speed_download` 换算 MB/s；当前已发布的最优 IP 优先实测，且每个机房（ASN）至少一个
+  代表进入实测，放不下时数量按需略超 N；5 秒内不足 1 MB 的候选会被快速中止并判失败。
 * **多 worker 调度**：并发上限可配；首个 worker 完成全部候选且取得有效结果时，其余 worker
   跑完当前 IP 即停（与 OpenWrt 版一致）。
 * **限时迭代收敛**：每个节点独立循环，每遍只复测上一遍通过的 IP，直到时长结束或候选收敛到
@@ -298,8 +299,8 @@ cfpick serve              # 前台启动 Web（--listen 0.0.0.0 --port 8787）
 | `probes` | `3` | 每个 IP 的探测次数（1–5，全部成功才保留） |
 | `max_workers` | `5` | 并发 worker 上限；0 = 全部（迭代模式忽略此值，全部同时运行） |
 | `download_enabled` | `true` | 是否做真实下载实测 |
-| `download_count` | `5` | 每节点下载候选数（1–10） |
-| `download_url` | CF 10 MB | 下载实测 URL |
+| `download_count` | `5` | 每节点下载候选数（1–10）；当前最优 IP 与各机房代表优先，机房代表放不下时按需略超此值 |
+| `download_size` | `999999` | 下载实测大小（字节，16384–999999）；源固定为 Cloudflare `speed.cloudflare.com/__down?bytes=N` |
 | `download_time` | `10` | 单 IP 下载时限（秒），截断部分仍按已下载字节算平均速度 |
 | `iterate_enabled` | `false` | 限时迭代 |
 | `iterate_minutes` | `30` | 迭代时长（分钟） |
@@ -468,7 +469,8 @@ init.d/UCI 自动生成的任务。添加任务时选择计划、类型和节点
   mihomo，或给节点换有效证书。
 * **探测全部失败**：看 `/var/log/cfpick/mihomo.log` 或 `xray.log`；常见原因是节点端口/协议参数错误、
   证书 SNI 不匹配、节点本身不可用，或探测 URL 经该节点不可达。
-* **下载实测全部失败**：确认 `download_url` 经该节点可达；失败时保留延迟排序结果，不会丢数据。
+* **下载实测全部失败**：确认 Cloudflare 测速源经该节点可达；若日志出现 `http=429`，是 Cloudflare 对
+  `bytes>=10000000` 的未公开限流，把 `download_size` 保持 ≤ 999999 即可；失败时保留延迟排序结果，不会丢数据。
 * **想临时改路径/端口**：所有路径支持环境变量：
   `CFPICK_APP_DIR`、`CFPICK_CONFIG`、`CFPICK_CONFIG_DIR`、`CFPICK_STATE_DIR`、`CFPICK_LOG_DIR`。
 * **DDNS 没生效**：先用 `cfpick ddns show` 确认节点是否填了域名、IP 是否选对；再用

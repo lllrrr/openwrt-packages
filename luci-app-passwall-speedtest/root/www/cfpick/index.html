@@ -7,7 +7,7 @@
 <link rel="icon" type="image/svg+xml" href="favicon.svg?v=1.0.12">
 <link rel="icon" href="favicon.ico?v=1.0.12" sizes="any">
 <meta name="theme-color" content="#2563eb">
-<link rel="stylesheet" href="style.css?v=1.0.29">
+<link rel="stylesheet" href="style.css?v=1.0.31">
 </head>
 <body>
 <header class="topbar">
@@ -280,11 +280,11 @@
           <label class="check"><input id="download_enabled" type="checkbox"> 启用下载实测</label>
           <label>每节点候选数（最多 10） <input id="download_count" type="number" min="1" max="10" step="1"></label>
           <label>单 IP 时限 (s) <input id="download_time" type="number" min="1" max="60" step="1"></label>
-          <label class="span2">下载 URL
-            <input id="download_url" type="text" spellcheck="false">
+          <label class="span2">下载大小（字节，16384–999999）
+            <input id="download_size" type="number" min="16384" max="999999" step="1">
           </label>
         </div>
-        <p class="muted">所有 worker 停止延迟探测后，逐节点串行下载：只测每个节点延迟最优的前 N 个 IP；5 秒内不足 1 MB 的候选会被 curl 快速中止并判失败。下载失败的行会被剔除；全部失败时保留延迟排序。</p>
+        <p class="muted">所有 worker 停止延迟探测后，逐节点串行下载：当前已发布的最优 IP 优先实测（即使本轮延迟抖动超标或未探测到），并保证每个机房（ASN）至少一个代表进入下载，实测数量会按需略超 N；其余名额按延迟从低到高补足。5 秒内不足 1 MB 的候选会被 curl 快速中止并判失败。下载失败的行会被剔除；全部失败时保留延迟排序。</p>
       </div>
 
       <div class="card">
@@ -628,6 +628,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=1.0.29"></script>
+<script src="app.js?v=1.0.31"></script>
 </body>
 </html>

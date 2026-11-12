@@ -1,5 +1,4 @@
 #!/bin/sh
-BACKUP_FILE=/tmp/gately-plus-luci-app-backup.tar.gz
 UPGRADE_MARKER=/tmp/gately-plus-luci-app-upgrade
 PURGE_LIST=/tmp/gately-plus-luci-app-purge
 KEEP_FILE=/tmp/gately-plus-luci-app-keep
@@ -87,7 +86,7 @@ write_purge_list() {
 
 uninstall_package() {
 	local bin_path data_path init=/etc/init.d/gately-plus
-	rm -f "$PURGE_LIST" "$BACKUP_FILE"
+	rm -f "$PURGE_LIST"
 	if pkg_upgrading "$@"; then
 		: >"$UPGRADE_MARKER"
 		return 0
@@ -110,23 +109,7 @@ uninstall_package() {
 	} >"$KEEP_FILE"
 }
 
-restore_backup() {
-	local members member
-	[ -f "$BACKUP_FILE" ] && [ -O "$BACKUP_FILE" ] || return 0
-	members="$(tar -tzf "$BACKUP_FILE" 2>/dev/null)" || return 1
-	for member in $members; do
-		case "$member" in
-			/*|./*|*/./*|*/.|../*|*/../*|*/..|*//* ) return 1 ;;
-		esac
-	done
-	if tar -xzf "$BACKUP_FILE" -C / 2>/dev/null; then
-		uci -q commit gately_plus >/dev/null 2>&1 || true
-		rm -f "$BACKUP_FILE"
-	fi
-}
-
 case "${1:-}" in
-	restore) restore_backup ;;
 	uninstall) shift; uninstall_package "$@" ;;
 	*) exit 2 ;;
 esac

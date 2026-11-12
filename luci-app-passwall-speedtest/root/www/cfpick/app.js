@@ -2234,7 +2234,7 @@
 		set('probe_url', g.node_test_url);
 		check('download_enabled', g.download_test_enabled);
 		set('download_count', g.download_test_count);
-		set('download_url', g.download_test_url);
+		set('download_size', g.download_test_size);
 		set('download_time', g.download_test_time);
 		check('iterate_enabled', g.iterate_enabled);
 		set('iterate_minutes', g.iterate_minutes);
@@ -2312,7 +2312,7 @@
 				node_test_threads: integer('max_workers', 5, 0, 128),
 				download_test_enabled: check('download_enabled'),
 				download_test_count: integer('download_count', 5, 1, 10),
-				download_test_url: text('download_url'),
+				download_test_size: integer('download_size', 999999, 16384, 999999),
 				download_test_time: integer('download_time', 10, 1, 60),
 				iterate_enabled: check('iterate_enabled'),
 				iterate_minutes: integer('iterate_minutes', 30, 1, 10080),

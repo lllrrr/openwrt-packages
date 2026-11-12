@@ -5,7 +5,7 @@ LUCI_DEPENDS:=+luci-base +curl
 LUCI_PKGARCH:=all
 
 PKG_NAME:=luci-app-gately-plus
-PKG_VERSION:=2.0.3
+PKG_VERSION:=2.0.4
 PKG_RELEASE:=1
 PKG_PO_VERSION:=$(PKG_VERSION)
 
@@ -53,10 +53,13 @@ fi
 if [ "$${PKG_UPGRADE}" = "1" ] || [ -e "$${UPGRADE_MARKER}" ]; then
 	rm -f "$${UPGRADE_MARKER}"
 else
-	/usr/libexec/gately-plus-package.sh restore >/dev/null 2>&1 || true
 	$${INITD}/gately-plus enable >/dev/null 2>&1 || true
 	( setsid "$${INITD}/gately-plus" start </dev/null >/dev/null 2>&1 & )
 fi
+# 2.0.3 及更早：更新前会把数据目录打包成 tar.gz 放在 /tmp（tmpfs，吃内存）且从不清理。
+# 升级到本版时顺手回收一次，否则这些文件要等到下次触发更新才会被 clean_stale 删掉。
+rm -f /tmp/gately-plus-update/*.tar.gz 2>/dev/null
+rm -rf /tmp/gately-plus-update/extract /tmp/gately-plus-update/.run_* 2>/dev/null
 $${INITD}/rpcd reload >/dev/null 2>&1 || true
 rm -rf /tmp/luci-*
 exit 0

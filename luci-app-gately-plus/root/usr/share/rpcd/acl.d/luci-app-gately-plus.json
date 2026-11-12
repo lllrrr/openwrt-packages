@@ -14,8 +14,7 @@
                     "get_update_status",
                     "get_auto_run_status",
                     "get_auto_update_log",
-                    "get_upstream_version",
-                    "list_backups"
+                    "get_upstream_version"
                 ]
             }
         },
@@ -30,8 +29,7 @@
                     "set_admin_password",
                     "run_auto_update",
                     "clean_update",
-                    "do_update",
-                    "restore_backup"
+                    "do_update"
                 ]
             }
         }
