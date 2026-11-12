@@ -250,6 +250,10 @@ nt_request_passwall_reload() {
 # worker 的子 shell 里 $$ 仍是主进程 PID，所以锁里额外写一个 owner（worker 真实 PID）：
 # owner != $$ 时即使是同一任务的 worker 也要等；只有主进程自己的锁（如内联复测）才跳过。
 DOWNLOAD_WAIT_LOGGED=0
+# 每轮下载实测的逐 IP 明细（供概览页任务日志使用）。只追加，按行数裁剪；
+# history.csv 继续只存每轮最优，两者互不影响。
+DOWNLOAD_HISTORY="/etc/cfpick/downloads.tsv"
+DOWNLOAD_HISTORY_MAX=50000
 wait_while_downloading() {
     local _pid _owner
     [ -d "$COMMIT_LOCK_DIR" ] || { DOWNLOAD_WAIT_LOGGED=0; return 0; }
@@ -1710,6 +1714,8 @@ function speed_test(){
     # 会话目录由运行锁建立（run_lock_acquire）；此处只做防御性检查，
     # 避免 RUN_DIR 为空时中间状态落到根目录下。
     [ -n "$RUN_DIR" ] || { echolog "内部错误：未持有运行锁就调用 speed_test，中止"; return 1; }
+    # 任务触发时间：任务日志和下载明细共用，worker 子 shell 继承。
+    NT_RUN_STARTED="$(date '+%Y-%m-%d %H:%M:%S')"
     # 另一个任务正在下载实测时，先别开始探测/拉候选，避免抢带宽把对方测速测偏。
     wait_while_downloading || { echolog "等待对方下载时收到停止，本次中止"; return 1; }
     # 日志只在整次测速入口处理一次：上次运行日志滚动归档为 .log.1~.log.5。
@@ -1956,7 +1962,7 @@ node_test_cleanup() {
     rm -f "${NT_SNAP_FILE}" "${NT_ORIG_FILE}" 2>/dev/null
     # 清理首完成即停用的完成标记、迭代轮次临时结果、轮次 meta 与停止标志（含中断退出残留）；
     # .nt_committing 是「提交阶段勿强杀」标记，正常路径收尾已删，这里兜底中途退出的残留
-    rm -f "${RUN_DIR}"/result.csv.tmp.*.done "${RUN_DIR}"/result.csv.tmp.*.end "${RUN_DIR}"/result.csv.tmp.*.pass "${RUN_DIR}"/result.csv.tmp.*.probed "${RUN_DIR}"/result.csv.tmp.*.carry "${RUN_DIR}"/result.csv.tmp.*.union "${RUN_DIR}"/result.csv.tmp.*.meta "${RUN_DIR}"/result.csv.tmp.*.fresh "${RUN_DIR}"/result.csv.tmp.*.dlok "${RUN_DIR}"/result.csv.tmp.*.pwdl "${RUN_DIR}"/result.csv.tmp.*.pwdlfail "${RUN_DIR}"/asn_seen_* "${RUN_DIR}"/worker_pid_* "${RUN_DIR}/.nt_stop" "${RUN_DIR}/.nt_committing" "${RUN_DIR}/.user_stop" 2>/dev/null
+    rm -f "${RUN_DIR}"/result.csv.tmp.*.done "${RUN_DIR}"/result.csv.tmp.*.end "${RUN_DIR}"/result.csv.tmp.*.pass "${RUN_DIR}"/result.csv.tmp.*.probed "${RUN_DIR}"/result.csv.tmp.*.carry "${RUN_DIR}"/result.csv.tmp.*.union "${RUN_DIR}"/result.csv.tmp.*.meta "${RUN_DIR}"/result.csv.tmp.*.fresh "${RUN_DIR}"/result.csv.tmp.*.dlok "${RUN_DIR}"/result.csv.tmp.*.dlrows* "${RUN_DIR}"/result.csv.tmp.*.pwdl "${RUN_DIR}"/result.csv.tmp.*.pwdlfail "${RUN_DIR}"/asn_seen_* "${RUN_DIR}"/worker_pid_* "${RUN_DIR}/.nt_stop" "${RUN_DIR}/.nt_committing" "${RUN_DIR}/.user_stop" 2>/dev/null
 }
 
 # uci staging 是跨进程共享的，这里用一把全局锁（不再放在会话目录里）。
@@ -2398,6 +2404,7 @@ nt_download_phase() {
     local _W=$1 _rfile=$2 _Wn=$3 _cnt=$4 _durl=$5 _tmo=$6 _port=$7 _flag=$8
     local _rows="${_rfile}.rows" _out="${_rfile}.dl" _line _ip _spd _hdr
     local _i=0 _n _tested=0 _failed=0 _best_ip='' _best_spd=0 _cur="" _curline="" _prevrow="" _first="" _rl="" _rip="" _ra="" _asn_seen="" _asn_reps="" _rep_count=0 _need=0 _best_label=""
+    local _dltmp="${_rfile}.dlrows" _dllat="" _dlloss="" _dlasn="" _dlaname="" _dlcc="" _dlst="" _done_ts="" _run_ts="" _dllines=0
     # 供 nt_download_stage 判断该节点是否需要复测一轮；早退（没有候选行）不算失败。
     NT_DL_FAILED=0
     [ -f "$_rfile" ] || return 0
@@ -2492,11 +2499,49 @@ nt_download_phase() {
                 _failed=$((_failed + 1))
                 echolog "下载测速 [${_Wn}] ${_i}/${_cnt} - ${_ip} 下载失败 [丢弃]"
             fi
+            # 记录本轮下载明细（供概览页任务日志）：IP、延迟、丢包、速度、ASN/机房、结果。
+            _dllat=$(printf '%s' "$_line" | cut -d, -f5)
+            _dlloss=$(printf '%s' "$_line" | cut -d, -f4)
+            _dlasn="$(asn_of_ip "$_ip")"
+            _dlaname=""
+            [ -n "$_dlasn" ] && _dlaname="$(provider_name "$_dlasn")"
+            _dlcc="$(country_of_ip "$_ip")"
+            if [ "$(awk -v s="$_spd" 'BEGIN{print ((s+0)>0)?1:0}')" = "1" ]; then
+                _dlst="ok"
+                [ "$(awk -v s="$_spd" 'BEGIN{print ((s+0)<1)?1:0}')" = "1" ] && _dlst="slow"
+            else
+                _dlst="fail"
+            fi
+            printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+                "$_Wn" "$_W" "$_ip" "$_dllat" "$_dlloss" "$_spd" "$_dlasn" "$_dlaname" "$_dlcc" "$_dlst" \
+                >> "$_dltmp" 2>/dev/null
         else
             echo "$_line" >> "$_out"
         fi
     done < "$_rows"
     rm -f "$_rows"
+
+    # 本轮下载明细落盘（只追加，按行数裁剪）。下载阶段都在 commit 锁内执行，
+    # 因此这里不需要额外加锁；history.csv 继续只存每轮最优。
+    if [ -s "$_dltmp" ]; then
+        if [ -n "$_best_ip" ]; then
+            awk -F '\t' -v OFS='\t' -v ip="$_best_ip" '$3==ip {$10="best"} {print}' "$_dltmp" \
+                > "${_dltmp}.new" 2>/dev/null && mv -f "${_dltmp}.new" "$_dltmp"
+        fi
+        _done_ts="$(date '+%Y-%m-%d %H:%M:%S')"
+        _run_ts="${NT_RUN_STARTED:-$_done_ts}"
+        mkdir -p /etc/cfpick 2>/dev/null
+        [ -s "$DOWNLOAD_HISTORY" ] || printf '# run_ts\tdone_ts\tnode\tnode_id\tip\tlatency\tloss\tspeed\tasn\tasn_name\tcc\tstatus\n' >> "$DOWNLOAD_HISTORY" 2>/dev/null
+        awk -F '\t' -v OFS='\t' -v rt="$_run_ts" -v dt="$_done_ts" '{print rt, dt, $0}' "$_dltmp" >> "$DOWNLOAD_HISTORY" 2>/dev/null
+        _dllines=$(wc -l < "$DOWNLOAD_HISTORY" 2>/dev/null)
+        case "$_dllines" in ''|*[!0-9]*) _dllines=0 ;; esac
+        if [ "$_dllines" -gt "$DOWNLOAD_HISTORY_MAX" ]; then
+            { printf '# run_ts\tdone_ts\tnode\tnode_id\tip\tlatency\tloss\tspeed\tasn\tasn_name\tcc\tstatus\n'; \
+              tail -n $((DOWNLOAD_HISTORY_MAX - 1)) "$DOWNLOAD_HISTORY"; } > "${DOWNLOAD_HISTORY}.new" 2>/dev/null && \
+                mv -f "${DOWNLOAD_HISTORY}.new" "$DOWNLOAD_HISTORY"
+        fi
+        rm -f "$_dltmp"
+    fi
 
     if [ "$_tested" -gt 0 ]; then
         # 按下载速度降序（未测到的行速度 0 排在后面，同速度按延迟升序）

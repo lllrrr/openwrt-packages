@@ -24,7 +24,7 @@ import time
 import traceback
 from pathlib import Path
 
-from . import config, core, ddns, iplists, links, lock, paths, result, tasklog
+from . import asn, config, core, ddns, iplists, links, lock, paths, result, tasklog
 from .log import Logger
 
 SOCKS_PORT_BASE = 18000  # below ip_local_port_range (32768-60999)
@@ -161,6 +161,7 @@ class Engine:
                 name = "%s-%d" % (name, suffix)
             nodes.append({
                 "slot": len(nodes) + 1,
+                "id": (item.get("id") or config.node_id_for_link(item.get("link"))),
                 "name": name,
                 "ip_list": (item.get("ip_list") or "").strip(),
                 "ddns_domain": (item.get("ddns_domain") or "").strip().lower().rstrip("."),
@@ -668,16 +669,19 @@ class Engine:
     def _download_phase(self, node, rows):
         """Download-test the node's best IPs.
 
-        Returns ``(rows, kept)`` where ``kept`` is how many IPs passed the
-        download test; 0 with non-empty rows means every download failed.
+        Returns ``(rows, kept, details)``.  ``details`` is the per-IP record
+        written to downloads.tsv so the overview card can show every round;
+        ``kept`` is how many IPs passed the download test.
         """
         if not rows:
-            return rows, 0
+            return rows, 0, []
         ordered = result.sort_rows(rows, "latency")
         count = self.cfg["download_count"]
         tested = ordered[:count]
         rest = ordered[count:]
         kept = []
+        details = []
+        detail_by_ip = {}
         self.log.log("下载测速 [%s] 开始：对延迟最优的 %d 个 IP 实测下载（%s，单 IP 上限 %ds）" % (
             node["name"], len(tested), self.cfg["download_url"], self.cfg["download_time"]))
         for index, row in enumerate(tested, start=1):
@@ -686,9 +690,21 @@ class Engine:
                 break
             speed = self._download_one(
                 node, row.ip, "d%d-%d" % (index, int(time.time() * 1000) % 100000))
+            detail = {
+                "node": node["name"],
+                "node_id": node.get("id") or "",
+                "ip": row.ip,
+                "latency": row.latency,
+                "loss": row.loss,
+                "speed": speed if speed > 0 else 0.0,
+                "status": "fail",
+            }
+            details.append(detail)
+            detail_by_ip[row.ip] = detail
             if speed > 0:
                 row.speed = speed
                 kept.append(row)
+                detail["status"] = "slow" if speed < 1 else "ok"
                 self.log.log("下载测速 [%s] %d/%d - %s 速度 %.2f MB/s [保留]" % (
                     node["name"], index, len(tested), row.ip, speed))
             else:
@@ -698,11 +714,14 @@ class Engine:
             self.fresh_nodes.add(node["name"])
             out = result.sort_rows(kept, "speed") + rest
             best = out[0]
+            detail = detail_by_ip.get(best.ip)
+            if detail:
+                detail["status"] = "best"
             self.log.log("下载测速 [%s] 完成：成功 %d/%d，最优 %s %.2f MB/s" % (
                 node["name"], len(kept), len(tested), best.ip, best.speed))
-            return out, len(kept)
+            return out, len(kept), details
         self.log.log("下载测速 [%s] 未取得任何有效速度，该节点本轮不视为有效结果" % node["name"])
-        return ordered, 0
+        return ordered, 0, details
 
     def _download_stage(self, nodes, rows_by_node):
         """Run the serial download stage; return nodes whose downloads all failed."""
@@ -713,16 +732,22 @@ class Engine:
         lock.write_state(phase="download")
         self.log.log("下载实测阶段开始：所有 worker 已停止探测，逐节点串行实测下载速度")
         failed = []
+        stage_started = result.now_text()
+        all_details = []
         for node in nodes:
             if self.hard_stop:
                 self.log.log("收到终止信号，跳过剩余节点的下载实测")
                 break
             original = rows_by_node.get(node["name"]) or []
-            rows, kept = self._download_phase(node, original)
+            rows, kept, details = self._download_phase(node, original)
             rows_by_node[node["name"]] = rows
+            all_details.extend(details)
             # 有候选却一个下载都没成功：等其他节点测完后复测一轮。
             if original and not kept:
                 failed.append(node)
+        if all_details:
+            asn.enrich_rows(all_details, learn=True, max_workers=8)
+            result.append_downloads(all_details, stage_started, result.now_text())
         return failed
 
     def _retest_download_failures(self, nodes, rows_by_node):
@@ -749,6 +774,8 @@ class Engine:
             self.log.log("下载失败节点无法复测: %s" % exc)
             return
 
+        stage_started = result.now_text()
+        all_details = []
         for node in nodes:
             if self.hard_stop:
                 break
@@ -765,13 +792,17 @@ class Engine:
             if not rows:
                 self.log.log("复测 [%s] 没有通过延迟筛选的 IP，保留上一轮结果" % name)
                 continue
-            rows, kept = self._download_phase(node, rows)
+            rows, kept, details = self._download_phase(node, rows)
+            all_details.extend(details)
             if kept:
                 rows_by_node[name] = rows
                 self.log.log("复测 [%s] 下载成功 %d 个，已用复测结果替换该节点结果" % (
                     name, kept))
             else:
                 self.log.log("复测 [%s] 下载仍全部失败，保留上一轮结果" % name)
+        if all_details:
+            asn.enrich_rows(all_details, learn=True, max_workers=8)
+            result.append_downloads(all_details, stage_started, result.now_text())
 
     # ── commit ──────────────────────────────────────────────────────────
     def _iterate_summary(self, node, rows):
@@ -790,6 +821,7 @@ class Engine:
             return False
         lock.write_state(phase="commit")
         node_names = [node["name"] for node in nodes]
+        node_ids = [node.get("id") or "" for node in nodes]
         merged = []
         per_node_best = {}
         for node in nodes:
@@ -823,7 +855,7 @@ class Engine:
             # other nodes), do not publish them to DDNS, and fail the run so the
             # monitor chain escalates to the normal-candidate refresh.
             when = result.now_text()
-            combined = result.merge_result([], node_names)
+            combined = result.merge_result([], node_names, node_ids=node_ids)
             result.write_result(paths.RESULT_FILE, combined, when)
             if self.cfg.get("export", {}).get("json", True):
                 result.export_json(combined, when)
@@ -835,13 +867,26 @@ class Engine:
             return False
 
         when = result.now_text()
+        # Cache the best IPs' ASN now; the API also lazily fills old history.
+        asn.backfill_ips([row.ip for row in merged], max_workers=8)
         result.append_history(merged, when)
+        # Prune against every configured node, not just the nodes this run
+        # touched: a partial run must not erase other nodes' history.
+        configured_ids = [
+            (item.get("id") or config.node_id_for_link(item.get("link")))
+            for item in self.cfg.get("nodes", []) if isinstance(item, dict)
+        ]
+        configured_names = [
+            (item.get("name") or "").strip()
+            for item in self.cfg.get("nodes", []) if isinstance(item, dict)
+        ]
+        result.prune_history(configured_ids, configured_names)
         # Full runs replace the whole file (and rotate history); partial runs
         # replace only their own nodes and keep the other nodes' rows.
         if self.full_run:
             result.rotate_results()
         node_names = [node["name"] for node in nodes]
-        combined = result.merge_result(merged, node_names)
+        combined = result.merge_result(merged, node_names, node_ids=node_ids)
         if not combined:
             combined = merged
         result.write_result(paths.RESULT_FILE, combined, when)

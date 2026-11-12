@@ -38,6 +38,13 @@ RESULT_FILE = STATE_DIR / "result.csv"
 RESULT_JSON = STATE_DIR / "result.json"
 BEST_JSON = STATE_DIR / "best.json"
 HISTORY_FILE = STATE_DIR / "history.csv"
+# 每轮下载实测的逐 IP 明细，供概览页按任务展开（字段与 OpenWrt 版一致）。
+DOWNLOADS_FILE = STATE_DIR / "downloads.tsv"
+# ASN 网段缓存 / 机房名学习表；随包 seed 在 data/ 下。
+ASN_PREFIX_FILE = STATE_DIR / "asn-prefixes.tsv"
+ASN_PROVIDERS_FILE = STATE_DIR / "providers.tsv"
+ASN_PREFIX_SEED = APP_DIR / "data" / "asn-prefixes.tsv"
+ASN_PROVIDERS_SEED = APP_DIR / "data" / "providers.tsv"
 # Structured run/event history for the console's task log tab (see tasklog.py).
 TASKLOG_FILE = STATE_DIR / "tasklog.tsv"
 ONLINE_CACHE = STATE_DIR / "online_raw.txt"

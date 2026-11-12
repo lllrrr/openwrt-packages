@@ -341,6 +341,157 @@ function clean_text(value, maxlen) {
 	return length(text) > maxlen ? substr(text, 0, maxlen) : text;
 }
 
+// ── 概览页：下载明细 + ASN/机房 ─────────────────────────────────────
+// /etc/cfpick/downloads.tsv 由 cfpick.sh 下载实测阶段追加；这里只读最近 N 行。
+const DOWNLOADS_FILE = '/etc/cfpick/downloads.tsv';
+const ASN_PREFIX_FILE = '/etc/cfpick/asn-prefixes.tsv';
+const ASN_PROVIDERS_FILE = '/etc/cfpick/providers.tsv';
+
+function ip_to_int(ip) {
+	let parts = split('' + ip, '.');
+
+	if (length(parts) != 4)
+		return null;
+
+	return int(parts[0]) * 16777216 + int(parts[1]) * 65536 +
+		int(parts[2]) * 256 + int(parts[3]);
+}
+
+function load_asn_table() {
+	let table = { prefixes: [], names: {}, divs: [] };
+	let d = 4294967296;
+
+	for (let i = 0; i <= 32; i++) {
+		table.divs[i] = d;
+		d = d / 2;
+	}
+
+	let lines = split(fs.readfile(ASN_PREFIX_FILE) || '', '\n');
+
+	for (let i = 0; i < length(lines); i++) {
+		let line = trim(lines[i]);
+
+		if (line == '' || substr(line, 0, 1) == '#')
+			continue;
+
+		let parts = split(line, '\t');
+		let cidr = split(parts[0] || '', '/');
+
+		if (length(parts) < 2 || length(cidr) != 2)
+			continue;
+
+		let base = ip_to_int(cidr[0]);
+
+		if (base == null)
+			continue;
+
+		push(table.prefixes, {
+			base: base,
+			len: int(cidr[1]),
+			asn: parts[1],
+			cc: (length(parts) > 2) ? parts[2] : ''
+		});
+	}
+
+	lines = split(fs.readfile(ASN_PROVIDERS_FILE) || '', '\n');
+
+	for (let i = 0; i < length(lines); i++) {
+		let line = trim(lines[i]);
+		let parts = split(line, '\t');
+
+		if (length(parts) >= 2 && parts[0] != '')
+			table.names[parts[0]] = parts[1];
+	}
+
+	return table;
+}
+
+function asn_lookup(ip, table) {
+	let value = ip_to_int(ip);
+	let best = null;
+	let best_len = -1;
+
+	if (value == null)
+		return null;
+
+	for (let i = 0; i < length(table.prefixes); i++) {
+		let p = table.prefixes[i];
+		let div = table.divs[p.len];
+
+		if (div && int(value / div) == int(p.base / div) && p.len > best_len) {
+			best = p;
+			best_len = p.len;
+		}
+	}
+
+	if (best == null)
+		return null;
+
+	return {
+		asn: 'AS' + best.asn,
+		asn_name: table.names[best.asn] || '',
+		asn_cc: best.cc || ''
+	};
+}
+
+function enrich_asn(rows, table) {
+	if (!rows)
+		return;
+
+	for (let i = 0; i < length(rows); i++) {
+		let row = rows[i];
+
+		if (!row || !row.ip)
+			continue;
+
+		let info = asn_lookup(row.ip, table);
+
+		if (info) {
+			row.asn = info.asn;
+			row.asn_name = info.asn_name;
+			row.asn_cc = info.asn_cc;
+		}
+	}
+}
+
+function parse_downloads(limit) {
+	if (!limit || limit < 1)
+		limit = 4000;
+
+	let out = command_output('tail -n ' + limit + ' ' + shquote(DOWNLOADS_FILE));
+	let lines = split((out && out.stdout) || '', '\n');
+	let rows = [];
+
+	for (let i = 0; i < length(lines); i++) {
+		let line = trim(lines[i]);
+
+		if (line == '' || substr(line, 0, 1) == '#')
+			continue;
+
+		let p = split(line, '\t');
+
+		if (length(p) < 12)
+			continue;
+
+		push(rows, {
+			run_ts: p[0],
+			done_ts: p[1],
+			node: p[2],
+			node_id: p[3],
+			ip: p[4],
+			latency: +p[5] || 0,
+			loss: +p[6] || 0,
+			speed: +p[7] || 0,
+			asn: p[8] != '' ? 'AS' + p[8] : '',
+			asn_name: p[9],
+			asn_cc: p[10],
+			status: p[11]
+		});
+	}
+
+	return rows;
+}
+
 // Node selection arrives as a JSON array from the console (or as a plain
 // string from older pages); rpcd expects a whitespace-separated string.
 function nodes_text(value) {
@@ -898,7 +1049,27 @@ function dispatch(req) {
 		}));
 	}
 	else if (action == 'history') {
-		send(req, ubus_call('api_history', {}));
+		let envelope = ubus_call('api_history', {}) || {};
+		let data = envelope.data || {};
+
+		let asn_table = load_asn_table();
+
+		enrich_asn(data.history || [], asn_table);
+
+		// 概览历史按节点画走势/机房分布，节点明细也需要 ASN。
+		for (let i = 0; i < length(data.history || []); i++) {
+			let run = data.history[i];
+
+			if (run)
+				enrich_asn(run.nodes || [], asn_table);
+		}
+
+		send(req, envelope);
+	}
+	else if (action == 'downloads') {
+		send(req, ok({
+			rows: parse_downloads(int(req.message.params.limit || 4000))
+		}));
 	}
 	else if (action == 'tasklog') {
 		send(req, ubus_call('api_tasklog', {}));
@@ -955,6 +1126,11 @@ function dispatch(req) {
 		let envelope = ubus_call('api_results', { limit: 0 }) || {};
 		let rows = envelope.data || {};
 		let text = {};
+		let table = load_asn_table();
+
+		enrich_asn(rows.rows || [], table);
+		if (rows.best)
+			enrich_asn([ rows.best ], table);
 
 		try { text = ubus_call('get_best_result', {}) || {}; }
 		catch (e) { text = {}; }

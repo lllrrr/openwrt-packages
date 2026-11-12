@@ -307,7 +307,7 @@ cfpick serve              # 前台启动 Web（--listen 0.0.0.0 --port 8787）
 | `monitor.enabled` | `true` | 成功后是否派生后台监测：每分钟复测一次成功结果的延迟 |
 | `monitor.interval` | `60` | 监测复测间隔（秒，10–3600） |
 | `monitor.failures` | `1` | 连续失败达到该次数即触发该 worker 的复测（1–10；默认 1 = 一次失败） |
-| `nodes` | `[]` | `{name, link, ip_list, ddns_domain, enabled}` 数组；`ddns_domain` 可填完整主机名或裸子域名（配合 `zone_name`），留空表示该节点只测速 |
+| `nodes` | `[]` | `{name, id, link, ip_list, ddns_domain, enabled}` 数组；`id` 由分享链接（忽略 `#备注`）哈希得到，用于跨改名跟踪历史；`ddns_domain` 可填完整主机名或裸子域名（配合 `zone_name`），留空表示该节点只测速 |
 | `ddns.enabled` | `false` | 是否启用 Cloudflare DDNS 写回 |
 | `ddns.provider` | `cloudflare` | 目前仅支持 Cloudflare |
 | `ddns.ip_count` | `1` | 每个节点写入几个最优 IP（1–10） |
@@ -334,6 +334,9 @@ cfpick serve              # 前台启动 Web（--listen 0.0.0.0 --port 8787）
 | `/var/lib/cfpick/result.json` | 本次结果的结构化导出（`generated_at` / `best` / `nodes` / `rows` 全量） |
 | `/var/lib/cfpick/best.json` | 精简的最优导出（`generated_at` / `best` / 各节点最优 `nodes`，不含全量 rows） |
 | `/var/lib/cfpick/history.csv` | 持久历史（每块 = 一次运行中各节点最优，最多 5000 行） |
+| `/var/lib/cfpick/downloads.tsv` | 每轮下载实测的逐 IP 明细（概览页按任务展开）；最多 50000 行 |
+| `/var/lib/cfpick/asn-prefixes.tsv` | ASN 网段缓存（CIDR / ASN / 国家码），随包 seed 在 `/opt/cfpick/data/` |
+| `/var/lib/cfpick/providers.tsv` | ASN 机房名学习表（ASN / 名称），新 ASN 运行时补查后追加 |
 | `/var/lib/cfpick/last.log` | 最近一次完整运行日志 |
 | `/var/log/cfpick/speedtest.log` | 运行日志；每次运行开始时滚动为 `.1`…`.5` |
 | `/var/lib/cfpick/core/mihomo` / `core/xray` | 两个托管内核二进制（可分别升级） |
@@ -361,6 +364,10 @@ init.d/UCI 自动生成的任务。添加任务时选择计划、类型和节点
 删除节点时，本程序会同步从任务里移除该节点；如果某个任务因此不再剩任何被选节点，
 它会直接删除，不会悄悄变成“跑全部节点”。修改节点名（分享链接不变）时会自动把任务
 里的旧名字换成新名字。
+
+节点身份由分享链接决定（忽略 `#备注`）：改名不会断开历史，改端口/UUID/传输参数则视为
+新节点，旧历史会按“非现有节点”在下次任务追加历史时裁剪掉。同一条链接不能配置成两个
+节点，保存时会直接拒绝。
 
 同一节点同时只允许一个任务；两个任务有重叠节点时，后启动的只跳过冲突的那几个，其余
 继续。下载实测和写回阶段全局排队，下载期间其他任务的探测暂停；停止按钮只停止探测，

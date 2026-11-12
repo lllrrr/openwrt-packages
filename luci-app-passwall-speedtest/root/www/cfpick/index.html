@@ -7,7 +7,7 @@
 <link rel="icon" type="image/svg+xml" href="favicon.svg?v=1.0.12">
 <link rel="icon" href="favicon.ico?v=1.0.12" sizes="any">
 <meta name="theme-color" content="#2563eb">
-<link rel="stylesheet" href="style.css?v=1.0.27">
+<link rel="stylesheet" href="style.css?v=1.0.29">
 </head>
 <body>
 <header class="topbar">
@@ -79,23 +79,83 @@
     </div>
 
     <div class="card">
-      <div class="card-head"><h2>各节点最优 IP</h2></div>
-      <div class="table-wrap">
-        <table class="data">
-          <thead><tr><th>节点</th><th>IP</th><th>延迟</th><th>丢包</th><th>下载</th><th>地区</th></tr></thead>
-          <tbody id="result-body"><tr><td colspan="6" class="empty">加载中…</td></tr></tbody>
-        </table>
+      <div class="card-head">
+        <h2>各节点最优 IP</h2>
+        <span class="muted">切换节点查看各轮下载结果</span>
+        <span class="pill soft">任务默认折叠</span>
+      </div>
+      <div class="node-select-row">
+        <span class="node-select-label">节点</span>
+        <div class="node-select" id="ov-node-select">
+          <button type="button" class="node-select-btn" id="ov-node-select-btn" aria-haspopup="listbox" aria-expanded="false"></button>
+          <div class="node-select-menu" id="ov-node-select-menu" role="listbox" aria-label="节点"></div>
+        </div>
+      </div>
+      <div class="node-latest muted" id="ov-node-latest">加载中…</div>
+      <div class="dl-tasklog" id="ov-node-tasks">
+        <div class="empty-state">加载中…</div>
       </div>
     </div>
 
     <div class="card">
-      <div class="card-head"><h2>历史</h2></div>
-      <div class="table-wrap">
-        <table class="data">
-          <thead><tr><th>时间</th><th>最优 IP</th><th>延迟</th><th>下载</th><th>地区</th></tr></thead>
-          <tbody id="history-body"><tr><td colspan="5" class="empty">加载中…</td></tr></tbody>
+      <div class="card-head">
+        <h2>历史</h2>
+        <span class="muted">各节点历史最优 IP 走势</span>
+        <span class="pill soft" id="hist-range">全部历史任务</span>
+        <span class="pill soft">全失败任务不计入</span>
+      </div>
+      <div class="node-select-row">
+        <span class="node-select-label">节点</span>
+        <div class="node-select" id="hist-node-select">
+          <button type="button" class="node-select-btn" id="hist-node-select-btn" aria-haspopup="listbox" aria-expanded="false"></button>
+          <div class="node-select-menu" id="hist-node-select-menu" role="listbox" aria-label="历史节点"></div>
+        </div>
+        <span class="muted">切换节点查看走势与机房分布</span>
+      </div>
+      <div class="node-latest" id="hist-node-latest">加载中…</div>
+
+      <div class="chart-block" id="hist-chart-block">
+        <div class="chart-head">
+          <div class="chart-title" id="hist-chart-title">下载速度趋势<span class="muted">每次任务的最优 IP</span></div>
+          <div class="seg" id="hist-metric" role="group" aria-label="指标">
+            <button type="button" class="active" data-metric="speed">下载速度</button>
+            <button type="button" data-metric="latency">延迟</button>
+          </div>
+        </div>
+        <div class="chart-wrap" id="hist-chart-wrap">
+          <svg id="hist-chart" viewBox="0 0 960 250" role="img" aria-label="历史最优 IP 折线图"></svg>
+          <div class="chart-tip hidden" id="hist-chart-tip"></div>
+        </div>
+      </div>
+
+      <div class="chart-empty hidden" id="hist-chart-empty">
+        <strong>暂无历史最优 IP</strong>
+        全失败的任务不会记入历史；该节点有结果后这里会显示走势。
+      </div>
+
+      <div class="dc-head" id="hist-dc-head">
+        <h3>机房分布</h3>
+        <span class="muted">全部历史任务的最优 IP 按机房归并，每次任务结束后按出现次数排序</span>
+        <span class="pill soft">随任务自动更新</span>
+      </div>
+      <div class="table-wrap" id="hist-dc-wrap">
+        <table class="data dc-table">
+          <thead>
+            <tr>
+              <th rowspan="2">ASN / 机房</th>
+              <th rowspan="2">出现次数</th>
+              <th colspan="3" class="group">下载速度 (MB/s)</th>
+              <th colspan="3" class="group">延迟 (ms)</th>
+            </tr>
+            <tr>
+              <th>最快</th><th>平均</th><th>最慢</th>
+              <th>最低</th><th>平均</th><th>最高</th>
+            </tr>
+          </thead>
+          <tbody id="hist-dc-body"><tr><td colspan="8" class="empty">加载中…</td></tr></tbody>
         </table>
       </div>
+      <p class="muted hist-note">点下拉框切换节点；悬停折线可查看该次任务的最优 IP。某个机房第一次出现最优 IP 时新增一行。</p>
     </div>
 
     <div class="card">
@@ -568,6 +628,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=1.0.27"></script>
+<script src="app.js?v=1.0.29"></script>
 </body>
 </html>

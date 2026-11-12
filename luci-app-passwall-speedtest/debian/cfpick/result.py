@@ -24,6 +24,11 @@ from . import paths
 HEADER = ["IP 地址", "已发送", "已接收", "丢包率", "平均延迟", "下载速度(MB/s)", "地区码", "节点", "节点ID"]
 TIME_PREFIX = "# Speed test time:"
 HISTORY_MAX_LINES = 5000
+DOWNLOADS_HEADER = [
+    "run_ts", "done_ts", "node", "node_id", "ip", "latency",
+    "loss", "speed", "asn", "asn_name", "cc", "status",
+]
+DOWNLOADS_MAX_LINES = 50000
 
 
 @dataclass
@@ -71,11 +76,24 @@ def sort_rows(rows, mode="speed"):
     return sorted(rows, key=lambda row: (-row.speed, row.latency, row.ip))
 
 
-def merge_result(rows, node_names, path=None):
-    """Replace only the given nodes' rows, keeping other concurrent runs' rows."""
+def merge_result(rows, node_names, path=None, node_ids=None):
+    """Replace only the given nodes' rows, keeping other concurrent runs' rows.
+
+    ``node_ids`` is the link-derived identity used by current rows.  Legacy
+    rows have no id, so their display name is still matched as a fallback.
+    """
     existing, _ = read_result(path)
     names = {str(name) for name in node_names if name}
-    kept = [row for row in existing if row.node not in names]
+    ids = {str(node_id) for node_id in (node_ids or []) if node_id}
+    kept = []
+    for row in existing:
+        if row.node_id and row.node_id in ids:
+            continue
+        # Also drop legacy/old-id rows that still carry this display name;
+        # otherwise a link edit with the same name leaves duplicate rows.
+        if row.node in names:
+            continue
+        kept.append(row)
     return sort_rows(kept + list(rows), "speed")
 
 
@@ -208,6 +226,145 @@ def append_history(rows, when, path=None, max_lines=HISTORY_MAX_LINES):
         if len(lines) > max_lines:
             tmp = Path(str(path) + ".tmp")
             tmp.write_text("\n".join(lines[-max_lines:]) + "\n", encoding="utf-8")
+            os.replace(tmp, path)
+    except OSError:
+        pass
+
+
+def prune_history(keep_ids, keep_names, path=None):
+    """Drop history rows whose node no longer exists.
+
+    Legacy rows (written before link identities) have no id and are kept only
+    when their display name still belongs to a configured node.  Runs whose
+    rows all disappeared are removed as a whole.
+    """
+    path = Path(path or paths.HISTORY_FILE)
+    if not path.exists():
+        return
+    ids = {str(value) for value in (keep_ids or []) if value}
+    names = {str(value) for value in (keep_names or []) if value}
+    blocks = []
+    current = None
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return
+    for line in lines:
+        text = line.rstrip("\r\n")
+        if not text.strip():
+            continue
+        if text.startswith(TIME_PREFIX):
+            current = [text, []]
+            blocks.append(current)
+            continue
+        if current is None:
+            continue
+        try:
+            parts = next(csv.reader([text]))
+        except (csv.Error, StopIteration):
+            continue
+        row = _parse_row(parts)
+        if not row:
+            continue
+        key = _node_key(row)
+        if key in ids or (not row.node_id and row.node in names):
+            current[1].append(text)
+    out = []
+    for header, rows in blocks:
+        if rows:
+            out.append(header)
+            out.extend(rows)
+    tmp = Path(str(path) + ".tmp")
+    try:
+        tmp.write_text("\n".join(out) + ("\n" if out else ""), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+
+
+def parse_downloads(limit=4000, path=None):
+    """Read the tail of downloads.tsv as dictionaries for the overview card."""
+    path = Path(path or paths.DOWNLOADS_FILE)
+    if not path.exists():
+        return []
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+    if limit and limit > 0:
+        lines = lines[-limit:]
+    out = []
+    for line in lines:
+        text = line.rstrip("\r\n")
+        if not text.strip() or text.startswith("#"):
+            continue
+        parts = text.split("\t")
+        if len(parts) < 12:
+            continue
+        try:
+            latency = float(parts[5] or 0)
+            loss = float(parts[6] or 0)
+            speed = float(parts[7] or 0)
+        except ValueError:
+            latency = loss = speed = 0.0
+        out.append({
+            "run_ts": parts[0],
+            "done_ts": parts[1],
+            "node": parts[2],
+            "node_id": parts[3],
+            "ip": parts[4],
+            "latency": round(latency, 2),
+            "loss": round(loss, 4),
+            "speed": round(speed, 2),
+            "asn": ("AS" + parts[8]) if parts[8] else "",
+            "asn_name": parts[9],
+            "asn_cc": parts[10],
+            "status": parts[11],
+        })
+    return out
+
+
+def append_downloads(entries, run_ts, done_ts, path=None,
+                     max_lines=DOWNLOADS_MAX_LINES):
+    """Append one download-stage batch, trimming the file by line count."""
+    if not entries:
+        return
+    path = Path(path or paths.DOWNLOADS_FILE)
+    lines = []
+    for entry in entries:
+        asn_text = str(entry.get("asn") or "")
+        if asn_text.upper().startswith("AS"):
+            asn_text = asn_text[2:]
+        lines.append("\t".join([
+            str(run_ts or done_ts or ""),
+            str(done_ts or ""),
+            str(entry.get("node") or ""),
+            str(entry.get("node_id") or ""),
+            str(entry.get("ip") or ""),
+            "%.2f" % float(entry.get("latency") or 0),
+            "%.2f" % float(entry.get("loss") or 0),
+            "%.2f" % float(entry.get("speed") or 0),
+            asn_text,
+            str(entry.get("asn_name") or ""),
+            str(entry.get("asn_cc") or ""),
+            str(entry.get("status") or ""),
+        ]))
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as handle:
+            if path.stat().st_size == 0:
+                handle.write("# " + "\t".join(DOWNLOADS_HEADER) + "\n")
+            handle.write("\n".join(lines) + "\n")
+        with open(path, "r", encoding="utf-8", errors="replace") as handle:
+            count = sum(1 for _ in handle)
+        if max_lines and count > max_lines:
+            all_lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+            keep = all_lines[0:1] + all_lines[-(max_lines - 1):]
+            tmp = Path(str(path) + ".tmp")
+            tmp.write_text("\n".join(keep) + "\n", encoding="utf-8")
             os.replace(tmp, path)
     except OSError:
         pass

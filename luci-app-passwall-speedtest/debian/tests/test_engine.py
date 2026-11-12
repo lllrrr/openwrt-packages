@@ -157,7 +157,7 @@ class DownloadRetryTests(unittest.TestCase):
         eng = engine.Engine(dict(self.cfg), self.log, "retest", "/bin/true",
                             "mihomo", self.eng.run_dir)
         with mock.patch.object(engine.Engine, "_download_one", return_value=5.0):
-            _rows, kept = eng._download_phase(self.node, [self.row("1.1.1.1")])
+            _rows, kept, _details = eng._download_phase(self.node, [self.row("1.1.1.1")])
         self.assertEqual(kept, 1)
         self.assertIn("a", eng.fresh_nodes)
 
@@ -173,7 +173,7 @@ class DownloadRetryTests(unittest.TestCase):
             ok = self.eng._commit([self.node], rows_by_node)
         self.assertFalse(ok)
         append.assert_not_called()
-        merge.assert_called_once_with([], ["a"])
+        merge.assert_called_once_with([], ["a"], node_ids=[""])
         write.assert_called_once()
         export.assert_called_once()
 

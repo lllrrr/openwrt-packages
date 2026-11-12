@@ -7,6 +7,7 @@ preserved so a newer UI writing extra fields does not lose them.
 """
 
 import copy
+import hashlib
 import json
 import os
 import re
@@ -219,6 +220,45 @@ def _normalize_ip_lists(value):
     return out
 
 
+def normalize_link(link):
+    """Identity-normalize a share link.
+
+    The ``#remark`` fragment is presentation only, so editing it must not
+    create a new node identity.  Everything else (protocol, host, port, UUID,
+    transport options) identifies the connection and therefore the node.
+    """
+    text = str(link or "").strip()
+    if "#" in text:
+        text = text.split("#", 1)[0]
+    return text.strip()
+
+
+def node_id_for_link(link):
+    """Stable, credential-free node id derived from the share link."""
+    normalized = normalize_link(link)
+    if not normalized:
+        return ""
+    return "L" + hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
+
+
+def duplicate_link_names(nodes):
+    """Names of nodes that share the same normalized share link."""
+    seen = {}
+    duplicates = []
+    for item in nodes or []:
+        if not isinstance(item, dict):
+            continue
+        key = normalize_link(item.get("link"))
+        if not key:
+            continue
+        name = (item.get("name") or "").strip()
+        if key in seen:
+            duplicates.append((seen[key], name))
+        else:
+            seen[key] = name
+    return duplicates
+
+
 def _normalize_nodes(value):
     source = value if isinstance(value, list) else []
     out = []
@@ -230,6 +270,7 @@ def _normalize_nodes(value):
             continue
         out.append({
             "name": _clean_name(item.get("name"), "node%d" % (index + 1)),
+            "id": node_id_for_link(link),
             "link": link,
             "ip_list": _clean_text(item.get("ip_list")),
             "ddns_domain": _clean_domain(item.get("ddns_domain")),

@@ -117,6 +117,16 @@ class WebTests(unittest.TestCase):
         self.assertEqual(data["node_count"], 0)
         self.assertIn("state_dir", data)
 
+    def test_overview_endpoints_have_new_shapes(self):
+        status, data = self.request("/api/downloads")
+        self.assertEqual(status, 200)
+        self.assertIn("rows", data)
+        self.assertIsInstance(data["rows"], list)
+        status, data = self.request("/api/history")
+        self.assertEqual(status, 200)
+        self.assertIn("history", data)
+        self.assertIsInstance(data["history"], list)
+
     def test_core_modules(self):
         status, data = self.request("/api/core")
         self.assertEqual(status, 200)

@@ -21,7 +21,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import __version__, config, core, cron, ddns, links, lock, monitor, paths, result, tasklog
+from . import __version__, asn, config, core, cron, ddns, links, lock, monitor, paths, result, tasklog
 from .log import Logger, read_chunk
 
 MAX_BODY = 2 * 1024 * 1024
@@ -147,10 +147,28 @@ def _app_info():
     }
 
 
+def _current_nodes(cfg):
+    """Map link-derived node ids to their current display names."""
+    by_id = {}
+    by_name = {}
+    for item in cfg.get("nodes", []) or []:
+        if not isinstance(item, dict):
+            continue
+        name = (item.get("name") or "").strip()
+        node_id = (item.get("id") or config.node_id_for_link(item.get("link"))).strip()
+        if not node_id:
+            continue
+        by_id[node_id] = name or node_id
+        if name:
+            by_name[name] = node_id
+    return by_id, by_name
+
+
 def _parse_link_summary(item, index):
     name = (item.get("name") or "").strip()
     summary = {
         "index": index + 1,
+        "id": (item.get("id") or config.node_id_for_link(item.get("link"))),
         "name": name,
         "ip_list": (item.get("ip_list") or "").strip(),
         "enabled": bool(item.get("enabled", True)),
@@ -212,6 +230,79 @@ def _config_warnings(cfg):
     return warnings
 
 
+def _filter_rows(rows, by_id, by_name):
+    """Keep only rows belonging to configured nodes and refresh their name."""
+    out = []
+    for row in rows:
+        node_id = (getattr(row, "node_id", "") or "").strip()
+        name = (getattr(row, "node", "") or "").strip()
+        if not node_id:
+            node_id = by_name.get(name, "")
+        if not node_id or node_id not in by_id:
+            continue
+        row.node_id = node_id
+        row.node = by_id[node_id]
+        out.append(row)
+    return out
+
+
+def _history_for_console(cfg, history):
+    """Attach link identities, drop removed nodes, refresh display names."""
+    by_id, by_name = _current_nodes(cfg)
+    out = []
+    node_rows = []
+    for run in history or []:
+        kept = []
+        for item in run.get("nodes") or []:
+            if not isinstance(item, dict):
+                continue
+            node_id = (item.get("node_id") or "").strip()
+            name = (item.get("node") or "").strip()
+            if not node_id:
+                node_id = by_name.get(name, "")
+            if not node_id or node_id not in by_id:
+                continue
+            item["node_id"] = node_id
+            item["node"] = by_id[node_id]
+            kept.append(item)
+        if not kept:
+            continue
+        best = sorted(kept, key=lambda item: (
+            -float(item.get("speed") or 0), float(item.get("latency") or 0)))[0]
+        run["nodes"] = kept
+        run["ip"] = best.get("ip", "")
+        run["latency"] = best.get("latency", 0)
+        run["speed"] = best.get("speed", 0)
+        run["region"] = best.get("region", "")
+        out.append(run)
+        node_rows.extend(kept)
+    asn.enrich_rows(node_rows, learn=True, max_lookups=24)
+    for run in out:
+        best = sorted(run["nodes"], key=lambda item: (
+            -float(item.get("speed") or 0), float(item.get("latency") or 0)))[0]
+        run["asn"] = best.get("asn", "")
+        run["asn_name"] = best.get("asn_name", "")
+        run["asn_cc"] = best.get("asn_cc", "")
+    return out
+
+
+def _downloads_for_console(cfg, rows):
+    by_id, by_name = _current_nodes(cfg)
+    out = []
+    for row in rows or []:
+        node_id = (row.get("node_id") or "").strip()
+        name = (row.get("node") or "").strip()
+        if not node_id:
+            node_id = by_name.get(name, "")
+        if not node_id or node_id not in by_id:
+            continue
+        row["node_id"] = node_id
+        row["node"] = by_id[node_id]
+        out.append(row)
+    asn.enrich_rows(out, learn=True, max_lookups=24)
+    return out
+
+
 def _node_changes(previous, current):
     """Deleted and renamed nodes between two normalized configs.
 
@@ -231,7 +322,7 @@ def _node_changes(previous, current):
 
     by_link = {}
     for item in current_nodes:
-        link = (item.get("link") or "").strip()
+        link = config.normalize_link(item.get("link"))
         if link:
             by_link.setdefault(link, []).append(item.get("name", ""))
     renames = {}
@@ -239,7 +330,7 @@ def _node_changes(previous, current):
         name = item.get("name", "")
         if not name or name in current_names:
             continue
-        targets = by_link.get((item.get("link") or "").strip()) or []
+        targets = by_link.get(config.normalize_link(item.get("link"))) or []
         if len(targets) == 1 and targets[0] and targets[0] != name:
             renames[name] = targets[0]
     return removed, renames
@@ -400,16 +491,32 @@ class Handler(BaseHTTPRequestHandler):
                 "ip_lists": cfg.get("ip_lists", []),
             })
         elif route == "/api/best":
+            cfg = config.load()
+            by_id, by_name = _current_nodes(cfg)
             rows, when = result.read_result()
+            rows = _filter_rows(rows, by_id, by_name)
+            payload = result.build_payload(rows, when)
+            items = payload["rows"] + payload["nodes"]
+            if payload["best"]:
+                items.append(payload["best"])
+            asn.enrich_rows(items, learn=True, max_lookups=24)
             self._send_json({
                 "content": result.best_view(rows, when),
-                "payload": result.build_payload(rows, when),
+                "payload": payload,
             })
         elif route == "/api/history":
             history = result.parse_history()
             if not history:
                 history = result.history_from_result_files()
-            self._send_json({"history": history})
+            self._send_json({"history": _history_for_console(config.load(), history)})
+        elif route == "/api/downloads":
+            try:
+                limit = int((query.get("limit") or ["4000"])[0])
+            except ValueError:
+                limit = 4000
+            limit = max(1, min(limit, 20000))
+            rows = result.parse_downloads(limit=limit)
+            self._send_json({"rows": _downloads_for_console(config.load(), rows)})
         elif route == "/api/tasklog":
             limit = query.get("limit", ["200"])[0]
             try:
@@ -747,6 +854,11 @@ class Handler(BaseHTTPRequestHandler):
             cloudflare["api_token"] = (
                 ((previous.get("ddns") or {}).get("cloudflare") or {}).get("api_token", ""))
         normalized = config.normalize(incoming)
+        duplicates = config.duplicate_link_names(normalized.get("nodes"))
+        if duplicates:
+            pairs = "；".join("%s / %s" % pair for pair in duplicates)
+            self._send_error(400, "节点链接重复（同一条链接只能对应一个节点）：%s" % pairs)
+            return
         removed_nodes, node_renames = _node_changes(previous, normalized)
 
         warnings = _config_warnings(normalized)

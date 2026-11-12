@@ -19,6 +19,13 @@
 		core: null,
 		best: null,
 		history: [],
+		downloads: [],
+		ovSelectedNode: '',
+		histSelectedNode: '',
+		histMetric: 'speed',
+		histPoints: [],
+		openDropdown: '',
+		dropdownOutsideBound: false,
 		tasks: null,
 		tasklog: [],
 		appInfo: null,
@@ -72,6 +79,7 @@
 		'/api/nodes': 'nodes',
 		'/api/best': 'best',
 		'/api/history': 'history',
+		'/api/downloads': 'downloads',
 		'/api/tasklog': 'tasklog',
 		'/api/log': 'log',
 		'/api/cron': 'tasks',
@@ -365,6 +373,36 @@
 		return Number.isFinite(number) ? number.toFixed(digits == null ? 2 : digits) : '—';
 	}
 
+	function escHtml(value) {
+		return String(value == null ? '' : value).replace(/[&<>"']/g, (ch) => ({
+			'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+		}[ch]));
+	}
+
+	function shortDate(ts) {
+		return ts ? String(ts).slice(5, 19) : '';
+	}
+
+	function shortClock(ts) {
+		return ts ? String(ts).slice(11, 19) : '';
+	}
+
+	function dlStatusPill(status) {
+		if (status === 'best') return '<span class="pill ok">最优</span>';
+		if (status === 'ok') return '<span class="pill soft">保留</span>';
+		if (status === 'slow') return '<span class="pill warn">偏慢</span>';
+		return '<span class="pill none">失败</span>';
+	}
+
+	function dlAsnCell(row) {
+		if (!row || !row.asn)
+			return '<span class="muted">—</span>';
+
+		return '<span class="asn">' + escHtml(row.asn) + '</span>' +
+			'<span class="cell-sub">' + escHtml(row.asn_name || '') +
+			(row.asn_cc ? ' · ' + escHtml(row.asn_cc) : '') + '</span>';
+	}
+
 	function phaseLabel(phase) {
 		return PHASES[phase] || phase || '空闲';
 	}
@@ -398,6 +436,8 @@
 			refreshNodeInfo();
 		} else if (name === 'settings' || name === 'overview') {
 			refreshCronTasks();
+			if (name === 'overview')
+				refreshNodeInfo();
 		}
 	}
 
@@ -516,55 +556,255 @@
 			   (top.speed > 0 ? fmtNumber(top.speed) + ' MB/s' : '未做下载实测') +
 			   (top.node ? ' · ' + top.node : ''))
 			: '—');
-		renderResults();
+		renderOverview();
 	}
 
-	function renderResults() {
-		const body = $('#result-body');
-		if (!body) return;
-		const rows = bestRows();
-		const seen = {};
-		body.replaceChildren();
+	function overviewNodes() {
+		const list = [];
+		const map = {};
 
-		if (!rows.length) {
-			const tr = document.createElement('tr');
-			const td = document.createElement('td');
-			td.colSpan = 6;
-			td.className = 'empty';
-			td.textContent = '暂无结果';
-			tr.appendChild(td);
-			body.appendChild(tr);
+		function add(key, name, best) {
+			if (!key) return null;
+			if (!map[key]) {
+				map[key] = { key, name: name || key, best: best || null, count: 0 };
+				list.push(map[key]);
+			}
+			else if (best && !map[key].best) {
+				map[key].best = best;
+			}
+			if (name && (!map[key].name || map[key].name === key))
+				map[key].name = name;
+			return map[key];
+		}
+
+		configuredWorkers().forEach((worker) => add(worker.node, nodeRemark(worker.node), null));
+		bestRows().forEach((row) => {
+			add(row.node_id || row.node, String(row.node || '').trim() || row.node_id, row);
+		});
+		(state.downloads || []).forEach((row) => {
+			add(row.node_id || row.node, String(row.node || '').trim(), null);
+		});
+
+		// 下拉里的次数 = 该节点成功产生下载明细的任务轮数。
+		const groups = {};
+		(state.downloads || []).forEach((row) => {
+			const key = row.node_id || row.node;
+			if (!key || row.status === 'fail') return;
+			if (!groups[key]) groups[key] = {};
+			groups[key][(row.run_ts || '') + '|' + (row.done_ts || '')] = true;
+		});
+		list.forEach((node) => {
+			node.count = Object.keys(groups[node.key] || {}).length;
+		});
+
+		return list;
+	}
+
+	function renderNodeDropdown(prefix, nodes, selectedKey, onSelect) {
+		const wrap = $('#' + prefix + '-node-select');
+		const button = $('#' + prefix + '-node-select-btn');
+		const menu = $('#' + prefix + '-node-select-menu');
+		if (!wrap || !button || !menu) return;
+
+		const open = state.openDropdown === prefix;
+
+		if (!nodes.length) {
+			button.className = 'node-select-btn';
+			button.title = '';
+			button.setAttribute('aria-expanded', 'false');
+			button.innerHTML = '<span class="state empty" aria-hidden="true"></span>' +
+				'<span class="name">暂无节点</span><span class="count">0</span>' +
+				'<span class="chevron" aria-hidden="true"></span>';
+			menu.replaceChildren();
+			wrap.classList.remove('open');
 			return;
 		}
 
-		rows.forEach((row) => {
-			// result.csv 已按全局最优排序：同一节点首次出现的行就是该节点最优。
-			const best = !seen[row.node];
-			seen[row.node] = true;
-			const tr = document.createElement('tr');
-			if (best) tr.className = 'best';
-			[
-				[row.node || '—', ''],
-				[row.ip || '', 'ip'],
-				[fmtNumber(row.latency) + ' ms', ''],
-				[fmtNumber((row.loss || 0) * 100) + '%', ''],
-				[row.speed > 0 ? fmtNumber(row.speed) + ' MB/s' : '—', ''],
-				[row.region || '—', ''],
-			].forEach((cell) => {
-				const td = document.createElement('td');
-				if (cell[1]) td.className = cell[1];
-				td.textContent = cell[0];
-				tr.appendChild(td);
+		const current = nodes.find((node) => node.key === selectedKey) || nodes[0];
+		button.className = 'node-select-btn' + (open ? ' open' : '');
+		button.title = current.name;
+		button.setAttribute('aria-expanded', open ? 'true' : 'false');
+		button.innerHTML =
+			'<span class="state' + (current.empty ? ' empty' : '') + '" aria-hidden="true"></span>' +
+			'<span class="name">' + escHtml(current.name) + '</span>' +
+			'<span class="count">' + (current.count || 0) + '</span>' +
+			'<span class="chevron" aria-hidden="true"></span>';
+
+		menu.replaceChildren();
+		nodes.forEach((node) => {
+			const item = document.createElement('button');
+			item.type = 'button';
+			item.className = 'node-select-item' + (node.key === current.key ? ' active' : '');
+			item.setAttribute('role', 'option');
+			item.setAttribute('aria-selected', node.key === current.key ? 'true' : 'false');
+			item.dataset.key = node.key;
+			item.title = node.name;
+			item.innerHTML =
+				'<span class="state' + (node.empty ? ' empty' : '') + '" aria-hidden="true"></span>' +
+				'<span class="name">' + escHtml(node.name) + '</span>' +
+				'<span class="count">' + (node.count || 0) + '</span>' +
+				'<span class="check">' + (node.key === current.key ? '✓' : '') + '</span>';
+			item.addEventListener('click', (event) => {
+				event.stopPropagation();
+				state.openDropdown = '';
+				onSelect(node.key);
 			});
-			body.appendChild(tr);
+			menu.appendChild(item);
 		});
+
+		wrap.classList.toggle('open', open);
+		if (open) {
+			const active = menu.querySelector('.node-select-item.active');
+			if (active) {
+				menu.scrollTop = Math.max(0, active.offsetTop -
+					menu.clientHeight / 2 + active.offsetHeight / 2);
+			}
+		}
+
+		button.onclick = (event) => {
+			event.stopPropagation();
+			const previous = state.openDropdown;
+			state.openDropdown = open ? '' : prefix;
+			if (previous && previous !== prefix) {
+				if (previous === 'ov') renderOverview();
+				else if (previous === 'hist') renderHistory();
+			}
+			renderNodeDropdown(prefix, nodes, selectedKey, onSelect);
+		};
+		menu.onclick = (event) => {
+			event.stopPropagation();
+		};
+	}
+
+	function renderOverview() {
+		const nodes = overviewNodes();
+
+		if (!state.ovSelectedNode || !nodes.some((node) => node.key === state.ovSelectedNode)) {
+			const first = nodes.find((node) => node.best) || nodes[0];
+			state.ovSelectedNode = first ? first.key : '';
+		}
+
+		renderNodeDropdown('ov', nodes.map((node) => ({
+			key: node.key,
+			name: node.name,
+			count: node.count || 0,
+			empty: !node.best,
+		})), state.ovSelectedNode, (key) => {
+			state.ovSelectedNode = key;
+			renderOverview();
+		});
+
+		renderOverviewDetail(nodes);
+	}
+
+	function renderOverviewDetail(nodes) {
+		const latest = $('#ov-node-latest');
+		const host = $('#ov-node-tasks');
+		if (!latest || !host) return;
+
+		const node = nodes.find((item) => item.key === state.ovSelectedNode) || nodes[0];
+		if (!node) {
+			latest.className = 'node-latest muted';
+			latest.textContent = '暂无节点';
+			host.innerHTML = '<div class="empty-state">暂无数据</div>';
+			return;
+		}
+
+		const best = node.best || bestRows().find((row) => (row.node_id || row.node) === node.key);
+		const rows = (state.downloads || []).filter((row) => (row.node_id || row.node) === node.key);
+		const groupsMap = {};
+
+		rows.forEach((row) => {
+			const key = (row.run_ts || '') + '|' + (row.done_ts || '');
+			if (!groupsMap[key])
+				groupsMap[key] = { run_ts: row.run_ts, done_ts: row.done_ts, rows: [] };
+			groupsMap[key].rows.push(row);
+		});
+
+		const groups = Object.keys(groupsMap).map((key) => {
+			const group = groupsMap[key];
+			const okRows = group.rows.filter((row) => row.status !== 'fail');
+			const bestRow = group.rows.find((row) => row.status === 'best') ||
+				group.rows.slice().sort((a, b) => (b.speed || 0) - (a.speed || 0))[0];
+			return { run_ts: group.run_ts, done_ts: group.done_ts, rows: group.rows, okRows, bestRow };
+		}).filter((group) => group.okRows.length > 0);
+
+		groups.sort((a, b) => (a.done_ts || a.run_ts) < (b.done_ts || b.run_ts) ? 1 : -1);
+
+		if (best) {
+			const asnRow = rows.find((row) => row.ip === best.ip);
+			const asn = best.asn || (asnRow && asnRow.asn) || '';
+			const asnName = best.asn_name || (asnRow && asnRow.asn_name) || '';
+			const asnCc = best.asn_cc || (asnRow && asnRow.asn_cc) || '';
+			const done = groups.length ? groups[0].done_ts :
+				((state.best && state.best.payload && state.best.payload.generated_at) || '');
+
+			latest.className = 'node-latest';
+			latest.innerHTML =
+				'<span class="label">最新</span>' +
+				'<span class="ip">' + escHtml(best.ip) + '</span>' +
+				'<span class="metric">' +
+					(best.speed > 0 ? fmtNumber(best.speed) + ' MB/s' : '未做下载实测') +
+					' · ' + fmtNumber(best.latency) + ' ms</span>' +
+				(asn ? '<span class="asnline"><span class="asn-chip">' + escHtml(asn) + '</span>' +
+					'<span class="name">' + escHtml(asnName) +
+					(asnCc ? ' · ' + escHtml(asnCc) : '') + '</span></span>' : '') +
+				(done ? '<span class="time">完成 ' + escHtml(shortClock(done)) + '</span>' : '');
+		}
+		else {
+			latest.className = 'node-latest muted';
+			latest.innerHTML = '<span class="label">最新</span><span class="ip">暂无有效结果</span>' +
+				'<span class="muted">最近的任务没有产生可用 IP</span>';
+		}
+
+		if (!groups.length) {
+			host.innerHTML = '<div class="empty-state"><strong>暂无下载明细</strong>新的任务会记录每一轮下载结果。</div>';
+			return;
+		}
+
+		host.innerHTML = groups.map((group) => {
+			const sorted = group.rows.slice().sort((a, b) => (b.speed || 0) - (a.speed || 0));
+			const body = sorted.map((row, index) => {
+				const winner = row.status === 'best' ? ' class="winner"' : '';
+				return '<tr' + winner + '>' +
+					'<td class="mono">' + (index + 1) + '</td>' +
+					'<td class="ip">' + escHtml(row.ip) + '</td>' +
+					'<td class="mono">' + (row.latency > 0 ? fmtNumber(row.latency) + ' ms' : '—') + '</td>' +
+					'<td class="mono">' + (row.speed > 0 ? fmtNumber(row.speed) + ' MB/s' : '—') + '</td>' +
+					'<td>' + dlAsnCell(row) + '</td>' +
+					'<td>' + dlStatusPill(row.status) + '</td>' +
+				'</tr>';
+			}).join('');
+			const bestRow = group.bestRow || {};
+
+			return '<details class="task">' +
+				'<summary>' +
+					'<span class="task-time">' + escHtml(shortDate(group.run_ts)) + '</span>' +
+					'<span class="pill ok">成功</span>' +
+					'<span class="task-meta">完成 ' + escHtml(shortClock(group.done_ts)) +
+						' · 下载 ' + group.okRows.length + '/' + group.rows.length + '</span>' +
+					'<span class="task-best"><span class="mono">' + escHtml(bestRow.ip || '') + '</span>' +
+						(bestRow.speed > 0 ? ' · ' + fmtNumber(bestRow.speed) + ' MB/s' : '') + '</span>' +
+					'<span class="chevron" aria-hidden="true"></span>' +
+				'</summary>' +
+				'<div class="task-body"><div class="table-wrap"><table class="data">' +
+					'<thead><tr><th>#</th><th>IP</th><th>延迟</th><th>下载</th><th>ASN / 机房</th><th>结果</th></tr></thead>' +
+					'<tbody>' + body + '</tbody>' +
+				'</table></div></div>' +
+			'</details>';
+		}).join('');
 	}
 
 	async function refreshResults() {
 		try {
-			const results = await Promise.all([api('/api/best'), api('/api/history')]);
+			const results = await Promise.all([
+				api('/api/best'),
+				api('/api/history'),
+				api('/api/downloads').catch(() => null),
+			]);
 			state.best = results[0];
 			state.history = (results[1] && results[1].history) || [];
+			state.downloads = (results[2] && results[2].rows) || [];
 			renderBest();
 			renderHistory();
 		} catch (e) {
@@ -572,41 +812,386 @@
 		}
 	}
 
-	function renderHistory() {
-		const body = $('#history-body');
-		if (!body) return;
-		const runs = (state.history || []).slice()
-			.sort((a, b) => a.time > b.time ? -1 : (a.time < b.time ? 1 : 0))
-			.slice(0, 12);
-		body.replaceChildren();
+	// ── 概览历史：节点 tab + 折线图 + 机房分布 ─────────────────────────
+	function historyNodes() {
+		const list = [];
+		const map = {};
 
-		if (!runs.length) {
-			const tr = document.createElement('tr');
-			const td = document.createElement('td');
-			td.colSpan = 5;
-			td.className = 'empty';
-			td.textContent = '暂无历史';
-			tr.appendChild(td);
-			body.appendChild(tr);
+		function add(key, name) {
+			if (!key) return null;
+			if (!map[key]) {
+				map[key] = { key: key, name: name || key, runs: [] };
+				list.push(map[key]);
+			}
+			if (name && (!map[key].name || map[key].name === key))
+				map[key].name = name;
+			return map[key];
+		}
+
+		const remarkKey = {};
+		configuredWorkers().forEach((worker) => {
+			const remark = nodeRemark(worker.node);
+			remarkKey[remark] = worker.node;
+			add(worker.node, remark);
+		});
+		(state.history || []).forEach((run) => {
+			(run.nodes || []).forEach((entry) => {
+				const entryName = String(entry.node || '').trim();
+				// 老历史文件没有 node_id，按备注名对回已配置的 worker。
+				const key = entry.node_id ||
+					remarkKey[entryName] || entryName;
+				const node = add(key, entryName || key);
+				if (!node) return;
+				node.runs.push({
+					time: run.time || '',
+					ip: entry.ip || '',
+					latency: +entry.latency || 0,
+					speed: +entry.speed || 0,
+					asn: entry.asn || '',
+					asnName: entry.asn_name || '',
+					cc: entry.asn_cc || '',
+					region: entry.region || '',
+				});
+			});
+		});
+
+		// runs 保留全部历史：折线图与机房表都基于完整历史。
+		list.forEach((node) => {
+			node.runs.sort((a, b) => a.time > b.time ? 1 : (a.time < b.time ? -1 : 0));
+		});
+
+		return list;
+	}
+
+	function renderHistory() {
+		const nodes = historyNodes();
+
+		if (!state.histSelectedNode || !nodes.some((node) => node.key === state.histSelectedNode)) {
+			const first = nodes.find((node) => node.runs.length) || nodes[0];
+			state.histSelectedNode = first ? first.key : '';
+		}
+
+		renderNodeDropdown('hist', nodes.map((node) => ({
+			key: node.key,
+			name: node.name,
+			count: node.runs.length,
+			empty: !node.runs.length,
+		})), state.histSelectedNode, (key) => {
+			state.histSelectedNode = key;
+			renderHistory();
+		});
+
+		renderHistoryDetail(nodes.find((node) => node.key === state.histSelectedNode) || nodes[0]);
+	}
+
+	function renderHistoryDetail(node) {
+		const latest = $('#hist-node-latest');
+		const block = $('#hist-chart-block');
+		const empty = $('#hist-chart-empty');
+		const head = $('#hist-dc-head');
+		const wrap = $('#hist-dc-wrap');
+		const tip = $('#hist-chart-tip');
+		if (!latest || !block || !empty || !head || !wrap) return;
+
+		state.histPoints = [];
+		if (tip) tip.classList.add('hidden');
+
+		if (!node) {
+			latest.className = 'node-latest muted';
+			latest.textContent = '暂无节点';
+			block.classList.add('hidden');
+			empty.classList.remove('hidden');
+			head.classList.add('hidden');
+			wrap.classList.add('hidden');
+			const body = $('#hist-dc-body');
+			if (body) body.replaceChildren();
 			return;
 		}
 
-		runs.forEach((run) => {
-			const tr = document.createElement('tr');
-			[
-				[run.time || '', ''],
-				[run.ip || '', 'ip'],
-				[fmtNumber(run.latency) + ' ms', ''],
-				[run.speed > 0 ? fmtNumber(run.speed) + ' MB/s' : '—', ''],
-				[run.region || '—', ''],
-			].forEach((cell) => {
-				const td = document.createElement('td');
-				if (cell[1]) td.className = cell[1];
-				td.textContent = cell[0];
-				tr.appendChild(td);
-			});
-			body.appendChild(tr);
+		const runs = node.runs || [];
+		const last = runs[runs.length - 1];
+
+		if (last) {
+			latest.className = 'node-latest';
+			latest.innerHTML =
+				'<span class="label">最新</span>' +
+				'<span class="ip">' + escHtml(last.ip) + '</span>' +
+				'<span class="metric">' +
+					(last.speed > 0 ? fmtNumber(last.speed) + ' MB/s' : '未做下载实测') +
+					' · ' + fmtNumber(last.latency) + ' ms</span>' +
+				(last.asn ? '<span class="asnline"><span class="asn-chip">' + escHtml(last.asn) + '</span>' +
+					'<span class="name">' + escHtml(last.asnName) +
+					(last.cc ? ' · ' + escHtml(last.cc) : '') + '</span></span>' : '') +
+				'<span class="time">' + escHtml((last.time || '').slice(5, 16)) +
+					' · 共 ' + runs.length + ' 次记录</span>';
+		}
+		else {
+			latest.className = 'node-latest muted';
+			latest.innerHTML = '<span class="label">历史</span><span class="ip">暂无有效记录</span>' +
+				'<span class="muted">该节点还没有产生过历史最优 IP</span>';
+		}
+
+		if (!runs.length) {
+			block.classList.add('hidden');
+			empty.classList.remove('hidden');
+			head.classList.add('hidden');
+			wrap.classList.add('hidden');
+			const body = $('#hist-dc-body');
+			if (body) body.replaceChildren();
+			return;
+		}
+
+		block.classList.remove('hidden');
+		empty.classList.add('hidden');
+		head.classList.remove('hidden');
+		wrap.classList.remove('hidden');
+
+		renderHistoryChart(runs);
+		renderHistoryDatacenters(runs);
+	}
+
+	function niceMax(value) {
+		if (!(value > 0)) return 1;
+		const exp = Math.pow(10, Math.floor(Math.log(value) / Math.LN10));
+		const base = value / exp;
+		const step = base <= 1 ? 1 : base <= 2 ? 2 : base <= 2.5 ? 2.5 : base <= 5 ? 5 : 10;
+		return step * exp;
+	}
+
+	function renderHistoryChart(runs) {
+		const svg = $('#hist-chart');
+		if (!svg) return;
+		const W = 960;
+		const H = 250;
+		const padL = 50;
+		const padR = 18;
+		const padT = 22;
+		const padB = 34;
+		const metric = state.histMetric === 'latency' ? 'latency' : 'speed';
+		const unit = metric === 'speed' ? 'MB/s' : 'ms';
+		const values = runs.map((run) => metric === 'speed' ? run.speed : run.latency);
+		const yMax = niceMax(Math.max.apply(null, values) * 1.12);
+		const innerW = W - padL - padR;
+		const innerH = H - padT - padB;
+		const stepX = runs.length > 1 ? innerW / (runs.length - 1) : 0;
+		const points = runs.map((run, index) => {
+			const value = metric === 'speed' ? run.speed : run.latency;
+			return {
+				index: index,
+				x: padL + (runs.length > 1 ? stepX * index : innerW / 2),
+				y: padT + innerH - (value / yMax) * innerH,
+				value: value,
+				run: run,
+			};
 		});
+		const parts = [];
+
+		parts.push('<defs><linearGradient id="hist-area" x1="0" y1="0" x2="0" y2="1">' +
+			'<stop offset="0%" stop-color="var(--accent)" stop-opacity="0.20"/>' +
+			'<stop offset="100%" stop-color="var(--accent)" stop-opacity="0.015"/>' +
+			'</linearGradient></defs>');
+
+		for (let tick = 0; tick <= 4; tick++) {
+			const value = yMax / 4 * tick;
+			const y = padT + innerH - (value / yMax) * innerH;
+			parts.push('<line class="grid-line" x1="' + padL + '" y1="' + y.toFixed(1) +
+				'" x2="' + (W - padR) + '" y2="' + y.toFixed(1) + '"/>');
+			parts.push('<text class="axis-text" x="' + (padL - 8) + '" y="' + (y + 3.5).toFixed(1) +
+				'" text-anchor="end">' + (Number.isInteger(value) ? value : value.toFixed(1)) + '</text>');
+		}
+		parts.push('<text class="axis-text unit" x="' + (padL - 8) + '" y="' + (padT - 8) +
+			'" text-anchor="end">' + unit + '</text>');
+
+		const average = values.reduce((sum, value) => sum + value, 0) / values.length;
+		const averageY = padT + innerH - (average / yMax) * innerH;
+		parts.push('<line class="avg-line" x1="' + padL + '" y1="' + averageY.toFixed(1) +
+			'" x2="' + (W - padR) + '" y2="' + averageY.toFixed(1) + '"/>');
+		parts.push('<text class="avg-text" x="' + (padL + 8) + '" y="' + (averageY - 6).toFixed(1) +
+			'" text-anchor="start">均值 ' +
+			(metric === 'speed' ? fmtNumber(average) + ' MB/s' : fmtNumber(average, 0) + ' ms') + '</text>');
+
+		const line = points.map((point, index) =>
+			(index ? 'L' : 'M') + point.x.toFixed(1) + ' ' + point.y.toFixed(1)).join(' ');
+		parts.push('<path d="' + line + ' L' + points[points.length - 1].x.toFixed(1) + ' ' + (padT + innerH) +
+			' L' + points[0].x.toFixed(1) + ' ' + (padT + innerH) + ' Z" fill="url(#hist-area)"/>');
+		parts.push('<path class="series-line" d="' + line + '"/>');
+
+		// 只画线，不画点；透明命中区用于悬停提示
+		points.forEach((point) => {
+			parts.push('<circle class="pt-hit" data-i="' + point.index + '" cx="' + point.x.toFixed(1) +
+				'" cy="' + point.y.toFixed(1) + '" r="13"/>');
+		});
+
+		const maxLabels = 6;
+		const labelStep = Math.max(1, Math.ceil(runs.length / maxLabels));
+		points.forEach((point) => {
+			const show = runs.length <= 4 || point.index === 0 ||
+				point.index === points.length - 1 || point.index % labelStep === 0;
+			if (!show) return;
+			const anchor = point.index === 0 ? 'start' :
+				(point.index === points.length - 1 ? 'end' : 'middle');
+			parts.push('<text class="axis-text" x="' + point.x.toFixed(1) + '" y="' + (H - 10) +
+				'" text-anchor="' + anchor + '">' + escHtml((point.run.time || '').slice(5, 16)) + '</text>');
+		});
+
+		svg.innerHTML = parts.join('');
+		state.histPoints = points;
+	}
+
+	function placeHistTip(tip, x, y) {
+		const W = 960;
+		const H = 250;
+		const sideLeft = x > W * 0.78;
+		const sideRight = x < W * 0.06;
+		tip.classList.toggle('side-left', sideLeft);
+		tip.classList.toggle('side-right', sideRight);
+		tip.classList.toggle('to-right', !sideLeft && !sideRight && x > W * 0.68);
+		tip.classList.toggle('to-left', !sideLeft && !sideRight && x < W * 0.18);
+		tip.classList.toggle('below', !sideLeft && !sideRight && y < H * 0.60);
+		tip.style.left = (x / W * 100) + '%';
+		tip.style.top = (y / H * 100) + '%';
+	}
+
+	function showHistTip(point) {
+		const tip = $('#hist-chart-tip');
+		if (!tip || !point) return;
+		const run = point.run;
+		tip.classList.remove('hidden');
+		tip.innerHTML =
+			'<div class="tip-time">' + escHtml(run.time) + '</div>' +
+			'<div class="tip-ip">' + escHtml(run.ip) + '</div>' +
+			(run.asn ? '<div class="tip-asn">' + escHtml(run.asn) + ' · ' + escHtml(run.asnName) +
+				(run.cc ? ' · ' + escHtml(run.cc) : '') + '</div>' : '') +
+			'<div class="tip-metrics"><span>下载 <b>' + fmtNumber(run.speed) + ' MB/s</b></span>' +
+				'<span>延迟 <b>' + fmtNumber(run.latency) + ' ms</b></span></div>';
+		placeHistTip(tip, point.x, point.y);
+	}
+
+	function aggregate(values) {
+		let min = Infinity;
+		let max = -Infinity;
+		let sum = 0;
+		values.forEach((value) => {
+			if (value < min) min = value;
+			if (value > max) max = value;
+			sum += value;
+		});
+		return { min: min, avg: values.length ? sum / values.length : 0, max: max };
+	}
+
+	function statValue(stat, key) {
+		return stat ? fmtNumber(stat[key]) : '—';
+	}
+
+	// 节点每次任务的最优 IP 按机房归并：出现一次 +1，速度/延迟累积统计
+	function renderHistoryDatacenters(runs) {
+		const body = $('#hist-dc-body');
+		if (!body) return;
+		const map = {};
+		const list = [];
+
+		runs.forEach((run) => {
+			const key = run.asn || ('ip:' + run.ip);
+			if (!map[key]) {
+				map[key] = { asn: run.asn || '未知机房', name: run.asnName, cc: run.cc,
+					count: 0, speeds: [], lats: [] };
+				list.push(map[key]);
+			}
+			const item = map[key];
+			item.count += 1;
+			// 0 表示这次没有下载实测/没有延迟数据，不参与最快最慢平均。
+			if (run.speed > 0) item.speeds.push(run.speed);
+			if (run.latency > 0) item.lats.push(run.latency);
+		});
+
+		list.forEach((item) => {
+			item.speed = item.speeds.length ? aggregate(item.speeds) : null;
+			item.latency = item.lats.length ? aggregate(item.lats) : null;
+		});
+		list.sort((a, b) => {
+			const countDiff = b.count - a.count;
+			if (countDiff) return countDiff;
+			const avgA = a.speed ? a.speed.avg : -1;
+			const avgB = b.speed ? b.speed.avg : -1;
+			return avgB - avgA;
+		});
+
+		const total = runs.length || 1;
+		body.innerHTML = list.map((item, index) => {
+			const share = Math.round(item.count / total * 100);
+			return '<tr' + (index === 0 ? ' class="lead"' : '') + '>' +
+				'<td><span class="asn">' + escHtml(item.asn) + '</span>' +
+					'<span class="cell-sub">' + escHtml(item.name) +
+					(item.cc ? ' · ' + escHtml(item.cc) : '') + '</span></td>' +
+				'<td class="count-cell"><span class="num">' + item.count + ' 次</span>' +
+					'<span class="count-bar"><i style="width:' + share + '%"></i></span></td>' +
+				'<td class="num">' + statValue(item.speed, 'max') + '</td>' +
+				'<td class="num strong">' + statValue(item.speed, 'avg') + '</td>' +
+				'<td class="num">' + statValue(item.speed, 'min') + '</td>' +
+				'<td class="num">' + statValue(item.latency, 'min') + '</td>' +
+				'<td class="num strong">' + statValue(item.latency, 'avg') + '</td>' +
+				'<td class="num">' + statValue(item.latency, 'max') + '</td>' +
+			'</tr>';
+		}).join('');
+	}
+
+	function bindHistoryEvents() {
+		const seg = $('#hist-metric');
+		if (seg && !seg.dataset.bound) {
+			seg.dataset.bound = '1';
+			seg.addEventListener('click', (event) => {
+				const button = event.target.closest('button[data-metric]');
+				if (!button) return;
+				state.histMetric = button.dataset.metric === 'latency' ? 'latency' : 'speed';
+				$$('#hist-metric button').forEach((btn) => {
+					const active = btn.dataset.metric === state.histMetric;
+					btn.classList.toggle('active', active);
+					btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+				});
+				const title = $('#hist-chart-title');
+				if (title)
+					title.innerHTML = (state.histMetric === 'speed' ? '下载速度趋势' : '延迟趋势') +
+						'<span class="muted">每次任务的最优 IP</span>';
+				renderHistory();
+			});
+		}
+
+		const wrap = $('#hist-chart-wrap');
+		if (wrap && !wrap.dataset.bound) {
+			wrap.dataset.bound = '1';
+			wrap.addEventListener('mousemove', (event) => {
+				const points = state.histPoints || [];
+				if (!points.length) return;
+				const rect = wrap.getBoundingClientRect();
+				if (!rect.width) return;
+				const ratio = (event.clientX - rect.left) / rect.width;
+				let best = 0;
+				let distance = Infinity;
+				points.forEach((point, index) => {
+					const current = Math.abs(point.x / 960 - ratio);
+					if (current < distance) {
+						distance = current;
+						best = index;
+					}
+				});
+				showHistTip(points[best]);
+			});
+			wrap.addEventListener('mouseleave', () => {
+				const tip = $('#hist-chart-tip');
+				if (tip) tip.classList.add('hidden');
+			});
+		}
+
+		if (!state.dropdownOutsideBound) {
+			state.dropdownOutsideBound = true;
+			document.addEventListener('click', () => {
+				const which = state.openDropdown;
+				if (!which) return;
+				state.openDropdown = '';
+				if (which === 'ov') renderOverview();
+				else if (which === 'hist') renderHistory();
+			});
+		}
 	}
 
 	// ── downloads ───────────────────────────────────────────────────────
@@ -656,7 +1241,8 @@
 	function nodeRemark(id) {
 		const node = passwallNode(id);
 		const label = node ? (node.label || id) : id;
-		return label.replace(/^\[[^\]]*\]:/, '') || id;
+		const remark = label.replace(/^\[[^\]]*\]:/, '').trim();
+		return remark || id;
 	}
 
 	function configuredWorkers() {
@@ -863,6 +1449,9 @@
 			/* keep the previous provider list */
 		}
 		applyNodeSources();
+		// PassWall 改备注名后，概览里的节点名也要跟着变。
+		renderOverview();
+		renderHistory();
 	}
 
 	function applyNodeSources() {
@@ -2616,6 +3205,7 @@
 			api('/api/nodes'),
 			api('/api/core'),
 			api('/api/app'),
+			api('/api/downloads').catch(() => null),
 		]);
 		state.config = results[0].config;
 		state.status = results[1];
@@ -2625,6 +3215,7 @@
 		state.providers = results[4] || {};
 		state.core = results[5];
 		state.appInfo = results[6];
+		state.downloads = (results[7] && results[7].rows) || [];
 		if (results[1] && results[1].state_dir)
 			setText('state-dir', results[1].state_dir);
 
@@ -2687,6 +3278,7 @@
 		$('#ov-btn-start').addEventListener('click', () => startTest('start'));
 		$('#ov-btn-stop').addEventListener('click', stopTest);
 		$('#ov-btn-retest').addEventListener('click', () => startTest('retest'));
+		bindHistoryEvents();
 
 		$('#btn-add-worker').addEventListener('click', addWorker);
 		$('#btn-save-nodes').addEventListener('click', () => saveConfig('节点已保存'));
