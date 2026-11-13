@@ -1,5 +1,9 @@
 # CHANGELOG
 
+## 1.3.15-1
+
+修复 po2lmo 缺失时静默跳过导致的空 lmo，并去掉 msgid 首尾空白，让 `_()` 的 trimws 能命中；按钮组/操作列改用主题 spacing 变量留间距，表格首列统一 `min-width:9rem`，页脚改回 `div` 并移除自身 `border-top`，避免 bootstrap 裸 `footer` 选择器再次画出横线。
+
 ## 1.3.14-1
 
 恢复四仓统一的版本条 `.ys-tool-footer`（仅项目名、仓库链接与版本号按仓取值），表格回归原生 `.tr/.th/.td` + `data-title` 契约，并为页面加载失败补上错误兜底。

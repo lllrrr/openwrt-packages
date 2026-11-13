@@ -86,10 +86,10 @@ msgstr "服务已启动，正在等待首次同步..."
 msgid "Service action completed, but the first sync is still starting. Refreshing current status."
 msgstr "服务操作已完成，但首次同步仍在启动中。正在刷新当前状态。"
 
-msgid "Failed to start service: "
+msgid "Failed to start service:"
 msgstr "启动服务失败："
 
-msgid "Service stopped unexpectedly: "
+msgid "Service stopped unexpectedly:"
 msgstr "服务意外停止："
 
 msgid "Service stopped unexpectedly. Check logs for details."
@@ -101,7 +101,7 @@ msgstr "停止"
 msgid "Service stopped."
 msgstr "服务已停止。"
 
-msgid "Failed to stop service: "
+msgid "Failed to stop service:"
 msgstr "停止服务失败："
 
 msgid "Restart"
@@ -110,7 +110,7 @@ msgstr "重启"
 msgid "Service restarted. Waiting for first sync..."
 msgstr "服务已重启，正在等待首次同步..."
 
-msgid "Failed to restart service: "
+msgid "Failed to restart service:"
 msgstr "重启服务失败："
 
 msgid "Sync Now"
@@ -140,7 +140,7 @@ msgstr "清除规则"
 msgid "Dynamic rules cleared."
 msgstr "动态规则已清除。"
 
-msgid "Failed to clear rules: "
+msgid "Failed to clear rules:"
 msgstr "清除规则失败："
 
 msgid "Safe Mode (Detect Only)"
@@ -293,7 +293,7 @@ msgstr "配置保存成功。"
 msgid "Auto configuration applied."
 msgstr "自动配置已应用。"
 
-msgid "Configuration failed: "
+msgid "Configuration failed:"
 msgstr "配置失败："
 
 msgid "Network Interface"
@@ -404,7 +404,7 @@ msgstr "检测"
 msgid "Network detection completed."
 msgstr "网络检测完成。"
 
-msgid "Detection failed: "
+msgid "Detection failed:"
 msgstr "检测失败："
 
 msgid "Configure Interface"
@@ -416,7 +416,7 @@ msgstr "自动配置"
 msgid "Interface configured. Check the status tab for details."
 msgstr "接口已配置。请查看状态选项卡了解详情。"
 
-msgid "Interface configuration failed: "
+msgid "Interface configuration failed:"
 msgstr "接口配置失败："
 
 msgid "Firewall Zone"
@@ -485,7 +485,7 @@ msgstr "修复区域设置"
 msgid "Zone settings fixed."
 msgstr "区域设置已修复。"
 
-msgid "Zone fix failed: "
+msgid "Zone fix failed:"
 msgstr "区域修复失败："
 
 msgid "Create Independent Zone"
@@ -497,7 +497,7 @@ msgstr "创建区域"
 msgid "Zone created successfully."
 msgstr "区域创建成功。"
 
-msgid "Zone creation failed: "
+msgid "Zone creation failed:"
 msgstr "区域创建失败："
 
 msgid "Port Range & Protocol"
@@ -761,7 +761,7 @@ msgstr "OpenClash 规则已写入，但重启可能失败。请手动检查 Open
 msgid "OpenClash rule written. You need to restart OpenClash for changes to take effect."
 msgstr "OpenClash 规则已写入。您需要重启 OpenClash 才能使更改生效。"
 
-msgid "Failed to write OpenClash rule: "
+msgid "Failed to write OpenClash rule:"
 msgstr "写入 OpenClash 规则失败："
 
 msgid "Remove Plugin Rule"
@@ -770,7 +770,7 @@ msgstr "移除插件规则"
 msgid "Plugin rule removed from OpenClash."
 msgstr "已从 OpenClash 移除插件规则。"
 
-msgid "Failed to remove rule: "
+msgid "Failed to remove rule:"
 msgstr "移除规则失败："
 
 msgid "Backup OpenClash Config"
@@ -797,7 +797,7 @@ msgstr "未找到备份，也没有可移除的匹配规则。"
 msgid "Plugin rules removed from OpenClash via UCI."
 msgstr "已通过 UCI 从 OpenClash 移除插件规则。"
 
-msgid "Restore failed: "
+msgid "Restore failed:"
 msgstr "恢复失败："
 
 msgid "Environment Detection"
@@ -836,7 +836,7 @@ msgstr "警告"
 msgid "Failed"
 msgstr "失败"
 
-msgid "Network check failed: "
+msgid "Network check failed:"
 msgstr "网络检测失败："
 
 msgid "Recent Logs"
@@ -845,19 +845,19 @@ msgstr "最近日志"
 msgid "No logs found."
 msgstr "未找到日志。"
 
-msgid "Failed to read logs: "
+msgid "Failed to read logs:"
 msgstr "读取日志失败："
 
 msgid "System log reader is not available on this device."
 msgstr "此设备上没有可用的系统日志读取器。"
 
-msgid "Last Error: "
+msgid "Last Error:"
 msgstr "最近错误："
 
 msgid "Missing Dependencies & Fix Commands"
 msgstr "缺失依赖与修复命令"
 
-msgid "Missing dependencies: "
+msgid "Missing dependencies:"
 msgstr "缺失依赖："
 
 msgid "All dependencies are installed."
@@ -875,7 +875,7 @@ msgstr "确定要撤销所有初始化吗？这将移除所有插件创建的配
 msgid "All plugin configurations and rules have been removed."
 msgstr "所有插件配置和规则已移除。"
 
-msgid "Rollback failed: "
+msgid "Rollback failed:"
 msgstr "回滚失败："
 
 msgid "Undo All Initialization"
@@ -887,7 +887,7 @@ msgstr "移除本插件创建的 OpenClash 规则？"
 msgid "OpenClash rules removed."
 msgstr "OpenClash 规则已移除。"
 
-msgid "Failed: "
+msgid "Failed:"
 msgstr "失败："
 
 msgid "Remove OpenClash Rules"
@@ -902,7 +902,7 @@ msgstr "清除 nftables 规则"
 msgid "Detecting..."
 msgstr "检测中..."
 
-msgid "Auto-detect failed: "
+msgid "Auto-detect failed:"
 msgstr "自动检测失败："
 
 msgid "IP address on the read interface. Must be on the same subnet as the downstream router LAN."
@@ -998,7 +998,7 @@ msgstr "自动模式：检测前将先配置接口和防火墙。"
 msgid "Safe mode: testing with current network state. If the interface is not configured yet, tests may fail."
 msgstr "安全模式：使用当前网络状态检测。如果接口尚未配置，检测可能会失败。"
 
-msgid "Network check error: "
+msgid "Network check error:"
 msgstr "网络检测错误："
 
 msgid "Interface does not exist. Check the interface name."
@@ -1010,7 +1010,7 @@ msgstr "接口上未配置接口 IP。请使用自动模式或手动配置接口
 msgid "Interface IP is not configured on the interface. UPnP discovery requires a valid interface IP."
 msgstr "接口上未配置接口 IP。UPnP 发现需要有效的接口 IP。"
 
-msgid "UPnP check error: "
+msgid "UPnP check error:"
 msgstr "UPnP 检测错误："
 
 msgid "Unknown error"
@@ -1061,7 +1061,7 @@ msgstr "无效的拒绝端口：%s"
 msgid "Testing..."
 msgstr "测试中..."
 
-msgid "Error: "
+msgid "Error:"
 msgstr "错误："
 
 msgid "Enable the UPnP NAT Relay service after saving configuration."
@@ -1079,7 +1079,7 @@ msgstr "刷新环境检测"
 msgid "Environment detection refreshed."
 msgstr "环境检测已刷新。"
 
-msgid "Failed to refresh environment: "
+msgid "Failed to refresh environment:"
 msgstr "刷新环境检测失败："
 
 msgid "Clear Logs"
@@ -1094,7 +1094,7 @@ msgstr "清除中..."
 msgid "Log buffer cleared."
 msgstr "日志缓冲区已清除。"
 
-msgid "Failed to clear logs: "
+msgid "Failed to clear logs:"
 msgstr "清除日志失败："
 
 msgid "Reachable"
@@ -1160,7 +1160,7 @@ msgstr "服务重启已完成，但首次同步仍在启动中。正在刷新当
 msgid "Configuration applied and service is ready."
 msgstr "配置已应用，服务已准备就绪。"
 
-msgid "Failed to apply configuration: "
+msgid "Failed to apply configuration:"
 msgstr "应用配置失败："
 
 msgid "Settings"
@@ -1277,7 +1277,7 @@ msgstr "逐映射规则已写入（%d 条规则）。需要手动重启 OpenClas
 msgid "Per-mapping rules are already up to date (%d rules)."
 msgstr "逐映射规则已是最新（%d 条规则）。"
 
-msgid "Failed to write per-mapping rules: "
+msgid "Failed to write per-mapping rules:"
 msgstr "写入逐映射规则失败："
 
 msgid "Per-mapping rules written. You need to restart OpenClash for changes to take effect."
@@ -1322,7 +1322,7 @@ msgstr "主同步正在运行中，请稍后重试。"
 msgid "Another OpenClash operation is currently running."
 msgstr "另一个 OpenClash 操作正在运行中。"
 
-msgid "Failed to sync OpenClash: "
+msgid "Failed to sync OpenClash:"
 msgstr "同步 OpenClash 失败："
 
 msgid "Auto-created before each rule write"
@@ -1346,7 +1346,7 @@ msgstr "选择接口"
 msgid "Network detection completed. %d empty field(s) were auto-filled; save and apply to keep them."
 msgstr "网络检测完成。已自动填入 %d 个空字段；请保存并应用以保留这些值。"
 
-msgid "Clear failed: "
+msgid "Clear failed:"
 msgstr "清除失败："
 
 msgid "Configuration saved. Restarting service..."
@@ -1364,7 +1364,7 @@ msgstr "无法自动检测上游 WAN 接口。"
 msgid "Could not auto-detect value."
 msgstr "无法自动检测该值。"
 
-msgid "Failed to restart OpenClash: "
+msgid "Failed to restart OpenClash:"
 msgstr "重启 OpenClash 失败："
 
 msgid "Invalid format. Use format like 40000-65535."
@@ -1379,13 +1379,13 @@ msgstr "未找到 OpenClash init 脚本。"
 msgid "OpenClash restart command completed, but the core process was not detected after 30 seconds."
 msgstr "OpenClash 重启命令已完成，但 30 秒后仍未检测到核心进程。"
 
-msgid "OpenClash restart failed: "
+msgid "OpenClash restart failed:"
 msgstr "OpenClash 重启失败："
 
 msgid "OpenClash restarted successfully."
 msgstr "OpenClash 已成功重启。"
 
-msgid "Operation failed: "
+msgid "Operation failed:"
 msgstr "操作失败："
 
 msgid "Port range is required."
@@ -1450,3 +1450,24 @@ msgstr "点击“检测”查看状态。"
 
 msgid "Zone \"%s\" already exists. Use \"Fix Zone Settings\" instead."
 msgstr "区域“%s”已存在。请改用“修复区域设置”。"
+
+msgid "Unable to load status"
+msgstr "无法加载状态"
+
+msgid "Unable to load mappings"
+msgstr "无法加载映射"
+
+msgid "Unable to load configuration"
+msgstr "无法加载配置"
+
+msgid "Unable to load OpenClash status"
+msgstr "无法加载 OpenClash 状态"
+
+msgid "Retry the page; if it keeps failing, check the service log."
+msgstr "请重试本页；若仍失败，请检查服务日志。"
+
+msgid "Project"
+msgstr "项目"
+
+msgid "Technical details"
+msgstr "技术详情"

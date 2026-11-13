@@ -183,7 +183,7 @@ function buildDepSection(missingDeps, pkgManager) {
 		'apk add --allow-untrusted ' + missingDeps.join(' ') :
 		'opkg install ' + missingDeps.join(' ');
 	section.appendChild(E('p', {},
-		'\u2718 ' + _('Missing dependencies: ') + missingDeps.join(', ')));
+		'\u2718 ' + _('Missing dependencies:') + ' ' + missingDeps.join(', ')));
 	section.appendChild(E('div', { 'class': 'cfi-cmd-box' }, installCmd));
 	return section;
 }
@@ -310,7 +310,7 @@ return view.extend({
 		var controlSection = E('div', { 'class': 'cbi-section' });
 		controlSection.appendChild(E('h3', {}, _('Service Control')));
 
-		var btnGroup = E('div', {});
+		var btnGroup = E('div', { 'class': 'ys-actions' });
 
 		if (!running) {
 			btnGroup.appendChild(E('button', {
@@ -552,7 +552,7 @@ return view.extend({
 
 		envSection.appendChild(envTable);
 
-		var envBtnBar = E('div', {});
+		var envBtnBar = E('div', { 'class': 'ys-actions' });
 		envBtnBar.appendChild(E('button', {
 			'class': 'cbi-button cbi-button-apply',
 			'click': function() {

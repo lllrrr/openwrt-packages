@@ -158,7 +158,6 @@ html[data-darkmode="true"] body.cfi-theme-bootstrap span.more { color: #a0a0a0; 
 	gap: .8em 1em;
 	margin-top: 2em;
 	padding: 1em 0 0;
-	border-top: 1px solid var(--border-color, #d8dee8);
 	color: var(--subtext-color, #666);
 	font-size: .875em;
 }
@@ -228,4 +227,62 @@ html[data-darkmode="true"] body.cfi-theme-bootstrap span.more { color: #a0a0a0; 
 	.ys-tool-footer-links { flex-wrap: wrap; white-space: normal; }
 	.ys-tool-footer-links .ys-tool-footer-link.github .ys-tool-footer-link-label,
 	.ys-tool-footer-links .ys-tool-footer-link.x .ys-tool-footer-link-label { display: none; }
+}
+
+/* Shared interaction rhythm: side-by-side buttons follow the theme spacing
+ * scale instead of hardcoded pixels. Keep identical across sibling plugins. */
+.ys-actions,
+.cbi-page-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: calc(var(--spacing, .25rem) * 3);
+}
+.cbi-page-actions { justify-content: flex-end; }
+.ys-actions > .cbi-button,
+.ys-actions > button,
+.ys-actions > select,
+.ys-actions > input,
+.cbi-page-actions > form,
+.cbi-page-actions > button { margin: 0; }
+
+/* Shared table contract: every table on the page shares one first-column
+ * basis (minimum width + alignment) instead of content-driven widths. */
+@media screen and (min-width: 48rem) {
+	.table > thead > tr > :first-child,
+	.table > tbody > tr > :first-child,
+	.table > tr > :first-child {
+		width: 1%;
+		min-width: 9rem;
+		text-align: left;
+		vertical-align: top;
+	}
+}
+
+/* Native multiple-select caps the closed preview at three chips and clips
+ * longer labels without an ellipsis. When the selection cannot be shown in
+ * full, replace both the closed chips and the open-state clone strip with a
+ * single count line; the complete checked list is still one click away in
+ * the dropdown panel itself. Scope is the picker element itself because the
+ * sources map does not carry the `.cfi-form-map` class. */
+.cfi-source-picker > .cfi-sel-summary {
+	display: none;
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+	align-items: center;
+	/* Same box metrics as a native chip, so folding never changes the
+	 * control's height. */
+	padding-inline: calc(var(--spacing, .25rem) * 2);
+	padding-block: calc(var(--spacing, .25rem) * 1.5);
+}
+.cbi-dropdown.cfi-source-picker[multiple][data-cfi-fold] > ul:not(.dropdown),
+.cbi-dropdown.cfi-source-picker[multiple][data-cfi-fold] > ul.preview,
+.cbi-dropdown.cfi-source-picker[multiple][data-cfi-fold] > .more {
+	display: none !important;
+}
+.cfi-source-picker[data-cfi-fold] > .cfi-sel-summary {
+	display: flex;
 }

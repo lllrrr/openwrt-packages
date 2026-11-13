@@ -38,7 +38,7 @@ return view.extend({
 
 		container.appendChild(E('h2', { 'name': 'content' }, _('Mappings')));
 
-		var btnBar = E('div', { 'class': 'cbi-section' });
+		var btnBar = E('div', { 'class': 'cbi-section ys-actions' });
 		btnBar.appendChild(E('button', {
 			'class': 'cbi-button cbi-button-apply',
 			'click': function() {

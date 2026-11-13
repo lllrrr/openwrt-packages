@@ -51,7 +51,7 @@ var callServiceRestart = rpc.declare({
 function waitReadyAndReload() {
 	return utils.waitForServiceReady(callStatus).then(function(status) {
 		if (status && !status.running && status.last_result === 'stopped') {
-			var errMsg = status.last_error ? _('Service stopped unexpectedly: ') + status.last_error : _('Service stopped unexpectedly. Check logs for details.');
+			var errMsg = status.last_error ? _('Service stopped unexpectedly:') + ' ' + status.last_error : _('Service stopped unexpectedly. Check logs for details.');
 			ui.addNotification(null, E('p', errMsg), 'error');
 			utils.reloadSoon(500);
 		} else if (status && status.last_result === 'starting') {
@@ -126,7 +126,7 @@ function buildDepSection(missingDeps, pkgManager) {
 			'apk add --allow-untrusted ' + missingDeps.join(' ') :
 			'opkg install ' + missingDeps.join(' ');
 		section.appendChild(E('p', { 'style': 'margin-bottom:0.5em' },
-			'\u2718 ' + _('Missing dependencies: ') + missingDeps.join(', ')));
+			'\u2718 ' + _('Missing dependencies:') + ' ' + missingDeps.join(', ')));
 		section.appendChild(E('div', { 'class': 'ubr-cmd-box' }, installCmd));
 	} else {
 		section.appendChild(E('p', {},
@@ -235,7 +235,7 @@ return view.extend({
 						ui.addNotification(null, E('p', _('Service started. Waiting for first sync...')), 'info');
 						return waitReadyAndReload();
 					}).catch(function(e) {
-						ui.addNotification(null, E('p', _('Failed to start service: ') + e.message), 'error');
+						ui.addNotification(null, E('p', _('Failed to start service:') + ' ' + e.message), 'error');
 						utils.resetBusy(btn);
 					});
 				}
@@ -252,7 +252,7 @@ return view.extend({
 						ui.addNotification(null, E('p', _('Service stopped.')), 'info');
 						utils.reloadSoon();
 					}).catch(function(e) {
-						ui.addNotification(null, E('p', _('Failed to stop service: ') + e.message), 'error');
+						ui.addNotification(null, E('p', _('Failed to stop service:') + ' ' + e.message), 'error');
 						utils.resetBusy(btn);
 					});
 				}
@@ -268,7 +268,7 @@ return view.extend({
 					ui.addNotification(null, E('p', _('Service restarted. Waiting for first sync...')), 'info');
 					return waitReadyAndReload();
 				}).catch(function(e) {
-					ui.addNotification(null, E('p', _('Failed to restart service: ') + e.message), 'error');
+					ui.addNotification(null, E('p', _('Failed to restart service:') + ' ' + e.message), 'error');
 					utils.resetBusy(btn);
 				});
 			}
@@ -290,13 +290,13 @@ return view.extend({
 					return callClear().then(function(result) {
 						result = result || {};
 						if (result.success !== true) {
-							ui.addNotification(null, E('p', _('Operation failed: ') + (result.error || _('unknown'))), 'error');
+							ui.addNotification(null, E('p', _('Operation failed:') + ' ' + (result.error || _('unknown'))), 'error');
 							return;
 						}
 						ui.addNotification(null, E('p', _('Dynamic rules cleared.')), 'info');
 						utils.reloadSoon();
 					}).catch(function(e) {
-						ui.addNotification(null, E('p', _('Failed to clear rules: ') + e.message), 'error');
+						ui.addNotification(null, E('p', _('Failed to clear rules:') + ' ' + e.message), 'error');
 						utils.resetBusy(btn);
 					});
 				}
@@ -481,7 +481,7 @@ return view.extend({
 					utils.resetBusy(btn);
 					ui.addNotification(null, E('p', _('Environment detection refreshed.')), 'info');
 				}).catch(function(e) {
-					ui.addNotification(null, E('p', _('Failed to refresh environment: ') + e.message), 'error');
+					ui.addNotification(null, E('p', _('Failed to refresh environment:') + ' ' + e.message), 'error');
 					utils.resetBusy(btn);
 				});
 			}

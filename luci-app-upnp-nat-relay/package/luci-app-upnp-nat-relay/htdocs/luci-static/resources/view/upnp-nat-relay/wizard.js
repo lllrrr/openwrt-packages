@@ -98,7 +98,7 @@ return view.extend({
 
 		container.appendChild(E('h2', { 'name': 'content' }, _('Setup Wizard')));
 
-		var modeBar = E('div', { 'class': 'cbi-section' });
+		var modeBar = E('div', { 'class': 'cbi-section ys-actions' });
 		var safeBtn = E('button', {
 			'class': 'cbi-button' + (self.wizardMode === 'safe' ? ' cbi-button-apply' : ''),
 			'click': function() {
@@ -394,7 +394,7 @@ return view.extend({
 						ui.addNotification(null, E('p', options.emptyMessage || _('Could not auto-detect value.')), 'warning');
 					}
 				}).catch(function(e) {
-					ui.addNotification(null, E('p', _('Auto-detect failed: ') + (e.message || e)), 'error');
+					ui.addNotification(null, E('p', _('Auto-detect failed:') + ' ' + (e.message || e)), 'error');
 				}).finally(function() {
 					btn.disabled = false;
 					btn.textContent = _('Auto Detect');
@@ -580,7 +580,7 @@ return view.extend({
 					self.pingResult = result;
 					self.applyDetectedNetwork(result);
 					if (result && result.error) {
-						pingResultDiv.innerHTML = '<span>&#10008; ' + _('Network check error: ') + result.error + '</span>';
+						pingResultDiv.innerHTML = '<span>&#10008; ' + _('Network check error:') + ' ' + result.error + '</span>';
 						return;
 					}
 				if (result && result.gateway_reachable === 1) {
@@ -599,7 +599,7 @@ return view.extend({
 				}
 			}).catch(function(e) {
 				pingResultDiv.innerHTML = '<span>&#10008; ' + _('Network check failed') + '</span>' +
-				'<p>' + _('Error: ') + (e.message || e || _('Unknown error')) + '</p>';
+				'<p>' + _('Error:') + ' ' + (e.message || e || _('Unknown error')) + '</p>';
 			});
 
 		} else if (self.step === 5) {
@@ -621,7 +621,7 @@ return view.extend({
 					self.upnpcResult = result;
 					self.applyDetectedNetwork(result);
 					if (result && result.error) {
-						upnpcResultDiv.innerHTML = '<span>&#10008; ' + _('UPnP check error: ') + result.error + '</span>';
+						upnpcResultDiv.innerHTML = '<span>&#10008; ' + _('UPnP check error:') + ' ' + result.error + '</span>';
 						return;
 					}
 				if (result && result.upnpc_readable === 1) {
@@ -639,7 +639,7 @@ return view.extend({
 				}
 			}).catch(function(e) {
 				upnpcResultDiv.innerHTML = '<span>&#10008; ' + _('UPnP check failed') + '</span>' +
-				'<p>' + _('Error: ') + (e.message || e || _('Unknown error')) + '</p>';
+				'<p>' + _('Error:') + ' ' + (e.message || e || _('Unknown error')) + '</p>';
 			});
 
 		} else if (self.step === 6) {
@@ -1067,7 +1067,7 @@ return view.extend({
 				}
 			})
 			.catch(function(e) {
-				ui.addNotification(null, E('p', _('Configuration failed: ') + e.message), 'error');
+				ui.addNotification(null, E('p', _('Configuration failed:') + ' ' + e.message), 'error');
 			});
 	}
 });

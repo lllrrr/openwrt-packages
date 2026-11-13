@@ -80,11 +80,11 @@ msgstr "Service Control"
 msgid "Start"
 msgstr "Start"
 
-msgid "Failed to start service: "
-msgstr "Failed to start service: "
+msgid "Failed to start service:"
+msgstr "Failed to start service:"
 
-msgid "Service stopped unexpectedly: "
-msgstr "Service stopped unexpectedly: "
+msgid "Service stopped unexpectedly:"
+msgstr "Service stopped unexpectedly:"
 
 msgid "Service stopped unexpectedly. Check logs for details."
 msgstr "Service stopped unexpectedly. Check logs for details."
@@ -95,14 +95,14 @@ msgstr "Stop"
 msgid "Service stopped."
 msgstr "Service stopped."
 
-msgid "Failed to stop service: "
-msgstr "Failed to stop service: "
+msgid "Failed to stop service:"
+msgstr "Failed to stop service:"
 
 msgid "Restart"
 msgstr "Restart"
 
-msgid "Failed to restart service: "
-msgstr "Failed to restart service: "
+msgid "Failed to restart service:"
+msgstr "Failed to restart service:"
 
 msgid "Sync Now"
 msgstr "Sync Now"
@@ -131,8 +131,8 @@ msgstr "Clear Rules"
 msgid "Dynamic rules cleared."
 msgstr "Dynamic rules cleared."
 
-msgid "Failed to clear rules: "
-msgstr "Failed to clear rules: "
+msgid "Failed to clear rules:"
+msgstr "Failed to clear rules:"
 
 msgid "Safe Mode (Detect Only)"
 msgstr "Safe Mode (Detect Only)"
@@ -284,8 +284,8 @@ msgstr "Configuration saved successfully."
 msgid "Auto configuration applied."
 msgstr "Auto configuration applied."
 
-msgid "Configuration failed: "
-msgstr "Configuration failed: "
+msgid "Configuration failed:"
+msgstr "Configuration failed:"
 
 msgid "Network Interface"
 msgstr "Network Interface"
@@ -395,8 +395,8 @@ msgstr "Detect"
 msgid "Network detection completed."
 msgstr "Network detection completed."
 
-msgid "Detection failed: "
-msgstr "Detection failed: "
+msgid "Detection failed:"
+msgstr "Detection failed:"
 
 msgid "Configure Interface"
 msgstr "Configure Interface"
@@ -407,8 +407,8 @@ msgstr "Auto Configure"
 msgid "Interface configured. Check the status tab for details."
 msgstr "Interface configured. Check the status tab for details."
 
-msgid "Interface configuration failed: "
-msgstr "Interface configuration failed: "
+msgid "Interface configuration failed:"
+msgstr "Interface configuration failed:"
 
 msgid "Firewall Zone"
 msgstr "Firewall Zone"
@@ -476,8 +476,8 @@ msgstr "Fix Zone Settings"
 msgid "Zone settings fixed."
 msgstr "Zone settings fixed."
 
-msgid "Zone fix failed: "
-msgstr "Zone fix failed: "
+msgid "Zone fix failed:"
+msgstr "Zone fix failed:"
 
 msgid "Create Independent Zone"
 msgstr "Create Independent Zone"
@@ -488,8 +488,8 @@ msgstr "Create Zone"
 msgid "Zone created successfully."
 msgstr "Zone created successfully."
 
-msgid "Zone creation failed: "
-msgstr "Zone creation failed: "
+msgid "Zone creation failed:"
+msgstr "Zone creation failed:"
 
 msgid "Port Range & Protocol"
 msgstr "Port Range & Protocol"
@@ -752,8 +752,8 @@ msgstr "OpenClash rule written, but restart may have failed. Please check OpenCl
 msgid "OpenClash rule written. You need to restart OpenClash for changes to take effect."
 msgstr "OpenClash rule written. You need to restart OpenClash for changes to take effect."
 
-msgid "Failed to write OpenClash rule: "
-msgstr "Failed to write OpenClash rule: "
+msgid "Failed to write OpenClash rule:"
+msgstr "Failed to write OpenClash rule:"
 
 msgid "Remove Plugin Rule"
 msgstr "Remove Plugin Rule"
@@ -761,8 +761,8 @@ msgstr "Remove Plugin Rule"
 msgid "Plugin rule removed from OpenClash."
 msgstr "Plugin rule removed from OpenClash."
 
-msgid "Failed to remove rule: "
-msgstr "Failed to remove rule: "
+msgid "Failed to remove rule:"
+msgstr "Failed to remove rule:"
 
 msgid "Backup OpenClash Config"
 msgstr "Backup OpenClash Config"
@@ -788,8 +788,8 @@ msgstr "No backup found and no matching rules to remove."
 msgid "Plugin rules removed from OpenClash via UCI."
 msgstr "Plugin rules removed from OpenClash via UCI."
 
-msgid "Restore failed: "
-msgstr "Restore failed: "
+msgid "Restore failed:"
+msgstr "Restore failed:"
 
 msgid "Environment Detection"
 msgstr "Environment Detection"
@@ -827,8 +827,8 @@ msgstr "Warning"
 msgid "Failed"
 msgstr "Failed"
 
-msgid "Network check failed: "
-msgstr "Network check failed: "
+msgid "Network check failed:"
+msgstr "Network check failed:"
 
 msgid "Recent Logs"
 msgstr "Recent Logs"
@@ -836,20 +836,20 @@ msgstr "Recent Logs"
 msgid "No logs found."
 msgstr "No logs found."
 
-msgid "Failed to read logs: "
-msgstr "Failed to read logs: "
+msgid "Failed to read logs:"
+msgstr "Failed to read logs:"
 
 msgid "System log reader is not available on this device."
 msgstr "System log reader is not available on this device."
 
-msgid "Last Error: "
-msgstr "Last Error: "
+msgid "Last Error:"
+msgstr "Last Error:"
 
 msgid "Missing Dependencies & Fix Commands"
 msgstr "Missing Dependencies & Fix Commands"
 
-msgid "Missing dependencies: "
-msgstr "Missing dependencies: "
+msgid "Missing dependencies:"
+msgstr "Missing dependencies:"
 
 msgid "All dependencies are installed."
 msgstr "All dependencies are installed."
@@ -866,8 +866,8 @@ msgstr "Are you sure you want to undo all initialization? This will remove all p
 msgid "All plugin configurations and rules have been removed."
 msgstr "All plugin configurations and rules have been removed."
 
-msgid "Rollback failed: "
-msgstr "Rollback failed: "
+msgid "Rollback failed:"
+msgstr "Rollback failed:"
 
 msgid "Undo All Initialization"
 msgstr "Undo All Initialization"
@@ -878,8 +878,8 @@ msgstr "Remove OpenClash rules created by this plugin?"
 msgid "OpenClash rules removed."
 msgstr "OpenClash rules removed."
 
-msgid "Failed: "
-msgstr "Failed: "
+msgid "Failed:"
+msgstr "Failed:"
 
 msgid "Remove OpenClash Rules"
 msgstr "Remove OpenClash Rules"
@@ -893,8 +893,8 @@ msgstr "Clear nftables Rules"
 msgid "Detecting..."
 msgstr "Detecting..."
 
-msgid "Auto-detect failed: "
-msgstr "Auto-detect failed: "
+msgid "Auto-detect failed:"
+msgstr "Auto-detect failed:"
 
 msgid "IP address on the read interface. Must be on the same subnet as the downstream router LAN."
 msgstr "IP address on the read interface. Must be on the same subnet as the downstream router LAN."
@@ -989,8 +989,8 @@ msgstr "Auto mode: interface and firewall will be configured before testing."
 msgid "Safe mode: testing with current network state. If the interface is not configured yet, tests may fail."
 msgstr "Safe mode: testing with current network state. If the interface is not configured yet, tests may fail."
 
-msgid "Network check error: "
-msgstr "Network check error: "
+msgid "Network check error:"
+msgstr "Network check error:"
 
 msgid "Interface does not exist. Check the interface name."
 msgstr "Interface does not exist. Check the interface name."
@@ -1001,8 +1001,8 @@ msgstr "Interface IP is not configured on the interface. Use Auto mode or config
 msgid "Interface IP is not configured on the interface. UPnP discovery requires a valid interface IP."
 msgstr "Interface IP is not configured on the interface. UPnP discovery requires a valid interface IP."
 
-msgid "UPnP check error: "
-msgstr "UPnP check error: "
+msgid "UPnP check error:"
+msgstr "UPnP check error:"
 
 msgid "Unknown error"
 msgstr "Unknown error"
@@ -1019,8 +1019,8 @@ msgstr "Refresh Env"
 msgid "Environment detection refreshed."
 msgstr "Environment detection refreshed."
 
-msgid "Failed to refresh environment: "
-msgstr "Failed to refresh environment: "
+msgid "Failed to refresh environment:"
+msgstr "Failed to refresh environment:"
 
 msgid "Clear Logs"
 msgstr "Clear Logs"
@@ -1034,8 +1034,8 @@ msgstr "Clearing..."
 msgid "Log buffer cleared."
 msgstr "Log buffer cleared."
 
-msgid "Failed to clear logs: "
-msgstr "Failed to clear logs: "
+msgid "Failed to clear logs:"
+msgstr "Failed to clear logs:"
 
 msgid "Reachable"
 msgstr "Reachable"
@@ -1142,8 +1142,8 @@ msgstr "Restart OpenClash after rules are written so changes take effect immedia
 msgid "Per-mapping rules are already up to date (%d rules)."
 msgstr "Per-mapping rules are already up to date (%d rules)."
 
-msgid "Failed to write per-mapping rules: "
-msgstr "Failed to write per-mapping rules: "
+msgid "Failed to write per-mapping rules:"
+msgstr "Failed to write per-mapping rules:"
 
 msgid "Per-mapping rules written. You need to restart OpenClash for changes to take effect."
 msgstr "Per-mapping rules written. You need to restart OpenClash for changes to take effect."
@@ -1193,8 +1193,8 @@ msgstr "Testing..."
 msgid "Syncing..."
 msgstr "Syncing..."
 
-msgid "Error: "
-msgstr "Error: "
+msgid "Error:"
+msgstr "Error:"
 
 msgid "Enable the UPnP NAT Relay service after saving configuration."
 msgstr "Enable the UPnP NAT Relay service after saving configuration."
@@ -1208,8 +1208,8 @@ msgstr "Select interface"
 msgid "Network detection completed. %d empty field(s) were auto-filled; save and apply to keep them."
 msgstr "Network detection completed. %d empty field(s) were auto-filled; save and apply to keep them."
 
-msgid "Clear failed: "
-msgstr "Clear failed: "
+msgid "Clear failed:"
+msgstr "Clear failed:"
 
 msgid "Configuration saved. Restarting service..."
 msgstr "Configuration saved. Restarting service..."
@@ -1226,8 +1226,8 @@ msgstr "Could not auto-detect upstream WAN interface."
 msgid "Could not auto-detect value."
 msgstr "Could not auto-detect value."
 
-msgid "Failed to restart OpenClash: "
-msgstr "Failed to restart OpenClash: "
+msgid "Failed to restart OpenClash:"
+msgstr "Failed to restart OpenClash:"
 
 msgid "Invalid format. Use format like 40000-65535."
 msgstr "Invalid format. Use format like 40000-65535."
@@ -1241,14 +1241,14 @@ msgstr "OpenClash init script was not found."
 msgid "OpenClash restart command completed, but the core process was not detected after 30 seconds."
 msgstr "OpenClash restart command completed, but the core process was not detected after 30 seconds."
 
-msgid "OpenClash restart failed: "
-msgstr "OpenClash restart failed: "
+msgid "OpenClash restart failed:"
+msgstr "OpenClash restart failed:"
 
 msgid "OpenClash restarted successfully."
 msgstr "OpenClash restarted successfully."
 
-msgid "Operation failed: "
-msgstr "Operation failed: "
+msgid "Operation failed:"
+msgstr "Operation failed:"
 
 msgid "Port range is required."
 msgstr "Port range is required."
@@ -1367,11 +1367,11 @@ msgstr "Enable Automatic Sync"
 msgid "Error"
 msgstr "Error"
 
-msgid "Failed to apply configuration: "
-msgstr "Failed to apply configuration: "
+msgid "Failed to apply configuration:"
+msgstr "Failed to apply configuration:"
 
-msgid "Failed to sync OpenClash: "
-msgstr "Failed to sync OpenClash: "
+msgid "Failed to sync OpenClash:"
+msgstr "Failed to sync OpenClash:"
 
 msgid "How often the background service checks the downstream router."
 msgstr "How often the background service checks the downstream router."

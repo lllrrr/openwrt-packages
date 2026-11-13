@@ -359,11 +359,11 @@ return view.extend({
 					} else if (result.error === 'openclash_operation_running') {
 						ui.addNotification(null, E('p', _('Another OpenClash operation is currently running.')), 'warning');
 					} else {
-						ui.addNotification(null, E('p', _('Failed to sync OpenClash: ') + errorMsg), 'error');
+						ui.addNotification(null, E('p', _('Failed to sync OpenClash:') + ' ' + errorMsg), 'error');
 					}
 				}
 			}).catch(function(e) {
-				ui.addNotification(null, E('p', _('Failed to sync OpenClash: ') + e.message), 'error');
+				ui.addNotification(null, E('p', _('Failed to sync OpenClash:') + ' ' + e.message), 'error');
 			}).finally(function() {
 				if (btn.node) {
 					btn.node.disabled = false;
@@ -421,7 +421,7 @@ return view.extend({
 					} else if (result && result.action === 'unchanged') {
 						msg = _('Per-mapping rules are already up to date (%d rules).').format(result.rules_count || 0);
 					} else if (!result || result.success !== true) {
-						msg = _('Failed to write per-mapping rules: ') + (result.error || _('unknown'));
+						msg = _('Failed to write per-mapping rules:') + ' ' + (result.error || _('unknown'));
 					} else {
 						msg = _('Per-mapping rules written. You need to restart OpenClash for changes to take effect.');
 					}
@@ -442,7 +442,7 @@ return view.extend({
 				}
 				ui.addNotification(null, E('p', msg), 'info');
 			}).catch(function(e) {
-				ui.addNotification(null, E('p', _('Failed to write OpenClash rule: ') + e.message), 'error');
+				ui.addNotification(null, E('p', _('Failed to write OpenClash rule:') + ' ' + e.message), 'error');
 			});
 		};
 
@@ -453,12 +453,12 @@ return view.extend({
 			return callRemoveOpenclashRule().then(function(result) {
 				result = result || {};
 				if (result.success !== true) {
-					ui.addNotification(null, E('p', _('Operation failed: ') + (result.error || _('unknown'))), 'error');
+					ui.addNotification(null, E('p', _('Operation failed:') + ' ' + (result.error || _('unknown'))), 'error');
 					return;
 				}
 				ui.addNotification(null, E('p', _('Plugin rule removed from OpenClash.')), 'info');
 			}).catch(function(e) {
-				ui.addNotification(null, E('p', _('Failed to remove rule: ') + e.message), 'error');
+				ui.addNotification(null, E('p', _('Failed to remove rule:') + ' ' + e.message), 'error');
 			});
 		};
 
@@ -481,11 +481,11 @@ return view.extend({
 					msg = _('OpenClash init restart failed.');
 					ui.addNotification(null, E('p', msg), 'error');
 				} else {
-					msg = _('OpenClash restart failed: ') + ((result && result.error) || _('unknown'));
+					msg = _('OpenClash restart failed:') + ' ' + ((result && result.error) || _('unknown'));
 					ui.addNotification(null, E('p', msg), 'error');
 				}
 			}).catch(function(e) {
-				ui.addNotification(null, E('p', _('Failed to restart OpenClash: ') + e.message), 'error');
+				ui.addNotification(null, E('p', _('Failed to restart OpenClash:') + ' ' + e.message), 'error');
 			});
 		};
 
@@ -510,7 +510,7 @@ return view.extend({
 					ui.addNotification(null, E('p', _('Plugin rules removed from OpenClash via UCI.')), 'info');
 				}
 			}).catch(function(e) {
-				ui.addNotification(null, E('p', _('Restore failed: ') + e.message), 'error');
+				ui.addNotification(null, E('p', _('Restore failed:') + ' ' + e.message), 'error');
 			});
 		};
 
@@ -532,7 +532,7 @@ return view.extend({
 			ui.addNotification(null, E('p', _('Configuration saved. The running service will pick up changes on the next sync cycle.')), 'info');
 			utils.reloadSoon(600);
 		}).catch(function(e) {
-			ui.addNotification(null, E('p', _('Failed to apply configuration: ') + e.message), 'error');
+			ui.addNotification(null, E('p', _('Failed to apply configuration:') + ' ' + e.message), 'error');
 		});
 	}
 });

@@ -114,7 +114,7 @@ return view.extend({
 				if (!result || result.success !== true) {
 					var msg = result.error === 'logread_not_found' ?
 						_('System log reader is not available on this device.') :
-						_('Failed to read logs: ') + (result.error || '');
+						_('Failed to read logs:') + ' ' + (result.error || '');
 					setLogArea(msg, 'is-error');
 					return;
 				}
@@ -122,7 +122,7 @@ return view.extend({
 				var logs = (result && result.logs) ? result.logs : '';
 				setLogArea(logs || _('No logs found.'), logs ? null : 'is-empty');
 			}).catch(function(e) {
-				setLogArea(_('Failed to read logs: ') + (e.message || e), 'is-error');
+				setLogArea(_('Failed to read logs:') + ' ' + (e.message || e), 'is-error');
 			}).finally(function() {
 				if (btn) {
 					btn.disabled = false;
@@ -156,10 +156,10 @@ return view.extend({
 					if (result && result.success) {
 						setLogArea(_('Log buffer cleared.'), 'is-empty');
 					} else {
-						ui.addNotification(null, E('p', _('Failed to clear logs: ') + ((result && result.error) || _('unknown'))), 'error');
+						ui.addNotification(null, E('p', _('Failed to clear logs:') + ' ' + ((result && result.error) || _('unknown'))), 'error');
 					}
 				}).catch(function(e) {
-					ui.addNotification(null, E('p', _('Failed to clear logs: ') + e.message), 'error');
+					ui.addNotification(null, E('p', _('Failed to clear logs:') + ' ' + e.message), 'error');
 				}).finally(function() {
 					btn.disabled = false;
 					btn.textContent = '\u2716 ' + _('Clear Logs');
@@ -181,7 +181,7 @@ return view.extend({
 
 		if (status.last_error) {
 			logSection.appendChild(E('div', { 'class': 'alert-message danger' },
-				E('p', {}, '\u2718 ' + _('Last Error: ') + status.last_error)));
+				E('p', {}, '\u2718 ' + _('Last Error:') + ' ' + status.last_error)));
 		}
 		container.appendChild(logSection);
 
@@ -203,7 +203,7 @@ return view.extend({
 				return callRollback().then(function(result) {
 					result = result || {};
 					if (result.success !== true) {
-						ui.addNotification(null, E('p', _('Rollback failed: ') + (result.error || _('unknown'))), 'error');
+						ui.addNotification(null, E('p', _('Rollback failed:') + ' ' + (result.error || _('unknown'))), 'error');
 						return;
 					}
 					return callClear();
@@ -211,12 +211,12 @@ return view.extend({
 					if (!result) return;
 					result = result || {};
 					if (result.success !== true) {
-						ui.addNotification(null, E('p', _('Clear failed: ') + (result.error || _('unknown'))), 'error');
+						ui.addNotification(null, E('p', _('Clear failed:') + ' ' + (result.error || _('unknown'))), 'error');
 						return;
 					}
 					ui.addNotification(null, E('p', _('All plugin configurations and rules have been removed.')), 'info');
 				}).catch(function(e) {
-					ui.addNotification(null, E('p', _('Rollback failed: ') + e.message), 'error');
+					ui.addNotification(null, E('p', _('Rollback failed:') + ' ' + e.message), 'error');
 				}).finally(function() {
 					btn.disabled = false;
 				});
@@ -233,7 +233,7 @@ return view.extend({
 				return callRemoveOpenclashRule().then(function() {
 					ui.addNotification(null, E('p', _('OpenClash rules removed.')), 'info');
 				}).catch(function(e) {
-					ui.addNotification(null, E('p', _('Failed: ') + e.message), 'error');
+					ui.addNotification(null, E('p', _('Failed:') + ' ' + e.message), 'error');
 				}).finally(function() {
 					btn.disabled = false;
 				});
@@ -250,12 +250,12 @@ return view.extend({
 				return callClear().then(function(result) {
 					result = result || {};
 					if (result.success !== true) {
-						ui.addNotification(null, E('p', _('Operation failed: ') + (result.error || _('unknown'))), 'error');
+						ui.addNotification(null, E('p', _('Operation failed:') + ' ' + (result.error || _('unknown'))), 'error');
 						return;
 					}
 					ui.addNotification(null, E('p', _('Dynamic rules cleared.')), 'info');
 				}).catch(function(e) {
-					ui.addNotification(null, E('p', _('Failed: ') + e.message), 'error');
+					ui.addNotification(null, E('p', _('Failed:') + ' ' + e.message), 'error');
 				}).finally(function() {
 					btn.disabled = false;
 				});

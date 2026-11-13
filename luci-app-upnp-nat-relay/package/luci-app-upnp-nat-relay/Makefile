@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-upnp-nat-relay
-PKG_VERSION:=1.3.14
+PKG_VERSION:=1.3.15
 PKG_RELEASE:=1
 
 PKG_MAINTAINER:=yunshu
@@ -43,7 +43,10 @@ define Build/Compile
 		lmo_lang="$$$$lang"; \
 		[ "$$$$lmo_lang" = "zh_Hans" ] && lmo_lang="zh-cn"; \
 		if [ -x "$(STAGING_DIR_HOSTPKG)/bin/po2lmo" ]; then \
-			"$(STAGING_DIR_HOSTPKG)/bin/po2lmo" "$$$$po_dir/upnp-nat-relay.po" "$(PKG_BUILD_DIR)/lmo/upnp-nat-relay.$$$$lmo_lang.lmo"; \
+			"$(STAGING_DIR_HOSTPKG)/bin/po2lmo" "$$$$po_dir/upnp-nat-relay.po" "$(PKG_BUILD_DIR)/lmo/upnp-nat-relay.$$$$lmo_lang.lmo" || exit 1; \
+		else \
+			echo "ERROR: po2lmo not found at $(STAGING_DIR_HOSTPKG)/bin; build luci-base/host first" >&2; \
+			exit 1; \
 		fi; \
 	done; \
 	sed -i 's/@PKG_VERSION@/$(PKG_VERSION)/g' $(PKG_BUILD_DIR)/root/usr/bin/upnp-nat-relay
@@ -71,10 +74,8 @@ define Package/luci-app-upnp-nat-relay/install
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/root/usr/share/luci/menu.d/luci-app-upnp-nat-relay.json $(1)/usr/share/luci/menu.d/
 	$(INSTALL_DIR) $(1)/usr/share/rpcd/acl.d
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/root/usr/share/rpcd/acl.d/luci-app-upnp-nat-relay.json $(1)/usr/share/rpcd/acl.d/
-	if [ -n "$$$$(ls $(PKG_BUILD_DIR)/lmo/*.lmo 2>/dev/null)" ]; then \
-		$(INSTALL_DIR) $(1)/usr/lib/lua/luci/i18n; \
-		$(INSTALL_DATA) $(PKG_BUILD_DIR)/lmo/*.lmo $(1)/usr/lib/lua/luci/i18n/; \
-	fi
+	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/i18n
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/lmo/*.lmo $(1)/usr/lib/lua/luci/i18n/
 endef
 
 define Package/luci-app-upnp-nat-relay/postinst
