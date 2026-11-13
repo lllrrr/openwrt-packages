@@ -1445,3 +1445,9 @@ msgstr ""
 
 msgid "One-shot sync failed: %s"
 msgstr ""
+
+msgid "Click \"Detect\" to check status."
+msgstr ""
+
+msgid "Zone \"%s\" already exists. Use \"Fix Zone Settings\" instead."
+msgstr ""

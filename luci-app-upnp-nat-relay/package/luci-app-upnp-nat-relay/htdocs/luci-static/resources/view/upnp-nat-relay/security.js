@@ -7,11 +7,16 @@
 
 return view.extend({
 	load: function() {
-		return uci.load('upnp_nat_relay');
+		return uci.load('upnp_nat_relay').catch(utils.loadFailed('security'));
 	},
 
-	render: function() {
+	render: function(data) {
 		utils.loadSharedCSS();
+		if (data && data._loadError)
+			return E('div', { 'class': 'cbi-map' }, [
+				E('h2', { 'name': 'content' }, _('Security')),
+				utils.errorPanel(_('Unable to load configuration'), _('Retry the page; if it keeps failing, check the service log.'), data._loadError)
+			]);
 		var m, s, o;
 
 		m = new form.Map('upnp_nat_relay', _('Security'));
@@ -147,11 +152,7 @@ return view.extend({
 		};
 
 		return m.render().then(function(node) {
-			node.classList.add('ubr-security');
-			return utils.appendFooter(node, {
-				project: 'UPnP NAT Relay',
-				repoUrl: 'https://github.com/hello-yunshu/luci-app-upnp-nat-relay'
-			});
+			return utils.appendFooter(node, utils.FOOTER_OPTIONS);
 		});
 	},
 

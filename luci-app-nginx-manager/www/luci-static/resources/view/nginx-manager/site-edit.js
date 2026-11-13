@@ -61,7 +61,12 @@ return view.extend({
 			promises.push(Promise.resolve(null));
 		}
 
-		return Promise.all(promises);
+		return Promise.all(promises.map(function(p) {
+			return p.catch(function(err) {
+				console.error('nginx-manager: site-edit load failed', err);
+				return { _loadError: err };
+			});
+		}));
 	},
 
 	render: function(data) {
@@ -81,7 +86,13 @@ return view.extend({
 
 		utils.loadSharedCSS();
 
-		page.appendChild(E('h2', { 'class': 'cbi-map-title' }, isNew ? _('Add Site') : _('Edit Site')));
+		if ((data[0] && data[0]._loadError) || (data[1] && data[1]._loadError)) {
+			page.appendChild(E('h2', { 'name': 'content' }, _('Edit Site')));
+			page.appendChild(utils.errorPanel(_('Unable to load site'), _('Retry the page; if it keeps failing, check the service log.'), (data[0] && data[0]._loadError) || data[1]._loadError));
+			return utils.appendFooter(page, utils.FOOTER_OPTIONS);
+		}
+
+		page.appendChild(E('h2', { 'name': 'content' }, isNew ? _('Add Site') : _('Edit Site')));
 
 		/* ---- helpers ---- */
 
@@ -168,7 +179,7 @@ return view.extend({
 		basicSection.appendChild(makeField('opt-name', _('Site Name'), nameInput, utils.NAME_TIP));
 		utils.validateNameInput(nameInput);
 
-		var modeSelect = E('select', { 'class': 'cbi-input-select' }, [
+		var modeSelect = E('select', {}, [
 			E('option', { 'value': 'reverse_proxy' }, _('Reverse Proxy')),
 			E('option', { 'value': 'static' },        _('Static Website')),
 			E('option', { 'value': 'custom' },        _('Custom Server Block')),
@@ -204,7 +215,7 @@ return view.extend({
 		sslSection = E('div', { 'class': 'cbi-section' });
 		sslSection.appendChild(E('h3', {}, _('SSL Settings')));
 
-		var sslCertSelect = E('select', { 'class': 'cbi-input-select' }, [
+		var sslCertSelect = E('select', {}, [
 			E('option', { 'value': '' }, _('-- None --'))
 		]);
 		certs.forEach(function(cert) {
@@ -214,23 +225,32 @@ return view.extend({
 		if (!isNew && site && site.ssl_cert) sslCertSelect.value = site.ssl_cert;
 		sslSection.appendChild(makeField('opt-ssl_cert', _('SSL Certificate'), sslCertSelect));
 
-		var sslWarning = E('div', { 'class': 'alert-message warning', 'style': 'display:none;' });
-		sslSection.appendChild(sslWarning);
+		/* 只在证书即将过期/已过期时才把提示条挂进 DOM，避免正常态留一个空提示条 */
+		var sslWarning = null;
+		function updateSslWarning(cert) {
+			var text = cert && cert.status === 'expired' ? _('This certificate has expired.')
+				: cert && cert.status === 'expiring' ? _('This certificate is expiring soon.')
+				: '';
+			if (!text) {
+				if (sslWarning) sslWarning.style.display = 'none';
+				return;
+			}
+			if (!sslWarning) {
+				sslWarning = E('div', { 'class': 'alert-message warning' });
+				sslSection.appendChild(sslWarning);
+			}
+			sslWarning.style.display = '';
+			sslWarning.textContent = text;
+		}
 
 		sslCertSelect.addEventListener('change', function() {
-			var sel = certs.find(function(c) { return c.id === sslCertSelect.value; });
-			if (sel && (sel.status === 'expiring' || sel.status === 'expired')) {
-				sslWarning.style.display = '';
-				sslWarning.textContent = sel.status === 'expired'
-					? _('This certificate has expired.')
-					: _('This certificate is expiring soon.');
-			} else {
-				sslWarning.style.display = 'none';
-			}
+			updateSslWarning(certs.find(function(c) { return c.id === sslCertSelect.value; }));
 
 			/* Auto-update listen defaults when SSL is toggled */
 			updateListenDefaults();
 		});
+
+		updateSslWarning(certs.find(function(c) { return c.id === sslCertSelect.value; }));
 
 		var redirectHttpsRow = makeFlag('opt-redirect_https', _('HTTP to HTTPS Redirect'),
 			!isNew && site ? site.redirect_https === '1' : true);
@@ -254,7 +274,8 @@ return view.extend({
 		updateRedirectHttpPortVisibility();
 
 		/* SSL Advanced Options */
-		var sslAdvancedWrapper = E('div', { 'style': 'display:none;' });
+		var sslAdvancedWrapper = E('div');
+		sslAdvancedWrapper.style.display = 'none';
 
 		var sslProtocolsInput = E('input', {
 			'type': 'text', 'class': 'cbi-input-text',
@@ -301,7 +322,7 @@ return view.extend({
 		proxySection.appendChild(E('h3', {}, _('Reverse Proxy')));
 
 		/* Proxy Type: HTTP / gRPC (WebSocket is a checkbox under HTTP) */
-		proxyTypeSelect = E('select', { 'class': 'cbi-input-select' }, [
+		proxyTypeSelect = E('select', {}, [
 			E('option', { 'value': 'http' }, _('HTTP')),
 			E('option', { 'value': 'grpc' }, _('gRPC'))
 		]);
@@ -334,7 +355,8 @@ return view.extend({
 		var grpcPassthroughCb = grpcPassthroughRow.querySelector('input[type="checkbox"]');
 		proxySection.appendChild(grpcPassthroughRow);
 
-		grpcPassthroughFields = E('div', { 'style': 'display:none;' });
+		grpcPassthroughFields = E('div');
+		grpcPassthroughFields.style.display = 'none';
 
 		var grpcPathInput = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'placeholder': '/grpc' });
 		if (!isNew && site && site.grpc_path) grpcPathInput.value = site.grpc_path;
@@ -355,7 +377,7 @@ return view.extend({
 		grpcPassthroughCb.addEventListener('change', updateGrpcPassthroughVisibility);
 
 		/* Common Proxy Headers */
-		proxyHeadersTitle = E('h4', { 'class': 'nm-subsection-title' }, _('Common Proxy Headers'));
+		proxyHeadersTitle = E('h4', {}, _('Common Proxy Headers'));
 		proxySection.appendChild(proxyHeadersTitle);
 
 		proxyHostRow = makeFlag('opt-proxy_host', _('Proxy Host Header'),
@@ -388,7 +410,7 @@ return view.extend({
 		proxySection.appendChild(customHeadersField);
 
 		/* Proxy Timeouts */
-		proxySection.appendChild(E('h4', { 'class': 'nm-subsection-title' }, _('Proxy Timeouts')));
+		proxySection.appendChild(E('h4', {}, _('Proxy Timeouts')));
 
 		var proxyConnectTimeoutInput = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'placeholder': '60s' });
 		if (!isNew && site && site.proxy_connect_timeout) proxyConnectTimeoutInput.value = site.proxy_connect_timeout;
@@ -472,7 +494,7 @@ return view.extend({
 			var configPathRow = E('div', { 'class': 'cbi-value' });
 			configPathRow.appendChild(E('label', { 'class': 'cbi-value-title' }, _('File Path')));
 			var configPathField = E('div', { 'class': 'cbi-value-field' });
-			configPathField.appendChild(E('code', { 'style': 'word-break:break-all;' }, configPath || '-'));
+			configPathField.appendChild(E('code', {}, configPath || '-'));
 			configPathRow.appendChild(configPathField);
 			configSection.appendChild(configPathRow);
 
@@ -482,12 +504,12 @@ return view.extend({
 			var enableEditField = E('div', { 'class': 'cbi-value-field' });
 			var enableEditCb = E('input', { 'type': 'checkbox', 'id': 'opt-enable_config_edit', 'class': 'cbi-input-checkbox' });
 			enableEditField.appendChild(enableEditCb);
-			enableEditField.appendChild(E('label', { 'for': 'opt-enable_config_edit', 'style': 'margin-left:0.4em;cursor:pointer;' }, _('Enable direct editing of the config file')));
+			enableEditField.appendChild(E('label', { 'for': 'opt-enable_config_edit' }, _('Enable direct editing of the config file')));
 			enableEditRow.appendChild(enableEditField);
 			configSection.appendChild(enableEditRow);
 
 			/* Warning */
-			var configWarning = E('div', { 'class': 'alert-message warning', 'style': 'display:none;' });
+			var configWarning = E('div', { 'class': 'alert-message warning' });
 			configWarning.appendChild(E('p', {}, _('Direct edits are temporary and will be overwritten whenever managed configuration is applied. Use Custom Location Directives for persistent reverse-proxy changes.')));
 
 			/* Code editor - wrapped in cbi-value row to align with form fields */
@@ -496,7 +518,6 @@ return view.extend({
 			/* Save button for config file */
 			var configSaveBtn = E('button', {
 				'class': 'cbi-button cbi-button-apply',
-				'style': 'display:none; margin-top:0.5em;',
 				'click': function() {
 					if (!configPath) {
 						ui.addNotification(null, E('p', {}, _('Config file path not available')), 'error');
@@ -544,7 +565,7 @@ return view.extend({
 		}
 
 		/* ========== Actions ========== */
-		var actionsDiv = E('div', { 'class': 'nm-btn-group', 'style': 'justify-content: flex-end; margin-top: 1.5em;' });
+		var actionsDiv = E('div', {});
 
 		if (!isNew) {
 			actionsDiv.appendChild(E('button', {
@@ -566,7 +587,6 @@ return view.extend({
 
 						var saveBtn = E('button', {
 							'class': 'cbi-button cbi-button-apply',
-							'style': 'display:none;',
 							'click': function() {
 								if (!configFilePath) {
 									ui.addNotification(null, E('p', {}, _('Config file path not available')), 'error');
@@ -575,7 +595,7 @@ return view.extend({
 								ui.showModal(_('Confirm Save'), [
 									E('p', {}, _('Save changes to the config file?')),
 									E('p', {}, _('A backup will be created before saving.')),
-									E('p', { 'style': 'margin-top:0.5em;' }, _('Direct edits are temporary and will be overwritten whenever managed configuration is applied. Use Custom Location Directives for persistent reverse-proxy changes.')),
+									E('p', {}, _('Direct edits are temporary and will be overwritten whenever managed configuration is applied. Use Custom Location Directives for persistent reverse-proxy changes.')),
 									E('div', { 'class': 'right' }, [
 										E('button', { 'class': 'btn', 'click': function() { ui.hideModal(); } }, _('Cancel')),
 										E('button', {
@@ -726,10 +746,7 @@ return view.extend({
 			});
 		}
 
-		return utils.appendFooter(page, {
-			project: 'Nginx Manager',
-			repoUrl: 'https://github.com/hello-yunshu/luci-app-nginx-manager'
-		});
+		return utils.appendFooter(page, utils.FOOTER_OPTIONS);
 	},
 
 	handleSave: null,

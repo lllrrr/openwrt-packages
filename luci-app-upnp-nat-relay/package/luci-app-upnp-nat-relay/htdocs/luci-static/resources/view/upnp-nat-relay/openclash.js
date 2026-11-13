@@ -104,19 +104,19 @@ function buildSuggestedRuleHtml(strategy, downstreamWanIp, allowedPorts, remark,
 	}
 
 	function ruleBlock(title, srcIp, srcPort, proto, iface, target, ruleRemark) {
-		return '<div class="cbi-section" style="margin-bottom:0.8em">' +
+		return '<div class="cbi-section">' +
 			'<h3>' + title + '</h3>' +
 			cbiValue(_('Source Address'), htmlEscape(srcIp)) +
-			cbiValue(_('Source Ports'), htmlEscape(srcPort), 'ubr-text-primary') +
+			cbiValue(_('Source Ports'), htmlEscape(srcPort)) +
 			cbiValue(_('Protocol'), htmlEscape(proto)) +
 			(iface ? cbiValue(_('Interface'), htmlEscape(iface)) : '') +
-			cbiValue(_('Action'), htmlEscape(target), 'ubr-text-success') +
+			cbiValue(_('Action'), htmlEscape(target)) +
 			cbiValue(_('Remark'), htmlEscape(ruleRemark)) +
 			'</div>';
 	}
 
 	if (suggestion && suggestion.strategy === 'per_mapping' && Array.isArray(suggestion.rules) && suggestion.rules.length > 0) {
-		var html = '<div id="ubr-oc-suggested-rule"><b>' + _('Strategy:') + '</b> <span class="ubr-text-primary">' + _('Per-Mapping') + '</span></div>';
+		var html = '<div id="upnp-oc-suggested-rule"><b>' + _('Strategy:') + '</b> <span>' + _('Per-Mapping') + '</span></div>';
 		for (var i = 0; i < suggestion.rules.length; i++) {
 			var rule = suggestion.rules[i] || {};
 			var srcIp = rule.src_ip || rule.internal_address || downstreamWanIp;
@@ -134,22 +134,22 @@ function buildSuggestedRuleHtml(strategy, downstreamWanIp, allowedPorts, remark,
 		var poolSrcPort = suggestion.src_port || suggestion.internal_ports || allowedPorts;
 		var poolProto = suggestion.proto || suggestion.protocols || _('both');
 		var poolIface = suggestion.interface || '';
-		return '<div id="ubr-oc-suggested-rule">' +
-			'<b>' + _('Strategy:') + '</b> <span class="ubr-text-primary">' + _('Port Pool') + '</span>' +
+		return '<div id="upnp-oc-suggested-rule">' +
+			'<b>' + _('Strategy:') + '</b> <span>' + _('Port Pool') + '</span>' +
 			'</div>' +
 			ruleBlock(_('Port Pool Rule'), poolSrcIp, poolSrcPort, poolProto, poolIface, suggestion.target || _('return'), suggestion.remark || remark);
 	}
 
 	if (strategy === 'per_mapping') {
-		return '<div id="ubr-oc-suggested-rule">' +
-			'<b>' + _('Strategy:') + '</b> <span class="ubr-text-primary">' + _('Per-Mapping') + '</span>' +
+		return '<div id="upnp-oc-suggested-rule">' +
+			'<b>' + _('Strategy:') + '</b> <span>' + _('Per-Mapping') + '</span>' +
 			'</div>' +
 			ruleBlock('TCP ' + _('Rule'), downstreamWanIp, _('Dynamic (comma-separated)'), 'tcp', '', _('return'), remark + ' [TCP]') +
 			ruleBlock('UDP ' + _('Rule'), downstreamWanIp, _('Dynamic (comma-separated)'), 'udp', '', _('return'), remark + ' [UDP]');
 	}
 
-	return '<div id="ubr-oc-suggested-rule">' +
-		'<b>' + _('Strategy:') + '</b> <span class="ubr-text-primary">' + _('Port Pool') + '</span>' +
+	return '<div id="upnp-oc-suggested-rule">' +
+		'<b>' + _('Strategy:') + '</b> <span>' + _('Port Pool') + '</span>' +
 		'</div>' +
 		ruleBlock(_('Port Pool Rule'), downstreamWanIp, allowedPorts, _('both'), '', _('return'), remark);
 }
@@ -157,12 +157,12 @@ function buildSuggestedRuleHtml(strategy, downstreamWanIp, allowedPorts, remark,
 function formatOpenclashSyncStatus(status) {
 	var lastOcSync = status ? status.last_oc_sync : null;
 	if (!lastOcSync)
-		return '<span class="ubr-text-muted">' + _('Not yet synced') + '</span>';
+		return '<span>' + _('Not yet synced') + '</span>';
 
 	var syncInterval = uci.get('upnp_nat_relay', 'main', 'openclash_sync_interval') || '0';
 	var ts = parseInt(lastOcSync, 10);
 	if (isNaN(ts) || ts === 0)
-		return '<span class="ubr-text-muted">' + _('Not yet synced') + '</span>';
+		return '<span>' + _('Not yet synced') + '</span>';
 
 	var d = new Date(ts * 1000);
 	var timeStr = d.toLocaleString();
@@ -171,14 +171,14 @@ function formatOpenclashSyncStatus(status) {
 		var elapsed = now - ts;
 		var remaining = parseInt(syncInterval, 10) - elapsed;
 		if (remaining > 0) {
-			return '<span class="ubr-text-success">' + timeStr + '</span>' +
-				' <span class="ubr-text-muted">(' + _('next in %ds').format(remaining) + ')</span>';
+			return '<span>' + timeStr + '</span>' +
+				' <span>(' + _('next in %ds').format(remaining) + ')</span>';
 		}
-		return '<span class="ubr-text-success">' + timeStr + '</span>' +
-			' <span class="ubr-text-primary">(' + _('due now') + ')</span>';
+		return '<span>' + timeStr + '</span>' +
+			' <span>(' + _('due now') + ')</span>';
 	}
 
-	return '<span class="ubr-text-success">' + timeStr + '</span>';
+	return '<span>' + timeStr + '</span>';
 }
 
 return view.extend({
@@ -194,11 +194,16 @@ return view.extend({
 				env: results[2],
 				ruleCache: results[3]
 			};
-		});
+		}).catch(utils.loadFailed('openclash'));
 	},
 
 	render: function(data) {
 		utils.loadSharedCSS();
+		if (data && data._loadError)
+			return E('div', { 'class': 'cbi-map' }, [
+				E('h2', { 'name': 'content' }, _('OpenClash Compatibility')),
+				utils.errorPanel(_('Unable to load OpenClash status'), _('Retry the page; if it keeps failing, check the service log.'), data._loadError)
+			]);
 		var m, s, o;
 		var status = data.status || {};
 		var env = data.env || {};
@@ -213,27 +218,27 @@ return view.extend({
 		o.rawhtml = true;
 		o.cfgvalue = function() {
 			if (env.openclash_installed === 1 || env.openclash_installed === true) {
-				return '<span class="ubr-text-success">&#10004; ' + _('Installed') + '</span>';
+				return '<span>&#10004; ' + _('Installed') + '</span>';
 			}
-			return '<span class="ubr-text-warning">&#10008; ' + _('Not Installed') + '</span>';
+			return '<span>&#10008; ' + _('Not Installed') + '</span>';
 		};
 
 		o = s.option(form.DummyValue, '_oc_running', _('OpenClash Running'));
 		o.rawhtml = true;
 		o.cfgvalue = function() {
 			if (env.openclash_running === 1 || env.openclash_running === true) {
-				return '<span class="ubr-text-success">&#10004; ' + _('Running') + '</span>';
+				return '<span>&#10004; ' + _('Running') + '</span>';
 			}
-			return '<span class="ubr-text-warning">&#10008; ' + _('Not Running') + '</span>';
+			return '<span>&#10008; ' + _('Not Running') + '</span>';
 		};
 
 		o = s.option(form.DummyValue, '_oc_access_control', _('Source Access Control Detected'));
 		o.rawhtml = true;
 		o.cfgvalue = function() {
 			if (env.openclash_has_access_control === 1 || env.openclash_has_access_control === true) {
-				return '<span class="ubr-text-success">&#10004; ' + _('Detected') + '</span>';
+				return '<span>&#10004; ' + _('Detected') + '</span>';
 			}
-			return '<span class="ubr-text-warning">&#10008; ' + _('Not Detected') + '</span>';
+			return '<span>&#10008; ' + _('Not Detected') + '</span>';
 		};
 
 		o = s.option(form.DummyValue, '_oc_existing_rule', _('Existing Matching Rule'));
@@ -250,15 +255,15 @@ return view.extend({
 				}
 			}
 			if (found) {
-				return '<span class="ubr-text-success">&#10004; ' + _('Rule exists') + '</span>';
+				return '<span>&#10004; ' + _('Rule exists') + '</span>';
 			}
-			return '<span class="ubr-text-warning">&#10008; ' + _('No matching rule found') + '</span>';
+			return '<span>&#10008; ' + _('No matching rule found') + '</span>';
 		};
 
 		o = s.option(form.DummyValue, '_oc_last_sync', _('Last OpenClash Sync'));
 		o.rawhtml = true;
 		o.cfgvalue = function() {
-			return '<span id="ubr-oc-last-sync-value">' + formatOpenclashSyncStatus(status) + '</span>';
+			return '<span id="upnp-oc-last-sync-value">' + formatOpenclashSyncStatus(status) + '</span>';
 		};
 
 		s = m.section(form.TypedSection, 'service', _('Rule Preview'));
@@ -313,7 +318,7 @@ return view.extend({
 		o = s.option(form.DummyValue, '_oc_backup_status', _('Backup Status'));
 		o.rawhtml = true;
 		o.cfgvalue = function() {
-			return '<span class="ubr-text-muted">' + _('Auto-created before each rule write') + '</span>';
+			return '<span>' + _('Auto-created before each rule write') + '</span>';
 		};
 
 		s = m.section(form.TypedSection, 'service', _('OpenClash Actions'));
@@ -339,11 +344,11 @@ return view.extend({
 						ui.addNotification(null, E('p', _('OpenClash rules synced successfully (%d rules).').format(rulesCount)), 'info');
 					}
 					return callStatus().then(function(freshStatus) {
-						var lastSyncEl = document.getElementById('ubr-oc-last-sync-value');
+						var lastSyncEl = document.getElementById('upnp-oc-last-sync-value');
 						if (lastSyncEl)
 							lastSyncEl.innerHTML = formatOpenclashSyncStatus(freshStatus || {});
 					}).catch(function() {
-						var lastSyncEl = document.getElementById('ubr-oc-last-sync-value');
+						var lastSyncEl = document.getElementById('upnp-oc-last-sync-value');
 						if (lastSyncEl)
 							lastSyncEl.innerHTML = formatOpenclashSyncStatus({ last_oc_sync: Math.floor(Date.now() / 1000) });
 					});
@@ -375,10 +380,10 @@ return view.extend({
 			var downstreamWanIp = uci.get('upnp_nat_relay', 'main', 'downstream_wan_ip') || '-';
 			var allowedPorts = uci.get('upnp_nat_relay', 'main', 'allowed_external_ports') || '40000-65535';
 			var remark = uci.get('upnp_nat_relay', 'main', 'openclash_rule_remark') || 'UPnP NAT Relay Auto RETURN';
-			var preview = document.getElementById('ubr-oc-suggested-rule');
+			var preview = document.getElementById('upnp-oc-suggested-rule');
 
 			if (preview)
-				preview.innerHTML = '<span class="ubr-text-muted">' + _('Generating...') + '</span>';
+				preview.innerHTML = '<span>' + _('Generating...') + '</span>';
 
 			return callGenerateOpenclashRule().then(function(result) {
 				if (preview)
@@ -509,10 +514,7 @@ return view.extend({
 			});
 		};
 
-		return utils.renderWithFooter(m.render(), {
-			project: 'UPnP NAT Relay',
-			repoUrl: 'https://github.com/hello-yunshu/luci-app-upnp-nat-relay'
-		});
+		return utils.renderWithFooter(m.render(), utils.FOOTER_OPTIONS);
 	},
 
 	handleSaveApply: function(ev, mode) {

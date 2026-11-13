@@ -48,7 +48,10 @@ var callDeleteBackup = rpc.declare({
 
 return view.extend({
 	load: function() {
-		return callListBackups();
+		return callListBackups().catch(function(err) {
+			console.error('nginx-manager: backups load failed', err);
+			return { _loadError: err };
+		});
 	},
 
 	render: function(data) {
@@ -59,13 +62,19 @@ return view.extend({
 
 		utils.loadSharedCSS();
 
-		page.appendChild(E('h2', { 'class': 'cbi-map-title' }, _('Backups')));
+		if (data && data._loadError) {
+			page.appendChild(E('h2', { 'name': 'content' }, _('Backups')));
+			page.appendChild(utils.errorPanel(_('Unable to load backups'), _('Retry the page; if it keeps failing, check the service log.'), data._loadError));
+			return utils.appendFooter(page, utils.FOOTER_OPTIONS);
+		}
+
+		page.appendChild(E('h2', { 'name': 'content' }, _('Backups')));
 
 		var section = E('div', { 'class': 'cbi-section' });
 		section.appendChild(E('h3', {}, _('Backup Management')));
 
 		var settingsRow = E('div', {
-			'class': 'cbi-value nm-inline-setting'
+			'class': 'cbi-value'
 		}, [
 			E('label', {
 				'class': 'cbi-value-title',
@@ -78,8 +87,7 @@ return view.extend({
 					'class': 'cbi-input-text',
 					'min': '1',
 					'max': '100',
-					'value': maxBackups,
-					'style': 'width: 6em;'
+					'value': maxBackups
 				}),
 				E('button', {
 					'class': 'cbi-button cbi-button-apply',
@@ -118,23 +126,20 @@ return view.extend({
 			}
 		}, '\u271A ' + _('Create Backup'));
 
-		section.appendChild(E('div', { 'class': 'nm-btn-group', 'style': 'margin-bottom: 12px;' }, [ createBtn, settingsRow ]));
+		section.appendChild(E('div', {}, [ createBtn, settingsRow ]));
 
 		if (backups.length === 0) {
-			section.appendChild(E('div', { 'class': 'nm-empty-state' },
+			section.appendChild(E('div', {},
 				_('No backups available.')));
 			page.appendChild(section);
-			return utils.appendFooter(page, {
-			project: 'Nginx Manager',
-			repoUrl: 'https://github.com/hello-yunshu/luci-app-nginx-manager'
-		});
+			return utils.appendFooter(page, utils.FOOTER_OPTIONS);
 		}
 
-		var table = E('table', { 'class': 'table nm-responsive-table' });
+		var table = E('table', { 'class': 'table' });
 		var thead = E('thead');
-		var headerRow = E('tr');
+		var headerRow = E('tr', { 'class': 'tr' });
 		[_('Backup Time'), _('Source'), _('Actions')].forEach(function(title) {
-			headerRow.appendChild(E('th', {}, title));
+			headerRow.appendChild(E('th', { 'class': 'th' }, title));
 		});
 		thead.appendChild(headerRow);
 		table.appendChild(thead);
@@ -142,13 +147,14 @@ return view.extend({
 		var tbody = E('tbody');
 
 		backups.forEach(function(backup) {
-			var row = E('tr');
-			row.appendChild(E('td', { 'data-label': _('Backup Time') }, backup.timestamp || '-'));
-			row.appendChild(E('td', { 'data-label': _('Source') }, backup.source || '-'));
+			var row = E('tr', { 'class': 'tr' });
+			row.appendChild(E('td', { 'class': 'td', 'data-title': _('Backup Time') }, backup.timestamp || '-'));
+			row.appendChild(E('td', { 'class': 'td', 'data-title': _('Source') }, backup.source || '-'));
 
-			var actionsCell = E('td', { 'class': 'nm-actions', 'data-label': _('Actions') });
+			var actionsCell = E('td', { 'class': 'td nm-actions-cell', 'data-title': _('Actions') });
+			var actions = E('div', { 'class': 'nm-actions' });
 
-			actionsCell.appendChild(E('button', {
+			actions.appendChild(E('button', {
 				'class': 'cbi-button',
 				'click': function() {
 					callDiffBackup(backup.id).then(function(result) {
@@ -163,7 +169,7 @@ return view.extend({
 				}
 			}, _('Compare')));
 
-			actionsCell.appendChild(E('button', {
+			actions.appendChild(E('button', {
 				'class': 'cbi-button cbi-button-apply',
 				'click': function() {
 					ui.showModal(_('Confirm Restore'), [
@@ -192,7 +198,7 @@ return view.extend({
 			}
 		}, '\u21A9 ' + _('Restore')));
 
-			actionsCell.appendChild(E('button', {
+			actions.appendChild(E('button', {
 				'class': 'cbi-button cbi-button-reset',
 				'click': function() {
 					ui.showModal(_('Confirm Delete'), [
@@ -218,18 +224,16 @@ return view.extend({
 				}
 			}, _('Delete')));
 
+			actionsCell.appendChild(actions);
 			row.appendChild(actionsCell);
 			tbody.appendChild(row);
 		});
 
 		table.appendChild(tbody);
-		section.appendChild(table);
+		section.appendChild(E('div', { 'class': 'nm-table-scroll' }, [table]));
 		page.appendChild(section);
 
-		return utils.appendFooter(page, {
-			project: 'Nginx Manager',
-			repoUrl: 'https://github.com/hello-yunshu/luci-app-nginx-manager'
-		});
+		return utils.appendFooter(page, utils.FOOTER_OPTIONS);
 	},
 
 	handleSave: null,

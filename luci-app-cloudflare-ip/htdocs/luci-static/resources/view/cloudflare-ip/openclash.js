@@ -60,7 +60,7 @@ return view.extend({
 		if (env._rpcError) {
 			this.handleSave = this.handleSaveApply = this.handleReset = null;
 			return utils.renderWithFooter(E('div', { 'class': 'cbi-map cfi-form-map' }, [
-				E('div', { 'class': 'cbi-section cfi-empty-state' }, [
+				E('div', { 'class': 'cbi-section' }, [
 					E('h3', {}, _('Unable to check OpenClash environment')),
 					E('p', {}, _('Retry the environment check. If it keeps failing, open Logs & Records for the service state.')),
 					utils.technicalDetails(env.error),
@@ -72,7 +72,7 @@ return view.extend({
 		if (!env.openclash_installed) {
 			this.handleSave = this.handleSaveApply = this.handleReset = null;
 			return utils.renderWithFooter(E('div', { 'class': 'cbi-map cfi-form-map' }, [
-				E('div', { 'class': 'cbi-section cfi-empty-state' }, [
+				E('div', { 'class': 'cbi-section' }, [
 					E('h3', {}, _('OpenClash Not Found')),
 					E('p', {}, _('OpenClash is not installed. Please install OpenClash before using this feature.'))
 				])
@@ -119,7 +119,7 @@ return view.extend({
 		utils.createHandleSaveApply(m, this);
 
 		/* Build backup section as a separate DOM tree appended after the form */
-		var backupSection = E('div', { 'class': 'cbi-section cfi-section', 'id': 'oc-backups-section' });
+		var backupSection = E('div', { 'class': 'cbi-section', 'id': 'oc-backups-section' });
 		backupSection.appendChild(E('h3', {}, _('Config Backups')));
 
 		var rubyRemedyInfo = rubyRemedy(env);
@@ -144,11 +144,11 @@ return view.extend({
 			));
 			backupSection.appendChild(E('button', { 'class': 'btn cbi-button', 'click': function() { location.reload(); } }, _('Retry')));
 		} else if (backups.length === 0) {
-			backupSection.appendChild(E('div', { 'class': 'cfi-empty-note' },
+			backupSection.appendChild(E('div', {},
 				_('No backups available. Backups are created automatically when the config is updated.')));
 		} else {
 			var headers = [_('Backup Time'), _('Size'), _('Actions')];
-			var table = E('table', { 'class': 'table cfi-responsive-table' });
+			var table = E('table', { 'class': 'table' });
 			var thead = E('thead');
 			var headerRow = E('tr');
 			headers.forEach(function(title) {
@@ -160,11 +160,11 @@ return view.extend({
 			var tbody = E('tbody');
 
 			backups.forEach(function(backup) {
-				var row = E('tr');
-				row.appendChild(E('td', { 'data-label': headers[0] }, backup.timestamp || backup.id || '-'));
-				row.appendChild(E('td', { 'data-label': headers[1] }, formatSize(backup.size)));
+				var row = E('tr', { 'class': 'tr' });
+				row.appendChild(E('td', { 'class': 'td', 'data-title': headers[0] }, backup.timestamp || backup.id || '-'));
+				row.appendChild(E('td', { 'class': 'td', 'data-title': headers[1] }, formatSize(backup.size)));
 
-				var actionsCell = E('td', { 'class': 'cfi-actions', 'data-label': headers[2] });
+				var actionsCell = E('td', { 'class': 'td', 'data-title': headers[2] });
 
 				actionsCell.appendChild(E('button', {
 					'class': 'cbi-button cbi-button-apply',
@@ -236,7 +236,7 @@ return view.extend({
 			});
 
 			table.appendChild(tbody);
-			backupSection.appendChild(E('div', { 'class': 'cfi-table-wrap' }, table));
+			backupSection.appendChild(E('div', { 'class': 'cfi-table-scroll' }, table));
 		}
 
 		return utils.renderWithFooter(m.render().then(function(node) {

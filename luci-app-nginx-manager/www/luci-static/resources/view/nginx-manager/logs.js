@@ -41,7 +41,10 @@ var callListSites = rpc.declare({
 
 return view.extend({
 	load: function() {
-		return callListSites();
+		return callListSites().catch(function(err) {
+			console.error('nginx-manager: logs load failed', err);
+			return { _loadError: err };
+		});
 	},
 
 	render: function(data) {
@@ -51,22 +54,28 @@ return view.extend({
 
 		utils.loadSharedCSS();
 
-		page.appendChild(E('h2', { 'class': 'cbi-map-title' }, _('Logs')));
+		if (data && data._loadError) {
+			page.appendChild(E('h2', { 'name': 'content' }, _('Logs')));
+			page.appendChild(utils.errorPanel(_('Unable to load logs'), _('Retry the page; if it keeps failing, check the service log.'), data._loadError));
+			return utils.appendFooter(page, utils.FOOTER_OPTIONS);
+		}
+
+		page.appendChild(E('h2', { 'name': 'content' }, _('Logs')));
 
 		/* Log Controls Section */
 		var controlSection = E('div', { 'class': 'cbi-section' });
 		controlSection.appendChild(E('h3', {}, _('Log Settings')));
 
-		var controls = E('div', { 'class': 'nm-log-controls' });
+		var controls = E('div', {});
 
-		var typeSelect = E('select', { 'class': 'cbi-input-select' }, [
+		var typeSelect = E('select', {}, [
 			E('option', { 'value': 'error' }, _('Error Log')),
 			E('option', { 'value': 'access' }, _('Access Log'))
 		]);
 		controls.appendChild(E('label', {}, _('Type') + ': '));
 		controls.appendChild(typeSelect);
 
-		var lineSelect = E('select', { 'class': 'cbi-input-select' }, [
+		var lineSelect = E('select', {}, [
 			E('option', { 'value': '100' }, '100'),
 			E('option', { 'value': '200', 'selected': true }, '200'),
 			E('option', { 'value': '500' }, '500')
@@ -74,7 +83,7 @@ return view.extend({
 		controls.appendChild(E('label', {}, _('Line Count') + ': '));
 		controls.appendChild(lineSelect);
 
-		var siteSelect = E('select', { 'class': 'cbi-input-select' }, [
+		var siteSelect = E('select', {}, [
 			E('option', { 'value': '' }, _('All Sites'))
 		]);
 		sites.forEach(function(site) {
@@ -90,8 +99,7 @@ return view.extend({
 		var filterInput = E('input', {
 			'type': 'text',
 			'class': 'cbi-input-text',
-			'placeholder': _('Filter'),
-			'style': 'max-width: 200px;'
+			'placeholder': _('Filter')
 		});
 		controls.appendChild(E('label', {}, _('Filter') + ': '));
 		controls.appendChild(filterInput);
@@ -99,7 +107,7 @@ return view.extend({
 		controlSection.appendChild(controls);
 
 		/* Button Group */
-		var btnGroup = E('div', { 'class': 'nm-btn-group' });
+		var btnGroup = E('div', {});
 
 		var refreshBtn = E('button', {
 			'class': 'cbi-button cbi-button-apply'
@@ -113,7 +121,7 @@ return view.extend({
 			'class': 'cbi-button cbi-button-reset'
 		}, '\u2716\u2716 ' + _('Clear All'));
 
-		var sizeLabel = E('span', { 'class': 'nm-log-size' }, '');
+		var sizeLabel = E('span', {  }, '');
 
 		btnGroup.appendChild(refreshBtn);
 		btnGroup.appendChild(clearBtn);
@@ -268,10 +276,7 @@ return view.extend({
 
 		window.setTimeout(loadLogs, 0);
 
-		return utils.appendFooter(page, {
-			project: 'Nginx Manager',
-			repoUrl: 'https://github.com/hello-yunshu/luci-app-nginx-manager'
-		});
+		return utils.appendFooter(page, utils.FOOTER_OPTIONS);
 	},
 
 	handleSave: null,

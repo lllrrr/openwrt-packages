@@ -96,40 +96,40 @@ function syncNow(button) {
 
 function makeNftBadge(status) {
 	if (status === 'present') {
-		return E('span', { 'class': 'ubr-badge green' }, '\u2714 ' + _('Present'));
+		return E('span', { 'class': 'label success' }, '\u2714 ' + _('Present'));
 	} else if (status === '-' || status === 'not_present') {
-		return E('span', { 'class': 'ubr-badge orange' }, '\u26A0 ' + _('Missing'));
+		return E('span', { 'class': 'label warning' }, '\u26A0 ' + _('Missing'));
 	} else {
-		return E('span', { 'class': 'ubr-badge orange' }, '\u26A0 ' + status);
+		return E('span', { 'class': 'label warning' }, '\u26A0 ' + status);
 	}
 }
 
 function makeOcBadge(status) {
 	if (status === 'running') {
-		return E('span', { 'class': 'ubr-badge green' }, '\u2714 ' + _('Running'));
+		return E('span', { 'class': 'label success' }, '\u2714 ' + _('Running'));
 	} else if (status === 'installed') {
-		return E('span', { 'class': 'ubr-badge orange' }, '\u26A0 ' + _('Installed (Stopped)'));
+		return E('span', { 'class': 'label warning' }, '\u26A0 ' + _('Installed (Stopped)'));
 	} else if (status === 'not_installed') {
-		return E('span', { 'class': 'ubr-badge orange' }, '\u2718 ' + _('Not Installed'));
+		return E('span', { 'class': 'label warning' }, '\u2718 ' + _('Not Installed'));
 	} else if (status === '-') {
-		return E('span', { 'class': 'ubr-badge orange' }, '\u26A0 ' + '-');
+		return E('span', { 'class': 'label warning' }, '\u26A0 ' + '-');
 	} else {
-		return E('span', { 'class': 'ubr-badge orange' }, '\u26A0 ' + status);
+		return E('span', { 'class': 'label warning' }, '\u26A0 ' + status);
 	}
 }
 
 function buildDepSection(missingDeps, pkgManager) {
-	var section = E('div', { 'class': 'cbi-section ubr-section' });
+	var section = E('div', { 'class': 'cbi-section' });
 	section.appendChild(E('h3', {}, _('Missing Dependencies & Fix Commands')));
 	if (missingDeps.length > 0) {
 		var installCmd = pkgManager === 'apk' ?
 			'apk add --allow-untrusted ' + missingDeps.join(' ') :
 			'opkg install ' + missingDeps.join(' ');
-		section.appendChild(E('p', { 'class': 'ubr-text-warning', 'style': 'margin-bottom:0.5em' },
+		section.appendChild(E('p', { 'style': 'margin-bottom:0.5em' },
 			'\u2718 ' + _('Missing dependencies: ') + missingDeps.join(', ')));
 		section.appendChild(E('div', { 'class': 'ubr-cmd-box' }, installCmd));
 	} else {
-		section.appendChild(E('p', { 'class': 'ubr-text-success' },
+		section.appendChild(E('p', {},
 			'\u2714 ' + _('All dependencies are installed.')));
 	}
 	return section;
@@ -142,11 +142,16 @@ return view.extend({
 			uci.load('upnp_nat_relay')
 		]).then(function(results) {
 			return results[0];
-		});
+		}).catch(utils.loadFailed('overview'));
 	},
 
 	render: function(status) {
 		utils.loadSharedCSS();
+		if (status && status._loadError)
+			return E('div', { 'class': 'cbi-map' }, [
+				E('h2', { 'name': 'content' }, _('Overview')),
+				utils.errorPanel(_('Unable to load status'), _('Retry the page; if it keeps failing, check the service log.'), status._loadError)
+			]);
 		status = status || {};
 		var running = status.running || false;
 		var lastSync = status.last_sync || '-';
@@ -160,19 +165,16 @@ return view.extend({
 		var openclashStatus = status.openclash_status || '-';
 		var version = status.version || '-';
 
-		var container = E('div', { 'class': 'cbi-map ubr-dashboard' });
+		var container = E('div', { 'class': 'cbi-map' });
 
-		container.appendChild(E('h2', { 'class': 'cbi-map-title' }, _('Overview')));
+		container.appendChild(E('h2', { 'name': 'content' }, _('Overview')));
 
 		var isStarting = running && lastResult === 'starting';
 		var banner = E('div', {
-			'class': 'cbi-section ubr-status-banner ' + (isStarting ? 'starting' : (running ? 'running' : 'stopped'))
+			'class': 'cbi-section alert-message ' + (running ? 'success' : 'warning')
 		});
-		banner.appendChild(E('div', {
-			'class': 'ubr-status-icon ' + (isStarting ? 'starting' : (running ? 'running' : 'stopped'))
-		}, isStarting ? '\u23F3' : (running ? '\u25CF' : '\u25CB')));
-		var bannerText = E('div', { 'class': 'ubr-status-text' });
-		bannerText.appendChild(E('h3', { 'class': isStarting ? 'starting' : (running ? 'running' : 'stopped') },
+		var bannerText = E('div', {});
+		bannerText.appendChild(E('h3', {},
 			isStarting ? _('Service Starting') : (running ? _('Service Running') : _('Service Stopped'))));
 		bannerText.appendChild(E('p', {}, isStarting ?
 			_('UPnP NAT Relay is starting up. Waiting for first sync...') :
@@ -218,10 +220,10 @@ return view.extend({
 
 		container.appendChild(statsGrid);
 
-			var controlSection = E('div', { 'class': 'cbi-section ubr-section' });
+			var controlSection = E('div', { 'class': 'cbi-section' });
 		controlSection.appendChild(E('h3', {}, _('Service Control')));
 
-		var btnGroup = E('div', { 'class': 'ubr-btn-group' });
+		var btnGroup = E('div', { 'class': 'cbi-page-actions' });
 
 		if (!running) {
 			btnGroup.appendChild(E('button', {
@@ -304,84 +306,83 @@ return view.extend({
 		controlSection.appendChild(btnGroup);
 		container.appendChild(controlSection);
 
-			var infoSection = E('div', { 'class': 'cbi-section ubr-section' });
+			var infoSection = E('div', { 'class': 'cbi-section' });
 		infoSection.appendChild(E('h3', {}, _('Service Information')));
 
-		var infoTable = E('table', { 'class': 'table ubr-kv-table' });
+		var infoTable = E('table', { 'class': 'table' });
 
-		var versionTd = E('td', { 'class': 'td' }, version);
-		infoTable.appendChild(E('tr', { 'class': 'tr' }, [
+		var versionTd = E('td', { 'data-title': _('Plugin Version') } , version);
+		infoTable.appendChild(E('tr', {}, [
 			E('th', { 'class': 'th' }, _('Plugin Version')),
 			versionTd
 		]));
 
-		infoTable.appendChild(E('tr', { 'class': 'tr' }, [
+		infoTable.appendChild(E('tr', {}, [
 			E('th', { 'class': 'th' }, _('GitHub')),
-			E('td', { 'class': 'td' }, E('a', {
+			E('td', { 'data-title': _('GitHub') } , E('a', {
 				'href': 'https://github.com/hello-yunshu/luci-app-upnp-nat-relay',
 				'target': '_blank',
-				'rel': 'noopener',
-				'class': 'ubr-link'
+				'rel': 'noopener'
 			}, 'hello-yunshu/luci-app-upnp-nat-relay'))
 		]));
 
-		infoTable.appendChild(E('tr', { 'class': 'tr' }, [
+		infoTable.appendChild(E('tr', {}, [
 			E('th', { 'class': 'th' }, _('Current Backend')),
-			E('td', { 'class': 'td' }, backend)
+			E('td', { 'data-title': _('Current Backend') } , backend)
 		]));
 
-		infoTable.appendChild(E('tr', { 'class': 'tr' }, [
+		infoTable.appendChild(E('tr', {}, [
 			E('th', { 'class': 'th' }, _('Last Sync Time')),
-			E('td', { 'class': 'td' }, lastSync)
+			E('td', { 'data-title': _('Last Sync Time') } , lastSync)
 		]));
 
 		var lastResultBadge;
 		if (lastResult === 'starting') {
-			lastResultBadge = E('span', { 'class': 'ubr-badge orange' }, '\u23F3 ' + _('Starting'));
+			lastResultBadge = E('span', { 'class': 'label warning' }, '\u23F3 ' + _('Starting'));
 		} else if (lastResult === 'success' || (typeof lastResult === 'string' && lastResult.indexOf('success') === 0)) {
-		lastResultBadge = E('span', { 'class': 'ubr-badge green' }, '\u2714 ' + _('Success'));
+		lastResultBadge = E('span', { 'class': 'label success' }, '\u2714 ' + _('Success'));
 	} else if (lastResult === '-') {
-		lastResultBadge = E('span', { 'class': 'ubr-badge orange' }, '\u26A0 ' + '-');
+		lastResultBadge = E('span', { 'class': 'label warning' }, '\u26A0 ' + '-');
 	} else if (lastResult === 'partial') {
-		lastResultBadge = E('span', { 'class': 'ubr-badge orange' }, '\u26A0 ' + _('Partial'));
+		lastResultBadge = E('span', { 'class': 'label warning' }, '\u26A0 ' + _('Partial'));
 	} else {
-		lastResultBadge = E('span', { 'class': 'ubr-badge red' }, '\u2718 ' + lastResult);
+		lastResultBadge = E('span', { 'class': 'label important' }, '\u2718 ' + lastResult);
 	}
-		infoTable.appendChild(E('tr', { 'class': 'tr' }, [
+		infoTable.appendChild(E('tr', {}, [
 			E('th', { 'class': 'th' }, _('Last Sync Result')),
-			E('td', { 'class': 'td' }, lastResultBadge)
+			E('td', { 'data-title': _('Last Sync Result') } , lastResultBadge)
 		]));
 
 		var nftBadge = makeNftBadge(nftStatus);
-		var nftTd = E('td', { 'class': 'td' }, nftBadge);
-		infoTable.appendChild(E('tr', { 'class': 'tr' }, [
+		var nftTd = E('td', { 'data-title': _('nftables Table') } , nftBadge);
+		infoTable.appendChild(E('tr', {}, [
 			E('th', { 'class': 'th' }, _('nftables Table')),
 			nftTd
 		]));
 
 		var ocBadge = makeOcBadge(openclashStatus);
-		var ocTd = E('td', { 'class': 'td' }, ocBadge);
-		infoTable.appendChild(E('tr', { 'class': 'tr' }, [
+		var ocTd = E('td', { 'data-title': _('OpenClash') } , ocBadge);
+		infoTable.appendChild(E('tr', {}, [
 			E('th', { 'class': 'th' }, _('OpenClash')),
 			ocTd
 		]));
 
 		var envUpdatedAt = status.updated_at || '';
-		var envTimeTd = E('td', { 'class': 'td' }, envUpdatedAt || '-');
-		infoTable.appendChild(E('tr', { 'class': 'tr' }, [
+		var envTimeTd = E('td', { 'data-title': _('Last Env Check') } , envUpdatedAt || '-');
+		infoTable.appendChild(E('tr', {}, [
 			E('th', { 'class': 'th' }, _('Last Env Check')),
 			envTimeTd
 		]));
 
-		var infoTableWrap = E('div', { 'class': 'ubr-table-wrap' });
+		var infoTableWrap = E('div', {});
 		infoTableWrap.appendChild(infoTable);
 		infoSection.appendChild(infoTableWrap);
 		container.appendChild(infoSection);
 
-		var envSection = E('div', { 'class': 'cbi-section ubr-section' });
+		var envSection = E('div', { 'class': 'cbi-section' });
 		envSection.appendChild(E('h3', {}, _('Environment Detection')));
 
-		var envTable = E('table', { 'class': 'table ubr-kv-table' });
+		var envTable = E('table', { 'class': 'table' });
 
 		var envItems = [
 			{ label: _('OpenWrt Version'), key: 'openwrt_version', statusKey: 'package_manager', statusFn: function(v) { return v === 'unknown' ? 'orange' : 'green'; } },
@@ -415,19 +416,19 @@ return view.extend({
 				badgeVal = sval;
 				badgeStatus = item.statusFn(status[item.statusKey]);
 			}
-			var td = E('td', { 'class': 'td' }, E('span', { 'class': 'ubr-badge ' + badgeStatus }, badgeVal));
+			var td = E('td', { 'data-title': item.label }, E('span', { 'class': 'label ' + ({ green: 'success', orange: 'warning', red: 'important', gray: '' }[badgeStatus] || '') }, badgeVal));
 			envTds.push({ td: td, item: item });
-			envTable.appendChild(E('tr', { 'class': 'tr' }, [
+			envTable.appendChild(E('tr', {}, [
 				E('th', { 'class': 'th' }, item.label),
 				td
 			]));
 		}
 
-		var envTableWrap = E('div', { 'class': 'ubr-table-wrap' });
+		var envTableWrap = E('div', {});
 		envTableWrap.appendChild(envTable);
 		envSection.appendChild(envTableWrap);
 
-		var envBtnBar = E('div', { 'class': 'ubr-btn-group ubr-mt-1' });
+		var envBtnBar = E('div', { 'class': 'cbi-page-actions' });
 		envBtnBar.appendChild(E('button', {
 			'class': 'cbi-button cbi-button-apply',
 			'click': function() {
@@ -457,7 +458,7 @@ return view.extend({
 							newBadgeStatus = it.statusFn(result[it.statusKey]);
 						}
 						while (entry.td.firstChild) entry.td.removeChild(entry.td.firstChild);
-						entry.td.appendChild(E('span', { 'class': 'ubr-badge ' + newBadgeStatus }, newBadgeVal));
+						entry.td.appendChild(E('span', { 'class': 'label ' + ({ green: 'success', orange: 'warning', red: 'important', gray: '' }[newBadgeStatus] || '') }, newBadgeVal));
 					}
 
 					while (nftTd.firstChild) nftTd.removeChild(nftTd.firstChild);
@@ -494,11 +495,7 @@ return view.extend({
 		var depSection = buildDepSection(missingDeps, status.package_manager || 'opkg');
 		container.appendChild(depSection);
 
-		utils.appendFooter(container, {
-			project: 'UPnP NAT Relay',
-			version: version,
-			repoUrl: 'https://github.com/hello-yunshu/luci-app-upnp-nat-relay'
-		});
+		utils.appendFooter(container, utils.FOOTER_OPTIONS);
 
 		return container;
 	}

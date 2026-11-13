@@ -52,11 +52,11 @@ return view.extend({
 		utils.loadSharedCSS();
 		var status = data.status || {};
 
-		var container = E('div', { 'class': 'cbi-map ubr-dashboard' });
+		var container = E('div', { 'class': 'cbi-map' });
 
-		container.appendChild(E('h2', { 'class': 'cbi-map-title' }, _('Logs')));
+		container.appendChild(E('h2', { 'name': 'content' }, _('Logs')));
 
-		var logSection = E('div', { 'class': 'cbi-section ubr-section' });
+		var logSection = E('div', { 'class': 'cbi-section' });
 		logSection.appendChild(E('h3', {}, _('Recent Logs')));
 
 		var setLogArea = function(text, state) {
@@ -72,7 +72,7 @@ return view.extend({
 				logArea.scrollTop = logArea.scrollHeight;
 		};
 
-		var logBtnBar = E('div', { 'class': 'ubr-btn-group ubr-mb-1' });
+		var logBtnBar = E('div', { 'class': 'cbi-page-actions' });
 
 		var LEVEL_OPTIONS = [
 			{ value: 'all', label: _('All') },
@@ -87,7 +87,6 @@ return view.extend({
 		if (cfgPriority === undefined) cfgPriority = 1;
 
 		var levelSelect = E('select', {
-			'class': 'cbi-input-select',
 			'id': 'log-level-select',
 			'style': 'width:auto;margin-right:4px;'
 		});
@@ -181,18 +180,18 @@ return view.extend({
 		window.setTimeout(refreshLogs, 0);
 
 		if (status.last_error) {
-			logSection.appendChild(E('div', { 'class': 'alert-message danger ubr-mt-1' },
+			logSection.appendChild(E('div', { 'class': 'alert-message danger' },
 				E('p', {}, '\u2718 ' + _('Last Error: ') + status.last_error)));
 		}
 		container.appendChild(logSection);
 
-		var rollbackSection = E('div', { 'class': 'cbi-section ubr-danger-zone' });
+		var rollbackSection = E('div', { 'class': 'cbi-section' });
 		rollbackSection.appendChild(E('h3', {}, _('Rollback & Cleanup')));
 
-		rollbackSection.appendChild(E('div', { 'class': 'alert-message warning ubr-mb-1' },
+		rollbackSection.appendChild(E('div', { 'class': 'alert-message warning' },
 			E('p', {}, _('Warning: Rollback operations will remove configurations created by this plugin. Proceed with caution.'))));
 
-		var rollbackBtnBar = E('div', { 'class': 'ubr-btn-group' });
+		var rollbackBtnBar = E('div', { 'class': 'cbi-page-actions' });
 
 		rollbackBtnBar.appendChild(E('button', {
 			'class': 'cbi-button cbi-button-reset',
@@ -266,10 +265,7 @@ return view.extend({
 		rollbackSection.appendChild(rollbackBtnBar);
 		container.appendChild(rollbackSection);
 
-		utils.appendFooter(container, {
-			project: 'UPnP NAT Relay',
-			repoUrl: 'https://github.com/hello-yunshu/luci-app-upnp-nat-relay'
-		});
+		utils.appendFooter(container, utils.FOOTER_OPTIONS);
 
 		return container;
 	}

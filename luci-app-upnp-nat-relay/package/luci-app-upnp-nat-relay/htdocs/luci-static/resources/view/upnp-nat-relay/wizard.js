@@ -83,19 +83,24 @@ return view.extend({
 	interfaceChoices: [],
 
 	load: function() {
-		return uci.load('upnp_nat_relay');
+		return uci.load('upnp_nat_relay').catch(utils.loadFailed('wizard'));
 	},
 
 	render: function(data) {
 		utils.loadSharedCSS();
+		if (data && data._loadError)
+			return E('div', { 'class': 'cbi-map' }, [
+				E('h2', { 'name': 'content' }, _('Setup Wizard')),
+				utils.errorPanel(_('Unable to load configuration'), _('Retry the page; if it keeps failing, check the service log.'), data._loadError)
+			]);
 		var self = this;
 		var container = E('div', { 'class': 'cbi-map' });
 
-		container.appendChild(E('h2', { 'class': 'cbi-map-title' }, _('Setup Wizard')));
+		container.appendChild(E('h2', { 'name': 'content' }, _('Setup Wizard')));
 
-		var modeBar = E('div', { 'class': 'cbi-section ubr-mode-bar' });
+		var modeBar = E('div', { 'class': 'cbi-section' });
 		var safeBtn = E('button', {
-			'class': 'ubr-mode-btn' + (self.wizardMode === 'safe' ? ' active' : ''),
+			'class': 'cbi-button' + (self.wizardMode === 'safe' ? ' cbi-button-apply' : ''),
 			'click': function() {
 				self.wizardMode = 'safe';
 				safeBtn.classList.add('active');
@@ -104,7 +109,7 @@ return view.extend({
 			}
 		}, _('Safe Mode (Detect Only)'));
 		var autoBtn = E('button', {
-			'class': 'ubr-mode-btn' + (self.wizardMode === 'auto' ? ' active' : ''),
+			'class': 'cbi-button' + (self.wizardMode === 'auto' ? ' cbi-button-apply' : ''),
 			'click': function() {
 				self.wizardMode = 'auto';
 				autoBtn.classList.add('active');
@@ -121,10 +126,7 @@ return view.extend({
 
 		this.renderStep(container);
 
-		utils.appendFooter(container, {
-			project: 'UPnP NAT Relay',
-			repoUrl: 'https://github.com/hello-yunshu/luci-app-upnp-nat-relay'
-		});
+		utils.appendFooter(container, utils.FOOTER_OPTIONS);
 
 		return container;
 	},
@@ -361,7 +363,7 @@ return view.extend({
 	createDetectButton: function(self, inputEl, options) {
 		options = options || {};
 		var detectBtn = E('button', {
-			'class': 'cbi-button cbi-button-apply ubr-ml-05',
+			'class': 'cbi-button cbi-button-apply',
 			'click': function() {
 				var btn = this;
 				self.collectStepData();
@@ -410,7 +412,7 @@ return view.extend({
 			stepContainer.removeChild(stepContainer.firstChild);
 
 		var self = this;
-		var s = E('div', { 'class': 'cbi-section ubr-wizard-step-card' });
+		var s = E('div', { 'class': 'cbi-section' });
 
 		var progressBar = E('div', { 'class': 'ubr-wizard-progress' });
 		for (var i = 1; i <= this.totalSteps; i++) {
@@ -431,11 +433,10 @@ return view.extend({
 
 		if (self.step === 1) {
 			s.appendChild(E('p', {}, _('Select the interface connected to the downstream router LAN side.')));
-			s.appendChild(E('p', { 'class': 'ubr-text-warning' },
+			s.appendChild(E('p', {},
 				_('This interface is only for reading UPnP mappings. Do not set it as default gateway.')));
 
 			var ifSelect = E('select', {
-				'class': 'cbi-input-select',
 				'id': 'wiz-ifname',
 				'change': function(ev) {
 					self.wizardData.bind_ifname = ev.target.value;
@@ -479,7 +480,7 @@ return view.extend({
 					'value': self.wizardData.bind_ip || self.getDeviceIPv4(self.wizardData.bind_ifname),
 					'placeholder': _('e.g. 192.168.1.50')
 				});
-			var ipFieldWrap = E('div', { 'class': 'ubr-flex-center' });
+			var ipFieldWrap = E('div', {});
 			ipFieldWrap.appendChild(ipInput);
 			ipFieldWrap.appendChild(self.createDetectButton(self, ipInput, {
 				field: 'bind_ip',
@@ -512,7 +513,7 @@ return view.extend({
 				'value': self.wizardData.downstream_lan_gateway,
 				'placeholder': _('e.g. 192.168.1.1')
 			});
-			var gwFieldWrap = E('div', { 'class': 'ubr-flex-center' });
+			var gwFieldWrap = E('div', {});
 			gwFieldWrap.appendChild(gwInput);
 			gwFieldWrap.appendChild(self.createDetectButton(self, gwInput, {
 				field: 'downstream_lan_gateway',
@@ -534,7 +535,7 @@ return view.extend({
 				'value': self.wizardData.downstream_lan_subnet || self.getDeviceSubnet(self.wizardData.bind_ifname),
 				'placeholder': _('e.g. 192.168.1.0/24')
 			});
-			var subnetFieldWrap = E('div', { 'class': 'ubr-flex-center' });
+			var subnetFieldWrap = E('div', {});
 			subnetFieldWrap.appendChild(subnetInput);
 			subnetFieldWrap.appendChild(self.createDetectButton(self, subnetInput, {
 				field: 'downstream_lan_subnet',
@@ -556,15 +557,15 @@ return view.extend({
 			s.appendChild(E('p', {}, _('Testing ping to downstream LAN gateway...')));
 
 			if (self.wizardMode === 'auto') {
-				s.appendChild(E('p', { 'class': 'ubr-text-muted' },
+				s.appendChild(E('p', {},
 					_('Auto mode: interface and firewall will be configured before testing.')));
 			} else {
-				s.appendChild(E('p', { 'class': 'ubr-text-muted' },
+				s.appendChild(E('p', {},
 					_('Safe mode: testing with current network state. If the interface is not configured yet, tests may fail.')));
 			}
 
-			var pingResultDiv = E('div', { 'id': 'wiz-ping-result', 'class': 'ubr-mt-1' });
-			pingResultDiv.innerHTML = '<span class="ubr-text-muted">' + _('Testing...') + '</span>';
+			var pingResultDiv = E('div', { 'id': 'wiz-ping-result' });
+			pingResultDiv.innerHTML = '<span>' + _('Testing...') + '</span>';
 			s.appendChild(pingResultDiv);
 
 			self.applyTempUci().then(function() {
@@ -579,33 +580,33 @@ return view.extend({
 					self.pingResult = result;
 					self.applyDetectedNetwork(result);
 					if (result && result.error) {
-						pingResultDiv.innerHTML = '<span class="ubr-text-danger">&#10008; ' + _('Network check error: ') + result.error + '</span>';
+						pingResultDiv.innerHTML = '<span>&#10008; ' + _('Network check error: ') + result.error + '</span>';
 						return;
 					}
 				if (result && result.gateway_reachable === 1) {
-					pingResultDiv.innerHTML = '<span class="ubr-text-success">&#10004; ' + _('Ping to gateway successful') + '</span>';
+					pingResultDiv.innerHTML = '<span>&#10004; ' + _('Ping to gateway successful') + '</span>';
 				} else {
 					var detail = '';
 					if (result && result.iface_exists === 0) {
-						detail += '<br><span class="ubr-text-warning">' + _('Interface does not exist. Check the interface name.') + '</span>';
+						detail += '<br><span>' + _('Interface does not exist. Check the interface name.') + '</span>';
 					} else if (result && result.bind_ip_configured === 0) {
-						detail += '<br><span class="ubr-text-warning">' + _('Interface IP is not configured on the interface. Use Auto mode or configure the interface manually.') + '</span>';
+						detail += '<br><span>' + _('Interface IP is not configured on the interface. Use Auto mode or configure the interface manually.') + '</span>';
 					} else {
-						detail += '<br><span class="ubr-text-warning">' + _('Check that the interface is connected and the firewall zone allows output.') + '</span>';
+						detail += '<br><span>' + _('Check that the interface is connected and the firewall zone allows output.') + '</span>';
 					}
-					pingResultDiv.innerHTML = '<span class="ubr-text-danger">&#10008; ' + _('Ping to gateway failed') + '</span>' +
+					pingResultDiv.innerHTML = '<span>&#10008; ' + _('Ping to gateway failed') + '</span>' +
 					'<p>' + detail + '</p>';
 				}
 			}).catch(function(e) {
-				pingResultDiv.innerHTML = '<span class="ubr-text-danger">&#10008; ' + _('Network check failed') + '</span>' +
-				'<p class="ubr-text-warning">' + _('Error: ') + (e.message || e || _('Unknown error')) + '</p>';
+				pingResultDiv.innerHTML = '<span>&#10008; ' + _('Network check failed') + '</span>' +
+				'<p>' + _('Error: ') + (e.message || e || _('Unknown error')) + '</p>';
 			});
 
 		} else if (self.step === 5) {
 			s.appendChild(E('p', {}, _('Testing UPnP IGD discovery via upnpc...')));
 
-			var upnpcResultDiv = E('div', { 'id': 'wiz-upnpc-result', 'class': 'ubr-mt-1' });
-			upnpcResultDiv.innerHTML = '<span class="ubr-text-muted">' + _('Testing...') + '</span>';
+			var upnpcResultDiv = E('div', { 'id': 'wiz-upnpc-result' });
+			upnpcResultDiv.innerHTML = '<span>' + _('Testing...') + '</span>';
 			s.appendChild(upnpcResultDiv);
 
 			self.applyTempUci().then(function() {
@@ -620,25 +621,25 @@ return view.extend({
 					self.upnpcResult = result;
 					self.applyDetectedNetwork(result);
 					if (result && result.error) {
-						upnpcResultDiv.innerHTML = '<span class="ubr-text-danger">&#10008; ' + _('UPnP check error: ') + result.error + '</span>';
+						upnpcResultDiv.innerHTML = '<span>&#10008; ' + _('UPnP check error: ') + result.error + '</span>';
 						return;
 					}
 				if (result && result.upnpc_readable === 1) {
 					var count = result.upnpc_mapping_count || 0;
-					upnpcResultDiv.innerHTML = '<span class="ubr-text-success">&#10004; ' + _('UPnP IGD discovered, %d mapping(s) found').format(count) + '</span>';
+					upnpcResultDiv.innerHTML = '<span>&#10004; ' + _('UPnP IGD discovered, %d mapping(s) found').format(count) + '</span>';
 				} else {
 					var detail = '';
 					if (result && result.bind_ip_configured === 0) {
-						detail += '<br><span class="ubr-text-warning">' + _('Interface IP is not configured on the interface. UPnP discovery requires a valid interface IP.') + '</span>';
+						detail += '<br><span>' + _('Interface IP is not configured on the interface. UPnP discovery requires a valid interface IP.') + '</span>';
 					} else {
-						detail += '<br><span class="ubr-text-warning">' + _('Ensure the downstream router has UPnP enabled and the interface IP is on its LAN side.') + '</span>';
+						detail += '<br><span>' + _('Ensure the downstream router has UPnP enabled and the interface IP is on its LAN side.') + '</span>';
 					}
-					upnpcResultDiv.innerHTML = '<span class="ubr-text-danger">&#10008; ' + _('UPnP IGD discovery failed') + '</span>' +
+					upnpcResultDiv.innerHTML = '<span>&#10008; ' + _('UPnP IGD discovery failed') + '</span>' +
 						'<p>' + detail + '</p>';
 				}
 			}).catch(function(e) {
-				upnpcResultDiv.innerHTML = '<span class="ubr-text-danger">&#10008; ' + _('UPnP check failed') + '</span>' +
-				'<p class="ubr-text-warning">' + _('Error: ') + (e.message || e || _('Unknown error')) + '</p>';
+				upnpcResultDiv.innerHTML = '<span>&#10008; ' + _('UPnP check failed') + '</span>' +
+				'<p>' + _('Error: ') + (e.message || e || _('Unknown error')) + '</p>';
 			});
 
 		} else if (self.step === 6) {
@@ -651,7 +652,7 @@ return view.extend({
 				'value': self.wizardData.downstream_wan_ip,
 				'placeholder': _('e.g. 192.168.2.2')
 			});
-			var wanIpFieldWrap = E('div', { 'class': 'ubr-flex-center' });
+			var wanIpFieldWrap = E('div', {});
 			wanIpFieldWrap.appendChild(wanIpInput);
 			wanIpFieldWrap.appendChild(self.createDetectButton(self, wanIpInput, {
 				field: 'downstream_wan_ip',
@@ -669,7 +670,7 @@ return view.extend({
 		} else if (self.step === 7) {
 			s.appendChild(E('p', {}, _('Select the upstream WAN interface for DNAT rules.')));
 
-			var wanSelect = E('select', { 'class': 'cbi-input-select', 'id': 'wiz-wan-if' });
+			var wanSelect = E('select', { 'id': 'wiz-wan-if' });
 			self.loadInterfaceChoices().then(function(choices) {
 				var hasCurrent = false;
 				for (var i = 0; i < choices.length; i++) {
@@ -685,7 +686,7 @@ return view.extend({
 					wanSelect.appendChild(E('option', { 'value': self.wizardData.upstream_wan_if, 'selected': 'selected' }, self.wizardData.upstream_wan_if));
 			});
 
-			var wanIfFieldWrap = E('div', { 'class': 'ubr-flex-center' });
+			var wanIfFieldWrap = E('div', {});
 			wanIfFieldWrap.appendChild(wanSelect);
 			wanIfFieldWrap.appendChild(self.createDetectButton(self, wanSelect, {
 				field: 'upstream_wan_if',
@@ -703,7 +704,7 @@ return view.extend({
 
 		} else if (self.step === 8) {
 			s.appendChild(E('p', {}, _('Set the allowed external port range for synchronization.')));
-			s.appendChild(E('p', { 'class': 'ubr-text-warning' },
+			s.appendChild(E('p', {},
 				_('It is NOT recommended to use 1-65535 as the allowed range.')));
 
 			var portInput = E('input', {
@@ -722,7 +723,7 @@ return view.extend({
 		} else if (self.step === 9) {
 			s.appendChild(E('p', {}, _('Configure OpenClash RETURN rule for bypassing transparent proxy on forwarded ports.')));
 
-			var ocSelect = E('select', { 'class': 'cbi-input-select', 'id': 'wiz-oc-mode' });
+			var ocSelect = E('select', { 'id': 'wiz-oc-mode' });
 			var modes = [
 				{ value: 'off', text: _('Off (Do not handle OpenClash)') },
 				{ value: 'prompt', text: _('Prompt (Show suggested rules only)') },
@@ -749,7 +750,7 @@ return view.extend({
 			s.appendChild(E('p', {}, _('Review your configuration and enable the service.')));
 
 			var summary = E('div', { 'class': 'cbi-section' });
-			summary.innerHTML = '<table class="ubr-summary-table">' +
+			summary.innerHTML = '<table class="table">' +
 				'<tr><td><b>' + _('Interface') + '</b></td><td>' + (self.wizardData.bind_ifname || '-') + '</td></tr>' +
 				'<tr><td><b>' + _('Interface IP') + '</b></td><td>' + (self.wizardData.bind_ip || '-') + '</td></tr>' +
 				'<tr><td><b>' + _('Downstream LAN Gateway') + '</b></td><td>' + (self.wizardData.downstream_lan_gateway || '-') + '</td></tr>' +
@@ -779,7 +780,7 @@ return view.extend({
 				s.appendChild(uciPreview);
 			}
 
-			var enableSelect = E('select', { 'class': 'cbi-input-select', 'id': 'wiz-enable' });
+			var enableSelect = E('select', { 'id': 'wiz-enable' });
 			var optYes = E('option', { 'value': '1' }, _('Yes'));
 			var optNo = E('option', { 'value': '0' }, _('No'));
 			optYes.selected = true;

@@ -1444,3 +1444,9 @@ msgstr "单次同步完成：读取 %d 条，接受 %d 条，拒绝 %d 条。"
 
 msgid "One-shot sync failed: %s"
 msgstr "单次同步失败：%s"
+
+msgid "Click \"Detect\" to check status."
+msgstr "点击“检测”查看状态。"
+
+msgid "Zone \"%s\" already exists. Use \"Fix Zone Settings\" instead."
+msgstr "区域“%s”已存在。请改用“修复区域设置”。"

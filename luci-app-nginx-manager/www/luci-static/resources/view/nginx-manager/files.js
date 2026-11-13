@@ -259,7 +259,7 @@ function showPathConfirmModal(title, message, path, actionLabel, buttonClass, ca
 
 	ui.showModal(title, [
 		E('p', {}, message),
-		E('pre', { 'class': 'nm-file-confirm-path' }, path),
+		E('pre', {}, path),
 		E('div', { 'class': 'cbi-value' }, [
 			E('label', { 'class': 'cbi-value-title' }, _('Confirm Path')),
 			E('div', { 'class': 'cbi-value-field' }, [input])
@@ -293,7 +293,7 @@ function showChmodModal(path, currentPerms) {
 
 	var octalInput = E('input', {
 		'type': 'text',
-		'class': 'cbi-input-text nm-perm-octal',
+		'class': 'cbi-input-text',
 		'value': /^[0-7]{3,4}$/.test(currentPerms || '') ? currentPerms : '644',
 		'maxlength': '4'
 	});
@@ -343,14 +343,34 @@ function showChmodModal(path, currentPerms) {
 			'change': syncOctal
 		});
 		boxes[group][key] = input;
-		return E('label', { 'class': 'nm-perm-check' }, [ input, ' ' + label ]);
+		return E('label', {}, [ input, ' ' + label ]);
 	}
 
-	var table = E('table', { 'class': 'nm-perm-table' }, [
-		E('tr', {}, [ E('th', {}), E('th', {}, _('Owner')), E('th', {}, _('Group')), E('th', {}, _('Other')) ]),
-		E('tr', {}, [ E('td', {}, _('Read')), E('td', {}, makeBox('u', 'r', 'r')), E('td', {}, makeBox('g', 'r', 'r')), E('td', {}, makeBox('o', 'r', 'r')) ]),
-		E('tr', {}, [ E('td', {}, _('Write')), E('td', {}, makeBox('u', 'w', 'w')), E('td', {}, makeBox('g', 'w', 'w')), E('td', {}, makeBox('o', 'w', 'w')) ]),
-		E('tr', {}, [ E('td', {}, _('Execute')), E('td', {}, makeBox('u', 'x', 'x')), E('td', {}, makeBox('g', 'x', 'x')), E('td', {}, makeBox('o', 'x', 'x')) ])
+	var table = E('table', { 'class': 'table' }, [
+		E('tr', { 'class': 'tr' }, [
+			E('th', { 'class': 'th', 'data-title': _('Permission') }, _('Permission')),
+			E('th', { 'class': 'th', 'data-title': _('Owner') }, _('Owner')),
+			E('th', { 'class': 'th', 'data-title': _('Group') }, _('Group')),
+			E('th', { 'class': 'th', 'data-title': _('Other') }, _('Other'))
+		]),
+		E('tr', { 'class': 'tr' }, [
+			E('td', { 'class': 'td', 'data-title': _('Permission') }, _('Read')),
+			E('td', { 'class': 'td', 'data-title': _('Owner') }, makeBox('u', 'r', 'r')),
+			E('td', { 'class': 'td', 'data-title': _('Group') }, makeBox('g', 'r', 'r')),
+			E('td', { 'class': 'td', 'data-title': _('Other') }, makeBox('o', 'r', 'r'))
+		]),
+		E('tr', { 'class': 'tr' }, [
+			E('td', { 'class': 'td', 'data-title': _('Permission') }, _('Write')),
+			E('td', { 'class': 'td', 'data-title': _('Owner') }, makeBox('u', 'w', 'w')),
+			E('td', { 'class': 'td', 'data-title': _('Group') }, makeBox('g', 'w', 'w')),
+			E('td', { 'class': 'td', 'data-title': _('Other') }, makeBox('o', 'w', 'w'))
+		]),
+		E('tr', { 'class': 'tr' }, [
+			E('td', { 'class': 'td', 'data-title': _('Permission') }, _('Execute')),
+			E('td', { 'class': 'td', 'data-title': _('Owner') }, makeBox('u', 'x', 'x')),
+			E('td', { 'class': 'td', 'data-title': _('Group') }, makeBox('g', 'x', 'x')),
+			E('td', { 'class': 'td', 'data-title': _('Other') }, makeBox('o', 'x', 'x'))
+		])
 	]);
 
 	octalInput.addEventListener('input', syncCheckboxes);
@@ -362,7 +382,7 @@ function showChmodModal(path, currentPerms) {
 			E('div', { 'class': 'cbi-value-field' }, [octalInput])
 		]),
 		E('div', { 'class': 'cbi-value' }, [
-			E('div', { 'class': 'cbi-value-field nm-perm-table-wrap' }, [table])
+			E('div', { 'class': 'cbi-value-field' }, [table])
 		]),
 		E('div', { 'class': 'right' }, [
 			E('button', { 'class': 'btn', 'click': function() { ui.hideModal(); } }, _('Cancel')),
@@ -465,31 +485,33 @@ function renderRows(tbody) {
 				loadDirectory(parent);
 			}
 		}, [
-			E('td', { 'class': 'td nm-file-name', 'data-label': _('Name') }, [
+			E('td', { 'class': 'td nm-file-name', 'data-title': _('Name') }, [
 				E('span', { 'class': 'nm-file-name-main' }, [
 					E('span', { 'class': 'nm-file-icon parent', 'aria-hidden': 'true' }),
 					E('span', { 'class': 'nm-file-name-text' }, '..')
 				])
 			]),
-			E('td', { 'class': 'td', 'data-label': _('Type') }, _('Directory')),
-			E('td', { 'class': 'td', 'data-label': _('Size') }, '-'),
-			E('td', { 'class': 'td', 'data-label': _('Perms') }, '-'),
-			E('td', { 'class': 'td', 'data-label': _('Modified') }, '-'),
-			E('td', { 'class': 'td nowrap nm-actions', 'data-label': _('Actions') }, [
-				E('button', {
-					'class': 'cbi-button cbi-button-neutral',
-					'click': function(ev) {
-						ev.stopPropagation();
-						loadDirectory(parentPath(currentPath));
-					}
-				}, _('Open'))
+			E('td', { 'class': 'td', 'data-title': _('Type') }, _('Directory')),
+			E('td', { 'class': 'td', 'data-title': _('Size') }, '-'),
+			E('td', { 'class': 'td', 'data-title': _('Perms') }, '-'),
+			E('td', { 'class': 'td', 'data-title': _('Modified') }, '-'),
+			E('td', { 'class': 'td nowrap nm-actions-cell', 'data-title': _('Actions') }, [
+				E('div', { 'class': 'nm-actions' }, [
+					E('button', {
+						'class': 'cbi-button',
+						'click': function(ev) {
+							ev.stopPropagation();
+							loadDirectory(parentPath(currentPath));
+						}
+					}, _('Open'))
+				])
 			])
 		]));
 	}
 
 	if (!currentEntries.length) {
-		tbody.appendChild(E('tr', {}, [
-			E('td', { 'class': 'td center', 'colspan': '6' }, _('No files'))
+		tbody.appendChild(E('tr', { 'class': 'tr' }, [
+			E('td', { 'class': 'td center', 'colspan': '6', 'data-title': _('Name') }, _('No files'))
 		]));
 		return;
 	}
@@ -503,7 +525,7 @@ function renderRows(tbody) {
 
 		if (isDir) {
 			pushAction(actions, E('button', {
-				'class': 'cbi-button cbi-button-neutral',
+				'class': 'cbi-button',
 				'click': function(ev) {
 					ev.stopPropagation();
 					loadDirectory(path);
@@ -512,7 +534,7 @@ function renderRows(tbody) {
 		} else {
 			if (editable) {
 				pushAction(actions, E('button', {
-					'class': 'cbi-button cbi-button-neutral',
+					'class': 'cbi-button',
 					'click': function(ev) {
 						ev.stopPropagation();
 						openEditor(path, entry);
@@ -545,7 +567,7 @@ function renderRows(tbody) {
 		}, _('Delete')));
 
 		var row = E('tr', {
-			'class': 'tr nm-file-row ' + (isDir ? 'nm-file-row-dir ' : '') + (isDir || editable ? 'nm-file-openable ' : '') + (editable ? 'nm-file-editable ' : '') + (selectedPath === path ? 'active' : ''),
+			'class': 'tr nm-file-row' + (isDir ? 'nm-file-row-dir ' : '') + (isDir || editable ? 'nm-file-openable ' : '') + (editable ? 'nm-file-editable ' : '') + (selectedPath === path ? 'active' : ''),
 			'click': function() {
 				selectRow(tbody, this, path);
 			},
@@ -554,25 +576,27 @@ function renderRows(tbody) {
 				else if (editable) openEditor(path, entry);
 			}
 		}, [
-			E('td', { 'class': 'td nm-file-name', 'data-label': _('Name') }, [
+			E('td', { 'class': 'td nm-file-name', 'data-title': _('Name') }, [
 				E('span', { 'class': 'nm-file-name-main' }, [
 					fileIconNode(path, entry),
 					E('span', { 'class': 'nm-file-name-text' }, entry.name)
 				])
 			]),
-			E('td', { 'class': 'td', 'data-label': _('Type') }, entry.type || '-'),
-			E('td', { 'class': 'td nowrap', 'data-label': _('Size') }, isDir ? '-' : formatSize(entry.size)),
+			E('td', { 'class': 'td', 'data-title': _('Type') }, entry.type || '-'),
+			E('td', { 'class': 'td nowrap', 'data-title': _('Size') }, isDir ? '-' : formatSize(entry.size)),
 			E('td', {
 				'class': 'td nowrap nm-file-perms',
-				'data-label': _('Perms'),
+				'data-title': _('Perms'),
 				'title': _('Change Permissions'),
 				'click': function(ev) {
 					ev.stopPropagation();
 					showChmodModal(path, perms);
 				}
 			}, perms),
-			E('td', { 'class': 'td nowrap', 'data-label': _('Modified') }, formatTime(entry.mtime)),
-			E('td', { 'class': 'td nowrap nm-actions', 'data-label': _('Actions') }, actions)
+			E('td', { 'class': 'td nowrap', 'data-title': _('Modified') }, formatTime(entry.mtime)),
+			E('td', { 'class': 'td nowrap nm-actions-cell', 'data-title': _('Actions') }, [
+				E('div', { 'class': 'nm-actions' }, actions)
+			])
 		]);
 		tbody.appendChild(row);
 	});
@@ -808,7 +832,6 @@ function showDeleteModal(path, entry) {
 function triggerUpload() {
 	var input = E('input', {
 		'type': 'file',
-		'style': 'display:none',
 		'change': function() {
 			if (!input.files || !input.files.length) return;
 			var file = input.files[0];
@@ -850,6 +873,9 @@ return view.extend({
 			return fs.list('/').then(function(entries) {
 				return { path: '/', entries: entries };
 			});
+		}).catch(function(err) {
+			console.error('nginx-manager: files load failed', err);
+			return { _loadError: err };
 		});
 	},
 
@@ -857,12 +883,18 @@ return view.extend({
 		var container = E('div', { 'class': 'cbi-map' });
 		utils.loadSharedCSS();
 
+		if (data && data._loadError) {
+			container.appendChild(E('h2', { 'name': 'content' }, _('Files')));
+			container.appendChild(utils.errorPanel(_('Unable to load files'), _('Retry the page; if it keeps failing, check the service log.'), data._loadError));
+			return utils.appendFooter(container, utils.FOOTER_OPTIONS);
+		}
+
 		if (data && Array.isArray(data.entries)) {
 			currentPath = data.path || DEFAULT_DIR;
 			currentEntries = sortEntries(data.entries);
 		}
 
-		container.appendChild(E('h2', { 'class': 'cbi-map-title' }, _('Files')));
+		container.appendChild(E('h2', { 'name': 'content' }, _('Files')));
 
 		var pathInput = E('input', {
 			'id': 'nm-file-path-input',
@@ -888,7 +920,7 @@ return view.extend({
 					'click': function() { loadDirectory(pathInput.value); }
 				}, _('Go'))
 			]),
-			E('div', { 'class': 'nm-btn-group' }, [
+			E('div', {}, [
 				E('button', { 'class': 'cbi-button', 'click': function() { loadDirectory(currentPath); } }, _('Refresh')),
 				E('button', { 'class': 'cbi-button cbi-button-add', 'click': showNewFileModal }, _('New File')),
 				E('button', { 'class': 'cbi-button cbi-button-add', 'click': showNewDirModal }, _('New Directory')),
@@ -897,19 +929,21 @@ return view.extend({
 			E('div', { 'id': 'nm-file-status', 'class': 'nm-file-status' }, '')
 		]));
 
-		container.appendChild(E('div', { 'class': 'cbi-section nm-file-table-wrap' }, [
-			E('table', { 'class': 'table cbi-section-table nm-responsive-table nm-file-table' }, [
-				E('thead', {}, [
-					E('tr', { 'class': 'tr cbi-section-table-titles' }, [
-						E('th', { 'class': 'th' }, _('Name')),
-						E('th', { 'class': 'th' }, _('Type')),
-						E('th', { 'class': 'th' }, _('Size')),
-						E('th', { 'class': 'th' }, _('Perms')),
-						E('th', { 'class': 'th' }, _('Modified')),
-						E('th', { 'class': 'th' }, _('Actions'))
-					])
-				]),
-				tbody
+		container.appendChild(E('div', { 'class': 'cbi-section' }, [
+			E('div', { 'class': 'nm-table-scroll' }, [
+				E('table', { 'class': 'table nm-file-table' }, [
+					E('thead', {}, [
+						E('tr', { 'class': 'tr' }, [
+							E('th', { 'class': 'th' }, _('Name')),
+							E('th', { 'class': 'th' }, _('Type')),
+							E('th', { 'class': 'th' }, _('Size')),
+							E('th', { 'class': 'th' }, _('Perms')),
+							E('th', { 'class': 'th' }, _('Modified')),
+							E('th', { 'class': 'th' }, _('Actions'))
+						])
+					]),
+					tbody
+				])
 			])
 		]));
 
@@ -918,10 +952,7 @@ return view.extend({
 			setStatus(currentEntries.length + ' ' + _('items'));
 		}, 0);
 
-		return utils.appendFooter(container, {
-			project: 'Nginx Manager',
-			repoUrl: 'https://github.com/hello-yunshu/luci-app-nginx-manager'
-		});
+		return utils.appendFooter(container, utils.FOOTER_OPTIONS);
 	},
 
 	handleSave: null,
