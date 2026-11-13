@@ -11,7 +11,6 @@ config global 'global'
 	option tll '40'
 	option tlr '0.2'
 	option node_test_node ''
-	option stable_node ''
 	option node_test_url 'https://www.google.com/generate_204'
 	option node_test_count '30'
 	option node_test_timeout '5'
@@ -33,7 +32,7 @@ config global 'global'
 	# 改用普通测速候选刷新 IP 列表）。worker 被下一次任务占用时监测自动退出。
 	option monitor_enabled '1'
 	option monitor_interval '60'
-	option monitor_failures '1'
+	option monitor_failures '3'
 	# 独立内核（固定启用）：测速一律用本机 mihomo/Xray 内核（cfpick core），
 	# 不再调用 PassWall 的 run_socks；PassWall 只在读取节点链接和写回最优 IP 时使用。
 	option standalone_enabled '1'

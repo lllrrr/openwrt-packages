@@ -26,9 +26,13 @@ Python3 标准库实现的 Web 可视化页面。
   Xray 支持 `xhttp` 传输（vless/vmess/trojan）；mihomo 的 xhttp 目前仅覆盖 VLESS。
 * **延迟初筛 + 多探测 fail-fast**：每个 IP 探测 N 次，任意一次失败立即丢弃；全部成功才保留，
   再按 `tl` / `tll` / `tlr` 阈值过滤（延迟上限默认不限，见下方配置表说明）。
-* **真实下载实测**：所有 worker 停止探测后，逐节点串行测延迟最优的前 N 个 IP（默认 5，最多 10），
-  用 curl `speed_download` 换算 MB/s；当前已发布的最优 IP 优先实测，且每个机房（ASN）至少一个
-  代表进入实测，放不下时数量按需略超 N；5 秒内不足 1 MB 的候选会被快速中止并判失败。
+* **真实下载实测**：所有 worker 停止探测后，逐节点串行测延迟最优的前 N 个 IP（默认 5，最多 10）；
+  当前已发布的最优 IP 优先实测，且每个机房（ASN）至少一个代表进入实测，放不下时数量按需略超 N；
+  5 秒内不足 1 MB 的候选会被快速中止并判失败。
+* **测速源（Ookla 优先，CF 备用）**：worker 拿到第一个有效延迟后，经该节点探测就近的 Ookla 公共
+  测速点并缓存（缓存位于 `/var/lib/cfpick/ookla.tsv`，节点地址/端口/类型/SNI/路径变更后自动重探，
+  未修改的节点直接复用）。正式测速固定下载 4.47 MB 文件；Ookla 不可达或失败时自动回退 Cloudflare
+  `__down`。速度按「字节数 ÷（总时间 − 首字节时间）」计算，不把握手/TTFB 算进分母。
 * **多 worker 调度**：并发上限可配；首个 worker 完成全部候选且取得有效结果时，其余 worker
   跑完当前 IP 即停（与 OpenWrt 版一致）。
 * **限时迭代收敛**：每个节点独立循环，每遍只复测上一遍通过的 IP，直到时长结束或候选收敛到
@@ -300,14 +304,14 @@ cfpick serve              # 前台启动 Web（--listen 0.0.0.0 --port 8787）
 | `max_workers` | `5` | 并发 worker 上限；0 = 全部（迭代模式忽略此值，全部同时运行） |
 | `download_enabled` | `true` | 是否做真实下载实测 |
 | `download_count` | `5` | 每节点下载候选数（1–10）；当前最优 IP 与各机房代表优先，机房代表放不下时按需略超此值 |
-| `download_size` | `999999` | 下载实测大小（字节，16384–999999）；源固定为 Cloudflare `speed.cloudflare.com/__down?bytes=N` |
+| `download_size` | `999999` | **Cloudflare 回退**源的大小（字节，16384–999999）。主源是自动探测的 Ookla 测速点（固定 4.47 MB），Ookla 失败时才回退到 `speed.cloudflare.com/__down?bytes=N` |
 | `download_time` | `10` | 单 IP 下载时限（秒），截断部分仍按已下载字节算平均速度 |
 | `iterate_enabled` | `false` | 限时迭代 |
 | `iterate_minutes` | `30` | 迭代时长（分钟） |
 | `iterate_converge_count` | `5` | 迭代收敛阈值：剩余候选 ≤ N 个即停止该节点迭代（1–3000，独立于 `download_count`） |
 | `monitor.enabled` | `true` | 成功后是否派生后台监测：每分钟复测一次成功结果的延迟 |
 | `monitor.interval` | `60` | 监测复测间隔（秒，10–3600） |
-| `monitor.failures` | `1` | 连续失败达到该次数即触发该 worker 的复测（1–10；默认 1 = 一次失败） |
+| `monitor.failures` | `3` | 连续失败达到该次数即触发该 worker 的复测（1–10；默认 3 次） |
 | `nodes` | `[]` | `{name, id, link, ip_list, ddns_domain, enabled}` 数组；`id` 由分享链接（忽略 `#备注`）哈希得到，用于跨改名跟踪历史；`ddns_domain` 可填完整主机名或裸子域名（配合 `zone_name`），留空表示该节点只测速 |
 | `ddns.enabled` | `false` | 是否启用 Cloudflare DDNS 写回 |
 | `ddns.provider` | `cloudflare` | 目前仅支持 Cloudflare |
@@ -469,8 +473,10 @@ init.d/UCI 自动生成的任务。添加任务时选择计划、类型和节点
   mihomo，或给节点换有效证书。
 * **探测全部失败**：看 `/var/log/cfpick/mihomo.log` 或 `xray.log`；常见原因是节点端口/协议参数错误、
   证书 SNI 不匹配、节点本身不可用，或探测 URL 经该节点不可达。
-* **下载实测全部失败**：确认 Cloudflare 测速源经该节点可达；若日志出现 `http=429`，是 Cloudflare 对
-  `bytes>=10000000` 的未公开限流，把 `download_size` 保持 ≤ 999999 即可；失败时保留延迟排序结果，不会丢数据。
+* **下载实测全部失败**：日志会显示本轮的主源（Ookla）与回退源（Cloudflare）。若 `http=429` 出现在
+  Cloudflare 回退请求上，说明触发了它未公开的限流（`Retry-After` 可达 1 小时），下次会优先走 Ookla；
+  两个源都失败时保留延迟排序结果，不会丢数据。Ookla 测速点缓存位于
+  `/var/lib/cfpick/ookla.tsv`，节点地址/端口/类型/SNI/路径变更后会自动重探。
 * **想临时改路径/端口**：所有路径支持环境变量：
   `CFPICK_APP_DIR`、`CFPICK_CONFIG`、`CFPICK_CONFIG_DIR`、`CFPICK_STATE_DIR`、`CFPICK_LOG_DIR`。
 * **DDNS 没生效**：先用 `cfpick ddns show` 确认节点是否填了域名、IP 是否选对；再用

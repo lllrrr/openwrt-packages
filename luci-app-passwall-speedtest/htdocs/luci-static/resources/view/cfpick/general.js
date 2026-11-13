@@ -505,12 +505,6 @@ return view.extend({
 		passwallNodes.forEach(function(n) { o.value(n.value, markSocks(n)); });
 		o.rmempty = true;
 
-		o = s.taboption('basic', form.ListValue, 'stable_node', _('Passwall stable node (legacy, unused)'),
-			_('No longer used. Speed tests always run through the standalone mihomo/Xray core; passwall\'s global node is not switched and node addresses are not rewritten during probing. Passwall is only read for node links and written back with the best IP.'));
-		o.value('', _('-- None --'));
-		passwallNodes.forEach(function(n) { o.value(n.value, n.label); });
-		o.rmempty = true;
-
 		o = s.taboption('basic', form.Value, 'node_test_url', _('Probe URL'),
 			_('URL probed via the node\'s local SOCKS; only the HTTP HEAD latency is measured. generate_204 / connectivity-check endpoints are preferred.'));
 		o.default = 'https://www.google.com/generate_204';
@@ -551,7 +545,7 @@ return view.extend({
 		o.rmempty = false;
 
 		o = s.taboption('basic', form.Value, 'download_test_count', _('Download-test candidates per worker'),
-			_('The N lowest-latency IPs of each worker are download-tested (default 5, max 10), plus the current best IP and one representative per datacenter (ASN); the tested count is raised a little beyond N when needed. Each candidate downloads the fixed Cloudflare file (999999 bytes by default), so keep it small to limit proxy traffic and runtime.'));
+			_('The N lowest-latency IPs of each worker are download-tested (default 5, max 10), plus the current best IP and one representative per datacenter (ASN); the tested count is raised a little beyond N when needed. Each candidate downloads a fixed 4.47 MB file from the nearest working Ookla public server, falling back to Cloudflare when Ookla fails, so keep it small to limit proxy traffic and runtime.'));
 		o.datatype = 'uinteger';
 		o.default = '5';
 		o.depends('download_test_enabled', '1');
@@ -562,8 +556,8 @@ return view.extend({
 			return true;
 		};
 
-		o = s.taboption('basic', form.Value, 'download_test_size', _('Download test size (bytes)'),
-			_('The download source is fixed to Cloudflare\'s speed endpoint. The size is capped at 999999 bytes because Cloudflare rate-limits (HTTP 429) requests of 10 MB or more; the tool needs at least 16 KB.'));
+		o = s.taboption('basic', form.Value, 'download_test_size', _('Cloudflare fallback download size (bytes)'),
+			_('Size of the Cloudflare fallback download (16 KB – 999999 bytes). The primary source is an auto-probed Ookla public server using a fixed 4.47 MB file; this size is used only when Ookla is unreachable or fails. The response must be HTTP 2xx with at least 16 KB of data.'));
 		o.datatype = 'range(16384,999999)';
 		o.default = '999999';
 		o.depends('download_test_enabled', '1');

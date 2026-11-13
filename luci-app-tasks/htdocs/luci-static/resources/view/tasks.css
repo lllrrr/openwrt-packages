@@ -21,6 +21,35 @@
  * below.
  */
 
+/* --- Form controls ------------------------------------------------------ */
+
+/* form.Flag rows: keep the checkbox on the same visual line as its title.
+ *
+ * Both Argon builds centre the option title text in the row, but the
+ * checkbox does not land on that centre: Argon 3 puts the input in a fixed
+ * 2.5rem flex box (about 1.5px too low against a 14px label), Argon 2 adds
+ * a 0.75rem top margin (about 1px too low). Setting the input's top margin
+ * from the title's own line height places the box exactly on the text
+ * centre in both, whatever font size the theme uses:
+ *
+ *     centre = 0.5rem (title padding) + 0.75em (half of line-height 1.5)
+ *     input  = 0.75em (margin) + 0.5rem (half of 1rem box)
+ *
+ * The wrapper must give up Argon 3's fixed height, otherwise its flex
+ * centring eats the margin again.
+ *
+ * Scoped with body:has(.main-left) so luci-theme-bootstrap, which has the
+ * same rows but no sidebar of that name, keeps its own alignment. Argon's
+ * stylesheet already relies on :has(), so no browser support is lost. */
+body:has(.main-left) .cbi-value > .cbi-value-field > .cbi-checkbox {
+	height: auto;
+	align-items: flex-start;
+}
+
+body:has(.main-left) .cbi-value > .cbi-value-field > .cbi-checkbox > input[type="checkbox"] {
+	margin-top: .75em;
+}
+
 /* --- Scroll boxes (log, generated cron entries) ------------------------- */
 
 .tasks-log,
@@ -86,6 +115,15 @@
 	gap: .35em;
 	margin: 0;
 	white-space: nowrap;
+}
+
+/* Argon positions checkboxes inside labels with `position: relative;
+ * top: .4rem`, tuned for its login form but applied to every label. In the
+ * toolbar's inline-flex label that pushes the box below the caption; the
+ * flex layout already centres it, so drop the offset. */
+.tasks-toolbar > label > input[type="checkbox"] {
+	position: static;
+	margin: 0;
 }
 
 /* --- Task picker -------------------------------------------------------- */

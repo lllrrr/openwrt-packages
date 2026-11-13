@@ -702,7 +702,7 @@ monitor_spawn() {
     else
         ( "$_script" monitor --node="$_node" </dev/null >>"$LOG_FILE" 2>&1 & )
     fi
-    echolog "监测 [$(node_label "$_node")] 已启动：每 ${monitor_interval:-60}s 复测一次成功结果（首轮 ${monitor_interval:-60}s 后），连续 ${monitor_failures:-1} 次失败触发复测"
+    echolog "监测 [$(node_label "$_node")] 已启动：每 ${monitor_interval:-60}s 复测一次成功结果（首轮 ${monitor_interval:-60}s 后），连续 ${monitor_failures:-3} 次失败触发复测"
     return 0
 }
 
@@ -757,7 +757,7 @@ monitor_worker() {
         0|no|false|off|OFF|False|No) return 0 ;;
     esac
 
-    local _iv="${monitor_interval:-60}" _max="${monitor_failures:-1}"
+    local _iv="${monitor_interval:-60}" _max="${monitor_failures:-3}"
     case "$_iv" in ''|*[!0-9]*) _iv=60 ;; esac
     [ "$_iv" -ge 10 ] 2>/dev/null || _iv=10
     [ "$_iv" -le 3600 ] 2>/dev/null || _iv=3600
@@ -903,7 +903,7 @@ monitor_worker() {
 }
 
 function read_config(){
-    get_global_config "enabled" "custom_cron_enabled" "custom_cron" "tl" "tll" "tlr" "ip_source" "custom_ip_file" "custom_allip" "ip_online_url" "ip_online_regions" "node_test_node" "stable_node" "node_test_url" "node_test_count" "node_test_timeout" "node_test_probes" "node_test_threads" "download_test_enabled" "download_test_count" "download_test_size" "download_test_url" "download_test_time" "iterate_enabled" "iterate_minutes" "iterate_converge_count" "standalone_enabled" "standalone_core" "monitor_enabled" "monitor_interval" "monitor_failures"
+    get_global_config "enabled" "custom_cron_enabled" "custom_cron" "tl" "tll" "tlr" "ip_source" "custom_ip_file" "custom_allip" "ip_online_url" "ip_online_regions" "node_test_node" "node_test_url" "node_test_count" "node_test_timeout" "node_test_probes" "node_test_threads" "download_test_enabled" "download_test_count" "download_test_size" "download_test_url" "download_test_time" "iterate_enabled" "iterate_minutes" "iterate_converge_count" "standalone_enabled" "standalone_core" "monitor_enabled" "monitor_interval" "monitor_failures"
     get_servers_config "ssr_services" "ssr_enabled" "passwall_enabled" "passwall_services" "passwall2_enabled" "passwall2_services" "bypass_enabled" "bypass_services" "vssr_enabled" "vssr_services" "DNS_enabled" "AliDNS_ip_count" "HOST_enabled" "MosDNS_enabled" "MosDNS_ip_count" "openclash_restart" "AstraDNS_enabled" "AstraDNS_config" "AstraDNS_bin"
     # 五个 CM 备选 IP 列表（ip_list 命名段 list1..list5）
     local _n
@@ -1788,9 +1788,6 @@ NODE_TEST_ORIG_ADDR=""
 NODE_TEST_DONE=0
 NT_LOCKDIR=""
 NT_ORIG_FILE=""
-NT_ORIG_NODE=""
-NT_ORIG_TCP_NODE=""
-NT_TCP_SWITCHED=0
 NT_SNAP_FILE=""
 NT_SNAPSHOT_REAPPLIED=0
 
@@ -2097,102 +2094,6 @@ nt_node_ddns_domain() {
 # 下载实测的串行性由结构保证：所有 worker 停止后，主进程按 worker 顺序逐个执行
 # nt_download_stage；跨任务的下载/写回由 commit_lock 全局排队（后到者等待）。
 
-# 测速前把 passwall 全局主节点切到稳定节点，结束时还原。并发任务共用同一个稳定
-# 节点，用引用计数：第一个切换并记下原值，最后一个结束时才还原，避免先结束的
-# 任务把仍在运行的任务的全局节点改回去。
-STABLE_DIR="$RESULT_DIR/.stable"
-
-nt_stable_cleanup_markers() {
-    local _m _pid
-    for _m in "$STABLE_DIR"/pid.*; do
-        [ -e "$_m" ] || continue
-        _pid="${_m##*/pid.}"
-        if [ ! -d "/proc/$_pid" ] || ! grep -q 'cfpick\.sh' "/proc/$_pid/cmdline" 2>/dev/null; then
-            rm -f "$_m"
-        fi
-    done
-}
-
-# 返回 1 = 稳定节点不存在（无 type），调用方应中止。
-nt_switch_tcp_node() {
-    local _s="${stable_node:-}"
-    [ -n "$_s" ] || return 0
-    # 稳定节点须存在。不再拒绝 socks 型：passwall 的 app.sh get_config() 明确接受
-    # nodes 与 socks 两型作全局节点（本地负载均衡入口如 127.0.0.1:1181 正是 socks 型，
-    # 也是官方分流节点的 default_node 常指目标）；它不参与测速、address 不会被改写。
-    local _st
-    _st=$(config_n_get "$_s" type)
-    [ -n "$_st" ] || { echolog "稳定节点 ${_s} 不存在或无 type，中止"; return 1; }
-
-    nt_lock_acquire
-    mkdir -p "$STABLE_DIR" 2>/dev/null
-    nt_stable_cleanup_markers
-    local _eff
-    _eff="$(uci -q get passwall.@global[0].node 2>/dev/null)"
-    [ -n "$_eff" ] || _eff="$(uci -q get passwall.@global[0].tcp_node 2>/dev/null)"
-
-    if [ -f "$STABLE_DIR/orig" ]; then
-        # 已有任务切换过：只登记引用，让最后一个任务负责还原。
-        touch "$STABLE_DIR/pid.$$"
-        [ "$_eff" = "$_s" ] || {
-            uci set passwall.@global[0].node="${_s}"
-            uci set passwall.@global[0].tcp_node="${_s}"
-            uci commit passwall
-        }
-        nt_lock_release
-        NT_TCP_SWITCHED=1
-        return 0
-    fi
-
-    if [ "$_eff" = "$_s" ]; then
-        # 用户本来就把全局节点设成了稳定节点：无需切换，也无需还原。
-        nt_lock_release
-        return 0
-    fi
-
-    NT_ORIG_NODE="$(uci -q get passwall.@global[0].node 2>/dev/null)"
-    NT_ORIG_TCP_NODE="$(uci -q get passwall.@global[0].tcp_node 2>/dev/null)"
-    printf 'node=%s\ntcp_node=%s\n' "$NT_ORIG_NODE" "$NT_ORIG_TCP_NODE" > "$STABLE_DIR/orig"
-    touch "$STABLE_DIR/pid.$$"
-    local _warn=""
-    if [ -n "$NT_ORIG_NODE" ] && [ "$(config_n_get "$NT_ORIG_NODE" protocol)" = "_shunt" ]; then
-        _warn="；原主节点 ${NT_ORIG_NODE} 是分流节点，测速期间分流规则暂停、流量全走稳定节点"
-    fi
-    echolog "切换 passwall 全局节点到稳定节点 ${_s}（原 node=${NT_ORIG_NODE:-无} / tcp_node=${NT_ORIG_TCP_NODE:-无}）${_warn}"
-    uci set passwall.@global[0].node="${_s}"
-    uci set passwall.@global[0].tcp_node="${_s}"
-    uci commit passwall
-    nt_lock_release
-    /etc/init.d/passwall restart >/dev/null 2>&1 || echolog "警告：passwall restart 失败，节点切换可能未实时生效"
-    NT_TCP_SWITCHED=1
-}
-
-nt_restore_global_node() {
-    [ "${NT_TCP_SWITCHED:-0}" = "1" ] || return 0
-    NT_TCP_SWITCHED=0
-    nt_lock_acquire
-    rm -f "$STABLE_DIR/pid.$$" 2>/dev/null
-    nt_stable_cleanup_markers
-    local _m _left=0
-    for _m in "$STABLE_DIR"/pid.*; do
-        [ -e "$_m" ] && { _left=1; break; }
-    done
-    if [ "$_left" = "1" ] || [ ! -f "$STABLE_DIR/orig" ]; then
-        nt_lock_release
-        return 0
-    fi
-    local _on _ot
-    _on="$(sed -n 's/^node=//p' "$STABLE_DIR/orig" 2>/dev/null)"
-    _ot="$(sed -n 's/^tcp_node=//p' "$STABLE_DIR/orig" 2>/dev/null)"
-    uci set passwall.@global[0].node="${_on}"
-    uci set passwall.@global[0].tcp_node="${_ot}"
-    uci commit passwall
-    rm -f "$STABLE_DIR/orig" 2>/dev/null
-    nt_lock_release
-    echolog "恢复 passwall 全局节点（node=${_on:-无} / tcp_node=${_ot:-无}）"
-    nt_request_passwall_reload
-}
-
 # 扫描进行中的 worker（全局 NT_RUNNING = 空格分隔的 pid:worker 列表）：
 #   .done 存在 → 该 worker 完成且有有效结果，wait 收尸并从 NT_RUNNING 移除，记为停止触发；
 #   .end  存在 → 该 worker 完成但无有效结果，wait 收尸并移除（仅释放并发槽，不触发停止）；
@@ -2315,6 +2216,117 @@ nt_probe_one_ip() {
     echo "${_keep} ${_sent} ${_recv} ${_loss} ${_avg}"
 }
 
+# ── Ookla 测速点探测 ─────────────────────────────────────
+# 优先用 Ookla 公共测速点做下载实测，CF __down 只作备用。原因：CF 对大流量有
+# 未公开的 429 限流（Retry-After 可达 1 小时），而 Ookla 服务器就是给公众测速用的，
+# 没有中心限流；服务器列表会按请求方出口 IP 自动本地化，取前几台实测即可。
+# 探测时机：worker 延迟探测拿到第一个有效结果时（节点已被证明可用），每节点一次；
+# 结果按节点缓存，节点配置（地址/端口/类型/SNI/路径）一变，指纹失效自动重探。
+# 缓存格式（制表符分隔）：node  exit_ip  colo  server_url  ts  fingerprint
+OOKLA_STATE='/etc/cfpick/state/ookla.tsv'
+OOKLA_TTL=604800
+OOKLA_PROBE_FILE='random1000x1000.jpg'
+
+# 节点配置指纹：地址/端口/类型/SNI/路径任一变化都会导致指纹变化 → 重新探测。
+ookla_fingerprint() {
+    local _W=$1
+    { uci -q get "passwall.${_W}.address" 2>/dev/null
+      uci -q get "passwall.${_W}.port" 2>/dev/null
+      uci -q get "passwall.${_W}.type" 2>/dev/null
+      uci -q get "passwall.${_W}.tls_serverName" 2>/dev/null
+      uci -q get "passwall.${_W}.path" 2>/dev/null
+    } | md5sum 2>/dev/null | cut -d' ' -f1
+}
+
+# 读取缓存的 Ookla 测速点；指纹不符或超过 TTL 时返回空。
+ookla_state_url() {
+    local _W=$1 _line _ts _url _fp _now
+    [ -s "$OOKLA_STATE" ] || return 0
+    _line=$(awk -F'\t' -v n="$_W" '$1==n {l=$0} END{if (l!="") print l}' "$OOKLA_STATE" 2>/dev/null)
+    [ -n "$_line" ] || return 0
+    _url=$(printf '%s' "$_line" | cut -f4)
+    _ts=$(printf '%s' "$_line" | cut -f5)
+    _fp=$(printf '%s' "$_line" | cut -f6)
+    _now=$(date +%s)
+    case "$_ts" in ''|*[!0-9]*) _ts=0 ;; esac
+    [ "$_fp" = "$(ookla_fingerprint "$_W")" ] || return 0
+    [ $((_now - _ts)) -le "$OOKLA_TTL" ] || return 0
+    printf '%s\n' "$_url"
+}
+
+# 探测并缓存某节点的 Ookla 测速点。成功打印 URL 并返回 0，失败返回 1。
+# 判定：内核起得来 + trace 拿得到出口 + 列表拉得到 + 至少一台 200 且 ≥100KB。
+# 参数: $1=node $2=addr $3=socks_port $4=flag
+nt_probe_ookla_endpoint() {
+    local _W=$1 _addr=$2 _port=$3 _flag=$4
+    local _trace _eip _colo _loc _list _u _d _r _code _ttfb _bytes _best='' _bestt=''
+    local _same _other _now _fp
+    [ -n "$_W" ] && [ -n "$_addr" ] || return 1
+    _list="/tmp/ookla_list_${_flag}.xml"
+    rm -f "$_list"
+    if ! nt_start_core_with_retry "$_W" "$_addr" "$_port" "$_flag"; then
+        echolog "Ookla 探测：节点 ${_W} 内核启动失败"
+        return 1
+    fi
+    _port="${NT_STARTED_PORT:-$_port}"
+    _trace=$(curl -s -x "socks5h://127.0.0.1:${_port}" --max-time 10 \
+        "https://speed.cloudflare.com/cdn-cgi/trace" 2>/dev/null)
+    _eip=$(printf '%s\n' "$_trace" | sed -n 's/^ip=//p')
+    _colo=$(printf '%s\n' "$_trace" | sed -n 's/^colo=//p')
+    _loc=$(printf '%s\n' "$_trace" | sed -n 's/^loc=//p')
+    if [ -z "$_eip" ]; then
+        echolog "Ookla 探测：节点 ${_W} 无法经代理访问 trace"
+        /usr/bin/cfpick core stop --flag "$_flag" >/dev/null 2>&1
+        return 1
+    fi
+    curl -sL -x "socks5h://127.0.0.1:${_port}" --max-time 15 \
+        "https://www.speedtest.net/speedtest-servers-static.php" -o "$_list" 2>/dev/null
+    if [ ! -s "$_list" ]; then
+        echolog "Ookla 探测：节点 ${_W} 取服务器列表失败"
+        /usr/bin/cfpick core stop --flag "$_flag" >/dev/null 2>&1
+        return 1
+    fi
+    # 同地区（cc == trace.loc）优先，各取前 3 台；列表本身已按出口距离排序。
+    _same=$(awk -v loc="$_loc" '{
+        u=""; c=""
+        if (match($0, /url="[^"]*"/)) u=substr($0,RSTART+5,RLENGTH-6)
+        if (match($0, /cc="[A-Z][A-Z]"/)) c=substr($0,RSTART+4,2)
+        if (u!="" && c==loc) print u
+    }' "$_list" 2>/dev/null | head -3)
+    _other=$(awk -v loc="$_loc" '{
+        u=""; c=""
+        if (match($0, /url="[^"]*"/)) u=substr($0,RSTART+5,RLENGTH-6)
+        if (match($0, /cc="[A-Z][A-Z]"/)) c=substr($0,RSTART+4,2)
+        if (u!="" && c!=loc) print u
+    }' "$_list" 2>/dev/null | head -3)
+    for _u in $_same $_other; do
+        _d=$(printf '%s' "$_u" | sed 's#/upload.php#/'"${OOKLA_PROBE_FILE}"'#')
+        _r=$(curl -sL -x "socks5h://127.0.0.1:${_port}" -o /dev/null --max-time 6 \
+            -w "%{http_code} %{time_starttransfer} %{size_download}" "$_d" 2>/dev/null)
+        _code=${_r%% *}; _r=${_r#* }; _ttfb=${_r%% *}; _bytes=${_r##* }
+        case "$_code" in 2[0-9][0-9]) ;; *) continue ;; esac
+        [ "$(awk -v b="${_bytes:-0}" 'BEGIN{print ((b+0)>=100000)?1:0}')" = "1" ] || continue
+        if [ -z "$_bestt" ] || [ "$(awk -v a="${_ttfb:-9}" -v b="${_bestt:-9}" 'BEGIN{print ((a+0)<(b+0))?1:0}')" = "1" ]; then
+            _best="$_d"; _bestt="$_ttfb"
+        fi
+    done
+    /usr/bin/cfpick core stop --flag "$_flag" >/dev/null 2>&1
+    rm -f "$_list"
+    if [ -z "$_best" ]; then
+        echolog "Ookla 探测：节点 ${_W} 无可用服务器（出口 ${_eip} ${_colo}）"
+        return 1
+    fi
+    _now=$(date +%s)
+    _fp="$(ookla_fingerprint "$_W")"
+    mkdir -p "$(dirname "$OOKLA_STATE")" 2>/dev/null
+    { awk -F'\t' -v n="$_W" '$1!=n' "$OOKLA_STATE" 2>/dev/null; \
+      printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$_W" "$_eip" "$_colo" "$_best" "$_now" "$_fp"; } \
+        > "${OOKLA_STATE}.new" 2>/dev/null && mv -f "${OOKLA_STATE}.new" "$OOKLA_STATE"
+    echolog "Ookla 探测：节点 ${_W} 出口 ${_eip}（${_colo}）→ ${_best}"
+    printf '%s\n' "$_best"
+    return 0
+}
+
 # ── 下载实测（第二阶段）────────────────────────────────────
 # 延迟初筛之后，对延迟最优的 N 个 IP 实测真实下载吞吐：与延迟探测走同一条链路——
 # 独立内核拉起本地 SOCKS（候选 IP 写进临时内核配置）→ curl 下载固定大小文件 →
@@ -2358,12 +2370,12 @@ nt_download_one_ip() {
     fi
     # 就绪轮询（curl rc 7 = SOCKS 尚未就绪）+ 一次下载测速。--max-time 截断时 curl 返回 28，
     # 但已下载字节数与平均速度仍然有效，故 0 / 28 都接受（前提是 HTTP 2xx 且确实收到数据）。
-    local _try=0 _res='' _rc=0 _code='' _bytes=0 _bps=0 _pf
+    local _try=0 _res='' _rc=0 _code='' _bytes=0 _bps=0 _ttfb=0 _total=0 _pf
     while [ "$_verify" = "1" ] && [ $_try -lt 10 ]; do
         _res=$(curl -x socks5h://127.0.0.1:${_port} -sL -o /dev/null \
             --connect-timeout 3 --max-time ${_tmo} \
             --speed-limit ${DL_FAST_FAIL_BPS} --speed-time ${DL_FAST_FAIL_TIME} \
-            -w "%{http_code} %{size_download} %{speed_download}" "${_durl}" 2>/dev/null)
+            -w "%{http_code} %{size_download} %{speed_download} %{time_starttransfer} %{time_total}" "${_durl}" 2>/dev/null)
         _rc=$?
         if [ $_rc -eq 7 ]; then
             _try=$((_try + 1))
@@ -2381,7 +2393,9 @@ nt_download_one_ip() {
     rm -rf /tmp/etc/passwall/*"${_flag}"* 2>/dev/null
     [ "$_verify" = "1" ] || { NT_DL_SPEED=0; NT_DL_DIAG="$_verr"; return 0; }
     _code="${_res%% *}"; _res="${_res#* }"
-    _bytes="${_res%% *}"; _bps="${_res##* }"
+    _bytes="${_res%% *}"; _res="${_res#* }"
+    _bps="${_res%% *}"; _res="${_res#* }"
+    _ttfb="${_res%% *}"; _total="${_res##* }"
     # 失败诊断：原样记录 curl 退出码 / HTTP 状态 / 已下载字节 / 平均速度，写进“下载失败”日志。
     NT_DL_DIAG="rc=${_rc:-?} http=${_code:-?} bytes=${_bytes:-0} speed=${_bps:-0}"
     case "$_code" in 2[0-9][0-9]) ;; *) NT_DL_SPEED=0; return 0 ;; esac
@@ -2394,10 +2408,16 @@ nt_download_one_ip() {
         NT_DL_SPEED=0
         return 0
     fi
-    # 16KB 下限：避免把 0 字节/极小的错误响应算成虚高速度
-    NT_DL_SPEED=$(awk -v b="${_bytes:-0}" -v s="${_bps:-0}" 'BEGIN{
-        if ((b+0) < 16384 || (s+0) <= 0) print "0"
-        else printf "%.2f\n", (s+0)/1048576
+    # 16KB 下限 + 只算传输窗口：curl 的 speed_download = 字节数/总时间，而总时间包含
+    # TCP/TLS 握手和首字节等待（RTT 200–500ms 时代能占九成），小文件会被严重低估。
+    # 这里改用 字节数 /(总时间 − 首字节时间)，扣掉建连与 TTFB，只测实际传输那段。
+    NT_DL_SPEED=$(awk -v b="${_bytes:-0}" -v s="${_bps:-0}" -v t="${_ttfb:-0}" -v e="${_total:-0}" 'BEGIN{
+        if ((b+0) < 16384) { print "0"; exit }
+        w = (e+0) - (t+0)
+        if (w < 0.005) w = 0
+        if (w > 0) { printf "%.2f\n", ((b+0)/w)/1048576; exit }
+        if ((s+0) <= 0) { print "0"; exit }
+        printf "%.2f\n", (s+0)/1048576
     }')
     return 0
 }
@@ -2406,9 +2426,9 @@ nt_download_one_ip() {
 # （下载速度 MB/s）；成功测速时按速度降序重排（速度相同再按延迟升序），下载失败的行剔除。
 # 若一个都没测成功（如测试 URL 经该节点不可达），保留原延迟排序结果，不丢延迟阶段的成果。
 # 只在所有 worker 停止探测后由 nt_download_stage 调用；主进程顺序执行，天然串行。
-# 参数: $1=node $2=result_file $3=node_name $4=count $5=url $6=timeout $7=socks_port $8=flag
+# 参数: $1=node $2=result_file $3=node_name $4=count $5=url $6=timeout $7=socks_port $8=flag $9=fallback_url
 nt_download_phase() {
-    local _W=$1 _rfile=$2 _Wn=$3 _cnt=$4 _durl=$5 _tmo=$6 _port=$7 _flag=$8
+    local _W=$1 _rfile=$2 _Wn=$3 _cnt=$4 _durl=$5 _tmo=$6 _port=$7 _flag=$8 _fb=${9:-}
     local _rows="${_rfile}.rows" _out="${_rfile}.dl" _line _ip _spd _hdr
     local _i=0 _n _tested=0 _failed=0 _best_ip='' _best_spd=0 _cur="" _curline="" _prevrow="" _first="" _rl="" _rip="" _ra="" _asn_seen="" _asn_reps="" _rep_count=0 _need=0 _best_label=""
     local _dltmp="${_rfile}.dlrows" _dllat="" _dlloss="" _dlasn="" _dlaname="" _dlcc="" _dlst="" _done_ts="" _run_ts="" _dllines=0
@@ -2483,7 +2503,7 @@ nt_download_phase() {
     esac
     echo "$_hdr" > "$_out"
 
-    echolog "下载测速 [${_Wn}] 开始：对 ${_cnt} 个 IP 实测下载（含当前最优 IP 与各机房代表）（${_durl}，单 IP 上限 ${_tmo}s，${DL_FAST_FAIL_TIME}s 内不足 $((DL_FAST_FAIL_BYTES / 1048576))MB 即判失败）"
+    echolog "下载测速 [${_Wn}] 开始：对 ${_cnt} 个 IP 实测下载（含当前最优 IP 与各机房代表）（${_durl}${_fb:+，失败回退 ${_fb}}，单 IP 上限 ${_tmo}s，${DL_FAST_FAIL_TIME}s 内不足 $((DL_FAST_FAIL_BYTES / 1048576))MB 即判失败）"
     while IFS= read -r _line; do
         [ -n "$_line" ] || continue
         _i=$((_i + 1))
@@ -2494,6 +2514,15 @@ nt_download_phase() {
             # 结果走全局 NT_DL_SPEED（函数内部会 echolog，不能用 $(...) 抓 stdout）。
             nt_download_one_ip "$_W" "$_ip" "$_durl" "$_tmo" "$_port" "${_flag}_${_i}"
             _spd="$NT_DL_SPEED"
+            # 优先用 Ookla，失败（服务器临时抽风/超时/非 2xx）再回退 CF __down。
+            if [ "$(awk -v s="$_spd" 'BEGIN{print ((s+0)>0)?1:0}')" != "1" ] && \
+               [ -n "$_fb" ] && [ "$_fb" != "$_durl" ]; then
+                nt_download_one_ip "$_W" "$_ip" "$_fb" "$_tmo" "$_port" "${_flag}_${_i}_fb"
+                _spd="$NT_DL_SPEED"
+                if [ "$(awk -v s="$_spd" 'BEGIN{print ((s+0)>0)?1:0}')" = "1" ]; then
+                    echolog "下载测速 [${_Wn}] ${_i}/${_cnt} - ${_ip} Ookla 失败，已回退 CF"
+                fi
+            fi
             log_size_guard
             if [ "$(awk -v s="$_spd" 'BEGIN{print ((s+0)>0)?1:0}')" = "1" ]; then
                 _tested=$((_tested + 1))
@@ -2576,9 +2605,23 @@ nt_download_worker() {
     [ -n "$(first_result_ip "$_rfile")" ] || \
         [ -n "$(monitor_result_ip "$_W")" ] || return 0
     _Wn="$(uci -q get "passwall.${_W}.remarks" 2>/dev/null)"; _Wn="${_Wn:-${_W}}"
+    # 下载源：Ookla 优先，CF __down 备用。缓存里没有（或节点配置已变）就现探一次；
+    # 探测失败不阻塞，直接用 CF。
+    local _ook _oaddr _cf
+    _cf="${DL_TEST_URL:-https://speed.cloudflare.com/__down?bytes=999999}"
+    _ook="$(ookla_state_url "$_W")"
+    if [ -z "$_ook" ]; then
+        _oaddr="$(uci -q get "passwall.${_W}.address" 2>/dev/null)"
+        if [ -n "$_oaddr" ] && nt_probe_ookla_endpoint "$_W" "$_oaddr" "$_port" "${_flag}_probe" >/dev/null 2>&1; then
+            _ook="$(ookla_state_url "$_W")"
+        fi
+    fi
+    # 探测用的 2MB 文件只负责选点；正式测速固定用 4.47MB 文件，窗口更长、更接近
+    # 持续吞吐（和 CF 5MB 基准同量级）。缓存里存的是探测 URL，这里统一换文件名。
+    _ook=$(printf '%s' "$_ook" | sed 's#/random[0-9]*x[0-9]*\.jpg$#/random1500x1500.jpg#')
+    [ -n "$_ook" ] || _ook="$_cf"
     nt_download_phase "$_W" "$_rfile" "$_Wn" "${DL_TEST_COUNT:-5}" \
-        "${DL_TEST_URL:-https://speed.cloudflare.com/__down?bytes=999999}" \
-        "${DL_TEST_TIME:-10}" "$_port" "$_flag"
+        "$_ook" "${DL_TEST_TIME:-10}" "$_port" "$_flag" "$_cf"
 }
 
 # 某个 worker 一跑完自己的候选就提前做下载实测：抢全局 commit 锁，其他 worker
@@ -2720,7 +2763,7 @@ nt_download_stage() {
 # 参数: $1=idx $2=node $3=origaddr $4=result_file $5=ip_list $6=probe_url $7=timeout $8=probes $9=socks_port $10=flag $11=列表延迟上限(0=全局)
 node_test_worker() {
     local _idx=$1 _W=$2 _orig=$3 _rfile=$4 _ips=$5 _purl=$6 _tmo=$7 _probes=$8 _port=$9 _flag=${10} _tcap=${11:-0}
-    local _ip _idx2=0 _kept=0 _total
+    local _ip _idx2=0 _kept=0 _total _ookla_tried=0
     # 日志用节点备注名（无 remarks 则回退节点 id）；uci -q get 直读配置，子 shell 可用
     local _Wn
     _Wn="$(uci -q get "passwall.${_W}.remarks" 2>/dev/null)"; _Wn="${_Wn:-${_W}}"
@@ -2753,6 +2796,20 @@ node_test_worker() {
             _kept=$((_kept + 1))
             # 本次会话确实产出了通过延迟筛选的候选（不是沿用的旧结果）。
             : > "${_rfile}.fresh"
+            # 首个有效延迟：节点已被证明可用，这时探一次 Ookla 测速点。
+            # 每节点只探一次；缓存按节点配置指纹失效，未修改的节点直接复用。
+            # 此时该 worker 的延迟探测内核已停，端口空闲；探测失败不阻塞后续流程。
+            if [ "$_ookla_tried" = "0" ]; then
+                _ookla_tried=1
+                if [ -z "$(ookla_state_url "$_W")" ]; then
+                    local _oaddr
+                    _oaddr="$(uci -q get "passwall.${_W}.address" 2>/dev/null)"
+                    if [ -n "$_oaddr" ]; then
+                        echolog "Ookla 探测：节点 [${_Wn}] 首个延迟有效，开始探测测速点"
+                        nt_probe_ookla_endpoint "$_W" "$_oaddr" "$_port" "${_flag}_ook" >/dev/null 2>&1
+                    fi
+                fi
+            fi
         fi
         local _st
         _st=$([ "$_keep" = "1" ] && echo "保留" || echo "丢弃")
@@ -3484,7 +3541,6 @@ node_speed_test() {
     fi
     NODE_TEST_ORIG_ADDR=$(uci -q get "passwall.${NODE_TEST_NODE}.address")
     [ -n "${NODE_TEST_ORIG_ADDR}" ] || { echolog "passwall 节点 ${NODE_TEST_NODE} 未配置 address"; return 1; }
-    # 稳定节点不得为待测节点本身（否则用户实流量仍走被改写地址的节点，切换无意义）
 
     # 测前快照 /etc/config/passwall：测后还原以抹掉 passwall 测速中途新增的异常节点段
 

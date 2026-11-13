@@ -1411,9 +1411,9 @@
 		renderNodes();
 	}
 
-	function fillNodeSelects(testValue, stableValue) {
+	function fillNodeSelects(testValue) {
 		const nodes = providerNodes('passwall');
-		[['cfg-test-node', testValue], ['cfg-stable-node', stableValue]].forEach(([id, value]) => {
+		[['cfg-test-node', testValue]].forEach(([id, value]) => {
 			const select = $('#' + id);
 			if (!select) return;
 			select.replaceChildren();
@@ -1456,7 +1456,7 @@
 
 	function applyNodeSources() {
 		const g = (state.config && state.config.global) || {};
-		fillNodeSelects(g.node_test_node || '', g.stable_node || '');
+		fillNodeSelects(g.node_test_node || '');
 		renderNodes();
 		fillThirdParty();
 		if (state.tasks) renderTasks();
@@ -2239,6 +2239,9 @@
 		check('iterate_enabled', g.iterate_enabled);
 		set('iterate_minutes', g.iterate_minutes);
 		set('iterate_converge_count', g.iterate_converge_count);
+		check('monitor_enabled', g.monitor_enabled);
+		set('monitor_interval', g.monitor_interval);
+		set('monitor_failures', g.monitor_failures);
 		check('ddns_enabled', g.ddns_enabled);
 		set('ddns_token', g.ddns_api_token || '');
 		set('ddns_zone_id', g.ddns_zone_id);
@@ -2268,10 +2271,6 @@
 			return value;
 		};
 		const integer = (id, fallback, min, max) => Math.round(number(id, fallback, min, max));
-
-		// 测速已与 PassWall 脱钩（一律走独立内核），稳定节点不再必需；
-		// 仍保留该字段供旧配置回显，留空也能保存。
-		const stableNode = text('cfg-stable-node');
 
 		// Scheduled tasks are ordinary crontab lines now.  The UCI cron fields
 		// below are legacy (kept so old configs round-trip); they no longer
@@ -2317,6 +2316,9 @@
 				iterate_enabled: check('iterate_enabled'),
 				iterate_minutes: integer('iterate_minutes', 30, 1, 10080),
 				iterate_converge_count: integer('iterate_converge_count', 5, 1, 3000),
+				monitor_enabled: check('monitor_enabled'),
+				monitor_interval: integer('monitor_interval', 60, 10, 3600),
+				monitor_failures: integer('monitor_failures', 3, 1, 10),
 				ddns_enabled: check('ddns_enabled'),
 				ddns_ip_count: integer('ddns_ip_count', 1, 1, 10),
 				ddns_ttl: integer('ddns_ttl', 300, 1, 86400),
@@ -2328,7 +2330,6 @@
 				custom_cron: cron,
 				hour: parseInt(g.hour, 10) || 24,
 				node_test_node: text('cfg-test-node'),
-				stable_node: stableNode,
 				web_bind: text('web_listen') || '0.0.0.0',
 				web_port: integer('web_port', 17544, 1, 65535),
 			},

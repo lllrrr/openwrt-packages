@@ -347,17 +347,17 @@ msgstr "延迟初筛后，经每个 worker 延迟最优的 IP 真实下载文件
 msgid "Download-test candidates per worker"
 msgstr "每 worker 下载测速候选数"
 
-msgid "The N lowest-latency IPs of each worker are download-tested (default 5, max 10), plus the current best IP and one representative per datacenter (ASN); the tested count is raised a little beyond N when needed. Each candidate downloads the fixed Cloudflare file (999999 bytes by default), so keep it small to limit proxy traffic and runtime."
-msgstr "对每个 worker 延迟最优的前 N 个 IP 做下载实测（默认 5，最多 10），并额外保证当前最优 IP 与每个机房（ASN）至少一个代表；放不下时实测数量按需略超 N。每个候选都会下载固定的 Cloudflare 测速文件（默认 999999 字节），数量越小越省代理流量、耗时越短。"
+msgid "The N lowest-latency IPs of each worker are download-tested (default 5, max 10), plus the current best IP and one representative per datacenter (ASN); the tested count is raised a little beyond N when needed. Each candidate downloads a fixed 4.47 MB file from the nearest working Ookla public server, falling back to Cloudflare when Ookla fails, so keep it small to limit proxy traffic and runtime."
+msgstr "对每个 worker 延迟最优的前 N 个 IP 做下载实测（默认 5，最多 10），并额外保证当前最优 IP 与每个机房（ASN）至少一个代表；放不下时实测数量按需略超 N。每个候选从就近可用的 Ookla 公共测速点下载固定 4.47 MB 文件，Ookla 失败时回退 Cloudflare；数量越小越省代理流量、耗时越短。"
 
 msgid "At most 10 IPs can be download-tested per worker"
 msgstr "每个 worker 最多只能对 10 个 IP 做下载测速"
 
-msgid "Download test size (bytes)"
-msgstr "下载测试大小（字节）"
+msgid "Cloudflare fallback download size (bytes)"
+msgstr "CF 回退下载大小（字节）"
 
-msgid "The download source is fixed to Cloudflare's speed endpoint. The size is capped at 999999 bytes because Cloudflare rate-limits (HTTP 429) requests of 10 MB or more; the tool needs at least 16 KB."
-msgstr "下载源固定为 Cloudflare 测速端点。大小上限 999999 字节，因为 Cloudflare 会对 10 MB 及以上的请求限流（HTTP 429）；工具至少需要 16 KB。"
+msgid "Size of the Cloudflare fallback download (16 KB – 999999 bytes). The primary source is an auto-probed Ookla public server using a fixed 4.47 MB file; this size is used only when Ookla is unreachable or fails. The response must be HTTP 2xx with at least 16 KB of data."
+msgstr "Cloudflare 回退源的下载大小（16 KB – 999999 字节）。主源是自动探测的 Ookla 公共测速点（固定 4.47 MB 文件），只有 Ookla 不可达或失败时才用这个大小。响应须为 HTTP 2xx 且至少收到 16 KB。"
 
 msgid "Download test time limit (s)"
 msgstr "下载测速单 IP 时限（秒）"

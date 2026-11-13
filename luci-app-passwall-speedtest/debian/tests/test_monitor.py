@@ -300,7 +300,7 @@ class ConfigTests(unittest.TestCase):
         settings = config.normalize({})["monitor"]
         self.assertTrue(settings["enabled"])
         self.assertEqual(settings["interval"], 60)
-        self.assertEqual(settings["failures"], 1)
+        self.assertEqual(settings["failures"], 3)
 
     def test_clamps(self):
         settings = config.normalize({"monitor": {

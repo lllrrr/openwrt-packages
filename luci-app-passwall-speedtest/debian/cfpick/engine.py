@@ -15,7 +15,9 @@ Retest mode reuses the current result.csv candidates instead of downloading the
 online list.
 """
 
+import hashlib
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -31,6 +33,11 @@ SOCKS_PORT_BASE = 18000  # below ip_local_port_range (32768-60999)
 DL_FAST_FAIL_BYTES = 1048576
 DL_FAST_FAIL_TIME = 5
 DL_FAST_FAIL_BPS = DL_FAST_FAIL_BYTES // DL_FAST_FAIL_TIME
+# Ookla 公共测速点：优先用它做下载实测，CF __down 只作备用（CF 有 429 限流）。
+# 服务器列表按请求方出口 IP 自动本地化；同地区优先、前几台实测取最快。
+OOKLA_PROBE_FILE = "random1000x1000.jpg"
+OOKLA_TTL = 604800
+OOKLA_STATE = paths.STATE_DIR / "ookla.tsv"
 ACCEPT_CODES = {"200", "204", "301", "302", "307", "308",
                 "400", "401", "402", "403", "404", "405", "406",
                 "407", "408", "409", "410", "411", "412", "413",
@@ -416,6 +423,138 @@ class Engine:
         except (subprocess.TimeoutExpired, OSError):
             return 124, ""
 
+    def _node_proxy(self, node):
+        """Return the parsed proxy dict, tolerant of test doubles."""
+        parsed = node.get("parsed")
+        proxy = getattr(parsed, "proxy", None)
+        if proxy is None and isinstance(parsed, dict):
+            proxy = parsed.get("proxy")
+        return proxy or {}
+
+    def _ookla_fingerprint(self, node):
+        """Hash the fields that determine the node's exit; any change re-probes."""
+        proxy = self._node_proxy(node)
+        raw = "\n".join(str(proxy.get(key, "")) for key in
+                        ("server", "port", "type", "servername", "path"))
+        return hashlib.md5(raw.encode("utf-8")).hexdigest()
+
+    def _ookla_state_url(self, node):
+        """Return the cached server URL, or "" when absent/changed/too old."""
+        key = node.get("id") or node["name"]
+        try:
+            lines = OOKLA_STATE.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            return ""
+        fingerprint = self._ookla_fingerprint(node)
+        now = int(time.time())
+        for line in reversed(lines):
+            parts = line.split("\t")
+            if len(parts) < 6 or parts[0] != key:
+                continue
+            try:
+                ts = int(parts[4])
+            except ValueError:
+                continue
+            if parts[5] != fingerprint or now - ts > OOKLA_TTL:
+                return ""
+            return parts[3]
+        return ""
+
+    def _ookla_state_put(self, node, exit_ip, colo, url):
+        key = node.get("id") or node["name"]
+        try:
+            old = [line for line in OOKLA_STATE.read_text(
+                encoding="utf-8", errors="replace").splitlines()
+                   if not line.startswith(key + "\t")]
+        except OSError:
+            old = []
+        old.append("\t".join([key, exit_ip, colo, url,
+                              str(int(time.time())), self._ookla_fingerprint(node)]))
+        try:
+            OOKLA_STATE.parent.mkdir(parents=True, exist_ok=True)
+            OOKLA_STATE.write_text("\n".join(old) + "\n", encoding="utf-8")
+        except OSError:
+            pass
+
+    def _probe_ookla(self, node):
+        """Probe and cache the nearest working Ookla server; return URL or ""."""
+        address = str(self._node_proxy(node).get("server") or "")
+        if not address:
+            return ""
+        tag = "ook-%d" % (int(time.time() * 1000) % 100000)
+        process = config_path = None
+        try:
+            try:
+                process, config_path, port = self._start_candidate_core(
+                    node, address, tag)
+            except (core.CoreError, EngineError) as exc:
+                self.log.log("Ookla 探测：节点 %s 内核启动失败: %s" % (node["name"], exc))
+                return ""
+            rc, trace = self._curl([
+                self.curl, "-x", "socks5h://127.0.0.1:%d" % port,
+                "-s", "--max-time", "10",
+                "https://speed.cloudflare.com/cdn-cgi/trace"], 20)
+            meta = {}
+            for line in trace.splitlines():
+                if "=" in line:
+                    name, value = line.split("=", 1)
+                    meta[name] = value
+            exit_ip = meta.get("ip", "")
+            colo = meta.get("colo", "")
+            loc = meta.get("loc", "")
+            if rc != 0 or not exit_ip:
+                self.log.log("Ookla 探测：节点 %s 无法经代理访问 trace" % node["name"])
+                return ""
+            rc, xml = self._curl([
+                self.curl, "-x", "socks5h://127.0.0.1:%d" % port,
+                "-sL", "--max-time", "15",
+                "https://www.speedtest.net/speedtest-servers-static.php"], 25)
+            if rc != 0 or "<server" not in xml:
+                self.log.log("Ookla 探测：节点 %s 取服务器列表失败" % node["name"])
+                return ""
+            servers = re.findall(r'url="([^"]+)"[^>]*?cc="([A-Z]{2})"', xml)
+            same = [url for url, cc in servers if cc == loc][:3]
+            other = [url for url, cc in servers if cc != loc][:3]
+            best, best_ttfb = "", None
+            for url in same + other:
+                probe_url = url.replace("/upload.php", "/" + OOKLA_PROBE_FILE)
+                rc, out = self._curl([
+                    self.curl, "-x", "socks5h://127.0.0.1:%d" % port,
+                    "-sL", "-o", os.devnull, "--max-time", "6",
+                    "-w", "%{http_code} %{time_starttransfer} %{size_download}",
+                    probe_url], 12)
+                parts = out.split()
+                if rc not in (0, 28) or len(parts) < 3:
+                    continue
+                if not parts[0].startswith("2"):
+                    continue
+                try:
+                    ttfb = float(parts[1])
+                    size = float(parts[2])
+                except ValueError:
+                    continue
+                if size < 100000:
+                    continue
+                if best_ttfb is None or ttfb < best_ttfb:
+                    best, best_ttfb = probe_url, ttfb
+            if not best:
+                self.log.log("Ookla 探测：节点 %s 无可用服务器（出口 %s %s）" % (
+                    node["name"], exit_ip, colo))
+                return ""
+            self._ookla_state_put(node, exit_ip, colo, best)
+            self.log.log("Ookla 探测：节点 %s 出口 %s（%s）→ %s" % (
+                node["name"], exit_ip, colo, best))
+            return best
+        finally:
+            if process:
+                process.stop()
+                self._untrack_core(process)
+            if config_path:
+                try:
+                    Path(config_path).unlink()
+                except OSError:
+                    pass
+
     def _probe_ip(self, node, ip, tag, apply_filters=True,
                   current_ip="", current_asn="", seen_asns=None):
         """Return (keep, sent, recv, loss, avg_ms, reason).
@@ -538,8 +677,8 @@ class Engine:
             return 0, "丢包 %.2f > 上限 %.2f" % (loss, self.cfg["loss_max"])
         return 1, ""
 
-    def _download_one(self, node, ip, tag):
-        """Return speed in MB/s (0 on failure)."""
+    def _download_one(self, node, ip, tag, url=None):
+        """Return speed in MB/s (0 on failure).  ``url`` overrides the CF source."""
         process = config_path = None
         port = 0
         self._dl_diag = ""
@@ -560,8 +699,9 @@ class Engine:
                 "--max-time", str(self.cfg["download_time"]),
                 "--speed-limit", str(DL_FAST_FAIL_BPS),
                 "--speed-time", str(DL_FAST_FAIL_TIME),
-                "-w", "%{http_code} %{size_download} %{speed_download}",
-                self.cfg["download_url"],
+                "-w", "%{http_code} %{size_download} %{speed_download} "
+                      "%{time_starttransfer} %{time_total}",
+                url or self.cfg["download_url"],
             ]
             rc, out = self._curl(args, self.cfg["download_time"] + 10)
             if rc == 7:
@@ -574,7 +714,7 @@ class Engine:
                     if rc != 7:
                         break
             parts = out.split()
-            if len(parts) >= 3:
+            if len(parts) >= 5:
                 # Keep the raw numbers before any acceptance check: this is
                 # what tells an HTTP 403/429 from a TLS/reset failure.
                 self._dl_diag = "rc=%d http=%s bytes=%s speed=%s" % (
@@ -583,21 +723,30 @@ class Engine:
                 self._dl_diag = "rc=%d no-output" % rc
             if rc not in (0, 28):
                 return 0.0
-            if len(parts) < 3:
+            if len(parts) < 5:
                 return 0.0
-            code, size, speed = parts[0], parts[1], parts[2]
+            code, size, speed, ttfb, total = parts[:5]
             if not code.startswith("2"):
                 return 0.0
             try:
                 size = float(size)
                 speed = float(speed)
+                ttfb = float(ttfb)
+                total = float(total)
             except ValueError:
                 return 0.0
-            if size < 16384 or speed <= 0:
+            if size < 16384:
                 return 0.0
             if rc == 28 and speed < DL_FAST_FAIL_BPS:
                 self.log.log("下载测速快速死亡：%s 平均 %.0f 字节/秒（低于 %d 字节/秒 持续 %ds），已下载 %.0f 字节，判失败" % (
                     ip, speed, DL_FAST_FAIL_BPS, DL_FAST_FAIL_TIME, size))
+                return 0.0
+            # curl 的 speed_download 把 TCP/TLS 握手和 TTFB 也算进分母，小文件会被
+            # 严重低估；改用 字节数/(总时间−首字节时间)，只测真正传输的那段。
+            window = total - ttfb
+            if window > 0.005:
+                return round(size / window / 1048576.0, 2)
+            if speed <= 0:
                 return 0.0
             return round(speed / 1048576.0, 2)
         finally:
@@ -888,14 +1037,25 @@ class Engine:
         kept = []
         details = []
         detail_by_ip = {}
-        self.log.log("下载测速 [%s] 开始：对 %d 个 IP 实测下载（含当前最优 IP 与各机房代表；%s，单 IP 上限 %ds）" % (
-            node["name"], len(tested), self.cfg["download_url"], self.cfg["download_time"]))
+        # Ookla 优先，CF __down 备用；缓存缺失/节点配置变化时现探一次（失败不阻塞）。
+        cf_url = self.cfg["download_url"]
+        url = self._ookla_state_url(node) or self._probe_ookla(node) or cf_url
+        # 探测用的 2MB 文件只负责选点；正式测速固定用 4.47MB 文件（窗口更长）。
+        url = re.sub(r"/random\d+x\d+\.jpg$", "/random1500x1500.jpg", url)
+        self.log.log("下载测速 [%s] 开始：对 %d 个 IP 实测下载（含当前最优 IP 与各机房代表；%s%s，单 IP 上限 %ds）" % (
+            node["name"], len(tested), url,
+            "，失败回退 CF" if url != cf_url else "", self.cfg["download_time"]))
         for index, row in enumerate(tested, start=1):
             if self.hard_stop:
                 self.log.log("收到终止信号，跳过剩余下载实测")
                 break
-            speed = self._download_one(
-                node, row.ip, "d%d-%d" % (index, int(time.time() * 1000) % 100000))
+            tag = "d%d-%d" % (index, int(time.time() * 1000) % 100000)
+            speed = self._download_one(node, row.ip, tag, url)
+            if speed <= 0 and url != cf_url:
+                speed = self._download_one(node, row.ip, tag + "-cf", cf_url)
+                if speed > 0:
+                    self.log.log("下载测速 [%s] %d/%d - %s Ookla 失败，已回退 CF" % (
+                        node["name"], index, len(tested), row.ip))
             detail = {
                 "node": node["name"],
                 "node_id": node.get("id") or "",

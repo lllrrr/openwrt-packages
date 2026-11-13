@@ -7,7 +7,7 @@
 <link rel="icon" type="image/svg+xml" href="favicon.svg?v=1.0.12">
 <link rel="icon" href="favicon.ico?v=1.0.12" sizes="any">
 <meta name="theme-color" content="#2563eb">
-<link rel="stylesheet" href="style.css?v=1.0.32">
+<link rel="stylesheet" href="style.css?v=1.0.34">
 </head>
 <body>
 <header class="topbar">
@@ -184,9 +184,8 @@
         「IP 列表」留空使用第一个启用的列表；填写「DDNS 域名」的 worker 只把最优 IP 写到 Cloudflare DNS，
         留空则照旧写回 PassWall 节点。没有 worker 时使用下面的「单节点测速」。
       </p>
-      <div class="grid three">
+      <div class="grid">
         <label>单节点测速（无 worker 时使用） <select id="cfg-test-node"></select></label>
-        <label>稳定节点（旧版，已不使用） <select id="cfg-stable-node"></select></label>
       </div>
       <div class="table-wrap">
         <table class="data nodes-table workers-table">
@@ -280,11 +279,21 @@
           <label class="check"><input id="download_enabled" type="checkbox"> 启用下载实测</label>
           <label>每节点候选数（最多 10） <input id="download_count" type="number" min="1" max="10" step="1"></label>
           <label>单 IP 时限 (s) <input id="download_time" type="number" min="1" max="60" step="1"></label>
-          <label class="span2">下载大小（字节，16384–999999）
+          <label class="span2">CF 回退下载大小（字节，16384–999999）
             <input id="download_size" type="number" min="16384" max="999999" step="1">
           </label>
         </div>
         <p class="muted">所有 worker 停止延迟探测后，逐节点串行下载：当前已发布的最优 IP 优先实测（即使本轮延迟抖动超标或未探测到），并保证每个机房（ASN）至少一个代表进入下载，实测数量会按需略超 N；其余名额按延迟从低到高补足。5 秒内不足 1 MB 的候选会被 curl 快速中止并判失败。下载失败的行会被剔除；全部失败时保留延迟排序。</p>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>成功后监测</h2></div>
+        <div class="grid three">
+          <label class="check"><input id="monitor_enabled" type="checkbox"> 启用成功后监测</label>
+          <label>监测间隔 (s) <input id="monitor_interval" type="number" min="10" max="3600" step="1"></label>
+          <label>连续失败次数（1–10） <input id="monitor_failures" type="number" min="1" max="10" step="1"></label>
+        </div>
+        <p class="muted">worker 取得有效结果后派生后台监测，每隔指定秒数复测一次这个结果的延迟；连续失败达到设定次数才触发复测（默认 3 次，避免偶发抖动就重测）。监测只做轻量 HEAD 探测，不选 IP、不写回、不占下载锁；下载实测期间自动跳过。参数在下一次任务重新拉起监测时生效。</p>
       </div>
 
       <div class="card">
@@ -628,6 +637,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=1.0.32"></script>
+<script src="app.js?v=1.0.34"></script>
 </body>
 </html>

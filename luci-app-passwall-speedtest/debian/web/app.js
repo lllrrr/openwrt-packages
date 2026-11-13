@@ -1881,6 +1881,10 @@
 		check('iterate_enabled', cfg.iterate_enabled);
 		set('iterate_minutes', cfg.iterate_minutes);
 		set('iterate_converge_count', cfg.iterate_converge_count);
+		const monitor = cfg.monitor || {};
+		check('monitor_enabled', monitor.enabled);
+		set('monitor_interval', monitor.interval);
+		set('monitor_failures', monitor.failures);
 		const ddns = cfg.ddns || {};
 		const cloudflare = ddns.cloudflare || {};
 		check('ddns_enabled', ddns.enabled);
@@ -1943,6 +1947,11 @@
 		cfg.iterate_enabled = check('iterate_enabled');
 		cfg.iterate_minutes = integer('iterate_minutes', 30, 1, 10080);
 		cfg.iterate_converge_count = integer('iterate_converge_count', 5, 1, 3000);
+		cfg.monitor = Object.assign({}, cfg.monitor || {}, {
+			enabled: check('monitor_enabled'),
+			interval: integer('monitor_interval', 60, 10, 3600),
+			failures: integer('monitor_failures', 3, 1, 10),
+		});
 		const oldDdns = cfg.ddns || {};
 		cfg.ddns = Object.assign({}, oldDdns, {
 			enabled: check('ddns_enabled'),
