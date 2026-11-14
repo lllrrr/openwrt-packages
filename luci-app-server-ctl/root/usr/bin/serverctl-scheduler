@@ -2,28 +2,31 @@
 
 'use strict';
 
-import { popen } from 'fs';
+import { readfile, writefile } from 'fs';
 import core from '/usr/share/serverctl/core.uc';
 
 function readnow() {
-	const fd = popen("date '+%Y-%m-%d %H %M %w'");
+	/* 用 ucode 内置 localtime() 进程内计算，不再每 3 秒 fork 一个 date；
+	 * localtime 跟随 TZ 环境变量（procd start_service 注入 /etc/TZ）。
+	 * 注意 TimeSpec：mon 为 1 基；wday 存在版本差异——旧版返回 0–6（周日=0，
+	 * struct tm 风格），新版(2025-07 后)返回 1–7（周日=7，date +%u 风格），
+	 * 此处统一归一为 0–6（周日=0），与 date +%w 及前端 weekday 取值一致；
+	 * tick() 侧另有对任务配置值 7→0 的兼容。 */
+	const t = localtime();
 
-	if (fd == null)
+	if (t == null)
 		return null;
 
-	const out = trim(core.str(fd.read('all')));
-	fd.close();
+	let wd = t['wday'];
 
-	const parts = split(out, ' ');
-
-	if (length(parts) != 4)
-		return null;
+	if (wd == 7)
+		wd = 0;
 
 	return {
-		date: parts[0],
-		hour: int(parts[1]),
-		minute: int(parts[2]),
-		weekday: int(parts[3]),
+		date: sprintf('%04d-%02d-%02d', t['year'], t['mon'], t['mday']),
+		hour: t['hour'],
+		minute: t['min'],
+		weekday: wd,
 	};
 }
 
@@ -112,7 +115,11 @@ if (length(ARGV) > 0 && ARGV[0] == 'tick') {
 	exit(0);
 }
 
-let last = '';
+/* “最近已处理分钟”落盘 /var/run(tmpfs)：respawn/服务重启后不再重复执行同一分钟
+ * 内已触发的任务；/var/run 随重启清空，重启后当前分钟任务照常至多执行一次 */
+const LASTFILE = '/var/run/serverctl-lasttick';
+
+let last = trim(core.str(readfile(LASTFILE) ?? ''));
 
 while (true) {
 	const nowinfo = readnow();
@@ -122,7 +129,11 @@ while (true) {
 
 		if (stamp != last) {
 			last = stamp;
-			tick();
+			writefile(LASTFILE, stamp);
+
+			/* 将定时执行结果写到 stdout，procd 的 stdout 重定向会将其收入 logread */
+			for (let line in tick())
+				printf('%s\n', line);
 		}
 	}
 

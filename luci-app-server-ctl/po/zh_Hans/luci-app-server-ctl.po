@@ -1,5 +1,8 @@
 msgid ""
-msgstr "Content-Type: text/plain; charset=UTF-8"
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Project-Id-Version: luci-app-server-ctl\n"
+"Language: zh_Hans\n"
 
 msgid "Server Control"
 msgstr "服务器控制"
@@ -37,6 +40,12 @@ msgstr "MAC 地址"
 msgid "Username"
 msgstr "用户名"
 
+msgid "SSH Port"
+msgstr "SSH 端口"
+
+msgid "System Type"
+msgstr "系统类型"
+
 msgid "Password"
 msgstr "密码"
 
@@ -47,10 +56,10 @@ msgid "Hide"
 msgstr "隐藏"
 
 msgid "Ping Test"
-msgstr "Ping测试"
+msgstr "Ping 测试"
 
 msgid "SSH Test"
-msgstr "SSH测试"
+msgstr "SSH 测试"
 
 msgid "Wake"
 msgstr "唤醒"

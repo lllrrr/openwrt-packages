@@ -62,7 +62,7 @@ function actionLabel(action) {
 function confirmDialog(title, body) {
 	return new Promise((resolve, reject) => {
 		ui.showModal(title, [
-			E('p', {}, body),
+			E('p', {}, [ body ]),
 			E('div', { 'class': 'button-row' }, [
 				E('button', {
 					'class': 'btn cbi-button',
@@ -227,6 +227,21 @@ const CTL_CSS = `
 	font-family: monospace;
 }
 
+/* cascade.css 在 ≤800px 时全局 th{display:none} + td{display:block}（为 cbi 卡片式
+ * 表格让路），会把信息表标签整体隐藏、只剩一列值。这里让信息表在小屏保持两列表格，
+ * 并让值列占满剩余宽度、允许长值(MAC/IP)换行。 */
+@media only screen and (max-width: 800px) {
+	.ctl-manual .ctl-info th,
+	.ctl-manual .ctl-info td {
+		display: table-cell;
+	}
+
+	.ctl-manual .ctl-info td {
+		width: auto;
+		word-break: break-all;
+	}
+}
+
 .ctl-manual .ctl-pass-toggle {
 	margin-left: 0.75em;
 }
@@ -288,7 +303,7 @@ const ManualSection = form.NamedSection.extend({
 
 		const options = [ E('option', { value: '' }, _('— Select a server —')) ];
 		for (const s of servers)
-			options.push(E('option', { value: s['name'] }, s['name']));
+			options.push(E('option', { value: s['name'] }, [ s['name'] ]));
 
 		const select = E('select', {
 			'class': 'cbi-input-select',
@@ -308,7 +323,9 @@ const ManualSection = form.NamedSection.extend({
 			mkrow('name', _('Name')),
 			mkrow('ip', _('IP Address')),
 			mkrow('mac', _('MAC Address')),
-			mkrow('user', _('Username'))
+			mkrow('user', _('Username')),
+			mkrow('port', _('SSH Port')),
+			mkrow('os', _('System Type'))
 		];
 
 		const passToggle = E('button', {
@@ -369,6 +386,8 @@ const ManualSection = form.NamedSection.extend({
 		els.ip.textContent = s ? (s['ip'] || '—') : '—';
 		els.mac.textContent = s ? (s['mac'] || '—') : '—';
 		els.user.textContent = s ? (s['user'] || 'root') : '—';
+		els.port.textContent = s ? (s['ssh_port'] || '22') : '—';
+		els.os.textContent = s ? (s['os_type'] == 'windows' ? 'Windows' : 'Linux') : '—';
 
 		if (s && s['password'])
 			els.password.textContent = this.passShown ? s['password'] : '••••••';
@@ -382,6 +401,11 @@ const ManualSection = form.NamedSection.extend({
 
 	appendLine(text) {
 		this.outputEl.textContent += text;
+
+		/* 防止长时间挂页后面板无限增长：超过 64 KB 即从头部按 8 KB 一块截断 */
+		while (this.outputEl.textContent.length > 65536)
+			this.outputEl.textContent = this.outputEl.textContent.slice(8192);
+
 		this.outputEl.scrollTop = this.outputEl.scrollHeight;
 	},
 
@@ -516,7 +540,9 @@ return view.extend({
 			_('Manually or on a schedule: wake, suspend or power off your LAN servers.'));
 
 		/* --- tab 1: manual control -------------------------------- */
-		s = m.section(ManualSection, 'defaults', 'serverctl', _('Manual Control'));
+		/* 对应 UCI 段 config serverctl 'defaults'（type='serverctl'，name='defaults'）。
+		 * 该节完全自定义渲染、不读写 UCI，参数保持正确顺序以免误导后续改动。 */
+		s = m.section(ManualSection, 'serverctl', 'defaults', _('Manual Control'));
 		s.ctlArea = 'manual';
 
 		/* --- tab 1: scheduled tasks ------------------------------- */
@@ -549,6 +575,8 @@ return view.extend({
 
 		o = s.option(form.ListValue, 'weekday', _('Weekday'));
 		o.depends('schedule', 'weekly');
+		o.rmempty = false;
+		o.default = '1';
 		o.value('1', _('Monday'));
 		o.value('2', _('Tuesday'));
 		o.value('3', _('Wednesday'));
@@ -561,8 +589,13 @@ return view.extend({
 		o.depends('schedule', 'once');
 		o.rmempty = false;
 		o.validate = (sid, value) => {
-			if (/^\d{4}-\d{2}-\d{2}$/.test(value || ''))
+			const mt = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || '');
+			const dt = mt ? new Date(+mt[1], +mt[2] - 1, +mt[3]) : null;
+
+			/* 形状之外再回验真实日期（拒绝 2099-02-30 之类，否则任务静默永不触发） */
+			if (dt != null && dt.getFullYear() === +mt[1] && dt.getMonth() === +mt[2] - 1 && dt.getDate() === +mt[3])
 				return true;
+
 			return _('Invalid date, expected format YYYY-MM-DD');
 		};
 
@@ -626,7 +659,7 @@ return view.extend({
 
 		o = s.option(form.Value, 'ip', _('IP Address'));
 		o.rmempty = false;
-		o.datatype = 'or(ip4addr,hostname)';
+		o.datatype = 'or(ip4addr,ip6addr,hostname)';
 
 		o = s.option(form.Value, 'mac', _('MAC Address'));
 		o.rmempty = false;
@@ -636,6 +669,17 @@ return view.extend({
 		o.default = 'root';
 
 		o = s.option(form.Value, 'password', _('Password'));
+		o.modalonly = true;
+
+		o = s.option(form.Value, 'ssh_port', _('SSH Port'));
+		o.default = '22';
+		o.datatype = 'port';
+
+		o = s.option(form.ListValue, 'os_type', _('System Type'));
+		o.default = 'linux';
+		o.rmempty = false;
+		o.value('linux', 'Linux');
+		o.value('windows', 'Windows');
 
 		return m.render();
 	}

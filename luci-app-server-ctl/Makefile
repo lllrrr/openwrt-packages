@@ -6,7 +6,7 @@ include $(TOPDIR)/rules.mk
 
 LUCI_TITLE:=Server Control
 LUCI_DESCRIPTION:=Manual and scheduled Wake-on-LAN, suspend and power-off control for LAN servers via etherwake and SSH.
-LUCI_DEPENDS:=+luci-base +etherwake +sshpass +openssh-client
+LUCI_DEPENDS:=+luci-base +rpcd-mod-ucode +etherwake +sshpass +openssh-client
 LUCI_PKGARCH:=all
 
 PKG_LICENSE:=Apache-2.0
