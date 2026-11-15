@@ -26,6 +26,9 @@ chmod 700 "$CONFIG_DIR"
 rm -rf "$APP_DIR/cfpick" "$APP_DIR/web" "$APP_DIR/data" "$APP_DIR/bin"
 install -d -m 755 "$APP_DIR/bin"
 cp -a "$SRC_DIR/cfpick" "$APP_DIR/cfpick"
+# Drop bytecode copied from the source tree or left by a previous version;
+# Python may otherwise keep running stale .pyc after the upgrade.
+find "$APP_DIR/cfpick" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 cp -a "$SRC_DIR/web" "$APP_DIR/web"
 cp -a "$SRC_DIR/data" "$APP_DIR/data"
 install -m 755 "$SRC_DIR/bin/cfpick" "$APP_DIR/bin/cfpick"

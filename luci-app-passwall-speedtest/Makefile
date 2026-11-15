@@ -12,7 +12,7 @@ LUCI_TITLE:=CFPick - Cloudflare IP optimizer for OpenWrt
 # are the OpenWrt sub-packages that provide the modules it imports.
 LUCI_DEPENDS:=+curl +ca-bundle +python3-light +python3-urllib +python3-codecs +python3-openssl +python3-email
 LUCI_PKGARCH:=all
-PKG_VERSION:=1.0.35
+PKG_VERSION:=1.0.36
 PKG_RELEASE:=0
 PKG_LICENSE:=AGPL-3.0
 PKG_MAINTAINER:=<https://github.com/urbanescavenger/CFPick>
@@ -26,6 +26,7 @@ endef
 define Package/$(PKG_NAME)/postinst
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] && exit 0
+rm -rf /usr/lib/cfpick/cfpick/__pycache__
 /etc/init.d/rpcd reload 2>/dev/null || /etc/init.d/rpcd restart 2>/dev/null
 exit 0
 endef
@@ -39,6 +40,9 @@ endef
 define StandaloneEnginePrepare
 	$(INSTALL_DIR) $(PKG_BUILD_DIR)/root/usr/lib/cfpick
 	$(CP) -R $(CURDIR)/debian/cfpick $(PKG_BUILD_DIR)/root/usr/lib/cfpick/
+	# Never ship local __pycache__: a same-size source file can keep running
+	# stale bytecode after an upgrade.
+	find $(PKG_BUILD_DIR)/root/usr/lib/cfpick -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	# No web/ assets: the OpenWrt app uses the operations console for its UI.
 	$(CP) -R $(CURDIR)/debian/data $(PKG_BUILD_DIR)/root/usr/lib/cfpick/
 endef
