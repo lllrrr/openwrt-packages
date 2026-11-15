@@ -390,49 +390,6 @@ local function get_dhcp_leases()
     return leases
 end
 
--- Helper: Get uplink info from Bandix API
--- Returns: { ["MAC"] = "uplink" } where uplink is "wl1-ap0", "wl1-mesh0", etc.
-local function get_bandix_uplink()
-    local uplinks = {}
-    
-    -- Check if bandix is running
-    local result = sys.exec("pidof bandix 2>/dev/null")
-    if not result or result:gsub("\n", "") == "" then
-        return uplinks
-    end
-    
-    -- Get port from UCI
-    -- Guard the value before splicing it into a shell command line: it is
-    -- single-quoted, so a quote in the UCI value would break out of the string.
-    local port = uci:get("bandix", "general", "port") or "8686"
-    if not tostring(port):match("^%d+$") then port = "8686" end
-    
-    -- Fetch device list from Bandix API
-    local response = sys.exec("curl -s --connect-timeout 1 --max-time 3 'http://127.0.0.1:" .. port .. "/api/traffic/devices' 2>/dev/null")
-    if not response or response == "" or not response:find('"status":"success"') then
-        return uplinks
-    end
-    
-    -- Parse JSON in Lua (avoid spawning per-device shell subprocesses)
-    local ok, data = pcall(json.parse, response)
-    if not ok or type(data) ~= "table" or type(data.data) ~= "table" then
-        return uplinks
-    end
-    local devices = data.data.d
-    if type(devices) ~= "table" then
-        return uplinks
-    end
-    
-    for _, dev in ipairs(devices) do
-        local mac = dev.mac
-        if mac and mac ~= "" then
-            uplinks[mac:upper()] = dev.uplink or ""
-        end
-    end
-    
-    return uplinks
-end
-
 -- Helper: Get mesh station list (mesh nodes connected via wl1-mesh0)
 -- Returns: { ["MAC"] = true }
 local function get_mesh_stations()
@@ -779,7 +736,7 @@ end
 --   2. Bridge FDB: non-local MACs on wl1-mesh0 port
 --        Mesh node = type=network device whose OUI matches main router
 --        Others on same port = mesh_children
-local function identify_topology(bandix_uplink, wifi_stations, wired_stations, mesh_stations, dhcp_leases)
+local function identify_topology(wifi_stations, wired_stations, mesh_stations, dhcp_leases)
     local mesh_nodes = {}
     local mesh_children = {}
     local mesh_port  -- cached wl1-mesh0 bridge port number
@@ -928,10 +885,9 @@ local function get_arp_online()
     local wired_stations = get_wired_stations()
     local mesh_stations = get_mesh_stations()
     local dhcp_leases = get_dhcp_leases()
-    local bandix_uplink = get_bandix_uplink()
     
-    -- Identify topology (uses Bandix if available, otherwise falls back)
-    local mesh_nodes, mesh_children = identify_topology(bandix_uplink, wifi_stations, wired_stations, mesh_stations, dhcp_leases)
+    -- Identify topology
+    local mesh_nodes, mesh_children = identify_topology(wifi_stations, wired_stations, mesh_stations, dhcp_leases)
 
     -- Read /proc/net/arp for all known device IPs
     local f = io.open("/proc/net/arp", "r")

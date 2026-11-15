@@ -289,7 +289,6 @@
 | dnsmasq | DHCP事件触发 | dhcpscript 配置 |
 | nftables | 流量封禁 | 直接操作 |
 | tc | 带宽限速 | 直接操作 |
-| Bandix | 设备上行链路信息 | HTTP API |
 | nlbwmon | 流量协议分析 | JSON输出 |
 | avahi | mDNS探测 | avahi-resolve |
 | ubus | 系统状态 | libubus-lua |
