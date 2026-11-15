@@ -5,40 +5,41 @@
 			"ubus": {
 				"luci.oxidns": [
 					"status",
+					"dns_integration_status",
 					"core_progress",
 					"config_read",
+					"config_schema",
+					"config_plugin_types",
 					"settings_read",
-					"rules_list",
-					"rules_read",
 					"logs_recent",
-					"hijack_get",
-					"geo_get",
-					"geo_progress"
+					"logs_path_read"
 				]
 			}
 		},
 		"write": {
+			"cgi-io": [ "upload" ],
+			"file": {
+				"/tmp/oxidns-core-upload-*": [ "write" ]
+			},
 			"ubus": {
 				"luci.oxidns": [
 					"core_install",
-					"core_update",
 					"core_reinstall",
+					"core_update",
 					"core_upload_install",
+					"core_webui_install",
 					"core_remove",
 					"service_start",
 					"service_stop",
 					"service_restart",
 					"service_enable",
 					"service_disable",
+					"dns_integration_enable",
+					"dns_integration_disable",
 					"config_validate",
 					"config_save",
-					"rules_save",
 					"settings_save",
-					"logs_clear",
-					"hijack_save",
-					"geo_save",
-					"geo_reset",
-					"geo_download"
+					"logs_path_save"
 				]
 			}
 		}

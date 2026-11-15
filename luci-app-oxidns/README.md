@@ -1,50 +1,99 @@
 # luci-app-oxidns
 
-OxiDNS 的 OpenWrt / LuCI 管理插件。安装后 LuCI 出现 `Services -> OxiDNS`：安装 OxiDNS 内核、管理服务、编辑配置与规则文件、查看日志。
+语言：中文 | [English](./README.en.md)
 
-> **自用声明**：本仓库是 [svenshi/luci-app-oxidns](https://github.com/svenshi/luci-app-oxidns) 的个人自用分支，内核来自 [svenshi/oxidns](https://github.com/svenshi/oxidns)。只用本仓库 Release 的包，不执行上游的官方安装脚本，不与上游 Release 混用；不保证跟进上游更新。相对上游的改动见文末。
+`luci-app-oxidns` 是 OxiDNS 的 OpenWrt / LuCI 管理插件。安装后，LuCI 会增加 `服务 -> OxiDNS` 页面，用于安装 OxiDNS 内核、管理 OpenWrt 服务、编辑配置、查看日志，以及按需将局域网 DNS 通过 dnsmasq 转发到 OxiDNS。
 
-## 安装
+本仓库只包含 LuCI 管理界面和 rpcd 后端；OxiDNS 内核、WebUI 与通用 release 由 [svenshi/oxidns](https://github.com/svenshi/oxidns) 提供。
 
-从本仓库 [Release](https://github.com/hahaher123/luci-app-oxidns/releases/latest) 下载两个 `noarch` 包：`luci-app-oxidns`（页面与后端）和可选的 `luci-i18n-oxidns-zh-cn`（简体中文语言包），拷到路由器后：
+**完整操作说明**：从零配置 DNS、普通模式/高级模式逐项参考、插件参数、常见任务、故障排查以及 OxiDNS WebUI 的使用方法，见 [info/README.md](info/README.md)。其中在 `基本信息` 一键启用 dnsmasq 转发、手动配置以及回滚，见 [4.9 用 dnsmasq 转发（推荐）](info/README.md#49-用-dnsmasq-转发推荐)；普通模式的广告过滤卡片见 [3.8 广告过滤](info/README.md#38-广告过滤ad-filtering)。
+
+![OxiDNS LuCI 管理界面](screenshot.png)
+
+## 安装 LuCI 插件
+
+从本仓库 Release 下载安装包并上传到设备（例如 `/tmp`），然后安装。
+
+OpenWrt 24.10（`opkg`）：
 
 ```sh
-apk add --allow-untrusted --no-network ./luci-app-oxidns-<版本>.apk
-apk add --allow-untrusted --no-network ./luci-i18n-oxidns-zh-cn-<版本>.apk
+opkg install /tmp/luci-app-oxidns_*.ipk
+
+# 可选：安装简体中文语言包
+opkg install /tmp/luci-i18n-oxidns-zh-cn_*.ipk
 ```
 
-校验和见 Release 里的 `sha256sums.txt`。`opkg` 系统（24.10 及更早）用 `scripts/build-luci-package.sh` 本地产出 `ipk` 再 `opkg install`。装完菜单没出现就重启 `rpcd`（`/etc/init.d/rpcd restart`）。
+OpenWrt 25.12（`apk`）：
 
-**装内核**：从旧的 `oxidns` 包迁移时先停服务并卸载旧包（`/etc/init.d/oxidns stop`；`apk del oxidns`），然后到 `Settings` 确认 `Core repository` 为 `svenshi/oxidns`，`Core` 页点 `Install Core`（LuCI 按设备架构下载官方 musl archive 并校验 SHA256；离线环境用 `Upload Core` 上传），最后在 `Overview` 启动服务。内核已装时 `Core` 页提供 `Repair Reinstall` / `Upload Core` 修复，不做升级。
+```sh
+apk add --allow-untrusted /tmp/luci-app-oxidns-*.apk
 
-## 页面
+# 可选：安装简体中文语言包
+apk add --allow-untrusted /tmp/luci-i18n-oxidns-zh-cn-*.apk
+```
 
-| 页面 | 用途 |
+如果安装后菜单没有出现，重启 `rpcd`，然后打开 `服务 -> OxiDNS`：
+
+```sh
+/etc/init.d/rpcd restart
+```
+
+### 从源码编译
+
+要把本包裁剪进固件或自行调整时，把它放进 OpenWrt 构建树编译：
+
+```sh
+cd openwrt
+./scripts/feeds update -a
+./scripts/feeds install -a
+git clone https://github.com/Arthur97172/luci-app-oxidns.git package/luci-app-oxidns
+make menuconfig   # LuCI -> Applications -> luci-app-oxidns
+make package/luci-app-oxidns/compile V=s
+```
+
+产物在 `bin/packages/<架构>/` 下：24.10 构建树生成 `.ipk`，25.12 构建树生成 `.apk`。
+
+## 功能
+
+- `基本信息`：`状态概览` 展示后端、内核、构建信息、服务状态、开机自启和 WebUI 入口；下方可启动、停止或重启服务。
+- `系统 DNS 接入`：位于 `基本信息` 页面，可一键启用或停用 dnsmasq 转发。启用后 dnsmasq 将通用 DNS 查询转发到 OxiDNS 的监听地址，保留特定域名上游；默认关闭，停用时会恢复原来的通用上游和 `noresolv` 设置。
+- `安装部署`：安装、更新、上传、修复或删除内核与 WebUI；配置内核仓库、bundle、路径、系统日志输出和下载凭据。
+- `DNS配置`：默认进入高级模式（完整 YAML 编辑器），普通模式提供常用设置表单；两种模式都支持校验、下载/上传配置、保存、保存并应用和改动预览。`forward` 的上游可从下拉框选择常用 DNS 服务器或输入自定义地址，没有 `forward` 插件时可一键创建并接入入口 sequence；server 的 `Entry` 改为下拉选择已有插件。普通模式的 `广告过滤` 卡片可一键创建并管理固定的 `adguard_rule` / `black_hole` 插件组（填写订阅地址后创建 `download` 插件），支持订阅下载、内联规则、本地规则文件和拦截模式，并把拦截规则插入每个入口 sequence 的最前面。普通模式的 `Hosts` 卡片可一键创建固定的 `hosts` 插件（`oxidns_hosts`），把 hosts 步骤插入入口 sequence，并维护本地域名记录。普通模式的 `缓存` 卡片可一键创建固定的 `cache` 插件（`oxidns_cache`），把缓存步骤插入入口 sequence，并在启用后提供全部缓存字段。
+- `运行日志`：查看 OxiDNS 运行日志。
+
+## 默认路径
+
+| 项目 | 路径 |
 | --- | --- |
-| `Overview` | 内核 / 服务状态、WebUI 入口；DNS 劫持开关（把局域网发往 53 端口的 DNS 请求重定向到本机 OxiDNS，目标端口从 config.yaml 解析） |
-| `Core & Settings` | 单页：上半部分为内核状态与安装/更新/上传/修复/删除，下半部分为内核源、代理、token、路径设置 |
-| `Configuration` | 查看、校验、保存配置文件 |
-| `Rule Files` | 编辑规则列表文件；定时重置学习文件 |
-| `Geo Data` | geoip.dat / geosite.dat 下载与更新（默认 jsDelivr 上的 Loyalsoldier 增强版，落点 `/usr/share/v2ray`，地址与目录可改、可一键还原） |
-| `Logs` | 日志文件查看，时间戳按 UTC+8 显示；「清空」截断日志文件 |
+| 内核二进制 | `/usr/bin/oxidns` |
+| WebUI | `/usr/share/oxidns/webui` |
+| 配置文件 | `/etc/oxidns/config.yaml` |
+| 工作目录 | `/var/lib/oxidns` |
+| 日志文件 | `/tmp/oxidns/oxidns.log` |
+| 服务脚本 | `/etc/init.d/oxidns` |
 
-配置在 `/etc/oxidns/config.yaml`，规则目录 `/etc/oxidns/rule`，工作目录 `/var/lib/oxidns`。
+## 已知限制
 
-## 升级与删除
+- 只支持 OxiDNS 已发布的 Linux musl release target。
+- `更新内核` 只安装严格更新的正式版本，不会降级已安装的较新或自定义构建。
+- 替换内核或 WebUI 前会暂存并校验新文件；复制失败时恢复旧文件，避免留下内核与 WebUI 不匹配的状态。
+- 普通模式只编辑已存在的插件实例，新增/删除插件和 sequence 规则需在高级模式或 OxiDNS WebUI 中完成；`广告过滤`、`Hosts` 和 `缓存` 卡片是例外，它们可以创建或删除固定的 `adguard_rule` / `black_hole` 插件组（填写订阅地址后创建 `download` 插件）、`oxidns_hosts` 插件和 `oxidns_cache` 插件，并维护入口 sequence 中对应的拦截、hosts 和缓存步骤。上游区域的 `创建 forward 插件` 按钮也可以创建固定的 `forward` 插件并接入入口 sequence。配置使用 YAML anchor、alias 或 merge key 时，普通模式会变为只读。
+- 普通模式保存会重新序列化 YAML：保留注释、字段顺序和表单未管理的字段，只写入实际改动的字段。普通模式、高级模式和 OxiDNS WebUI 编辑同一份文件，建议同时只使用一个入口。
+- `基本信息` 的 WebUI 入口要求 WebUI 文件已安装、服务正在运行且 HTTP 监听地址可访问；只监听 `127.0.0.1` / `::1` 时需要本机访问或 SSH 隧道。
+- `系统 DNS 接入` 要求 OxiDNS 已启动，UDP 与 TCP 监听使用同一个端口并共享可达的 IPv4 地址；只监听 IPv6、端口不一致或没有共同可达的 IPv4 地址时，“启用 dnsmasq 转发”按钮不可用。
+- 启用 `系统 DNS 接入` 后，停止 OxiDNS 会导致局域网 DNS 解析失败（fail-closed），不会自动绕过 OxiDNS；需重新启动 OxiDNS 或停用转发。
+- `系统 DNS 接入` 不接管 53 端口；dnsmasq 继续监听 53 并提供 DHCP、本地域名和租约解析。需要 OxiDNS 直接监听 53 时属于另一种部署方式，代价和步骤见详细文档。
 
-- **内核**：`Core & Settings` 页 `Update Core`。它同时查 [openwrt-oxidns](https://github.com/hahaher123/openwrt-oxidns) 与官方 [svenshi/oxidns](https://github.com/svenshi/oxidns) 的最新版本，取更高者：优先装 openwrt-oxidns 的 apk（arm64/x86_64），该仓库没有构建的架构回落到官方 musl 归档；两者都不高于当前版本就提示「已是最新」，不会降级。
-- **插件**：下载新版本包重装即可。
-- **删除内核**：`Core & Settings` 页 `Remove Core`，保留配置与工作目录。
+## 私有仓库与下载
 
-## 网络受限环境
+路由器需要能访问 GitHub Releases 和 release archive。私有仓库或受限网络可以在 `安装部署` 中配置 GitHub token 或下载代理；Token 和代理值保存后不会在 LuCI 中回显。配置下载代理需要安装 `curl`，也可以使用 `上传内核` 离线安装。
 
-路由器需能访问 GitHub Releases。受限网络可在 `Settings` 配 GitHub token 或下载代理（保存后不回显），或在 `Core` 页直接上传 archive / 二进制离线安装。
+## 许可证
 
-## 本分支相对上游的改动
+本项目以 GNU General Public License v3.0 或更高版本（`GPL-3.0-or-later`）发布。完整许可证文本见 [LICENSE](LICENSE)。
 
-包版本高于上游，可直接覆盖升级；文案均已进 `po/`。
+## 致谢
 
-1. **新增 `Rule Files` 页** —— 横向标签页编辑规则文件（固定 7 项 + 目录内 `.txt` 自动追加），`Save` 写盘、`Save & Restart` 生效，带 mtime 冲突检测与写前备份。
-3. **日志页直读日志文件** —— 显示 config.yaml 中 `log.file` 指定的文件（未配置时退回 `logread`），UTC 时间戳换算成 `+08:00`，「清空」原地截断日志文件，无需重启。
-4. **配置页提示优化** —— 校验 / 保存结果按状态着色，区分 `Save` 与 `Save & Restart`，操作期间按钮禁用并保留真实错误文案。
-5. **内核更新（`Update Core`）** —— 已装内核时提供更新入口：并发查询 openwrt-oxidns 与官方仓库，取版本更高者；openwrt-oxidns 的 apk 走 `apk add`（校验 Release digest），其未覆盖的架构回落官方归档；两边都不高于当前版本则只提示，不降级重装。
+- [https://oxidns.org/](https://oxidns.org/)：OxiDNS 官方主页，提供文档、配置参考和最新动态。
+- [https://github.com/svenshi/oxidns](https://github.com/svenshi/oxidns)：OxiDNS 内核及其 WebUI 的源代码仓库；本插件安装的内核和 WebUI 均来自该项目的 release。
+- 本仓库克隆自 [svenshi/luci-app-oxidns](https://github.com/svenshi/luci-app-oxidns)，并在此基础上进行了优化。

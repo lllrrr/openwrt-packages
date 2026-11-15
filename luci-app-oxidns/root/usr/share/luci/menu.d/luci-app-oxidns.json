@@ -10,7 +10,7 @@
 		}
 	},
 	"admin/services/oxidns/overview": {
-		"title": "Overview",
+		"title": "Basic Information",
 		"order": 10,
 		"action": {
 			"type": "view",
@@ -21,7 +21,7 @@
 		}
 	},
 	"admin/services/oxidns/config": {
-		"title": "Configuration",
+		"title": "DNS Configuration",
 		"order": 30,
 		"action": {
 			"type": "view",
@@ -31,31 +31,9 @@
 			"acl": [ "luci-app-oxidns" ]
 		}
 	},
-	"admin/services/oxidns/rules": {
-		"title": "Rule Files",
-		"order": 35,
-		"action": {
-			"type": "view",
-			"path": "oxidns/rules"
-		},
-		"depends": {
-			"acl": [ "luci-app-oxidns" ]
-		}
-	},
-	"admin/services/oxidns/geo": {
-		"title": "Geo Data",
-		"order": 36,
-		"action": {
-			"type": "view",
-			"path": "oxidns/geo"
-		},
-		"depends": {
-			"acl": [ "luci-app-oxidns" ]
-		}
-	},
 	"admin/services/oxidns/logs": {
-		"title": "Logs",
-		"order": 40,
+		"title": "Runtime Logs",
+		"order": 50,
 		"action": {
 			"type": "view",
 			"path": "oxidns/logs"
@@ -65,7 +43,7 @@
 		}
 	},
 	"admin/services/oxidns/settings": {
-		"title": "Core & Settings",
+		"title": "Installation and Deployment",
 		"order": 20,
 		"action": {
 			"type": "view",

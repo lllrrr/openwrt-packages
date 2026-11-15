@@ -1,9 +1,7 @@
-
-
 msgid ""
 msgstr ""
 "Project-Id-Version: luci-app-oxidns\n"
-"PO-Revision-Date: 2026-09-23 00:00+0000\n"
+"PO-Revision-Date: 2026-06-27 00:00+0000\n"
 "Last-Translator: Sven Shi <isvenshi@gmail.com>\n"
 "Language-Team: Chinese Simplified\n"
 "Language: zh_Hans\n"
@@ -12,52 +10,77 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 
+msgid "%d step(s)"
+msgstr "%d 个步骤"
+
 msgid "A token is currently configured. Enter a new value to replace it."
 msgstr "当前已配置 Token。输入新值可替换现有 Token。"
 
-msgid "Actions"
-msgstr "操作"
+msgid "Add upstream DNS"
+msgstr "添加上游DNS"
 
-msgid "Active firewall sections"
-msgstr "生效的防火墙配置段"
+msgid "Adds a cache plugin and runs it before forwarding in the entry sequence. Cached responses answer repeated queries without contacting upstream servers."
+msgstr "添加缓存插件，并在转发前运行。缓存响应可在不访问上游服务器的情况下应答重复查询。"
 
-msgid "Already up to date (%s)."
-msgstr "已是最新版本（%s）。"
+msgid "API"
+msgstr "API"
 
-msgid "Apply"
-msgstr "应用"
-msgid "Applying DNS hijack..."
-msgstr "正在应用 DNS 劫持..."
+msgid "Adds a forward plugin and runs it at the end of the entry sequence. Add at least one upstream DNS server below."
+msgstr "添加 forward 插件，并在入口 sequence 末尾运行。请在下方至少添加一个上游 DNS 服务器。"
+
+msgid "Adds a hosts plugin and runs it before forwarding in the entry sequence. Configured names are answered locally and everything else is forwarded."
+msgstr "添加 hosts 插件，并在入口序列中先于转发运行。配置过的域名在本地应答，其余请求继续转发。"
 
 msgid "Applying service action..."
 msgstr "正在执行服务操作..."
 
+msgid "Arguments"
+msgstr "参数"
+
 msgid "Available"
 msgstr "可用"
 
-msgid "Binary path"
-msgstr "二进制路径"
+msgid "Autostart"
+msgstr "自启设置"
 
-msgid "Blacklist"
-msgstr "黑名单"
+msgid "Basic Information"
+msgstr "基本信息"
 
 msgid "Build"
 msgstr "构建信息"
 
-msgid "Bundle"
-msgstr "Bundle"
+msgid "Boot autostart only affects the next boot."
+msgstr "开机自启仅影响下次开机。"
+
+msgid "Cache is configured by the %s plugin. Edit it in Advanced Mode."
+msgstr "缓存由插件 %s 配置。请在高级模式中编辑。"
+
+msgid "Cache is configured by the %s plugin. Edit that plugin's settings below."
+msgstr "缓存由插件 %s 配置。请在下方修改该插件的设置。"
+
+msgid "Cache stores DNS responses locally so repeated queries are answered without contacting upstream servers."
+msgstr "缓存将 DNS 响应保存在本地，使重复查询无需访问上游服务器即可得到应答。"
 
 msgid "Cancel"
 msgstr "取消"
 
+msgid "Change Preview"
+msgstr "变更预览"
+
+msgid "Checking for OxiDNS core updates..."
+msgstr "正在检查 OxiDNS 内核更新..."
+
+msgid "Choose the sequence that handles queries for this server."
+msgstr "选择处理此服务器查询的 sequence。"
+
 msgid "Clear"
 msgstr "清空"
 
-msgid "Clear configured download proxy"
-msgstr "清除已配置的下载代理"
-
 msgid "Clear configured GitHub token"
 msgstr "清除已配置的 GitHub Token"
+
+msgid "Clear configured download proxy"
+msgstr "清除已配置的下载代理"
 
 msgid "Close"
 msgstr "关闭"
@@ -68,26 +91,17 @@ msgstr "命令输出"
 msgid "Config path"
 msgstr "配置路径"
 
-msgid "Configuration"
-msgstr "配置"
-
 msgid "Configuration and working directory data are preserved unless selected below."
 msgstr "除非勾选下面的选项，否则配置和工作目录数据会保留。"
 
-msgid "Configuration is valid"
-msgstr "配置校验通过"
+msgid "Configuration downloaded."
+msgstr "配置已下载。"
 
-msgid "Configuration saved and service restarted"
-msgstr "配置已保存并重启服务"
-
-msgid "Configure OxiDNS core download sources, runtime paths, and optional download credentials."
-msgstr "配置 OxiDNS 内核下载源、运行路径和可选下载凭据。"
+msgid "Configuration uploaded. Listen addresses now use %s."
+msgstr "配置已上传。监听地址中的 IP 已更新为 %s。"
 
 msgid "Confirm"
 msgstr "确认"
-
-msgid "Control the OpenWrt init service for OxiDNS."
-msgstr "控制 OxiDNS 的 OpenWrt init 服务。"
 
 msgid "Core"
 msgstr "内核"
@@ -95,11 +109,8 @@ msgstr "内核"
 msgid "Core bundle"
 msgstr "内核 bundle"
 
-msgid "Core operation completed."
-msgstr "内核操作已完成。"
-
-msgid "Core updated to %s."
-msgstr "内核已更新到 %s。"
+msgid "Core installed, but the uploaded file contains no WebUI files. Use Install WebUI to download them from GitHub."
+msgstr "内核已安装，但上传文件不包含 WebUI 文件。请使用“安装 WebUI”从 GitHub 下载 WebUI。"
 
 msgid "Core operation failed"
 msgstr "内核操作失败"
@@ -107,11 +118,11 @@ msgstr "内核操作失败"
 msgid "Core repository"
 msgstr "内核仓库"
 
-msgid "Core & Settings"
-msgstr "内核与设置"
+msgid "Create forward plugin"
+msgstr "创建 forward 插件"
 
-msgid "Core Status"
-msgstr "内核状态"
+msgid "Define which address and entry the UDP, TCP, and QUIC server plugins listen on."
+msgstr "设置 UDP/TCP/QUIC 服务插件的监听地址和入口。"
 
 msgid "Delete configuration file"
 msgstr "删除配置文件"
@@ -119,54 +130,44 @@ msgstr "删除配置文件"
 msgid "Delete working directory"
 msgstr "删除工作目录"
 
-msgid "Details"
-msgstr "详情"
-msgid "Disable"
-msgstr "禁用"
+msgid "Disable on boot"
+msgstr "取消开机自启"
 
-msgid "Disabled"
-msgstr "关闭"
+msgid "Discard the unsaved changes and reload the last saved configuration?"
+msgstr "放弃未保存的更改并重新加载上次保存的配置？"
 
-msgid "Discard unsaved changes and load another file?"
-msgstr "有未保存的修改，确定放弃并切换到另一个文件？"
+msgid "DoH entry %d of the HTTP server plugin %s must reference the plugin tag without \"$\"."
+msgstr "DoH 条目 %d（HTTP 服务器插件 %s）必须引用不带 \"$\" 的插件标签。"
 
-msgid "Discard unsaved changes and reload this file?"
-msgstr "有未保存的修改，确定放弃并重新载入该文件？"
-msgid "DNS hijack"
-msgstr "DNS 劫持"
-msgid "DNS hijack disabled."
-msgstr "DNS 劫持已关闭。"
-msgid "DNS hijack enabled. LAN port 53 requests are redirected to OxiDNS."
-msgstr "DNS 劫持已开启，局域网发往 53 端口的 DNS 请求将被重定向到 OxiDNS。"
+msgid "DoH entry %d of the HTTP server plugin %s references the missing plugin %s."
+msgstr "DoH 条目 %d（HTTP 服务器插件 %s）引用了不存在的插件 %s。"
 
-msgid "Download core archive"
-msgstr "下载内核压缩包"
+msgid "DoH entry %d of the HTTP server plugin %s requires the %s field."
+msgstr "DoH 条目 %d（HTTP 服务器插件 %s）必须填写 %s 字段。"
 
 msgid "Download proxy"
 msgstr "下载代理"
 
+msgid "Download Config"
+msgstr "下载配置"
+
+msgid "Download core archive"
+msgstr "下载内核压缩包"
+
 msgid "Download release metadata"
 msgstr "下载 release 元数据"
 
-msgid "Dynamic Domains"
-msgstr "动态域名"
+msgid "Enable cache"
+msgstr "启用缓存"
 
-msgid "Edit the rule list files that OxiDNS providers read, then restart the service to apply the changes."
-msgstr "编辑 OxiDNS provider 读取的规则列表文件，改完需要重启服务才会生效。"
+msgid "Enable hosts"
+msgstr "启用 hosts"
 
-msgid "Edit, validate, and save the full OxiDNS YAML configuration file."
-msgstr "编辑、校验并保存完整的 OxiDNS YAML 配置文件。"
+msgid "Enable on boot"
+msgstr "设为开机自启"
 
-msgid "Editing"
-msgstr "正在编辑"
-
-msgid "Enable"
-msgstr "启用"
-msgid "Enable DNS hijack"
-msgstr "开启 DNS 劫持"
-
-msgid "Enabled"
-msgstr "已开启"
+msgid "Enable probe cache"
+msgstr "启用探测缓存"
 
 msgid "Error"
 msgstr "错误"
@@ -176,11 +177,15 @@ msgstr "错误码"
 
 msgid "Example: http://127.0.0.1:7890"
 msgstr "示例：http://127.0.0.1:7890"
-msgid "Failed to apply DNS hijack"
-msgstr "应用 DNS 劫持失败"
+
+msgid "Failed to save the log path."
+msgstr "保存日志路径失败。"
 
 msgid "Failed to save settings"
 msgstr "保存设置失败"
+
+msgid "Failure TTL (seconds)"
+msgstr "失败 TTL（秒）"
 
 msgid "Format: http://host:port, https://host:port, socks5://host:port, or socks5h://host:port. Use http://user:pass@host:port when authentication is required."
 msgstr "格式：http://主机:端口、https://主机:端口、socks5://主机:端口 或 socks5h://主机:端口。需要认证时使用 http://用户:密码@主机:端口。"
@@ -188,26 +193,32 @@ msgstr "格式：http://主机:端口、https://主机:端口、socks5://主机:
 msgid "GitHub token"
 msgstr "GitHub Token"
 
-msgid "Greylist"
-msgstr "灰名单"
+msgid "Hosts answers configured names locally, for example to map a domain to a LAN address."
+msgstr "hosts 在本地应答配置过的域名，例如把域名映射到局域网地址。"
+
+msgid "Hosts is configured by the %s plugin. Edit it in Advanced Mode."
+msgstr "主机记录由插件 %s 配置。请在高级模式中编辑。"
+
+msgid "Hosts is configured by the %s plugin. Edit that plugin's settings below."
+msgstr "主机记录由插件 %s 配置。请在下方修改该插件的设置。"
 
 msgid "Install Core"
 msgstr "安装内核"
 
+msgid "Install WebUI"
+msgstr "安装 WebUI"
+
 msgid "Install core files"
 msgstr "安装内核文件"
-
-msgid "Install, update or repair the OxiDNS core binary. Updates prefer the openwrt-oxidns package when it has a build for this device."
-msgstr "安装、更新或修复 OxiDNS 内核二进制。更新优先使用 openwrt-oxidns 为当前设备构建的软件包。"
 
 msgid "Install the OxiDNS core before editing the configuration."
 msgstr "请先安装 OxiDNS 内核，再编辑配置。"
 
-msgid "Install the OxiDNS core before editing the rule files."
-msgstr "请先安装 OxiDNS 内核，然后才能编辑规则文件。"
-
 msgid "Install the OxiDNS core before using service controls."
 msgstr "请先安装 OxiDNS 内核，再使用服务控制。"
+
+msgid "Install the OxiDNS core before using WebUI."
+msgstr "使用 WebUI 前请先安装 OxiDNS 内核。"
 
 msgid "Installed"
 msgstr "已安装"
@@ -218,61 +229,80 @@ msgstr "正在安装 OxiDNS 内核..."
 msgid "Installing uploaded OxiDNS core..."
 msgstr "正在安装上传的 OxiDNS 内核..."
 
-msgid "Lines"
-msgstr "行数"
+msgid "Downloading and installing OxiDNS core and WebUI files..."
+msgstr "正在从 GitHub 下载并安装 OxiDNS 内核和 WebUI 文件..."
 
-msgid "Loaded rule file"
-msgstr "已载入规则文件"
+msgid "Log path"
+msgstr "日志路径"
 
-msgid "Loading rule file..."
-msgstr "正在载入规则文件..."
+msgid "Log path is required."
+msgstr "日志路径不能为空。"
 
-msgid "Local PTR"
-msgstr "本地 ptr"
+msgid "No cache options are available in the configuration schema."
+msgstr "配置架构中没有可用的缓存选项。"
 
-msgid "Logs"
-msgstr "日志"
+msgid "No hosts options are available in the configuration schema."
+msgstr "配置架构中没有可用的 hosts 选项。"
+
+msgid "Other plugins"
+msgstr "其它插件"
+
+msgid "Remove cache"
+msgstr "移除缓存"
+
+msgid "Remove hosts"
+msgstr "移除 hosts"
+
+msgid "Remove the cache plugin? Cached responses are discarded and the cache step is removed from the entry sequence."
+msgstr "移除缓存插件？已缓存的响应将被丢弃，入口序列中的缓存步骤也会被移除。"
+
+msgid "Remove the hosts plugin? Local name mappings are discarded and the hosts step is removed from the entry sequence."
+msgstr "移除 hosts 插件？本地域名映射将被丢弃，入口序列中的 hosts 步骤也会被移除。"
+
+msgid "Remove the subscription download plugin? Subscription downloads stop and the plugin with all of its download options is removed. The ad filtering rules and downloaded files on disk stay."
+msgstr "移除订阅下载插件？订阅下载将停止，插件及其所有下载选项都会被移除。广告过滤规则和磁盘上已下载的文件会保留。"
+
+msgid "Runtime Logs"
+msgstr "运行日志"
 
 msgid "LuCI backend"
 msgstr "LuCI 后端"
 
-msgid "Update checks the openwrt-oxidns package first and falls back to the official OxiDNS release archive for architectures it does not build. Upload accepts a .tar.gz archive or a single oxidns binary."
-msgstr "更新会先检查 openwrt-oxidns 的软件包，它未覆盖的架构回落到 OxiDNS 官方发布归档。上传支持 .tar.gz 归档或单个 oxidns 二进制。"
+msgid "LuCI can install the latest OxiDNS release, update the installed core, or install an uploaded .tar.gz archive or single oxidns binary. Install WebUI downloads the latest official release and replaces the core binary together with the WebUI files."
+msgstr "LuCI 可以安装最新 OxiDNS release、更新已安装的内核，也可以安装上传的 .tar.gz archive 或单个 oxidns 二进制。“安装 WebUI”会下载官方最新 release，并同时替换内核二进制和 WebUI 文件。"
 
-msgid "Manage the OxiDNS runtime, service, configuration, and logs from LuCI."
-msgstr "在 LuCI 中管理 OxiDNS 运行时、服务、配置和日志。"
-
-msgid "Modified"
-msgstr "修改时间"
+msgid "Maximum rotation files"
+msgstr "最大轮转文件数"
 
 msgid "No"
 msgstr "否"
-msgid "No rule files were found in the rule directory."
-msgstr "规则目录下没有找到任何规则文件。"
+
+msgid "No UDP, TCP, or QUIC server plugins were found."
+msgstr "未找到 UDP、TCP 或 QUIC 服务插件。"
 
 msgid "Not installed"
 msgstr "未安装"
 
-msgid "One rule per line. Lines starting with # are ignored."
-msgstr "每行一条规则，以 # 开头的行会被忽略。"
+msgid "Operation completed."
+msgstr "操作已完成。"
 
-msgid "Open WebUI"
-msgstr "打开 WebUI"
+msgid "Operation failed"
+msgstr "操作失败"
 
 msgid "Optional. The token is never shown after saving."
 msgstr "可选。保存后不会再显示 Token。"
 
-msgid "Overview"
-msgstr "概览"
+msgid "Open WebUI"
+msgstr "打开 WebUI"
 
 msgid "OxiDNS"
 msgstr "OxiDNS"
 
-msgid "OxiDNS Configuration"
-msgstr "OxiDNS 配置"
+msgid "OxiDNS core and WebUI installed: %s (%s)."
+msgstr "OxiDNS 内核和 WebUI 已安装：%s（%s）。"
 
-msgid "OxiDNS Core"
-msgstr "OxiDNS 内核"
+msgid "OxiDNS core is already up to date."
+msgstr "OxiDNS 内核已是最新版本。"
 
 msgid "OxiDNS is already disabled on boot."
 msgstr "OxiDNS 已经禁用开机自启。"
@@ -286,17 +316,8 @@ msgstr "OxiDNS 已经在运行。"
 msgid "OxiDNS is already stopped."
 msgstr "OxiDNS 已经停止。"
 
-msgid "OxiDNS Logs"
-msgstr "OxiDNS 日志"
-
-msgid "OxiDNS reads rule files when a provider is loaded. Use Save & Restart to apply the changes."
-msgstr "OxiDNS 只在 provider 载入时读取规则文件。要让改动生效请使用「保存并重启」。"
-
-msgid "OxiDNS Rule Files"
-msgstr "OxiDNS 规则文件"
-
-msgid "Path"
-msgstr "路径"
+msgid "OxiDNS writes oxidns.log in this directory. Default: /tmp/oxidns. Save and Apply restarts OxiDNS so the new log path takes effect."
+msgstr "OxiDNS 会把日志写入此目录下的 oxidns.log。默认路径：/tmp/oxidns。点击“保存并应用”重启 OxiDNS 后新日志路径才会生效。"
 
 msgid "Pause"
 msgstr "暂停"
@@ -304,16 +325,17 @@ msgstr "暂停"
 msgid "Prepare download"
 msgstr "准备下载"
 
+msgid "Probe cache size"
+msgstr "探测缓存大小"
+
+msgid "QUIC Server"
+msgstr "QUIC 服务"
+
 msgid "Reason"
 msgstr "原因"
 
-msgid "Redirect"
-msgstr "重定向"
 msgid "Refresh"
 msgstr "刷新"
-
-msgid "Reload"
-msgstr "重新载入"
 
 msgid "Remove Core"
 msgstr "删除内核"
@@ -324,17 +346,17 @@ msgstr "删除 OxiDNS 内核"
 msgid "Remove the OxiDNS core binary and Web UI files."
 msgstr "删除 OxiDNS 内核二进制和 Web UI 文件。"
 
-msgid "Remove the OxiDNS core binary. The Web UI files are provided by the oxidns package and are kept; remove that package to get rid of them."
-msgstr "删除 OxiDNS 内核二进制。Web UI 文件由 oxidns 软件包提供，会保留；如需一并删除，请卸载该软件包。"
-
 msgid "Removing OxiDNS core..."
 msgstr "正在删除 OxiDNS 内核..."
 
 msgid "Repair Reinstall"
-msgstr "修复重装"
+msgstr "重新安装"
 
 msgid "Repair reinstalling OxiDNS core..."
-msgstr "正在修复重装 OxiDNS 内核..."
+msgstr "正在重新安装 OxiDNS 内核..."
+
+msgid "Reset"
+msgstr "复位"
 
 msgid "Restart"
 msgstr "重启"
@@ -345,16 +367,8 @@ msgstr "重启服务"
 msgid "Resume"
 msgstr "继续"
 
-msgid "Rule directory"
-msgstr "规则目录"
-
-msgid "Rule file saved and service restarted"
-msgstr "规则文件已保存，服务已重启"
-
-msgid "Rule Files"
-msgstr "规则文件"
-msgid "Rules were written, but the firewall reload failed. The rules take effect on the next firewall reload or reboot."
-msgstr "规则已写入，但防火墙重载失败。规则将在下次防火墙重载或重启后生效。"
+msgid "Rotation"
+msgstr "轮转"
 
 msgid "Running"
 msgstr "运行中"
@@ -362,56 +376,53 @@ msgstr "运行中"
 msgid "Save"
 msgstr "保存"
 
-msgid "Save & Restart"
-msgstr "保存并重启"
+msgid "Save and Apply"
+msgstr "保存并应用"
 
-msgid "Save failed"
-msgstr "保存失败"
+msgid "Saving and applying configuration..."
+msgstr "正在保存并应用配置..."
 
-msgid "Save Settings"
-msgstr "保存设置"
-
-msgid "Saved, but not applied to the running service"
-msgstr "已保存，但未对运行中的服务生效"
-
-msgid "Saved, but the service did not restart"
-msgstr "已保存，但服务未重启"
-
-msgid "Saving and restarting service..."
-msgstr "正在保存并重启服务..."
+msgid "Saving and applying settings..."
+msgstr "正在保存并应用设置..."
 
 msgid "Saving configuration..."
 msgstr "正在保存配置..."
 
-msgid "Saving rule file..."
-msgstr "正在保存规则文件..."
-
 msgid "Saving settings..."
 msgstr "正在保存设置..."
 
-msgid "Select release archive"
-msgstr "选择 release 压缩包"
-
-msgid "Service"
-msgstr "服务"
-
-msgid "Service action completed."
-msgstr "服务操作已完成。"
+msgid "Select an entry plugin"
+msgstr "选择入口插件"
 
 msgid "Service action failed"
 msgstr "服务操作失败"
 
+msgid "Service control"
+msgstr "服务控制"
+
 msgid "Service status"
 msgstr "服务状态"
 
-msgid "Settings"
-msgstr "设置"
+msgid "Leave empty or set to 0 to keep all historical rotation files."
+msgstr "留空或设为 0 时保留全部历史轮转文件。"
+
+msgid "Installation and Deployment"
+msgstr "安装部署"
+
+msgid "Settings saved, but the log path could not be checked."
+msgstr "设置已保存，但无法检查日志路径。"
 
 msgid "Settings saved."
 msgstr "设置已保存。"
 
-msgid "Size"
-msgstr "大小"
+msgid "Settings saved, but OxiDNS could not be restarted."
+msgstr "设置已保存，但无法重启 OxiDNS。"
+
+msgid "Settings saved and OxiDNS restarted."
+msgstr "设置已保存，OxiDNS 已重启。"
+
+msgid "Select release archive"
+msgstr "选择 release 压缩包"
 
 msgid "Stage"
 msgstr "阶段"
@@ -422,71 +433,167 @@ msgstr "启动"
 msgid "Start on boot"
 msgstr "开机自启"
 
+msgid "Start, stop, and restart control the running process."
+msgstr "启动、停止和重启控制正在运行的进程。"
+
 msgid "Start the OxiDNS service before opening WebUI."
 msgstr "请先启动 OxiDNS 服务再打开 WebUI。"
 
-msgid "Status"
-msgstr "状态"
+msgid "Status Overview"
+msgstr "状态概览"
+
+msgid "Step %d of the sequence plugin %s references the missing plugin %s."
+msgstr "sequence 插件 %s 的第 %d 步引用了不存在的插件 %s。"
+
+msgid "The matches of step %d of the sequence plugin %s reference the missing plugin %s."
+msgstr "sequence 插件 %s 的第 %d 步 matches 引用了不存在的插件 %s。"
 
 msgid "Stop"
 msgstr "停止"
 
+msgid "Stop OxiDNS"
+msgstr "停止 OxiDNS"
+
 msgid "Stopped"
 msgstr "已停止"
 
-msgid "Target"
-msgstr "目标架构"
+msgid "Success TTL (seconds)"
+msgstr "成功 TTL（秒）"
 
-msgid "Target ports"
-msgstr "目标端口"
+msgid "The cache step could not be inserted into the entry sequence. Check the sequence configuration in Advanced Mode."
+msgstr "无法将缓存步骤插入入口序列。请在高级模式中检查序列配置。"
 
-msgid "The content changed since it was last checked"
-msgstr "内容已修改，请重新校验"
+msgid "The configuration is too large to preview here. Review the changes in Advanced Mode before saving."
+msgstr "配置过大，无法在此预览。保存前请在高级模式中检查更改。"
 
-msgid "The rule file does not exist yet. Save to create it."
-msgstr "规则文件尚不存在，保存后创建。"
+msgid "The entry %s of the %s server plugin %s does not reference an existing plugin."
+msgstr "entry %s（%s 服务器插件 %s）没有引用已存在的插件。"
 
-msgid "The rule file was modified on disk since it was loaded. Reload it before saving again."
-msgstr "该规则文件在载入后被外部修改过，请先重新载入再保存。"
+msgid "The entry %s of the %s server plugin %s must use the plugin tag without \"$\"."
+msgstr "服务器插件的 entry 必须使用不带 \"$\" 的插件标签：%s（%s 插件 %s）。"
 
-msgid "The running service still uses the previous configuration. Use Save & Restart to apply the changes."
-msgstr "运行中的服务仍在使用旧配置，如需生效请点击「保存并重启」。"
+msgid "The full and standard bundles include OxiDNS WebUI files; the minimal bundle does not."
+msgstr "full 和 standard 归档包含 OxiDNS WebUI 文件，minimal 不包含。"
 
-msgid "There are unsaved changes"
-msgstr "有未保存的修改"
+msgid "The file must be named config.yaml."
+msgstr "文件名必须为 config.yaml。"
 
-msgid "Unable to load configuration."
-msgstr "无法加载配置。"
+msgid "Details"
+msgstr "详情"
 
-msgid "Unable to load the rule file"
-msgstr "无法载入规则文件"
+msgid "Entry"
+msgstr "入口"
 
-msgid "Unable to load the rule file."
-msgstr "无法载入该规则文件。"
+msgid "HTTP listen"
+msgstr "HTTP 监听地址"
 
-msgid "Unable to load the rule files."
-msgstr "无法载入规则文件列表。"
+msgid "Leave empty to stop writing to a log file."
+msgstr "留空则不写入日志文件。"
+
+msgid "Listen"
+msgstr "监听"
+
+msgid "Listen Addresses"
+msgstr "监听地址"
+
+msgid "Log"
+msgstr "日志"
+
+msgid "Log file"
+msgstr "日志文件"
+
+msgid "Log level"
+msgstr "日志级别"
+
+msgid "No changes."
+msgstr "没有变更。"
+
+msgid "No plugins are configured."
+msgstr "未配置任何插件。"
+
+msgid "No upstream servers configured."
+msgstr "未配置上游服务器。"
+
+msgid "Plugin"
+msgstr "插件"
+
+msgid "Plugins"
+msgstr "插件"
+
+msgid "Queries are forwarded to these upstream servers."
+msgstr "查询会转发到这些上游服务器。"
+
+msgid "Remove"
+msgstr "删除"
+
+msgid "Show change preview"
+msgstr "显示变更预览"
+
+msgid "Tag"
+msgstr "标签"
+
+msgid "The configuration file is empty."
+msgstr "配置文件为空。"
+
+msgid "The hosts step could not be inserted into the entry sequence. Check the sequence configuration in Advanced Mode."
+msgstr "无法将 hosts 步骤插入入口序列。请在高级模式中检查序列配置。"
+
+msgid "The plugin tag %s is used by more than one plugin. Choose a unique tag in Advanced Mode."
+msgstr "插件标签 %s 被多个插件使用。请在高级模式中改用唯一的标签。"
+
+msgid "The tag %s is already used by a %s plugin. Rename it in Advanced Mode before enabling cache."
+msgstr "标签 %s 已被 %s 插件使用。请先在高级模式中重命名，再启用缓存。"
+
+msgid "The YAML is invalid: %s"
+msgstr "YAML 无效：%s"
+
+msgid "The tag %s is already used by a %s plugin. Rename it in Advanced Mode before enabling hosts."
+msgstr "标签 %s 已被 %s 插件使用。请先在高级模式中重命名，再启用 hosts。"
+
+msgid "The tag %s is already used by a %s plugin. Rename it in Advanced Mode to create a forward plugin."
+msgstr "标签 %s 已被 %s 插件使用。请在高级模式中重命名后再创建 forward 插件。"
+
+msgid "Type"
+msgstr "类型"
 
 msgid "Unable to query OxiDNS status"
 msgstr "无法查询 OxiDNS 状态"
 
+msgid "Unable to load configuration."
+msgstr "无法加载配置。"
+
+msgid "Unable to reload the saved configuration."
+msgstr "无法重新读取已保存的配置。"
+
+msgid "Unable to read the selected file."
+msgstr "无法读取所选文件。"
+
 msgid "Unavailable"
 msgstr "不可用"
+
+msgid "Upload has been cancelled"
+msgstr "上传已取消"
+
+msgid "Unsaved changes were discarded."
+msgstr "已放弃未保存的修改。"
+
+msgid "Unsaved changes were discarded and the saved configuration was reloaded."
+msgstr "已放弃未保存的修改，并重新读取了已保存的配置。"
 
 msgid "Update Core"
 msgstr "更新内核"
 
-msgid "Updating OxiDNS core..."
-msgstr "正在更新 OxiDNS 内核..."
-
-msgid "Unpack core archive"
-msgstr "解压内核压缩包"
+msgid "Upload Config"
+msgstr "上传配置"
 
 msgid "Upload Core"
 msgstr "上传内核"
 
-msgid "Upload has been cancelled"
-msgstr "上传已取消"
+msgid "Uploading config.yaml replaces the saved configuration immediately and discards unsaved changes. Continue?"
+msgstr "上传 config.yaml 会立即替换已保存的配置并放弃未保存的更改。是否继续？"
+
+msgid "Uploading configuration..."
+msgstr "正在上传配置..."
 
 msgid "Validate"
 msgstr "校验"
@@ -500,8 +607,14 @@ msgstr "校验上传的内核"
 msgid "Validating configuration..."
 msgstr "正在校验配置..."
 
-msgid "Validation failed"
-msgstr "校验未通过"
+msgid "Unpack core archive"
+msgstr "解压内核压缩包"
+
+msgid "Upstream address"
+msgstr "上游地址"
+
+msgid "Upstream DNS"
+msgstr "上游 DNS"
 
 msgid "Verify checksum"
 msgstr "校验 checksum"
@@ -509,29 +622,29 @@ msgstr "校验 checksum"
 msgid "Verify release digest"
 msgstr "校验 release 摘要"
 
-msgid "Version"
-msgstr "版本"
-
-msgid "View the OxiDNS log file configured in config.yaml (log.file). Timestamps are shown in UTC+8. Clearing truncates the log file on the device."
-msgstr "查看 config.yaml 中 log.file 指定的 OxiDNS 日志文件。时间戳按东八区（UTC+8）显示。「清空」会截断设备上的日志文件。"
-
-msgid "Waiting for command output..."
-msgstr "正在等待命令输出..."
-
 msgid "WebUI"
 msgstr "WebUI"
 
-msgid "WebUI files are not installed."
-msgstr "WebUI 文件尚未安装。"
+msgid "WebUI index"
+msgstr "WebUI 首页文件"
 
 msgid "WebUI listens on loopback only. Configure the HTTP listen address to a LAN-reachable address, or use an SSH tunnel."
 msgstr "WebUI 仅监听 loopback。请把 HTTP 监听地址配置为局域网可访问地址，或使用 SSH 隧道。"
 
-msgid "Whitelist"
-msgstr "白名单"
+msgid "Waiting for command output..."
+msgstr "正在等待命令输出..."
+
+msgid "WebUI root"
+msgstr "WebUI 根目录"
 
 msgid "Working directory"
 msgstr "工作目录"
+
+msgid "Write to system log"
+msgstr "写入系统日志"
+
+msgid "When disabled, OxiDNS no longer writes runtime output to the system log. Use Save and Apply to restart OxiDNS so the change takes effect."
+msgstr "关闭后，OxiDNS 不再把运行输出写入系统日志；点击“保存并应用”重启 OxiDNS 后更改才会生效。"
 
 msgid "YAML"
 msgstr "YAML"
@@ -539,92 +652,1409 @@ msgstr "YAML"
 msgid "Yes"
 msgstr "是"
 
-msgid "Enter a port number between 1 and 65535."
-msgstr "请输入 1 到 65535 之间的端口号。"
+msgid "Core Actions"
+msgstr "内核操作"
 
-msgid "No target port available (source: %s)."
-msgstr "没有可用的目标端口（来源：%s）。"
+msgid "DNS Configuration"
+msgstr "DNS配置"
 
-msgid "Read the port from config.yaml automatically"
-msgstr "自动从 config.yaml 读取端口"
+msgid "Install it from Services → OxiDNS → Installation and Deployment, then return to this page."
+msgstr "请先在「服务 → OxiDNS → 安装部署」页面安装，然后返回本页。"
 
-msgid "Redirect LAN DNS requests on port 53 (TCP and UDP, IPv4 and IPv6) to the local OxiDNS DNS listener. Pick where the target port comes from: read it from the OxiDNS config.yaml, or enter one manually. Implemented as an fw4 firewall redirect, so lookups made by the router itself are not affected."
-msgstr "把局域网发往 53 端口（TCP/UDP、IPv4/IPv6）的 DNS 请求重定向到本机 OxiDNS 的 DNS 监听端口。目标端口可以自动从 OxiDNS 的 config.yaml 读取，也可以手动填写。实现为 fw4 防火墙重定向规则，路由器自身的 DNS 查询不受影响。"
+msgid "The installed minimal core bundle does not include WebUI files. Install WebUI on the Installation and Deployment page to replace it with a bundle that includes WebUI."
+msgstr "已安装的 minimal 内核 bundle 不包含 WebUI 文件。请在“安装部署”页面点击“安装 WebUI”，将内核替换为包含 WebUI 的 bundle。"
 
-msgid "UDP port %s, TCP port %s"
-msgstr "UDP 端口 %s，TCP 端口 %s"
+msgid "WebUI files are not installed. Install them from the Installation and Deployment page using Install WebUI."
+msgstr "WebUI 文件尚未安装。请在“安装部署”页面使用“安装 WebUI”进行安装。"
 
-msgid "Use a manual port"
-msgstr "手动指定端口"
+msgid "A download proxy is configured, but curl is not installed. Install curl or clear the download proxy."
+msgstr "已配置下载代理，但未安装 curl。请安装 curl 或清除下载代理。"
 
-msgid "from config.yaml"
-msgstr "从 config.yaml"
+msgid "Another OxiDNS core operation is already running."
+msgstr "另一个 OxiDNS 内核操作正在进行中。"
 
-msgid "manual"
-msgstr "手动"
+msgid "Configuration content is required."
+msgstr "配置内容不能为空。"
 
-msgid "port %s (TCP/UDP)"
-msgstr "端口 %s（TCP/UDP）"
+msgid "Configuration file not found."
+msgstr "未找到配置文件。"
 
-msgid "%s, %s"
-msgstr "%s，%s"
+msgid "Configuration is valid."
+msgstr "配置有效。"
 
-msgid "Download / Update"
-msgstr "下载 / 更新"
+msgid "Configuration saved, but service restart failed: %s"
+msgstr "配置已保存，但服务重启失败：%s"
 
-msgid "Download finished."
-msgstr "下载完成。"
+msgid "Configuration saved, but the init script was not found."
+msgstr "配置已保存，但未找到 init 脚本。"
 
-msgid "Download started."
-msgstr "下载已开始。"
+msgid "Configuration saved."
+msgstr "配置已保存。"
 
-msgid "Failed to restore defaults"
-msgstr "还原默认设置失败"
+msgid "Configuration saved. OxiDNS was restarted."
+msgstr "配置已保存，OxiDNS 已重启。"
 
-msgid "Failed to save geo settings"
-msgstr "保存 Geo 设置失败"
+msgid "Failed to download the OxiDNS core archive."
+msgstr "下载 OxiDNS 内核压缩包失败。"
 
-msgid "Failed to start the download"
-msgstr "无法开始下载"
+msgid "Failed to fetch OxiDNS release metadata."
+msgstr "获取 OxiDNS release 元数据失败。"
 
-msgid "Geo Data"
-msgstr "Geo 数据"
+msgid "Failed to install the OxiDNS core files; the existing installation was left unchanged."
+msgstr "安装 OxiDNS 内核文件失败，现有安装保持不变。"
 
-msgid "Geo settings restored to defaults."
-msgstr "Geo 设置已还原为默认。"
+msgid "Failed to install the uploaded core files; the existing installation was left unchanged."
+msgstr "安装上传的内核文件失败，现有安装保持不变。"
 
-msgid "Geo settings saved."
-msgstr "Geo 设置已保存。"
+msgid "Failed to prepare the core operation lock directory."
+msgstr "准备内核操作锁目录失败。"
 
-msgid "Restart OxiDNS after the download"
-msgstr "下载完成后重启 OxiDNS 服务"
+msgid "Failed to preserve the configuration before removing the working directory."
+msgstr "删除工作目录前保留配置失败。"
 
-msgid "Restore defaults"
-msgstr "还原默认"
+msgid "Failed to save the OxiDNS settings."
+msgstr "保存 OxiDNS 设置失败。"
 
-msgid "Restoring defaults..."
-msgstr "正在还原默认设置..."
+msgid "Failed to stage the OxiDNS WebUI files."
+msgstr "暂存 OxiDNS WebUI 文件失败。"
 
-msgid "SHA-256"
-msgstr "SHA-256"
+msgid "Failed to unpack the OxiDNS core archive."
+msgstr "解压 OxiDNS 内核压缩包失败。"
 
-msgid "Saving geo settings..."
-msgstr "正在保存 Geo 设置..."
+msgid "Failed to unpack the uploaded OxiDNS archive."
+msgstr "解压上传的 OxiDNS 压缩包失败。"
 
-msgid "Starting download..."
-msgstr "正在开始下载..."
+msgid "Init script not found: %s"
+msgstr "未找到 init 脚本：%s"
 
-msgid "not present"
-msgstr "不存在"
+msgid "Log directory is required."
+msgstr "日志目录不能为空。"
 
-msgid "Download and update geoip.dat / geosite.dat shared by OxiDNS and mihomo. Defaults fetch the Loyalsoldier enhanced rules via the jsDelivr CDN; URLs and the storage directory can be customized and restored to defaults."
-msgstr "下载并更新 OxiDNS 与 mihomo 共用的 geoip.dat / geosite.dat。默认通过 jsDelivr CDN 下载 Loyalsoldier 增强版规则；下载地址与存放目录可手动修改，并可一键还原默认。"
+msgid "Log path saved, but service restart failed: %s"
+msgstr "日志路径已保存，但服务重启失败：%s"
 
-msgid "GeoIP download URL"
-msgstr "GeoIP 下载地址"
+msgid "Log path saved, but the init script was not found."
+msgstr "日志路径已保存，但未找到 init 脚本。"
 
-msgid "GeoSite download URL"
-msgstr "GeoSite 下载地址"
+msgid "Log path saved."
+msgstr "日志路径已保存。"
 
-msgid "Storage directory"
-msgstr "存放目录"
+msgid "Log path saved. OxiDNS was restarted."
+msgstr "日志路径已保存，OxiDNS 已重启。"
+
+msgid "No configuration content or file is available."
+msgstr "没有可用的配置内容或文件。"
+
+msgid "Refusing to delete an unsafe configuration path."
+msgstr "拒绝删除不安全的配置路径。"
+
+msgid "Refusing to delete an unsafe working directory."
+msgstr "拒绝删除不安全的工作目录。"
+
+msgid "Remove configuration"
+msgstr "删除配置"
+
+msgid "Remove working directory"
+msgstr "删除工作目录"
+
+msgid "Service action failed."
+msgstr "服务操作失败。"
+
+msgid "Service restart failed."
+msgstr "服务重启失败。"
+
+msgid "Service stop failed."
+msgstr "服务停止失败。"
+
+msgid "Settings values must be single-line strings."
+msgstr "设置值必须是单行字符串。"
+
+msgid "Stop service"
+msgstr "停止服务"
+
+msgid "Tar extraction failed."
+msgstr "tar 解压失败。"
+
+msgid "The GitHub token must be a single-line value."
+msgstr "GitHub Token 必须是单行值。"
+
+msgid "The OxiDNS configuration file was not found."
+msgstr "未找到 OxiDNS 配置文件。"
+
+msgid "The OxiDNS core archive SHA256 does not match the release digest."
+msgstr "OxiDNS 内核压缩包的 SHA256 与 release 摘要不匹配。"
+
+msgid "The OxiDNS core archive contains unsafe paths or links."
+msgstr "OxiDNS 内核压缩包包含不安全的路径或链接。"
+
+msgid "The OxiDNS core archive does not contain an oxidns binary."
+msgstr "OxiDNS 内核压缩包中不包含 oxidns 可执行文件。"
+
+msgid "The OxiDNS core archive does not contain config.yaml."
+msgstr "OxiDNS 内核压缩包中不包含 config.yaml。"
+
+msgid "The OxiDNS core is already installed. Use Repair Reinstall instead."
+msgstr "OxiDNS 内核已安装。请改用“修复重装”。"
+
+msgid "The OxiDNS core is not installed or cannot report its version."
+msgstr "OxiDNS 内核未安装或无法报告版本。"
+
+msgid "The OxiDNS release archive does not contain WebUI files."
+msgstr "OxiDNS release 压缩包中不包含 WebUI 文件。"
+
+msgid "The config path must be an absolute OxiDNS-related file path."
+msgstr "配置路径必须是 OxiDNS 相关的绝对文件路径。"
+
+msgid "The configuration file changed since it was loaded. Reload it and try again."
+msgstr "配置文件在加载后已被修改。请重新加载后重试。"
+
+msgid "The core bundle must be one of full, standard, or minimal."
+msgstr "内核 bundle 必须是 full、standard 或 minimal 之一。"
+
+msgid "The core repository contains unsupported characters."
+msgstr "内核仓库地址包含不支持的字符。"
+
+msgid "The core repository must use the owner/repo format."
+msgstr "内核仓库必须使用 owner/repo 格式。"
+
+msgid "The core was installed, but the service restart failed."
+msgstr "内核已安装，但服务重启失败。"
+
+msgid "The core was not replaced because the service could not be stopped."
+msgstr "由于无法停止服务，内核未被替换。"
+
+msgid "The current CPU architecture does not match a published OxiDNS Linux musl release."
+msgstr "当前 CPU 架构与已发布的 OxiDNS Linux musl release 不匹配。"
+
+msgid "The log directory is not writable."
+msgstr "日志目录不可写。"
+
+msgid "The log directory must be an absolute OxiDNS-related directory path."
+msgstr "日志目录必须是 OxiDNS 相关的绝对目录路径。"
+
+msgid "The release config.yaml cannot be adapted for OpenWrt defaults."
+msgstr "无法将 release 中的 config.yaml 适配为 OpenWrt 默认配置。"
+
+msgid "The selected OxiDNS release asset does not include a valid SHA256 digest."
+msgstr "所选 OxiDNS release 资源不包含有效的 SHA256 摘要。"
+
+msgid "The selected OxiDNS release does not contain the required archive."
+msgstr "所选 OxiDNS release 不包含所需的压缩包。"
+
+msgid "The system log setting must be 0 or 1."
+msgstr "系统日志设置必须为 0 或 1。"
+
+msgid "The uci command was not found."
+msgstr "未找到 uci 命令。"
+
+msgid "The uploaded archive contains unsafe paths or links."
+msgstr "上传的压缩包包含不安全的路径或链接。"
+
+msgid "The uploaded archive does not contain an oxidns binary."
+msgstr "上传的压缩包中不包含 oxidns 可执行文件。"
+
+msgid "The uploaded config.yaml cannot be adapted for OpenWrt defaults."
+msgstr "无法将上传的 config.yaml 适配为 OpenWrt 默认配置。"
+
+msgid "The uploaded core does not contain WebUI files."
+msgstr "上传的内核不包含 WebUI 文件。"
+
+msgid "The uploaded file must be a readable /tmp/oxidns-core-upload-* file."
+msgstr "上传的文件必须是可读的 /tmp/oxidns-core-upload-* 文件。"
+
+msgid "The uploaded oxidns binary cannot report build information."
+msgstr "上传的 oxidns 可执行文件无法报告构建信息。"
+
+msgid "The working directory must be an absolute OxiDNS-related directory path."
+msgstr "工作目录必须是 OxiDNS 相关的绝对目录路径。"
+
+msgid "Unable to create the log directory."
+msgstr "无法创建日志目录。"
+
+msgid "Unable to update the configuration file."
+msgstr "无法更新配置文件。"
+
+msgid "Unknown"
+msgstr "未知"
+
+msgid "%s exited with code %s"
+msgstr "%s 退出码 %s"
+
+msgid "%s exited with code %s: %s"
+msgstr "%s 退出码 %s：%s"
+
+msgid "Failed to fetch release assets from github.com."
+msgstr "从 github.com 获取 release 资源失败。"
+
+msgid "Failed to resolve the latest release tag from github.com."
+msgstr "无法从 github.com 解析最新 release 标签。"
+
+msgid "None of curl, uclient-fetch, or wget is installed."
+msgstr "未安装 curl、uclient-fetch 或 wget。"
+
+msgid "The github.com release page does not contain a SHA256 digest for %s."
+msgstr "github.com release 页面中不包含 %s 的 SHA256 摘要。"
+
+msgid "The release tag cannot be used in a github.com URL: %s."
+msgstr "release 标签无法用于 github.com URL：%s。"
+
+msgid "Unknown download error."
+msgstr "未知下载错误。"
+
+msgid "jsonfilter is not installed or unavailable; wanted asset=%s repository=%s release=%s."
+msgstr "jsonfilter 未安装或不可用；需要资源 %s，仓库 %s，版本 %s。"
+
+msgid "The archive must contain a file named oxidns."
+msgstr "压缩包中必须包含名为 oxidns 的文件。"
+
+msgid "The uploaded binary is not executable for this target, or build-info failed."
+msgstr "上传的二进制文件无法在此目标上执行，或 build-info 执行失败。"
+
+msgid "A download proxy only works with curl on OpenWrt."
+msgstr "下载代理只能在 OpenWrt 上配合 curl 使用。"
+
+msgid "Failed to create the install directory."
+msgstr "无法创建安装目录。"
+
+msgid "Failed to write the oxidns binary."
+msgstr "无法写入 oxidns 可执行文件。"
+
+msgid "Failed to replace the oxidns binary."
+msgstr "无法替换 oxidns 可执行文件。"
+
+msgid "Failed to replace the WebUI files."
+msgstr "无法替换 WebUI 文件。"
+
+msgid "Cannot wait for OxiDNS to stop: ubus and jsonfilter are required."
+msgstr "无法等待 OxiDNS 停止：需要 ubus 和 jsonfilter。"
+
+msgid "Failed to query the OxiDNS service state while stopping."
+msgstr "停止 OxiDNS 时无法查询服务状态。"
+
+msgid "The OxiDNS service state is invalid while stopping."
+msgstr "停止 OxiDNS 时服务状态无效。"
+
+msgid "The OxiDNS service instance state is invalid while stopping."
+msgstr "停止 OxiDNS 时服务实例状态无效。"
+
+msgid "Timed out waiting for the old OxiDNS service instance to be removed."
+msgstr "等待旧 OxiDNS 服务实例移除超时。"
+
+msgid "error"
+msgstr "错误"
+
+msgid "connection refused"
+msgstr "连接被拒绝"
+
+msgid "network is unreachable"
+msgstr "网络不可达"
+
+msgid "no route to host"
+msgstr "无法路由到主机"
+
+msgid "connection timed out"
+msgstr "连接超时"
+
+msgid "could not connect to %s after %s ms: %s"
+msgstr "无法连接到 %s（%s 毫秒后）：%s"
+
+msgid "could not resolve host %s"
+msgstr "无法解析主机 %s"
+
+msgid "connection timed out after %s ms"
+msgstr "连接超时（%s 毫秒后）"
+
+msgid "operation timed out after %s ms with %s bytes received"
+msgstr "操作超时（%s 毫秒后，已接收 %s 字节）"
+
+msgid "the requested URL returned error %s"
+msgstr "请求的 URL 返回错误 %s"
+
+msgid "SSL connection error"
+msgstr "SSL 连接错误"
+
+msgid "Required asset %s from repository %s, release %s."
+msgstr "需要资源 %s，仓库 %s，版本 %s。"
+
+msgid "Asset: %s; digest: %s"
+msgstr "资源：%s；摘要：%s"
+
+msgid "Asset: %s; URL: %s; %s"
+msgstr "资源：%s；URL：%s；%s"
+
+msgid "Asset: %s; expected: %s; actual: %s"
+msgstr "资源：%s；预期：%s；实际：%s"
+
+msgid "Asset: %s; bundle: %s"
+msgstr "资源：%s；捆绑包：%s"
+
+msgid "Asset: %s"
+msgstr "资源：%s"
+
+msgid "Bundle: %s. Upload an official full or standard .tar.gz archive to install the WebUI."
+msgstr "捆绑包：%s。请上传官方 full 或 standard .tar.gz 压缩包以安装 WebUI。"
+
+msgid "Config: %s; working directory: %s"
+msgstr "配置：%s；工作目录：%s"
+
+msgid "Config: %s"
+msgstr "配置：%s"
+
+msgid "Source: %s"
+msgstr "来源：%s"
+
+msgid "Archive: %s"
+msgstr "归档：%s"
+
+msgid "Path: %s"
+msgstr "路径：%s"
+
+msgid "Working directory: %s"
+msgstr "工作目录：%s"
+
+msgid "missing"
+msgstr "缺失"
+
+msgid "API: %s; website: %s; repository: %s release: %s"
+msgstr "API：%s；网页：%s；仓库：%s 版本：%s"
+
+msgid "Advanced Mode"
+msgstr "高级模式"
+
+msgid "Normal Mode"
+msgstr "普通模式"
+
+msgid "Advanced mode saves the text exactly as written. Normal mode rewrites only the fields it manages."
+msgstr "高级模式按原文保存；普通模式只重写它管理的字段。"
+
+msgid "Edit the OxiDNS configuration with form-based editing, or use the full YAML editor."
+msgstr "使用表单编辑 OxiDNS 配置，或使用完整的 YAML 编辑器。"
+
+msgid "Normal mode covers common settings only. Use Advanced Mode to edit plugins and options not listed here."
+msgstr "普通模式只覆盖常用设置，其他插件和选项请在高级模式中编辑。"
+
+msgid "Normal mode edits common settings and keeps the remaining YAML, including comments, unchanged."
+msgstr "普通模式只修改常用设置，其他 YAML 内容（包括注释）保持不变。"
+
+msgid "Normal mode is unavailable: %s"
+msgstr "普通模式不可用：%s"
+
+msgid "Normal mode needs valid YAML. Fix the YAML in advanced mode first."
+msgstr "普通模式需要有效的 YAML，请先在高级模式中修正。"
+
+msgid "the top level must be a mapping of keys to values."
+msgstr "顶层必须是键值映射。"
+
+msgid "This configuration uses YAML anchors, aliases, or merge keys. Normal mode is read-only for this file; edit it in advanced mode."
+msgstr "此配置使用了 YAML 锚点、别名或合并键。该文件的普通模式为只读；请使用高级模式编辑。"
+
+msgid "360 Public DNS (DNS over HTTPS)"
+msgstr "360 公共 DNS（DoH）"
+
+msgid "Aliyun Public DNS (223.5.5.5)"
+msgstr "阿里公共 DNS（223.5.5.5）"
+
+msgid "Aliyun Public DNS (223.6.6.6)"
+msgstr "阿里公共 DNS（223.6.6.6）"
+
+msgid "Aliyun Public DNS (DNS over HTTPS)"
+msgstr "阿里公共 DNS（DoH）"
+
+msgid "Aliyun Public DNS (DNS over QUIC)"
+msgstr "阿里公共 DNS（DoQ）"
+
+msgid "Baidu Public DNS (180.76.76.76)"
+msgstr "百度公共 DNS（180.76.76.76）"
+
+msgid "Cisco Public DNS (208.67.220.220)"
+msgstr "Cisco 公共 DNS（208.67.220.220）"
+
+msgid "Cisco Public DNS (208.67.222.222)"
+msgstr "Cisco 公共 DNS（208.67.222.222）"
+
+msgid "Cloudflare Public DNS (1.0.0.1)"
+msgstr "Cloudflare 公共 DNS（1.0.0.1）"
+
+msgid "Cloudflare Public DNS (1.1.1.1)"
+msgstr "Cloudflare 公共 DNS（1.1.1.1）"
+
+msgid "Cloudflare Public DNS (DNS over HTTPS)"
+msgstr "Cloudflare 公共 DNS（DoH）"
+
+msgid "Enter a custom upstream address"
+msgstr "输入自定义上游地址"
+
+msgid "Google Public DNS (8.8.4.4)"
+msgstr "Google 公共 DNS（8.8.4.4）"
+
+msgid "Google Public DNS (8.8.8.8)"
+msgstr "Google 公共 DNS（8.8.8.8）"
+
+msgid "Google Public DNS (DNS over HTTPS)"
+msgstr "Google 公共 DNS（DoH）"
+
+msgid "Quad9 Public DNS (149.112.112.112)"
+msgstr "Quad9 公共 DNS（149.112.112.112）"
+
+msgid "Quad9 Public DNS (9.9.9.9)"
+msgstr "Quad9 公共 DNS（9.9.9.9）"
+
+msgid "Quad9 Public DNS (DNS over HTTPS)"
+msgstr "Quad9 公共 DNS（DoH）"
+
+msgid "Select an upstream DNS server"
+msgstr "选择或输入上游 DNS 服务器"
+
+msgid "Tencent Public DNS (119.28.28.28)"
+msgstr "腾讯公共 DNS（119.28.28.28）"
+
+msgid "Tencent Public DNS (119.29.29.29)"
+msgstr "腾讯公共 DNS（119.29.29.29）"
+
+msgid "Tencent Public DNS (DNS over HTTPS)"
+msgstr "腾讯公共 DNS（DoH）"
+
+msgid "Xinfeng Public DNS (114.114.114.114)"
+msgstr "114 DNS（114.114.114.114）"
+
+msgid "Addresses returned in custom or null mode. One address per line."
+msgstr "在 custom 或 null 模式下返回的地址。每行一个地址。"
+
+msgid "AdGuard Rule"
+msgstr "AdGuard 规则"
+
+msgid "AdGuard rules"
+msgstr "AdGuard 规则"
+
+msgid "Always run standby"
+msgstr "始终并行运行备用"
+
+msgid "Answer addresses"
+msgstr "应答地址"
+
+msgid "Asynchronous"
+msgstr "异步执行"
+
+msgid "Batch size"
+msgstr "批量大小"
+
+msgid "Black Hole"
+msgstr "黑洞拦截"
+
+msgid "Blocking mode"
+msgstr "拦截模式"
+
+msgid "Bootstrap rules"
+msgstr "初始规则"
+
+msgid "Cache"
+msgstr "缓存"
+
+msgid "Cache negative responses"
+msgstr "缓存否定响应"
+
+msgid "Cache size (entries)"
+msgstr "缓存条目数"
+
+msgid "Cleanup interval (hours)"
+msgstr "清理间隔（小时）"
+
+msgid "Client IP header"
+msgstr "客户端 IP 头"
+
+msgid "Concurrent upstreams"
+msgstr "并发上游数"
+
+msgid "Database path"
+msgstr "数据库路径"
+
+msgid "Default"
+msgstr "默认"
+
+msgid "Disables certificate verification for these downloads."
+msgstr "下载时禁用证书校验。"
+
+msgid "DNSSEC policy"
+msgstr "DNSSEC 策略"
+
+msgid "Domain Set"
+msgstr "域名集合"
+
+msgid "Download"
+msgstr "下载"
+
+msgid "Download at startup when missing"
+msgstr "启动时缺失则下载"
+
+msgid "Dump file"
+msgstr "缓存转储文件"
+
+msgid "Dump interval (seconds)"
+msgstr "转储间隔（秒）"
+
+msgid "Dynamic Domain Set"
+msgstr "动态域名集合"
+
+msgid "Enable HTTP/3"
+msgstr "启用 HTTP/3"
+
+msgid "Error handling"
+msgstr "错误处理"
+
+msgid "Fallback"
+msgstr "故障回退"
+
+msgid "Flush interval (ms)"
+msgstr "刷新间隔（毫秒）"
+
+msgid "Forward"
+msgstr "转发"
+
+msgid "GeoIP"
+msgstr "GeoIP"
+
+msgid "GeoIP data file"
+msgstr "GeoIP 数据文件"
+
+msgid "GeoSite"
+msgstr "GeoSite"
+
+msgid "GeoSite data file"
+msgstr "GeoSite 数据文件"
+
+msgid "Hosts"
+msgstr "Hosts 主机"
+
+msgid "Hosts entries"
+msgstr "Hosts 条目"
+
+msgid "Hosts files"
+msgstr "Hosts 文件"
+
+msgid "HTTP Server"
+msgstr "HTTP 服务器"
+
+msgid "Idle timeout"
+msgstr "空闲超时"
+
+msgid "In-memory tail size"
+msgstr "内存保留条数"
+
+msgid "Include ECS in cache key"
+msgstr "缓存键包含 ECS"
+
+msgid "Inline domain expressions"
+msgstr "内联域名表达式"
+
+msgid "Inline IP/CIDR rules"
+msgstr "内联 IP/CIDR 规则"
+
+msgid "IP Selector"
+msgstr "IP 选择器"
+
+msgid "IP Set"
+msgstr "IP 集合"
+
+msgid "Learn Domain"
+msgstr "域名学习"
+
+msgid "Learning phase"
+msgstr "学习阶段"
+
+msgid "Max negative TTL (seconds)"
+msgstr "否定响应最大 TTL（秒）"
+
+msgid "Max parallel probes"
+msgstr "最大并行探测数"
+
+msgid "Max positive TTL (seconds)"
+msgstr "肯定响应最大 TTL（秒）"
+
+msgid "Max wait (ms)"
+msgstr "最长等待（毫秒）"
+
+msgid "Min positive TTL (seconds)"
+msgstr "肯定响应最小 TTL（秒）"
+
+msgid "Negative TTL without SOA (seconds)"
+msgstr "无 SOA 时的否定 TTL（秒）"
+
+msgid "One AdGuard rule per line, for example ||example.com^."
+msgstr "每行一条 AdGuard 规则，例如 ||example.com^。"
+
+msgid "One path per line. Each file contains AdGuard rules."
+msgstr "每行一个路径。每个文件包含 AdGuard 规则。"
+
+msgid "One path per line. Each file contains domain rules."
+msgstr "每行一个路径。每个文件包含域名规则。"
+
+msgid "One path per line. Each file contains IP or CIDR rules."
+msgstr "每行一个路径。每个文件包含 IP 或 CIDR 规则。"
+
+msgid "One selector per line. Selectors must exist in the data file."
+msgstr "每行一个选择器。选择器需要存在于数据文件中。"
+
+msgid "Outbound profile"
+msgstr "出站配置"
+
+msgid "Override TTL (seconds)"
+msgstr "覆盖 TTL（秒）"
+
+msgid "Primary executor"
+msgstr "主执行器"
+
+msgid "Probe methods"
+msgstr "探测方式"
+
+msgid "Probe stagger (ms)"
+msgstr "探测错峰（毫秒）"
+
+msgid "Probe timeout (ms)"
+msgstr "探测超时（毫秒）"
+
+msgid "Query Recorder"
+msgstr "查询记录"
+
+msgid "Query types"
+msgstr "查询类型"
+
+msgid "Questions"
+msgstr "问题数量"
+
+msgid "Queue size"
+msgstr "队列长度"
+
+msgid "Reader concurrency"
+msgstr "读取并发数"
+
+msgid "Referenced domain sets"
+msgstr "引用的域名集合"
+
+msgid "Referenced IP sets"
+msgstr "引用的 IP 集合"
+
+msgid "Require an answer"
+msgstr "要求包含应答"
+
+msgid "Require success (NOERROR)"
+msgstr "要求成功（NOERROR）"
+
+msgid "Response selection"
+msgstr "响应选择"
+
+msgid "Retention days"
+msgstr "保留天数"
+
+msgid "Rule files"
+msgstr "规则文件"
+
+msgid "Rule kind"
+msgstr "规则类型"
+
+msgid "Rules file"
+msgstr "规则文件"
+
+msgid "Selection mode"
+msgstr "选择模式"
+
+msgid "Selectors"
+msgstr "选择器"
+
+msgid "Short circuit"
+msgstr "短路返回"
+
+msgid "Skip TLS verification"
+msgstr "跳过 TLS 校验"
+
+msgid "Slow threshold (ms)"
+msgstr "慢响应阈值（毫秒）"
+
+msgid "SOCKS5 proxy"
+msgstr "SOCKS5 代理"
+
+msgid "Standby executor"
+msgstr "备用执行器"
+
+msgid "Target dynamic domain set"
+msgstr "目标动态域名集合"
+
+msgid "TCP Server"
+msgstr "TCP 服务器"
+
+msgid "Timeout"
+msgstr "超时"
+
+msgid "TLS certificate"
+msgstr "TLS 证书"
+
+msgid "TLS private key"
+msgstr "TLS 私钥"
+
+msgid "Top N addresses"
+msgstr "保留地址数"
+
+msgid "Not supported by this core"
+msgstr "当前核心不支持"
+
+msgid "Plugin types are read from the installed OxiDNS core."
+msgstr "插件类型来自已安装的 OxiDNS 核心。"
+
+msgid "Status"
+msgstr "状态"
+
+msgid "Supported"
+msgstr "受支持"
+
+msgid "The OxiDNS core is not installed, so plugin types come from the built-in catalog."
+msgstr "未安装 OxiDNS 核心，插件类型来自内置目录。"
+
+msgid "Unknown plugin type"
+msgstr "未知插件类型"
+
+msgid "Bind to device"
+msgstr "绑定网卡"
+
+msgid "Bootstrap IP version"
+msgstr "引导 IP 版本"
+
+msgid "Bootstrap server"
+msgstr "引导服务器"
+
+msgid "Dial address"
+msgstr "直连地址"
+
+msgid "Disables certificate verification for this upstream."
+msgstr "关闭此上游的证书校验。"
+
+msgid "Enable pipeline"
+msgstr "启用流水线"
+
+msgid "Hide options"
+msgstr "收起选项"
+
+msgid "IPv4"
+msgstr "IPv4"
+
+msgid "IPv6"
+msgstr "IPv6"
+
+msgid "Leave fields empty to use the protocol defaults."
+msgstr "留空则使用协议默认值。"
+
+msgid "Max connections"
+msgstr "最大连接数"
+
+msgid "Min connections"
+msgstr "最小连接数"
+
+msgid "Options"
+msgstr "选项"
+
+msgid "Port override"
+msgstr "端口覆盖"
+
+msgid "Query timeout"
+msgstr "查询超时"
+
+msgid "SO_MARK"
+msgstr "SO_MARK"
+
+msgid "Use Options to set per-upstream connection details."
+msgstr "通过“选项”设置各上游的连接参数。"
+
+msgid "Add entry"
+msgstr "添加条目"
+
+msgid "Automatic"
+msgstr "自动"
+
+msgid "Basic auth password"
+msgstr "Basic 认证密码"
+
+msgid "Basic auth username"
+msgstr "Basic 认证用户名"
+
+msgid "Basic authentication requires both a username and a password."
+msgstr "Basic 认证需要同时填写用户名和密码。"
+
+msgid "CORS allowed origins"
+msgstr "CORS 允许的来源"
+
+msgid "Client CA certificate"
+msgstr "客户端 CA 证书"
+
+msgid "Configured; leave empty to keep the current password"
+msgstr "已设置；留空则保留当前密码"
+
+msgid "DoH entries"
+msgstr "DoH 入口"
+
+msgid "DoH entry"
+msgstr "DoH 入口项"
+
+msgid "Downloads"
+msgstr "下载项"
+
+msgid "Enable JSON DNS API"
+msgstr "启用 JSON DNS API"
+
+msgid "Enter a password"
+msgstr "输入密码"
+
+msgid "Entry executor"
+msgstr "入口执行器"
+
+msgid "File name"
+msgstr "文件名"
+
+msgid "Item"
+msgstr "条目"
+
+msgid "Leave empty to derive the allowed origins from the listen address. Use \"*\" to allow any origin."
+msgstr "留空时根据监听地址推导允许的来源。使用“*”允许任意来源。"
+
+msgid "Leave the worker thread count empty to use the system parallelism."
+msgstr "工作线程数留空时使用系统可用并行度。"
+
+msgid "Must be at least 1."
+msgstr "必须至少为 1。"
+
+msgid "No entries configured."
+msgstr "尚未配置条目。"
+
+msgid "Remove Basic authentication"
+msgstr "移除 Basic 认证"
+
+msgid "Request path"
+msgstr "请求路径"
+
+msgid "Require a client certificate"
+msgstr "要求客户端证书"
+
+msgid "Required when client certificate verification is enabled."
+msgstr "启用客户端证书校验时必填。"
+
+msgid "Runtime"
+msgstr "运行时"
+
+msgid "Target directory"
+msgstr "目标目录"
+
+msgid "The %s plugin %s has an invalid value for %s."
+msgstr "%s 插件 %s 的 %s 值无效。"
+
+msgid "The %s plugin %s requires the %s field."
+msgstr "%s 插件 %s 必须填写 %s 字段。"
+
+msgid "The %s field must be a list. Fix it in Advanced Mode."
+msgstr "%s 字段必须是列表。请在高级模式下修改。"
+
+msgid "The args of the %s plugin must be a mapping. Fix it in Advanced Mode."
+msgstr "%s 插件的 args 字段必须是映射。请在高级模式下修改。"
+
+msgid "The %s field of the fallback plugin %s references the missing plugin %s."
+msgstr "fallback 插件 %s 的 %s 字段引用了不存在的插件 %s。"
+
+msgid "The API certificate and private key must be configured together."
+msgstr "API 证书和私钥必须同时配置。"
+
+msgid "The API listen address cannot be empty."
+msgstr "API 监听地址不能为空。"
+
+msgid "The API requires a client CA when client certificate verification is enabled."
+msgstr "启用客户端证书校验时，API 必须配置客户端 CA。"
+
+msgid "The TLS certificate and private key of the %s plugin %s must be configured together."
+msgstr "%s 插件 %s 的 TLS 证书和私钥必须同时配置。"
+
+msgid "The saved password is never shown again. Fill both username and password to enable Basic authentication."
+msgstr "已保存的密码不会再次显示。要启用 Basic 认证，请同时填写用户名和密码。"
+
+msgid "The worker thread count must be at least 1."
+msgstr "工作线程数必须至少为 1。"
+
+msgid "URL"
+msgstr "URL"
+
+msgid "Worker threads"
+msgstr "工作线程数"
+
+msgid "The API WebUI root cannot be empty."
+msgstr "API WebUI 根目录不能为空。"
+
+msgid "The API WebUI index cannot be empty."
+msgstr "API WebUI 首页文件不能为空。"
+
+msgid "Included Files"
+msgstr "包含文件"
+
+msgid "Only plugins are loaded from these files; other settings in them are ignored. Relative paths are resolved against the directory of this configuration file."
+msgstr "这些文件只会载入其中的 plugins 插件设置，其余配置不会合并。相对路径以当前配置文件所在目录为基准。"
+
+msgid "Included configuration files"
+msgstr "包含的配置文件"
+
+msgid "One path per line. Plugins from included files are not listed on this page."
+msgstr "每行一个路径。被包含文件中的插件不会显示在此页面。"
+
+msgid "Convert to expanded form"
+msgstr "转换为详写形式"
+
+msgid "The shorthand form only sets the listen address. Convert it to configure the WebUI, TLS, authentication, and CORS."
+msgstr "简写形式只设置监听地址。转换为详写形式后即可配置 WebUI、TLS、认证和 CORS。"
+
+
+msgid "The include field must be a list of configuration file paths."
+msgstr "include 字段必须是配置文件路径列表。"
+
+msgid "Include entry %d cannot be empty."
+msgstr "第 %d 个包含条目不能为空。"
+
+msgid "Include entry %d duplicates another include entry."
+msgstr "第 %d 个包含条目与其他条目重复。"
+
+msgid "Prefer IPv4"
+msgstr "优先 IPv4"
+
+msgid "Prefer IPv6"
+msgstr "优先 IPv6"
+
+msgid "Probe executor"
+msgstr "探测执行器"
+
+msgid "Executor tag used for the internal preferred-address probe."
+msgstr "用于内部优选地址探测的 executor tag。"
+
+msgid "Cache preferred state"
+msgstr "缓存优选状态"
+
+msgid "Preferred state TTL (seconds)"
+msgstr "优选状态 TTL（秒）"
+
+msgid "Reverse Lookup"
+msgstr "反向查询"
+
+msgid "Mapping TTL (seconds)"
+msgstr "映射 TTL（秒）"
+
+msgid "Answer PTR from cache"
+msgstr "使用缓存应答 PTR"
+
+msgid "TTL"
+msgstr "TTL"
+
+msgid "Fixed TTL (seconds)"
+msgstr "固定 TTL（秒）"
+
+msgid "Minimum TTL (seconds)"
+msgstr "最小 TTL（秒）"
+
+msgid "Maximum TTL (seconds)"
+msgstr "最大 TTL（秒）"
+
+msgid "Outbound Network"
+msgstr "出站网络"
+
+msgid "Profiles are defined under network.outbound.profiles."
+msgstr "配置文件定义在 network.outbound.profiles 下。"
+
+msgid "No outbound profiles are defined. Add them under network.outbound.profiles in Advanced Mode or the WebUI."
+msgstr "尚未定义出站配置。可在高级模式或 WebUI 的 network.outbound.profiles 下添加。"
+
+msgid "Default outbound profile"
+msgstr "默认出站配置"
+
+msgid "None (system DNS and direct connections)"
+msgstr "无（使用系统 DNS 和直连）"
+
+msgid "%s (not defined)"
+msgstr "%s（未定义）"
+
+msgid "Used by HTTP clients and upstreams that do not set an outbound profile."
+msgstr "供未指定出站配置的 HTTP 客户端和上游使用。"
+
+msgid "The default outbound profile %s is not defined under network.outbound.profiles."
+msgstr "默认出站配置 %s 未在 network.outbound.profiles 中定义。"
+
+msgid "Query Summary"
+msgstr "查询统计"
+
+msgid "Summary label"
+msgstr "统计标签"
+
+msgid "Extra label for the periodic summary."
+msgstr "周期性统计的附加标签。"
+
+msgid "Metrics Collector"
+msgstr "指标采集器"
+
+msgid "Metrics namespace"
+msgstr "指标命名空间"
+
+msgid "Metrics are exposed through GET /api/metrics."
+msgstr "指标通过 GET /api/metrics 暴露。"
+
+msgid "Debug Print"
+msgstr "调试输出"
+
+msgid "Message"
+msgstr "消息"
+
+msgid "Sleep"
+msgstr "休眠"
+
+msgid "Sleep duration (ms)"
+msgstr "休眠时长（毫秒）"
+
+msgid "IPSet"
+msgstr "IPSet"
+
+msgid "IPv4 set name"
+msgstr "IPv4 集合名称"
+
+msgid "IPv6 set name"
+msgstr "IPv6 集合名称"
+
+msgid "IPv4 prefix length"
+msgstr "IPv4 前缀长度"
+
+msgid "IPv6 prefix length"
+msgstr "IPv6 前缀长度"
+
+msgid "NftSet"
+msgstr "NftSet"
+
+msgid "Edits the structured ipv4 and ipv6 targets. Compatibility-form fields remain in Advanced Mode."
+msgstr "编辑结构化的 ipv4 和 ipv6 目标。兼容形式字段仍可在高级模式中编辑。"
+
+msgid "IPv4 table family"
+msgstr "IPv4 表族"
+
+msgid "IPv4 table name"
+msgstr "IPv4 表名"
+
+msgid "IPv6 table family"
+msgstr "IPv6 表族"
+
+msgid "IPv6 table name"
+msgstr "IPv6 表名"
+
+msgid "%s (not listening)"
+msgstr "%s（未监听）"
+
+msgid "Add forwarding server %s."
+msgstr "添加转发服务器 %s。"
+
+msgid "Another system DNS integration operation is already running."
+msgstr "另一个系统 DNS 接入操作正在进行中。"
+
+msgid "Applying DNS integration..."
+msgstr "正在应用 DNS 接入..."
+
+msgid "Applying..."
+msgstr "正在应用..."
+
+msgid "Cannot determine the OxiDNS DNS listen address."
+msgstr "无法确定 OxiDNS 的 DNS 监听地址。"
+
+msgid "DNS integration"
+msgstr "DNS 接入"
+
+msgid "DNS integration action failed."
+msgstr "DNS 接入操作失败。"
+
+msgid "DNS integration was disabled, but the saved state could not be cleared. Try disabling again."
+msgstr "DNS 接入已取消，但无法清除保存的状态。请再次尝试取消接入。"
+
+msgid "Disable"
+msgstr "禁用"
+
+msgid "Disable dnsmasq forwarding"
+msgstr "停用 dnsmasq 转发"
+
+msgid "Disable system DNS integration"
+msgstr "取消系统 DNS 接入"
+
+msgid "Domain-specific upstreams"
+msgstr "特定域名上游"
+
+msgid "Enable"
+msgstr "启用"
+
+msgid "Enable dnsmasq forwarding"
+msgstr "启用 dnsmasq 转发"
+
+msgid "Enable system DNS integration"
+msgstr "启用系统 DNS 接入"
+
+msgid "Enabled"
+msgstr "已启用"
+
+msgid "Failed to prepare the DNS integration lock directory."
+msgstr "无法准备 DNS 接入锁目录。"
+
+msgid "Failed to save the DNS integration state."
+msgstr "无法保存 DNS 接入状态。"
+
+msgid "Failed to update the dnsmasq configuration."
+msgstr "无法更新 dnsmasq 配置。"
+
+msgid "Keep domain-specific upstream servers unchanged: %s."
+msgstr "保留特定域名上游服务器不变：%s。"
+
+msgid "LAN DNS queries are forwarded to OxiDNS. Stopping OxiDNS will break DNS resolution for LAN clients."
+msgstr "局域网 DNS 查询已转发到 OxiDNS。停止 OxiDNS 将导致局域网客户端无法解析 DNS。"
+
+msgid "LAN DNS queries will use the restored upstream servers again."
+msgstr "局域网 DNS 查询将重新使用恢复后的上游服务器。"
+
+msgid "None"
+msgstr "无"
+
+msgid "Not enabled"
+msgstr "未启用"
+
+msgid "Optional feature: forward LAN DNS queries through OxiDNS. This is disabled by default and can be reverted here at any time."
+msgstr "可选功能：将局域网 DNS 查询通过 OxiDNS 转发。此功能默认关闭，可随时在此恢复。"
+
+msgid "OxiDNS DNS listener"
+msgstr "OxiDNS DNS 监听"
+
+msgid "OxiDNS UDP and TCP DNS listeners do not share a reachable IPv4 address."
+msgstr "OxiDNS 的 UDP 和 TCP DNS 监听没有共用的可访问 IPv4 地址。"
+
+msgid "OxiDNS UDP and TCP DNS listeners must use the same port."
+msgstr "OxiDNS 的 UDP 和 TCP DNS 监听必须使用同一端口。"
+
+msgid "OxiDNS has multiple TCP DNS listen addresses."
+msgstr "OxiDNS 配置了多个 TCP DNS 监听地址。"
+
+msgid "OxiDNS has multiple UDP DNS listen addresses."
+msgstr "OxiDNS 配置了多个 UDP DNS 监听地址。"
+
+msgid "OxiDNS is not listening on the configured DNS port. Restart OxiDNS and try again."
+msgstr "OxiDNS 未在配置的 DNS 端口上监听。请重启 OxiDNS 后重试。"
+
+msgid "OxiDNS must expose an IPv4 DNS listen address."
+msgstr "OxiDNS 必须提供 IPv4 DNS 监听地址。"
+
+msgid "OxiDNS must listen for both UDP and TCP DNS."
+msgstr "OxiDNS 必须同时监听 UDP 和 TCP DNS。"
+
+msgid "Remove forwarding server %s."
+msgstr "移除转发服务器 %s。"
+
+msgid "Remove generic upstream servers: %s."
+msgstr "移除通用上游服务器：%s。"
+
+msgid "Restore previous upstream servers: %s."
+msgstr "恢复之前的上游服务器：%s。"
+
+msgid "Restore the previous dnsmasq noresolv setting."
+msgstr "恢复之前的 dnsmasq noresolv 设置。"
+
+msgid "Set dnsmasq noresolv to 1."
+msgstr "将 dnsmasq noresolv 设置为 1。"
+
+msgid "Start OxiDNS before enabling system DNS integration."
+msgstr "请先启动 OxiDNS，再启用系统 DNS 接入。"
+
+msgid "System DNS integration"
+msgstr "系统 DNS 接入"
+
+msgid "System DNS integration disabled."
+msgstr "系统 DNS 接入已取消。"
+
+msgid "System DNS integration enabled."
+msgstr "系统 DNS 接入已启用。"
+
+msgid "System DNS integration is already enabled."
+msgstr "系统 DNS 接入已启用。"
+
+msgid "System DNS integration is enabled. Stopping OxiDNS will make LAN DNS resolution fail until OxiDNS is started again or system DNS integration is disabled."
+msgstr "系统 DNS 接入已启用。停止 OxiDNS 后，局域网 DNS 解析将失败，直到重新启动 OxiDNS 或取消系统 DNS 接入。"
+
+msgid "System DNS integration is not enabled."
+msgstr "系统 DNS 接入未启用。"
+
+msgid "The OxiDNS DNS listen address changed. Disable and enable system DNS integration again."
+msgstr "OxiDNS 的 DNS 监听地址已更改。请取消并重新启用系统 DNS 接入。"
+
+msgid "The saved DNS integration state is invalid."
+msgstr "保存的 DNS 接入状态无效。"
+
+msgid "The saved dnsmasq forwarding entry is missing."
+msgstr "保存的 dnsmasq 转发条目已丢失。"
+
+msgid "Unable to query system DNS integration status."
+msgstr "无法查询系统 DNS 接入状态。"
+
+msgid "When enabled, dnsmasq forwards generic DNS queries to OxiDNS. Domain-specific upstreams are kept."
+msgstr "启用后，dnsmasq 会将通用 DNS 查询转发到 OxiDNS。特定域名上游将保留。"
+
+msgid "While OxiDNS is stopped, LAN DNS resolution will fail. Disable system DNS integration to restore the previous dnsmasq settings."
+msgstr "OxiDNS 停止时，局域网 DNS 解析将失败。取消系统 DNS 接入可恢复之前的 dnsmasq 设置。"
+
+msgid "dnsmasq"
+msgstr "dnsmasq"
+
+msgid "dnsmasq could not be reloaded. The settings will apply the next time dnsmasq starts."
+msgstr "无法重新加载 dnsmasq。设置将在 dnsmasq 下次启动时生效。"
+
+msgid "dnsmasq is not available"
+msgstr "dnsmasq 不可用"
+
+msgid "dnsmasq is not running."
+msgstr "dnsmasq 未运行。"
+
+msgid "dnsmasq is not running. The settings will apply when dnsmasq starts."
+msgstr "dnsmasq 未运行。设置将在 dnsmasq 启动时生效。"
+
+msgid "dnsmasq noresolv"
+msgstr "dnsmasq noresolv"
+
+msgid "dnsmasq noresolv is no longer set."
+msgstr "dnsmasq 的 noresolv 已不再设置。"
+
+msgid "dnsmasq upstream"
+msgstr "dnsmasq 上游"
+
+msgid "dnsmasq will forward generic DNS queries to %s."
+msgstr "dnsmasq 将把通用 DNS 查询转发到 %s。"
+
+msgid "dnsmasq will stop forwarding DNS queries to OxiDNS."
+msgstr "dnsmasq 将停止向 OxiDNS 转发 DNS 查询。"
+
+msgid "dnsmasq is not available."
+msgstr "dnsmasq 不可用。"
+
+msgid "OxiDNS is stopped. LAN DNS resolution is failing until OxiDNS is started or system DNS integration is disabled."
+msgstr "OxiDNS 已停止。在启动 OxiDNS 或取消系统 DNS 接入之前，局域网 DNS 解析将失败。"
+
+msgid "Add ad filtering"
+msgstr "添加广告过滤"
+
+msgid "Adds AdGuard rules and blocking plugins, then inserts the blocking rule at the start of the entry sequence. The subscription download plugin is added when you enter subscription URLs."
+msgstr "添加 AdGuard 规则和拦截插件，并将拦截规则插入到入口序列的开头。填写订阅地址后才会创建订阅下载插件。"
+
+msgid "Ad filtering"
+msgstr "广告过滤"
+
+msgid "Ad filtering downloads subscription rules at startup, matches them with AdGuard rules, and answers matching queries locally."
+msgstr "广告过滤会在启动时下载订阅规则，使用 AdGuard 规则进行匹配，并在本地应答匹配的查询。"
+
+msgid "Ad filtering needs at least one subscription URL, inline rule, or local rule file."
+msgstr "广告过滤至少需要一个订阅地址、内联规则或本地规则文件。"
+
+msgid "Blocking addresses"
+msgstr "拦截地址"
+
+msgid "Custom blocking mode requires at least one valid IPv4 or IPv6 address."
+msgstr "自定义拦截模式至少需要一个有效的 IPv4 或 IPv6 地址。"
+
+msgid "Downloaded subscription files are stored in this directory."
+msgstr "下载的订阅文件保存在此目录中。"
+
+msgid "Inline rules"
+msgstr "内联规则"
+
+msgid "Local rule files"
+msgstr "本地规则文件"
+
+msgid "No entry sequence was found. Configure a server entry in Advanced Mode first."
+msgstr "未找到入口序列。请先在高级模式中配置服务器入口。"
+
+msgid "One absolute path per line. Files are read directly by OxiDNS."
+msgstr "每行一个绝对路径。OxiDNS 会直接读取这些文件。"
+
+msgid "One AdGuard rule per line."
+msgstr "每行一条 AdGuard 规则。"
+
+msgid "One http:// or https:// URL per line. Missing files are downloaded when OxiDNS starts; a failed download prevents startup."
+msgstr "每行一个 http:// 或 https:// 地址。OxiDNS 启动时会下载缺失的文件；下载失败会导致启动失败。"
+
+msgid "Remove ad filtering"
+msgstr "移除广告过滤"
+
+msgid "Remove subscription downloads"
+msgstr "移除订阅下载"
+
+msgid "Remove the ad filtering configuration?"
+msgstr "确定移除广告过滤配置吗？"
+
+msgid "Rules directory"
+msgstr "规则目录"
+
+msgid "Subscription URLs"
+msgstr "订阅地址"
+
+msgid "The ad filtering blocking mode is invalid."
+msgstr "广告过滤的拦截模式无效。"
+
+msgid "The ad filtering download plugin needs at least one subscription URL. Add one, or use Remove subscription downloads."
+msgstr "广告过滤下载插件至少需要一个订阅地址。请添加一个，或使用“移除订阅下载”。"
+
+msgid "The ad filtering rule could not be inserted into the entry sequence. Check the sequence configuration in Advanced Mode."
+msgstr "无法将广告过滤规则插入入口序列。请在高级模式中检查序列配置。"
+
+msgid "The local rule file %s must be an absolute path."
+msgstr "本地规则文件 %s 必须是绝对路径。"
+
+msgid "The rules directory must be an absolute path."
+msgstr "规则目录必须是绝对路径。"
+
+msgid "The subscription URL %s is duplicated."
+msgstr "订阅地址 %s 重复。"
+
+msgid "The subscription URL %s is invalid. Use an http:// or https:// URL."
+msgstr "订阅地址 %s 无效。请使用 http:// 或 https:// 地址。"
+
+msgid "The tag %s is already used by a %s plugin. Rename it in Advanced Mode before using ad filtering."
+msgstr "标签 %s 已被 %s 插件使用。请先在高级模式中重命名，再使用广告过滤。"
+
+msgid "unknown"
+msgstr "未知"
+
+msgid "Used by custom mode. Separate IPv4 and IPv6 addresses with commas or spaces."
+msgstr "用于自定义模式。IPv4 和 IPv6 地址之间用逗号或空格分隔。"
+
+
+msgid "Adds the missing plugins without changing existing ones, and wires the servers to the sequence."
+msgstr "添加缺失的插件（不改动已有插件），并把服务端接到该 sequence。"
+
+msgid "Both the UDP and TCP server plugins will listen on this address."
+msgstr "UDP 和 TCP 服务端插件都将监听这个地址。"
+
+msgid "Choose an existing sequence, or leave this empty to create %s."
+msgstr "选择已有 sequence；留空则创建 %s。"
+
+msgid "Create a new sequence"
+msgstr "创建新 sequence"
+
+msgid "Create entry sequence and servers"
+msgstr "创建入口 sequence 和服务端"
+
+msgid "Entry sequence"
+msgstr "入口 sequence"
+
+msgid "Getting Started"
+msgstr "快速开始"
+
+msgid "Listen address"
+msgstr "监听地址"
+
+msgid "No server entry points at an entry sequence yet. Create the minimal sequence and server setup below, then add upstream DNS."
+msgstr "还没有任何服务端入口指向 sequence。请在下方创建最小的 sequence 与服务端配置，然后添加上游 DNS。"
+
+msgid "Select an entry executor"
+msgstr "选择入口执行插件"
+
+msgid "This configuration has no server plugin that references a sequence, so it cannot answer queries yet."
+msgstr "当前配置没有引用 sequence 的服务端插件，因此还不能应答查询。"
+
+msgid "This configuration loads plugins from included files, so they cannot be created here. Add the entry sequence and server plugins in those files or in Advanced Mode."
+msgstr "当前配置通过 include 引入外部插件，无法在这里创建。请在这些文件或高级模式中添加入口 sequence 和服务端插件。"
+
+msgid "A new sequence named %s will be created."
+msgstr "将创建名为 %s 的新 sequence。"
+
