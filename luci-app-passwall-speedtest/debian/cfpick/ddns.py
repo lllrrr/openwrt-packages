@@ -10,8 +10,10 @@ Only the Cloudflare API is implemented.  Requests deliberately bypass any
 setup being tested.
 """
 
+import http.client
 import ipaddress
 import json
+import os
 import re
 import socket
 import ssl
@@ -93,6 +95,31 @@ def _retry_safe(exc, method):
                for item in _error_chain(exc))
 
 
+SO_MARK = getattr(socket, "SO_MARK", 36)
+DDNS_MARK = 255
+
+
+class _MarkedHTTPSConnection(http.client.HTTPSConnection):
+    """HTTPS connection whose socket carries SO_MARK=255 (bypass passwall)."""
+
+    def connect(self):
+        infos = socket.getaddrinfo(self.host, self.port, 0, socket.SOCK_STREAM)
+        family, socktype, proto, canon, sa = infos[0]
+        sock = socket.socket(family, socktype, proto)
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, SO_MARK, DDNS_MARK)
+        except OSError:
+            pass
+        sock.settimeout(self.timeout)
+        sock.connect(sa)
+        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+
+
+class _MarkedHTTPSHandler(urllib.request.HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(_MarkedHTTPSConnection, req, context=self._context)
+
+
 def _http_transport(url, method, headers, body, timeout):
     """Return ``(status, payload)``.  HTTP errors keep Cloudflare's JSON body."""
     data = None
@@ -103,7 +130,7 @@ def _http_transport(url, method, headers, body, timeout):
         request = urllib.request.Request(url, data=data, headers=headers, method=method)
         # Do not inherit http_proxy/https_proxy: the DNS API should work even
         # when the machine has no working system proxy.
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _MarkedHTTPSHandler())
         try:
             with opener.open(request, timeout=timeout) as response:
                 raw = response.read()
@@ -359,6 +386,39 @@ def preview(cfg, nodes, rows, when=""):
     }
 
 
+def _wait_api(api, log, wait_seconds=None):
+    """Wait until the Cloudflare API answers before writing DDNS records."""
+    try:
+        wait_seconds = int(os.environ.get("CFPICK_DDNS_API_WAIT", wait_seconds or 300))
+    except (TypeError, ValueError):
+        wait_seconds = 300
+    wait_seconds = max(0, wait_seconds)
+    interval = 5
+    deadline = time.time() + wait_seconds
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            api.verify_token()
+            if attempt > 1:
+                log("DDNS API 已恢复(第 %d 次尝试)" % attempt)
+            return True
+        except Exception as exc:
+            text = str(exc)
+            network = any(k in text for k in (
+                "timed out", "handshake", "urlopen", "Connection",
+                "SSL", "Network is unreachable", "Temporary failure"))
+            if not network:
+                log("DDNS API 验证失败(非网络问题): %s" % text)
+                return False
+            left = int(deadline - time.time())
+            if left <= 0:
+                log("DDNS API 等待 %ds 仍不可达: %s" % (wait_seconds, text))
+                return False
+            log("DDNS API 暂不可达, %ds 后重试(剩余 %ds): %s" % (interval, left, text))
+            time.sleep(interval)
+
+
 def apply(cfg, nodes, rows, log=None, client=None, when=""):
     """Write each configured node's best IPs to Cloudflare DNS.
 
@@ -406,6 +466,9 @@ def apply(cfg, nodes, rows, log=None, client=None, when=""):
     zone_id_cfg = str(cloudflare.get("zone_id") or "").strip()
     zone_name = _clean_domain(cloudflare.get("zone_name"))
     api = client or CloudflareClient(token)
+    if client is None and not _wait_api(api, log):
+        report.update(ok=False, error="Cloudflare API 不可达")
+        return report
 
     for item in planned:
         entry = {
