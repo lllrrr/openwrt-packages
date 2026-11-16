@@ -18,9 +18,11 @@ load_oxidns_settings() {
 start_service() {
 	load_oxidns_settings
 
+	# The core is installed at runtime from the LuCI page, so a missing binary
+	# is a normal state: the service stays inactive and the rpcd status reports
+	# the core as not installed. Reporting it as a boot error only adds noise.
 	if [ ! -x "$PROG" ]; then
-		echo "oxidns binary not found or not executable: $PROG" >&2
-		return 1
+		return 0
 	fi
 	if [ ! -r "$CONFIG_PATH" ]; then
 		echo "oxidns config not found: $CONFIG_PATH" >&2
