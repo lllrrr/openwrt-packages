@@ -2058,3 +2058,24 @@ msgstr "当前配置通过 include 引入外部插件，无法在这里创建。
 msgid "A new sequence named %s will be created."
 msgstr "将创建名为 %s 的新 sequence。"
 
+msgid "Updated at %s"
+msgstr "更新于 %s"
+
+msgid "%s (all queries are forwarded to OxiDNS; before enabling: %s)"
+msgstr "%s（所有查询转发到 OxiDNS；启用前：%s）"
+
+msgid "%s (all queries are forwarded to OxiDNS)"
+msgstr "%s（所有查询转发到 OxiDNS）"
+
+msgid "%s (from %s, added by the WAN connection, not stored in UCI)"
+msgstr "%s（来自 %s，由 WAN 连接下发，未保存在 UCI 中）"
+
+msgid "%s (resolv file ignored because noresolv is set)"
+msgstr "%s（已设置 noresolv，resolv 文件被忽略）"
+
+msgid "Stop using the WAN-provided servers in %s."
+msgstr "停止使用 %s 中由 WAN 提供的上游。"
+
+msgid "None (all domains use the upstreams above)"
+msgstr "无（所有域名使用上述上游）"
+

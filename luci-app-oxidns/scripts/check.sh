@@ -102,12 +102,13 @@ if (failures.length) {
 	process.exit(1);
 }
 NODE
-for script in scripts/po2lmo.mjs scripts/strip-tar-eof.mjs scripts/write-apk-data-tar.mjs scripts/write-ar-archive.mjs; do
+for script in scripts/po2lmo.mjs scripts/strip-tar-eof.mjs scripts/write-apk-data-tar.mjs scripts/write-ar-archive.mjs scripts/view-check.mjs; do
 	node --check "$script"
 done
 node scripts/po2lmo.mjs po/zh_Hans/oxidns.po "${TMPDIR:-/tmp}/oxidns.zh-cn.lmo"
 test -s "${TMPDIR:-/tmp}/oxidns.zh-cn.lmo"
 rm -f "${TMPDIR:-/tmp}/oxidns.zh-cn.lmo"
+node scripts/view-check.mjs
 if command -v msgfmt >/dev/null 2>&1; then
 	msgfmt --check po/zh_Hans/oxidns.po -o /dev/null
 fi

@@ -2056,3 +2056,24 @@ msgstr ""
 msgid "A new sequence named %s will be created."
 msgstr ""
 
+msgid "Updated at %s"
+msgstr ""
+
+msgid "%s (all queries are forwarded to OxiDNS; before enabling: %s)"
+msgstr ""
+
+msgid "%s (all queries are forwarded to OxiDNS)"
+msgstr ""
+
+msgid "%s (from %s, added by the WAN connection, not stored in UCI)"
+msgstr ""
+
+msgid "%s (resolv file ignored because noresolv is set)"
+msgstr ""
+
+msgid "Stop using the WAN-provided servers in %s."
+msgstr ""
+
+msgid "None (all domains use the upstreams above)"
+msgstr ""
+

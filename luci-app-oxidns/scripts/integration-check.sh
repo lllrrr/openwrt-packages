@@ -403,6 +403,104 @@ assert_service_event start core_not_installed "service start ignored: OxiDNS cor
 assert_service_event stop service_unavailable "service stop failed: init script not found: /etc/init.d/oxidns"
 rm -rf "$SERVICE_LOG_DIR"
 
+# The DNS card must report where dnsmasq actually sends queries. Explicit
+# `server` options are only half of it: on the common router setup the ISP
+# hands the upstreams to the WAN interface, dnsmasq reads them from its resolv
+# file, and the UCI list stays empty. Reporting only UCI made the card read
+# "none" while DNS worked normally.
+DNS_TEST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/oxidns-dns-status.XXXXXX")"
+DNS_TEST_STATE="$DNS_TEST_DIR/state"
+DNS_TEST_RESOLV="$DNS_TEST_DIR/resolv.conf.auto"
+mkdir -p "$DNS_TEST_DIR/bin" "$DNS_TEST_DIR/resolv.d"
+cat > "$DNS_TEST_DIR/bin/uci" <<'EOF'
+#!/bin/sh
+set -eu
+[ "${1:-}" = "-q" ] && shift
+CMD="${1:-}"
+shift || true
+STATE="${FAKE_UCI_STATE:?}"
+case "$CMD" in
+	get)
+		[ -f "$STATE" ] || exit 1
+		COUNT="$(grep -c -F -- "${1:-}=" "$STATE" || true)"
+		[ "${COUNT:-0}" -gt 0 ] || exit 1
+		VALUE="$(grep -F -- "${1:-}=" "$STATE" | tail -n 1)"
+		printf '%s\n' "${VALUE#*=}"
+		;;
+	show)
+		[ -f "$STATE" ] || exit 0
+		grep -F -- "${1:-}=" "$STATE" | while IFS= read -r line; do
+			printf "%s='%s'\n" "${line%%=*}" "${line#*=}"
+		done
+		exit 0
+		;;
+	*)
+		exit 1
+		;;
+esac
+EOF
+chmod 755 "$DNS_TEST_DIR/bin/uci"
+printf '%s\n' \
+	'search lan' \
+	'nameserver 223.5.5.5' \
+	'nameserver 119.29.29.29' \
+	'nameserver 127.0.0.1' \
+	> "$DNS_TEST_RESOLV"
+dns_status_call() {
+	PATH="$DNS_TEST_DIR/bin:$PATH" FAKE_UCI_STATE="$DNS_TEST_STATE" \
+		OXIDNS_RESOLV_CONF_D="$DNS_TEST_DIR/resolv.d" \
+		root/usr/libexec/rpcd/luci.oxidns call dns_integration_status
+}
+reset_dns_state() {
+	cat > "$DNS_TEST_STATE"
+}
+
+# 1. Only the resolv file provides upstreams; the UCI list is empty.
+reset_dns_state <<EOF
+dhcp.@dnsmasq[0]=dnsmasq
+dhcp.@dnsmasq[0].resolvfile=$DNS_TEST_RESOLV
+oxidns.main.config_path=/nonexistent/config.yaml
+EOF
+dns_status_call | json_ok "v.ok === true && v.supported === true && v.generic_servers.length === 0 && v.domain_servers.length === 0 && v.auto_active === true && JSON.stringify(v.auto_servers) === '[\"223.5.5.5\",\"119.29.29.29\"]' && v.auto_source === '$DNS_TEST_RESOLV' && v.upstream_mode === 'auto' && v.noresolv_set === false"
+
+# 2. Explicit UCI servers with noresolv set: the resolv file is not consulted.
+reset_dns_state <<EOF
+dhcp.@dnsmasq[0]=dnsmasq
+dhcp.@dnsmasq[0].resolvfile=$DNS_TEST_RESOLV
+dhcp.@dnsmasq[0].noresolv=1
+dhcp.@dnsmasq[0].server=1.1.1.1
+dhcp.@dnsmasq[0].server=9.9.9.9
+dhcp.@dnsmasq[0].server=/example.com/8.8.8.8
+oxidns.main.config_path=/nonexistent/config.yaml
+EOF
+dns_status_call | json_ok "v.ok === true && JSON.stringify(v.generic_servers) === '[\"1.1.1.1\",\"9.9.9.9\"]' && JSON.stringify(v.domain_servers) === '[\"/example.com/8.8.8.8\"]' && v.auto_active === false && v.auto_servers.length === 0 && v.upstream_mode === 'explicit' && v.noresolv_set === true && v.noresolv === '1'"
+
+# 3. Explicit UCI servers plus a resolv file that is still in effect.
+reset_dns_state <<EOF
+dhcp.@dnsmasq[0]=dnsmasq
+dhcp.@dnsmasq[0].server=1.1.1.1
+oxidns.main.config_path=/nonexistent/config.yaml
+EOF
+cp "$DNS_TEST_RESOLV" "$DNS_TEST_DIR/resolv.d/resolv.conf.auto"
+dns_status_call | json_ok "v.ok === true && v.generic_servers.length === 1 && v.auto_active === true && v.auto_source === '$DNS_TEST_DIR/resolv.d/resolv.conf.auto' && v.upstream_mode === 'mixed'"
+
+# 4. An enabled integration reports the managed forward, not the saved snapshot.
+reset_dns_state <<EOF
+dhcp.@dnsmasq[0]=dnsmasq
+dhcp.@dnsmasq[0].noresolv=1
+dhcp.@dnsmasq[0].server=127.0.0.1#5335
+oxidns.main.config_path=/nonexistent/config.yaml
+oxidns.dns_integration=state
+oxidns.dns_integration.managed=1
+oxidns.dns_integration.forward=127.0.0.1#5335
+oxidns.dns_integration.server_prev=1.1.1.1
+oxidns.dns_integration.server_prev=9.9.9.9
+oxidns.dns_integration.noresolv_set=0
+oxidns.dns_integration.noresolv_value=
+EOF
+dns_status_call | json_ok "v.ok === true && v.managed === true && v.forward === '127.0.0.1#5335' && v.forward_present === true && JSON.stringify(v.previous_servers) === '[\"1.1.1.1\",\"9.9.9.9\"]' && v.upstream_mode === 'managed' && v.can_disable === true"
+rm -rf "$DNS_TEST_DIR"
+
 DIST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/luci-app-oxidns-dist.XXXXXX")"
 scripts/build-luci-package.sh 0.1.0 "$DIST_DIR" >/dev/null
 tar_has_member "$DIST_DIR/luci-app-oxidns_0.1.0-r1_all.ipk" control.tar.gz

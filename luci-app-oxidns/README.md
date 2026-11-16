@@ -56,7 +56,7 @@ make package/luci-app-oxidns/compile V=s
 ## 功能
 
 - `基本信息`：`状态概览` 展示后端、内核、构建信息、服务状态、开机自启和 WebUI 入口；下方可启动、停止或重启服务。
-- `系统 DNS 接入`：位于 `基本信息` 页面，可一键启用或停用 dnsmasq 转发。启用后 dnsmasq 将通用 DNS 查询转发到 OxiDNS 的监听地址，保留特定域名上游；默认关闭，停用时会恢复原来的通用上游和 `noresolv` 设置。
+- `系统 DNS 接入`：位于 `基本信息` 页面，可一键启用或停用 dnsmasq 转发。启用后 dnsmasq 将通用 DNS 查询转发到 OxiDNS 的监听地址，保留特定域名上游；默认关闭，停用时会恢复原来的通用上游和 `noresolv` 设置。卡片显示的 `dnsmasq 上游` 是实际生效的上游（UCI 的 `list server` 与 WAN 下发的 resolv 文件合并，并注明来源），随状态轮询每 5 秒自动刷新。
 - `安装部署`：安装、更新、上传、修复或删除内核与 WebUI；配置内核仓库、bundle、路径、系统日志输出和下载凭据。
 - `DNS配置`：默认进入高级模式（完整 YAML 编辑器），普通模式提供常用设置表单；两种模式都支持校验、下载/上传配置、保存、保存并应用和改动预览。`forward` 的上游可从下拉框选择常用 DNS 服务器或输入自定义地址，没有 `forward` 插件时可一键创建并接入入口 sequence；server 的 `Entry` 改为下拉选择已有插件。普通模式的 `广告过滤` 卡片可一键创建并管理固定的 `adguard_rule` / `black_hole` 插件组（填写订阅地址后创建 `download` 插件），支持订阅下载、内联规则、本地规则文件和拦截模式，并把拦截规则插入每个入口 sequence 的最前面。普通模式的 `Hosts` 卡片可一键创建固定的 `hosts` 插件（`oxidns_hosts`），把 hosts 步骤插入入口 sequence，并维护本地域名记录。普通模式的 `缓存` 卡片可一键创建固定的 `cache` 插件（`oxidns_cache`），把缓存步骤插入入口 sequence，并在启用后提供全部缓存字段。
 - `运行日志`：查看 OxiDNS 运行日志。

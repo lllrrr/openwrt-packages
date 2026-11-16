@@ -807,14 +807,18 @@ Prerequisites:
 
 Steps:
 
-1. Open `Services -> OxiDNS -> Basic Information` and find the `System DNS integration` card. It shows the dnsmasq status, integration status, OxiDNS listen target, dnsmasq generic upstreams (the current value before enabling, the saved pre-enable value afterwards), domain-specific upstreams, and the current `noresolv` value. Empty lists show `None`, and a target that is not listening is marked `(not listening)`.
-2. Click `Enable dnsmasq forwarding`. The confirmation dialog lists the changes:
+1. Open `Services -> OxiDNS -> Basic Information` and find the `System DNS integration` card. It shows the dnsmasq status, integration status, OxiDNS listen target, the effective dnsmasq upstreams, domain-specific upstreams, and the current `noresolv` value. A target that is not listening is marked `(not listening)`.
+   - `dnsmasq upstream` lists what dnsmasq actually uses, not just the `list server` entries in `/etc/config/dhcp`. On many routers the upstreams arrive over WAN (DHCP/PPPoE) in `/tmp/resolv.conf.d/resolv.conf.auto` and no UCI `server` entry exists at all; those servers are listed too, with a note naming the file they came from.
+   - While the integration is enabled this row shows the forwarding entry that points at OxiDNS, with the pre-enable upstreams noted underneath for comparison.
+   - With `noresolv=1` the resolv file is ignored, so the card lists only the UCI upstreams and says so.
+2. The card refreshes every 5 seconds with the status poll. The `Updated at HH:MM:SS` note is the last successful read, so a timestamp that stops advancing means the backend query is failing. Changes made elsewhere on the system show up without reloading the page.
+3. Click `Enable dnsmasq forwarding`. The confirmation dialog lists the changes:
    - remove the current generic upstreams, recording their original values;
    - add a forwarding entry pointing at OxiDNS, for example `127.0.0.1#5335`;
-   - set `noresolv=1`, recording the original value;
+   - set `noresolv=1`, recording the original value; upstreams that WAN wrote into the resolv file stop being used as well;
    - keep `/domain/...` domain-specific upstreams.
    These original values are stored in the `dns_integration` section of `/etc/config/oxidns` so they can be restored later. If an identical forwarding entry was already added manually, it is recorded as a previous generic upstream and is restored as it was on disable.
-3. After you confirm, the backend saves the pre-enable state, writes `/etc/config/dhcp`, and reloads dnsmasq. The card then shows the integration as enabled, the forwarding target, and the recorded pre-enable upstreams.
+4. After you confirm, the backend saves the pre-enable state, writes `/etc/config/dhcp`, and reloads dnsmasq. The card then shows the integration as enabled, the forwarding target, and the recorded pre-enable upstreams.
 
 Verify:
 
