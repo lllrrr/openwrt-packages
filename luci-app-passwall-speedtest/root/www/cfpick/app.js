@@ -2242,6 +2242,7 @@
 		check('monitor_enabled', g.monitor_enabled);
 		set('monitor_interval', g.monitor_interval);
 		set('monitor_failures', g.monitor_failures);
+		fillNetcheck(g);
 		check('ddns_enabled', g.ddns_enabled);
 		set('ddns_token', g.ddns_api_token || '');
 		set('ddns_zone_id', g.ddns_zone_id);
@@ -2319,6 +2320,8 @@
 				monitor_enabled: check('monitor_enabled'),
 				monitor_interval: integer('monitor_interval', 60, 10, 3600),
 				monitor_failures: integer('monitor_failures', 3, 1, 10),
+				netcheck_enabled: check('netcheck_enabled'),
+				netcheck_target: collectNetcheckTarget(),
 				ddns_enabled: check('ddns_enabled'),
 				ddns_ip_count: integer('ddns_ip_count', 1, 1, 10),
 				ddns_ttl: integer('ddns_ttl', 300, 1, 86400),
@@ -2484,6 +2487,47 @@
 			else if (key === 'custom_file') visible = source === 'custom_file';
 			node.classList.toggle('hidden', !visible);
 		});
+	}
+
+	// ── 稳定参考 IP（断网判定）───────────────────────────────────────────
+	// 预设下拉 + 自定义输入：预选主流公共 DNS，选「自定义…」时才显示输入框；
+	// 保存的 netcheck_target 永远是最终生效的那个地址。
+	function netcheckIsCustom() {
+		const sel = $('#netcheck_preset');
+		return !sel || sel.value === '';
+	}
+
+	function netcheckCustomVisible() {
+		const node = $('[data-netcheck-custom]');
+		if (node)
+			node.hidden = !netcheckIsCustom();
+	}
+
+	function fillNetcheck(g) {
+		const chk = $('#netcheck_enabled');
+		if (chk)
+			chk.checked = (g.netcheck_enabled === true || g.netcheck_enabled === 1 || g.netcheck_enabled === '1');
+		const target = String(g.netcheck_target || '223.5.5.5').trim() || '223.5.5.5';
+		const sel = $('#netcheck_preset');
+		if (sel) {
+			let match = false;
+			Array.from(sel.options).forEach((opt) => {
+				if (opt.value === target) match = true;
+			});
+			sel.value = match ? target : '';
+		}
+		const input = $('#netcheck_target');
+		if (input)
+			input.value = target;
+		netcheckCustomVisible();
+	}
+
+	function collectNetcheckTarget() {
+		const sel = $('#netcheck_preset');
+		if (sel && sel.value !== '')
+			return sel.value;
+		const input = $('#netcheck_target');
+		return (input && input.value.trim()) || '223.5.5.5';
 	}
 
 	// ── 在线源列表 ──────────────────────────────────────────────────────
@@ -3290,6 +3334,9 @@
 			saveConfig('设置已保存');
 		});
 		$('#ip_source').addEventListener('change', updateFieldVisibility);
+		const netPreset = $('#netcheck_preset');
+		if (netPreset)
+			netPreset.addEventListener('change', netcheckCustomVisible);
 		bindOnlineSourceInput();
 		$('#btn-cron-refresh').addEventListener('click', refreshCronTasks);
 		mountScheduleEditor('cron-add-schedule', '0 3 * * *');

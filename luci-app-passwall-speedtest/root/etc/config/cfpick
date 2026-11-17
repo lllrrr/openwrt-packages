@@ -33,6 +33,12 @@ config global 'global'
 	option monitor_enabled '1'
 	option monitor_interval '60'
 	option monitor_failures '3'
+	# 断网时暂停监视：监测失败可能只是本机断网（光猫/上游掉线），与节点无关，
+	# 不该计入失败阈值触发复测。用稳定的公共参考地址 netcheck_target（默认阿里
+	# DNS 223.5.5.5）直连判定本机联网：参考地址不响应时本轮跳过，恢复后照常
+	# 监视。可选 223.5.5.5 / 119.29.29.29 / 180.76.76.76 / 8.8.8.8 / 1.1.1.1 等。
+	option netcheck_enabled '1'
+	option netcheck_target '223.5.5.5'
 	# 独立内核（固定启用）：测速一律用本机 mihomo/Xray 内核（cfpick core），
 	# 不再调用 PassWall 的 run_socks；PassWall 只在读取节点链接和写回最优 IP 时使用。
 	option standalone_enabled '1'

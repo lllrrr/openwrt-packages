@@ -71,6 +71,10 @@ DEFAULT_CONFIG = {
         "enabled": True,
         "interval": 60,
         "failures": 3,
+        # 断网判定（稳定参考地址）：断网期间任务挂起等待恢复，监测失败不计
+        # 次数。默认阿里 DNS 223.5.5.5，操作台可选主流公共 DNS 或自定义。
+        "netcheck_enabled": True,
+        "netcheck_target": "223.5.5.5",
     },
     "nodes": [],
     "core": {
@@ -406,6 +410,9 @@ def normalize(data):
         # 每分钟一次是默认节奏；下限 10s 防止误配把节点当成压力测试目标。
         "interval": _as_int(monitor.get("interval"), 60, 10, 3600),
         "failures": _as_int(monitor.get("failures"), 3, 1, 10),
+        "netcheck_enabled": _as_bool(monitor.get("netcheck_enabled"), True),
+        "netcheck_target": _clean_text(monitor.get("netcheck_target"), "223.5.5.5")
+            or "223.5.5.5",
     }
 
     cfg["nodes"] = _normalize_nodes(data.get("nodes") if isinstance(data, dict) else None)

@@ -292,8 +292,20 @@
           <label class="check"><input id="monitor_enabled" type="checkbox"> 启用成功后监测</label>
           <label>监测间隔 (s) <input id="monitor_interval" type="number" min="10" max="3600" step="1"></label>
           <label>连续失败次数（1–10） <input id="monitor_failures" type="number" min="1" max="10" step="1"></label>
+          <label class="check"><input id="netcheck_enabled" type="checkbox"> 断网时挂起任务</label>
+          <label>稳定参考 IP
+            <select id="netcheck_preset">
+              <option value="223.5.5.5">阿里 DNS 223.5.5.5</option>
+              <option value="119.29.29.29">腾讯 DNSPod 119.29.29.29</option>
+              <option value="180.76.76.76">百度 DNS 180.76.76.76</option>
+              <option value="8.8.8.8">谷歌 DNS 8.8.8.8</option>
+              <option value="1.1.1.1">Cloudflare 1.1.1.1</option>
+              <option value="">自定义…</option>
+            </select>
+          </label>
+          <label data-netcheck-custom hidden>自定义参考 IP <input id="netcheck_target" type="text" placeholder="例如 223.5.5.5" spellcheck="false"></label>
         </div>
-        <p class="muted">worker 取得有效结果后派生后台监测，每隔指定秒数复测一次这个结果的延迟；连续失败达到设定次数才触发复测（默认 3 次，避免偶发抖动就重测）。监测只做轻量 HEAD 探测，不选 IP、不写回、不占下载锁；下载实测期间自动跳过。参数在下一次任务重新拉起监测时生效。</p>
+        <p class="muted">worker 取得有效结果后派生后台监测，每隔指定秒数复测一次这个结果的延迟；连续失败达到设定次数才触发复测（默认 3 次，避免偶发抖动就重测）。监测只做轻量 HEAD 探测，不选 IP、不写回、不占下载锁；下载实测期间自动跳过。参数在下一次任务重新拉起监测时生效。<b>断网挂起</b>：用「稳定参考 IP」直连判定本机联网（ping + DNS 查询两种方式都不通才算断网），断网时测速任务在入口挂起等待恢复、进行中的任务在探测处挂起、监测失败不计次数；参考 IP 建议选国内稳定可达的公共 DNS（默认阿里 DNS），选 8.8.8.8 之类的境外参考在禁 ICMP 的网络里可能误判。</p>
       </div>
 
       <div class="card">

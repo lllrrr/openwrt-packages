@@ -26,7 +26,7 @@ import time
 import traceback
 from pathlib import Path
 
-from . import asn, config, core, ddns, iplists, links, lock, paths, result, tasklog
+from . import asn, config, core, ddns, iplists, links, lock, netcheck, paths, result, tasklog
 from .log import Logger
 
 SOCKS_PORT_BASE = 18000  # below ip_local_port_range (32768-60999)
@@ -568,6 +568,12 @@ class Engine:
         ``current_ip`` / ``current_asn`` / ``seen_asns`` carry the download-stage
         exceptions from the shell edition (see ``_filter_candidate``).
         """
+        # 测速进行中本机断网：不把候选 IP 测成假死结果，挂在闸门上等网络恢复；
+        # 等待期间收到停止请求则按丢弃处理。
+        if not netcheck.wait_online(
+                self.cfg, self.log,
+                stop=lambda: self.stop_event.is_set() or self.hard_stop):
+            return 0, 0, 0, 1.0, 0.0, "断网挂起期间收到停止"
         workdir = self._node_workdir(node)
         process = config_path = None
         port = 0
@@ -679,6 +685,12 @@ class Engine:
 
     def _download_one(self, node, ip, tag, url=None):
         """Return speed in MB/s (0 on failure).  ``url`` overrides the CF source."""
+        # 断网挂起：等网络恢复再继续下载实测；收到停止则本候选按失败处理。
+        if not netcheck.wait_online(
+                self.cfg, self.log,
+                stop=lambda: self.stop_event.is_set() or self.hard_stop):
+            self._dl_diag = "network-down-stopped"
+            return 0.0
         process = config_path = None
         port = 0
         self._dl_diag = ""
@@ -1461,6 +1473,13 @@ def run(mode="start", node_names=None, quick=False, refresh=False):
         return 1
     acquired = list(run_lock.node_names)
     full_run = (not node_names) and set(acquired) == set(enabled_names)
+    # 断网闸门：定时任务与手动操作最终都只在测速这一层拦（cron 层不加）。
+    # 断网时不空跑一堆注定失败的探测，挂在锁上等网络恢复（保持锁 → 后续定时/
+    # 手动触发直接被锁挡掉，不会堆排队列）；等待期间用户停止则取消本次任务。
+    if not netcheck.wait_online(cfg, logger,
+                                stop=lambda: lock.stop_requested(os.getpid())):
+        run_lock.release()
+        return 1
     # 这些 worker 马上要被本次任务重新测速：先结束它们上一轮成功后的后台监测。
     from . import monitor
     monitor.stop_for(acquired, logger)

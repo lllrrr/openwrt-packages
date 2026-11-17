@@ -39,7 +39,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import config, core, engine, lock, paths, result, tasklog
+from . import config, core, engine, lock, netcheck, paths, result, tasklog
 from .log import Logger
 
 MONITOR_LOCK_DIR = paths.STATE_DIR / ".monitor-locks"
@@ -508,34 +508,53 @@ def watch(name):
                 failures = 0
             last_signature = signature
 
+            # 断网判定：探测失败可能是本机断网（光猫/上游掉线），与节点无关。
+            # 参考地址（netcheck_target，默认阿里 DNS）不响应时本轮直接跳过，
+            # 不探测、不计失败，恢复后照常监视。
+            if netcheck.offline(cfg):
+                logger.log("监测 [%s] 稳定参考 %s 无响应，判定本机断网，本轮跳过" % (
+                    name, netcheck.target(cfg)))
+                logger.size_guard()
+                if not _sleep(settings["interval"], name):
+                    logger.log("监测 [%s] worker 已被新任务触发，退出监测" % name)
+                    break
+                continue
             if lock.download_active_by_other(os.getpid()):
                 logger.log("监测 [%s] 其他任务正在下载实测，本轮跳过" % name)
             else:
                 ok, latency, detail = _check(cfg, name, target, logger)
-                failures = 0 if ok else failures + 1
-                _write_state(name, target, ok, latency, failures, started)
-                logger.size_guard()
-                label = target.get("label") or name
-                if ok:
-                    logger.log("监测 [%s] %s 延迟 %.2fms [正常]" % (
-                        name, label, latency))
+                # 探测失败但参考地址也不通：网络可能在探测途中掉线，本轮不计
+                # 失败（保持上一次状态显示），避免断网期间触发整条复测链。
+                if not ok and netcheck.offline(cfg):
+                    logger.log("监测 [%s] %s 失败，但稳定参考 %s 也无响应，"
+                               "判定本机断网，本轮不计失败" % (
+                                   name, target.get("label") or name,
+                                   netcheck.target(cfg)))
                 else:
-                    logger.log("监测 [%s] %s 失败（连续 %d/%d 次）%s" % (
-                        name, label, failures, settings["failures"],
-                        (": " + detail) if detail else ""))
-                    tasklog.event(
-                        "monitor_fail",
-                        "监测 %s 失败（连续 %d/%d 次）%s" % (
-                            name, failures, settings["failures"],
+                    failures = 0 if ok else failures + 1
+                    _write_state(name, target, ok, latency, failures, started)
+                    logger.size_guard()
+                    label = target.get("label") or name
+                    if ok:
+                        logger.log("监测 [%s] %s 延迟 %.2fms [正常]" % (
+                            name, label, latency))
+                    else:
+                        logger.log("监测 [%s] %s 失败（连续 %d/%d 次）%s" % (
+                            name, label, failures, settings["failures"],
                             (": " + detail) if detail else ""))
-                    if failures >= settings["failures"]:
-                        if _spawn_retest(name, logger):
-                            tasklog.event(
-                                "monitor_retest",
-                                "监测 %s 连续 %d 次失败，触发该 worker 复测" % (
-                                    name, failures))
-                            break
-                        # Spawn failed: keep monitoring and try again next round.
+                        tasklog.event(
+                            "monitor_fail",
+                            "监测 %s 失败（连续 %d/%d 次）%s" % (
+                                name, failures, settings["failures"],
+                                (": " + detail) if detail else ""))
+                        if failures >= settings["failures"]:
+                            if _spawn_retest(name, logger):
+                                tasklog.event(
+                                    "monitor_retest",
+                                    "监测 %s 连续 %d 次失败，触发该 worker 复测" % (
+                                        name, failures))
+                                break
+                            # Spawn failed: keep monitoring and try again next round.
 
             if not _sleep(settings["interval"], name):
                 logger.log("监测 [%s] worker 已被新任务触发，退出监测" % name)

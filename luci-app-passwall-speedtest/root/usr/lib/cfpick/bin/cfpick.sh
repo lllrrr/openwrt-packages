@@ -747,6 +747,76 @@ monitor_wait_interval() {
     return 0
 }
 
+# ── 断网判定（稳定参考 IP）────────────────────────────────────────────
+# 监测探测失败有两种原因：节点侧真的坏了，或者只是本机断网（光猫/上游掉线、
+# WiFi 挤掉线）。后者不该计入失败阈值，更不该触发复测链。用稳定的公共参考
+# 地址（netcheck_target，默认阿里 DNS 223.5.5.5）直接判断本机联网——注意
+# 这是绕过代理的本机直连探测，参考地址不响应时视本机断网。
+# 判定方式：先 ping（ICMP），不通再向该地址发一次 DNS 查询（主流参考地址都
+# 是公共 DNS，部分环境禁 ICMP）；两种方式连试两轮都不通才判断网，单次失败可
+# 能只是瞬时丢包。返回 0 = 断网，1 = 联网/未启用判定。
+NETCHECK_HOST=""
+net_offline() {
+    [ -n "$NETCHECK_HOST" ] || return 1
+    local _i
+    for _i in 1 2; do
+        ping -c1 -W2 "$NETCHECK_HOST" >/dev/null 2>&1 && return 1
+        nslookup one.one.one.one "$NETCHECK_HOST" >/dev/null 2>&1 && return 1
+        [ "$_i" = 1 ] && sleep 1
+    done
+    return 0
+}
+
+# net_offline 的 10s 缓存版：断网挂起时每个 worker 的高频探测循环都会过闸门，
+# 不缓存的话几千个候选 IP 会把 ping/nslookup 打爆。各进程独立缓存足够。
+# 返回值约定与 net_offline 相同：0 = 断网，1 = 在线（调用方按 `&&` 读）。
+NET_CHK_TS=0
+NET_CHK_OFFLINE=1
+net_offline_cached() {
+    [ -n "$NETCHECK_HOST" ] || return 1
+    local _now
+    _now="$(date +%s)"
+    if [ $(( _now - NET_CHK_TS )) -lt 10 ]; then
+        [ "$NET_CHK_OFFLINE" = "1" ] && return 0 || return 1
+    fi
+    NET_CHK_TS="$_now"
+    # net_offline 约定 0=断网（`&& return 1` 早退那种 shell 惯例），if 会把
+    # 0 当真分支，所以这里显式按退出码翻转，别写成 `if net_offline; then`。
+    if net_offline; then
+        NET_CHK_OFFLINE=1
+    else
+        NET_CHK_OFFLINE=0
+    fi
+    [ "$NET_CHK_OFFLINE" = "1" ] && return 0 || return 1
+}
+
+# 断网闸门：定时任务和手动任务最终都只在测速这一层拦（cron 层不加）。
+# 本机断网时不空跑一堆注定失败的探测，也不把候选全测死：挂在闸门上等网络
+# 恢复再继续。任务入口在闸门上保持 worker 锁 → 后续触发直接跳过，不会堆积。
+# 返回 0 = 已联网（或未启用判定）；1 = 等待期间收到停止请求。
+NT_NET_LOGGED=0
+net_wait_online() {
+    net_offline_cached || return 0
+    if [ "$NT_NET_LOGGED" = "0" ]; then
+        NT_NET_LOGGED=1
+        echolog "稳定参考 ${NETCHECK_HOST} 无响应，判定本机断网，挂起等待网络恢复"
+        _tasklog_write event net_wait info "" "" "" "" "" \
+            "本机断网（稳定参考 ${NETCHECK_HOST} 无响应），任务挂起等待网络恢复"
+    fi
+    while net_offline_cached; do
+        if [ -n "${RUN_DIR:-}" ] && [ -f "${RUN_DIR}/.nt_stop" ]; then
+            echolog "断网等待期间收到停止请求，退出"
+            NT_NET_LOGGED=0
+            return 1
+        fi
+        sleep 5
+    done
+    echolog "网络已恢复，继续测速"
+    _tasklog_write event net_ready info "" "" "" "" "" "网络已恢复，任务继续"
+    NT_NET_LOGGED=0
+    return 0
+}
+
 # monitor 入口：cfpick.sh monitor --node=<id>
 monitor_worker() {
     local _node="" _x
@@ -793,6 +863,16 @@ monitor_worker() {
                 break
                 ;;
         esac
+        # 每轮循环都重读参考地址：设置页改了目标/开关不用等复测结束才生效。
+        case "${netcheck_enabled:-1}" in
+            0|no|false|off|OFF|False|No) NETCHECK_HOST="" ;;
+            *) NETCHECK_HOST="${netcheck_target:-223.5.5.5}" ;;
+        esac
+        if net_offline_cached; then
+            echolog "监测 [$(node_label "$_node")] 稳定参考 ${NETCHECK_HOST} 无响应，判定本机断网，本轮跳过"
+            monitor_wait_interval "$_node" "$_iv" || break
+            continue
+        fi
         if [ -d "$WORKER_LOCK_ROOT/$_node.lock" ] && \
            lock_owner_alive "$WORKER_LOCK_ROOT/$_node.lock"; then
             echolog "监测 [$(node_label "$_node")] worker 已被新任务触发，退出监测"
@@ -869,29 +949,34 @@ monitor_worker() {
             monitor_write_state "$_node" "$_target" "$_ip" "$_lat" 1 0
             echolog "监测 [$(node_label "$_node")] ${_target} 延迟 ${_lat}ms [正常]"
         elif [ "$_ok" = "0" ]; then
-            _fails=$((_fails + 1))
-            monitor_write_state "$_node" "$_target" "$_ip" 0 0 "$_fails"
-            echolog "监测 [$(node_label "$_node")] ${_target} 失败（连续 ${_fails}/${_max} 次）"
-            _tasklog_write event monitor_fail info "" "" "" "" "" \
-                "监测 $(node_label "$_node") 失败（连续 ${_fails}/${_max} 次）"
-            if [ "$_fails" -ge "$_max" ]; then
-                _tasklog_write event monitor_retest info "" "" "" "" "" \
-                    "监测 $(node_label "$_node") 连续 ${_fails} 次失败，触发该 worker 复测"
-                echolog "监测 [$(node_label "$_node")] 连续 ${_max} 次失败，触发快速复测 + 正常复测"
-                # 两遍复测都失败（没有产出新结果）时再来第三轮：改用普通测速
-                # 候选刷新 IP 列表；否则正常复测成功后直接结束。
-                (
-                    "$SCRIPT_DIR/cfpick.sh" retest --quick --node="$_node" \
-                        </dev/null >>"$LOG_FILE" 2>&1
-                    "$SCRIPT_DIR/cfpick.sh" retest --node="$_node" \
-                        </dev/null >>"$LOG_FILE" 2>&1
-                    if [ $? -ne 0 ]; then
-                        echolog "监测 [$(node_label "$_node")] 两轮复测均无新结果，第三轮改为普通测速候选"
-                        "$SCRIPT_DIR/cfpick.sh" retest --refresh --node="$_node" \
+            # 探测失败后再复核一次本机联网：网络可能在探测途中掉线。
+            if net_offline_cached; then
+                echolog "监测 [$(node_label "$_node")] ${_target} 失败，但稳定参考 ${NETCHECK_HOST} 也无响应，判定本机断网，本轮不计失败"
+            else
+                _fails=$((_fails + 1))
+                monitor_write_state "$_node" "$_target" "$_ip" 0 0 "$_fails"
+                echolog "监测 [$(node_label "$_node")] ${_target} 失败（连续 ${_fails}/${_max} 次）"
+                _tasklog_write event monitor_fail info "" "" "" "" "" \
+                    "监测 $(node_label "$_node") 失败（连续 ${_fails}/${_max} 次）"
+                if [ "$_fails" -ge "$_max" ]; then
+                    _tasklog_write event monitor_retest info "" "" "" "" "" \
+                        "监测 $(node_label "$_node") 连续 ${_fails} 次失败，触发该 worker 复测"
+                    echolog "监测 [$(node_label "$_node")] 连续 ${_max} 次失败，触发快速复测 + 正常复测"
+                    # 两遍复测都失败（没有产出新结果）时再来第三轮：改用普通测速
+                    # 候选刷新 IP 列表；否则正常复测成功后直接结束。
+                    (
+                        "$SCRIPT_DIR/cfpick.sh" retest --quick --node="$_node" \
                             </dev/null >>"$LOG_FILE" 2>&1
-                    fi
-                ) &
-                break
+                        "$SCRIPT_DIR/cfpick.sh" retest --node="$_node" \
+                            </dev/null >>"$LOG_FILE" 2>&1
+                        if [ $? -ne 0 ]; then
+                            echolog "监测 [$(node_label "$_node")] 两轮复测均无新结果，第三轮改为普通测速候选"
+                            "$SCRIPT_DIR/cfpick.sh" retest --refresh --node="$_node" \
+                                </dev/null >>"$LOG_FILE" 2>&1
+                        fi
+                    ) &
+                    break
+                fi
             fi
         fi
 
@@ -903,7 +988,7 @@ monitor_worker() {
 }
 
 function read_config(){
-    get_global_config "enabled" "custom_cron_enabled" "custom_cron" "tl" "tll" "tlr" "ip_source" "custom_ip_file" "custom_allip" "ip_online_url" "ip_online_regions" "node_test_node" "node_test_url" "node_test_count" "node_test_timeout" "node_test_probes" "node_test_threads" "download_test_enabled" "download_test_count" "download_test_size" "download_test_url" "download_test_time" "iterate_enabled" "iterate_minutes" "iterate_converge_count" "standalone_enabled" "standalone_core" "monitor_enabled" "monitor_interval" "monitor_failures"
+    get_global_config "enabled" "custom_cron_enabled" "custom_cron" "tl" "tll" "tlr" "ip_source" "custom_ip_file" "custom_allip" "ip_online_url" "ip_online_regions" "node_test_node" "node_test_url" "node_test_count" "node_test_timeout" "node_test_probes" "node_test_threads" "download_test_enabled" "download_test_count" "download_test_size" "download_test_url" "download_test_time" "iterate_enabled" "iterate_minutes" "iterate_converge_count" "standalone_enabled" "standalone_core" "monitor_enabled" "monitor_interval" "monitor_failures" "netcheck_enabled" "netcheck_target"
     get_servers_config "ssr_services" "ssr_enabled" "passwall_enabled" "passwall_services" "passwall2_enabled" "passwall2_services" "bypass_enabled" "bypass_services" "vssr_enabled" "vssr_services" "DNS_enabled" "AliDNS_ip_count" "HOST_enabled" "MosDNS_enabled" "MosDNS_ip_count" "openclash_restart" "AstraDNS_enabled" "AstraDNS_config" "AstraDNS_bin"
     # 五个 CM 备选 IP 列表（ip_list 命名段 list1..list5）
     local _n
@@ -2128,6 +2213,12 @@ nt_scan_running() {
 nt_probe_one_ip() {
     local _W=$1 _ip=$2 _purl=$3 _tmo=$4 _probes=$5 _port=$6 _flag=$7 _cap=${8:-0} _cur=${9:-} _cur_asn=${10:-} _asn=""
     local _seen="${RUN_DIR}/asn_seen_${_flag}"
+    # 测速进行中本机断网：不把候选测成假死结果，挂在闸门上等网络恢复；
+    # 等待期间收到停止请求则本 IP 按丢弃处理。
+    if ! net_wait_online; then
+        echo "0 0 0 1.00 0"
+        return 0
+    fi
     # 拉本地 SOCKS（passwall 重启/异常时可能清掉该目录，缺目录会导致写配置失败）。
     # 端口占用/内核起不来时换端口重试并全局暂停，不能当成候选 IP 失败。
     mkdir -p /tmp/etc/passwall 2>/dev/null
@@ -2712,6 +2803,8 @@ nt_download_stage() {
     # 同样实测下载（无有效结果的 worker 由 nt_download_worker 直接跳过）。
     while read -r _i _W _orig; do
         [ -n "$_W" ] || continue
+        # 下载阶段收尾不可中断，断网时也只挂在闸门上等网络恢复再继续。
+        net_wait_online
         _rfile="${RUN_DIR}/result.csv.tmp.$_W"
         # 该 worker 跑完自己的候选后已经提前下载过：直接跳过，别重复测。
         if [ -f "${_rfile}.pwdl" ]; then
@@ -3921,6 +4014,12 @@ while [ "$#" -gt 0 ]; do
 done
 NODE_FILTER="${NODE_FILTER# }"
 
+# 断网判定目标：netcheck 开关 + 稳定参考地址（默认阿里 DNS 223.5.5.5）。
+case "${netcheck_enabled:-1}" in
+    0|no|false|off|OFF|False|No) NETCHECK_HOST="" ;;
+    *) NETCHECK_HOST="${netcheck_target:-223.5.5.5}" ;;
+esac
+
 # 后台监测模式不参与任务锁/会话/写回：它只复测一个成功结果并在失败时触发复测。
 if [ "$ACTION" = "monitor" ]; then
     monitor_worker
@@ -3952,6 +4051,13 @@ if [ -n "$ACTION" ] ;then
         if ! worker_locks_acquire "$RUN_WORKERS"; then
             echolog "所选 worker 都在被其他任务使用，本次 $ACTION 跳过"
             exit 1
+        fi
+        # 断网闸门（挂着等待：期间保持 worker 锁，后续定时/手动触发直接跳过，
+        # 不会堆排队列）。等待期间用户停止则放弃本次任务。
+        if ! net_wait_online; then
+            echolog "本次 $ACTION 已取消"
+            worker_locks_release
+            exit 0
         fi
         # 这些 worker 马上要重新测速：结束它们上一轮成功后的后台监测。
         monitor_stop_for "$ACQUIRED_WORKERS"
@@ -4003,8 +4109,13 @@ if [ -n "$ACTION" ] ;then
         speed_test && ip_replace
         _task_rc=$?
     elif [ "$ACTION" == "replace" ]; then
-        ip_replace
-        _task_rc=$?
+        # replace 只写回结果；断网时 DDNS 写不出去，与测速任务一致地挂起等待。
+        if ! net_wait_online; then
+            _task_rc=1
+        else
+            ip_replace
+            _task_rc=$?
+        fi
     fi
     if [ "$ACTION" != "replace" ]; then
         _tasklog_finish "$_tasklog_mode" "$_task_rc"

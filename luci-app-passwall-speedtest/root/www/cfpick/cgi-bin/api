@@ -23,6 +23,7 @@ const GLOBAL_KEYS = [
 	'download_test_count', 'download_test_size', 'download_test_time',
 	'iterate_enabled', 'iterate_minutes', 'iterate_converge_count',
 	'monitor_enabled', 'monitor_interval', 'monitor_failures',
+	'netcheck_enabled', 'netcheck_target',
 	'custom_cron_enabled', 'custom_cron',
 	'hour', 'node_test_node',
 	'ddns_enabled', 'ddns_ip_count', 'ddns_ttl', 'ddns_api_token',
@@ -773,6 +774,11 @@ function save_config(req) {
 	if (test_node != '' && !match(test_node, /^[A-Za-z0-9_]+$/))
 		return send(req, fail('测试节点名称无效'), '400 Bad Request');
 
+	// 稳定参考 IP（断网判定）：常见为公共 DNS，也允许自定义主机名。
+	let netcheck_target = clean_text(input.netcheck_target, 64);
+	if (netcheck_target != '' && !match(netcheck_target, /^[0-9A-Za-z.:-]+$/))
+		return send(req, fail('稳定参考 IP 无效'), '400 Bad Request');
+
 	let values = {
 		enabled: to_bool(input.enabled),
 		ip_source: ip_source || 'builtin_ipv4',
@@ -798,6 +804,8 @@ function save_config(req) {
 		monitor_enabled: to_bool(input.monitor_enabled),
 		monitor_interval: to_int(input.monitor_interval, 60, 10, 3600),
 		monitor_failures: to_int(input.monitor_failures, 3, 1, 10),
+		netcheck_enabled: to_bool(input.netcheck_enabled),
+		netcheck_target: netcheck_target || '223.5.5.5',
 		ddns_enabled: to_bool(input.ddns_enabled),
 		ddns_ip_count: to_int(input.ddns_ip_count, 1, 1, 10),
 		ddns_ttl: to_int(input.ddns_ttl, 300, 1, 86400),
