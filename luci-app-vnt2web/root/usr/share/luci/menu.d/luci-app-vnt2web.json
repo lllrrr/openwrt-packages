@@ -1,0 +1,13 @@
+{
+	"admin/vpn/vnt2web": {
+		"title": "VNT2WEB",
+		"order": 30,
+		"action": {
+			"type": "view",
+			"path": "vnt2web/client"
+		},
+		"depends": {
+			"acl": [ "luci-app-vnt2web" ]
+		}
+	}
+}

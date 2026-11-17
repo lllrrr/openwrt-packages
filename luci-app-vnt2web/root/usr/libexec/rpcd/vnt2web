@@ -1,0 +1,453 @@
+#!/bin/sh
+# vnt2web 的 rpcd 后端（shell 插件机制）。
+#
+# 为什么用 shell 插件而不是 ucode：
+#   1. /usr/libexec/rpcd/ 机制自 OpenWrt 14 起稳定可用；ucode 后端
+#      （/usr/share/rpcd/ucode/*.uc）在部分旧版/LEDE 固件上加载不稳，
+#      表现为 "RPC call to luci.vnt2web/status failed with error -32000:
+#      Object not found"。
+#   2. 业务逻辑本就在 /usr/share/vnt2web/*.sh，这里直接复用，
+#      无需把同一套逻辑在 ucode 里再写一遍。
+#
+# 协议（rpcd 约定）：
+#   vnt2web list                 -> 输出方法表 JSON
+#   echo '<args>' | vnt2web call <method>  -> 从 stdin 读参数，输出 JSON 结果
+#
+# ubus 对象名取自本文件名，即 "vnt2web"。
+#
+# 库路径可用环境变量覆盖，便于在非设备环境做单元测试。
+
+VNT_LIB_DIR="${VNT_LIB_DIR:-/usr/share/vnt2web}"
+
+for _lib in "$VNT_LIB_DIR/vnt.sh" "$VNT_LIB_DIR/vnt-core.sh"; do
+	if [ -r "$_lib" ]; then
+		# shellcheck disable=SC1090
+		. "$_lib"
+	fi
+done
+unset _lib
+
+if ! command -v vnt_installed_version >/dev/null 2>&1; then
+	# 库不可用时给出明确错误，而不是静默返回空（那会让前端报
+	# "Object not found" 之类的误导性错误）
+	echo '{"ok":false,"msg":"后端组件缺失：找不到 '"$VNT_LIB_DIR"'/vnt.sh，请重新安装本插件"}'
+	exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# 工具
+# ---------------------------------------------------------------------------
+
+# JSON 字符串转义（含换行 -> \n）
+json_escape() {
+	printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\r//g' \
+		| awk 'BEGIN{ORS=""} {if (NR>1) printf "\\n"; printf "%s", $0}'
+}
+
+# 输出 {"key":"value",...}；值会做 JSON 转义
+json_obj() {
+	local out="" sep="" kv k v
+	for kv in "$@"; do
+		k="${kv%%=*}"
+		v="${kv#*=}"
+		out="${out}${sep}\"${k}\":\"$(json_escape "$v")\""
+		sep=","
+	done
+	printf '{%s}' "$out"
+}
+
+# 输出 {"ok":true/false,"msg":"..."} 形式
+json_result() {
+	local ok="$1" msg="$2" extra="${3:-}"
+	if [ "$ok" = "1" ]; then okv="true"; else okv="false"; fi
+	if [ -n "$extra" ]; then
+		printf '{"ok":%s,"msg":"%s",%s}' "$okv" "$(json_escape "$msg")" "$extra"
+	else
+		printf '{"ok":%s,"msg":"%s"}' "$okv" "$(json_escape "$msg")"
+	fi
+}
+
+# 从 stdin 的 JSON 里取某个键的字符串值。输入很简短（形如 {"ver":"2.0.11"}），
+# 用 sed 提取足够，不必引入完整 JSON 解析器。
+json_get() {
+	local body="$1" key="$2"
+	printf '%s' "$body" \
+		| sed -n "s/.*\"${key}\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" \
+		| head -n 1
+}
+
+# 从 stdin 的 JSON 里取某个键的数字值
+json_get_num() {
+	local body="$1" key="$2"
+	printf '%s' "$body" \
+		| sed -n "s/.*\"${key}\"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p" \
+		| head -n 1
+}
+
+# 版本号合法性校验：只允许 数字与点，且形如 d[.d[.d[.d]]]
+ver_is_valid() {
+	case "$1" in
+	"" | *[!0-9.]* | .* | *..* | *.) return 1 ;;
+	esac
+	# 至少两段，如 2.0
+	printf '%s' "$1" | grep -qE '^[0-9]+(\.[0-9]+){1,3}$' || return 1
+	return 0
+}
+
+# ---------------------------------------------------------------------------
+# 方法实现
+# ---------------------------------------------------------------------------
+
+m_status() {
+	local ver en bind port tk arm tr cli run inst rdy tun uz px mr pid plist plurl
+	local curcount
+
+	ver="$(vnt_installed_version)"
+	en="$(vnt_uci_get enabled '0')"
+	bind="$(vnt_web_bind)"
+	port="$(vnt_web_port)"
+	tk="$(vnt_get_token)"
+	arm="$(vnt_distrib_arch)"
+	tr="$(vnt_asset_triple 2>/dev/null)"
+	cli="$(vnt_http_client 2>/dev/null)"
+	px="$(vnt_get_proxy)"
+	mr="$(vnt_get_mirror)"
+	pid="$(vnt_core_pid)"
+	plurl="$(vnt_panel_url_bare)"
+
+	if vnt_core_running; then run=1; else run=0; fi
+	if vnt_core_installed; then inst=1; else inst=0; fi
+	if vnt_config_ready; then rdy=1; else rdy=0; fi
+	if vnt_tun_available; then tun=1; else tun=0; fi
+	if vnt_have_cmd unzip || vnt_have_cmd python3 || vnt_have_cmd bsdtar; then uz=1; else uz=0; fi
+	if vnt_port_listening; then plist=1; else plist=0; fi
+	# 已配置的组网数量（由 vnt2_web 在 work/vnt_config 下管理）
+	curcount="$(ls "$(vnt_config_dir)"/*.toml 2>/dev/null | wc -l | tr -d ' ')"
+	[ -n "$curcount" ] || curcount=0
+
+	# 布尔值不加引号，其余加引号
+	printf '{"version":"%s","enabled":%s,"bind":"%s","port":"%s",' \
+		"$(json_escape "$ver")" \
+		"$([ "$en" = 1 ] && echo true || echo false)" \
+		"$(json_escape "$bind")" "$(json_escape "$port")"
+	printf '"token_set":%s,"token_hint":"%s","token_valid":%s,' \
+		"$([ -n "$tk" ] && echo true || echo false)" \
+		"$(json_escape "$(vnt_token_hint)")" \
+		"$(vnt_token_valid "$tk" && echo true || echo false)"
+	printf '"arch":"%s","asset_triple":"%s","http_client":"%s",' \
+		"$(json_escape "$arm")" "$(json_escape "$tr")" "$(json_escape "$cli")"
+	printf '"running":%s,"installed":%s,"config_ready":%s,"tun_ok":%s,"unzip_ok":%s,' \
+		"$([ "$run" = 1 ] && echo true || echo false)" \
+		"$([ "$inst" = 1 ] && echo true || echo false)" \
+		"$([ "$rdy" = 1 ] && echo true || echo false)" \
+		"$([ "$tun" = 1 ] && echo true || echo false)" \
+		"$([ "$uz" = 1 ] && echo true || echo false)"
+	printf '"port_listening":%s,"core_runs":%s,' \
+		"$([ "$plist" = 1 ] && echo true || echo false)" \
+		"$(vnt_core_runs >/dev/null 2>&1 && echo true || echo false)"
+	printf '"bin_path":"%s","bin_path_default":"%s","config_dir":"%s","config_dir_default":"%s",' \
+		"$(json_escape "$(vnt_bin_path)")" "$(json_escape "$VNT_BIN_DEFAULT")" \
+		"$(json_escape "$(vnt_config_path)")" "$(json_escape "$VNT_CFG_DEFAULT")"
+	printf '"log_dir":"%s","token_file":"%s",' \
+		"$(json_escape "$VNT_LOG_DIR")" "$(json_escape "$(vnt_token_file)")"
+	printf '"proxy":"%s","mirror":"%s","pid":"%s","panel_url":"%s","instance_count":"%s"}' \
+		"$(json_escape "$px")" "$(json_escape "$mr")" "$(json_escape "$pid")" \
+		"$(json_escape "$plurl")" "$(json_escape "$curcount")"
+}
+
+# 面板地址：含令牌（用于免登录打开与内嵌）
+m_panel() {
+	local with_token url bare
+	with_token="$(vnt_get_token)"
+	url="$(vnt_panel_url)"
+	bare="$(vnt_panel_url_bare)"
+	printf '{"ok":true,"url":"%s","display_url":"%s","has_token":%s}' \
+		"$(json_escape "$url")" "$(json_escape "$bare")" \
+		"$([ -n "$with_token" ] && echo true || echo false)"
+}
+
+# 读取当前令牌（供界面显示，仅在 LuCI 已鉴权的会话中调用）
+m_get_token() {
+	local t
+	t="$(vnt_get_token)"
+	printf '{"ok":true,"token":"%s","valid":%s,"min_len":%s}' \
+		"$(json_escape "$t")" \
+		"$(vnt_token_valid "$t" && echo true || echo false)" "$VNT_TOKEN_MIN"
+}
+
+# 生成随机令牌并保存
+m_gen_token() {
+	local t
+	t="$(vnt_gen_token)"
+	printf '{"ok":true,"token":"%s","msg":"已生成新令牌，重启服务后生效"}' "$(json_escape "$t")"
+}
+
+# 保存指定令牌
+m_set_token() {
+	local body="$1" t
+	t="$(json_get "$body" token)"
+	t="$(printf '%s' "$t" | tr -d '\r\n')"
+	if [ -z "$t" ]; then
+		json_result 0 '令牌不能为空'
+		return 0
+	fi
+	case "$t" in
+	*" "*) json_result 0 '令牌不能包含空格'; return 0 ;;
+	esac
+	if ! vnt_token_valid "$t"; then
+		json_result 0 "令牌至少需要 ${VNT_TOKEN_MIN} 位"
+		return 0
+	fi
+	vnt_save_token "$t"
+	json_result 1 '令牌已保存，重启服务后生效'
+}
+
+m_check_update() {
+	local cur latest action tip
+
+	cur="$(vnt_installed_version)"
+	latest="$(vnt_latest_version)" || {
+		printf '{"ok":false,"current":"%s","msg":"%s"}' \
+			"$(json_escape "$cur")" \
+			"$(json_escape '无法查询最新版本。若网络受限，可在「更新源」里配置镜像前缀或网络代理。')"
+		return 0
+	}
+
+	if [ -z "$cur" ]; then
+		action="install"
+		tip="尚未安装核心，可以下载 v${latest}"
+	elif [ "$cur" = "$latest" ]; then
+		action="none"
+		tip="已是最新版本 v${latest}"
+	else
+		action="update"
+		tip="可更新到 v${latest}"
+	fi
+
+	printf '{"ok":true,"current":"%s","latest":"%s","action":"%s","tip":"%s"}' \
+		"$(json_escape "$cur")" "$(json_escape "$latest")" \
+		"$(json_escape "$action")" "$(json_escape "$tip")"
+}
+
+m_update() {
+	local body="$1" ver rc
+
+	ver="$(json_get "$body" ver)"
+	if [ -z "$ver" ]; then
+		ver="$(vnt_latest_version)" || {
+			json_result 0 '无法查询最新版本，请检查网络或配置镜像/代理'
+			return 0
+		}
+	fi
+
+	# 严格校验版本号，防注入
+	if ! ver_is_valid "$ver"; then
+		json_result 0 '版本号格式不合法'
+		return 0
+	fi
+
+	vnt_install_core "$ver"
+	rc=$?
+	if [ "$rc" != "0" ]; then
+		local tip
+		case "$rc" in
+		2) tip='无法识别当前架构，vnt 可能没有对应预编译包' ;;
+		3) tip='下载失败，请检查网络或镜像/代理设置' ;;
+		4) tip='解压失败，系统缺少 unzip' ;;
+		5) tip='压缩包内未找到 vnt2_web' ;;
+		6) tip='下载的核心无法在本机运行（架构不符）' ;;
+		7) tip='替换二进制失败' ;;
+		*) tip="安装失败（错误码 ${rc}），详见更新日志" ;;
+		esac
+		json_result 0 "$tip"
+		return 0
+	fi
+
+	/etc/init.d/vnt2web restart >/dev/null 2>&1
+	json_result 1 "核心 v${ver} 安装成功"
+}
+
+m_start() {
+	if /etc/init.d/vnt2web start >/dev/null 2>&1; then
+		if vnt_port_listening; then
+			json_result 1 '已启动'
+		else
+			json_result 0 '服务已拉起，但端口尚未监听，请稍候或查看「日志」'
+		fi
+		return 0
+	fi
+	# 把具体原因带回去，便于定位
+	local why
+	if ! vnt_core_installed; then
+		why='核心尚未安装'
+	elif ! vnt_core_runs; then
+		why="核心无法执行（架构 $(vnt_distrib_arch) 可能没有对应预编译包）"
+	elif [ "$(vnt_uci_get enabled '0')" != "1" ]; then
+		why='服务未启用'
+	else
+		why='请查看「日志」页'
+	fi
+	json_result 0 "启动失败：${why}"
+}
+
+m_stop() {
+	/etc/init.d/vnt2web stop >/dev/null 2>&1
+	json_result 1 '已停止'
+}
+
+m_restart() {
+	/etc/init.d/vnt2web restart >/dev/null 2>&1
+	json_result 1 '已重启'
+}
+
+m_logs() {
+	local body="$1" name lines file
+
+	name="$(json_get "$body" name)"
+	lines="$(json_get_num "$body" lines)"
+	[ -n "$lines" ] || lines=200
+
+	case "$name" in
+	main) file="main.log" ;;
+	update) file="update.log" ;;
+	*) name="core"; file="core.log" ;;
+	esac
+
+	vnt_ensure_dirs
+	local text=""
+	if [ -f "$VNT_LOG_DIR/$file" ]; then
+		text="$(tail -n "$lines" "$VNT_LOG_DIR/$file" 2>/dev/null)"
+	fi
+	printf '{"ok":true,"name":"%s","text":"%s"}' \
+		"$(json_escape "$name")" "$(json_escape "$text")"
+}
+
+m_clear_log() {
+	local body="$1" name file
+
+	name="$(json_get "$body" name)"
+	case "$name" in
+	main) file="main.log" ;;
+	update) file="update.log" ;;
+	*) file="core.log" ;;
+	esac
+	vnt_ensure_dirs
+	: >"$VNT_LOG_DIR/$file" 2>/dev/null
+	json_result 1 '已清空'
+}
+
+m_diag() {
+	local text
+	text="$(/etc/init.d/vnt2web diag 2>&1)"
+	printf '{"ok":true,"text":"%s"}' "$(json_escape "$text")"
+}
+
+m_net_test() {
+	local px out rc t0 t1 sz
+	# 探测顺序与真实下载路径一致（见 vnt_latest_version / vnt_install_core）：
+	#   1) latest.json —— 官方 release 附件，走 github.com（下载链路本身）
+	#   2) releases/latest 的可达性 —— 302 到 tag 页
+	# 特意**不**用 api.github.com：那个域名在部分网络下不通，
+	# 而 github.com 的 release 下载却正常，用它探测会给出误导性结论。
+	px="$(vnt_get_proxy)"
+	if [ -n "$px" ] && ! vnt_have_curl; then
+		json_result 0 '已配置代理，但系统没有 curl。请先安装 curl，否则无法走代理下载。'
+		return 0
+	fi
+
+	local cli
+	cli="$(vnt_http_client)" || {
+		json_result 0 '系统缺少 HTTP 客户端（需 curl / uclient-fetch / wget 之一）。'
+		return 0
+	}
+
+	local f
+	f="/tmp/.vnt2web_probe.$$"
+
+	# ---- 1) release 附件（与「检查更新」同一地址，最能代表真实下载能力）----
+	t0="$(date +%s)"
+	if vnt_fetch "$(vnt_url "https://github.com/${VNT_REPO}/releases/latest/download/latest.json")" \
+		"$f" 25 && [ -s "$f" ]; then
+		t1="$(date +%s)"
+		sz="$(wc -c <"$f" | tr -d ' ')"
+		rm -f "$f"
+		json_result 1 "连通正常：已取到版本清单（${sz} 字节，约 $((t1 - t0)) 秒）"
+		return 0
+	fi
+	rm -f "$f"
+
+	# ---- 2) 退一步只测 releases/latest 是否可达 ----
+	if vnt_have_curl; then
+		if [ -n "$px" ]; then
+			rc="$(curl -sIL --max-time 20 --proxy "$px" --insecure -o /dev/null \
+				-w '%{http_code}' "$(vnt_url "https://github.com/${VNT_REPO}/releases/latest")" 2>/dev/null)"
+		else
+			rc="$(curl -sIL --max-time 20 --insecure -o /dev/null \
+				-w '%{http_code}' "$(vnt_url "https://github.com/${VNT_REPO}/releases/latest")" 2>/dev/null)"
+		fi
+		if [ -n "$rc" ] && [ "$rc" != "000" ]; then
+			json_result 1 "GitHub 可达（HTTP $rc），但版本清单下载失败。可稍后重试，或配置镜像前缀。"
+			return 0
+		fi
+	fi
+
+	# ---- 失败：给出可操作的建议 ----
+	if [ -n "$px" ]; then
+		json_result 0 "经代理仍无法访问 GitHub（$cli）。请确认代理地址可用，或改用镜像前缀。"
+	elif [ "$cli" = "curl" ]; then
+		json_result 0 '无法访问 GitHub。可配置镜像前缀（如 https://ghfast.top）或网络代理后重试。'
+	else
+		json_result 0 "无法访问 GitHub。当前用的是 $cli，不支持 SOCKS 代理；如需走代理请先安装 curl。"
+	fi
+}
+
+# ---------------------------------------------------------------------------
+# 入口
+# ---------------------------------------------------------------------------
+case "$1" in
+list)
+	cat <<'EOF'
+{
+	"status": {},
+	"panel": {},
+	"get_token": {},
+	"gen_token": {},
+	"set_token": { "token": "str" },
+	"check_update": {},
+	"update": { "ver": "str" },
+	"start": {},
+	"stop": {},
+	"restart": {},
+	"logs": { "name": "str", "lines": 200 },
+	"clear_log": { "name": "str" },
+	"diag": {},
+	"net_test": {}
+}
+EOF
+	;;
+call)
+	method="$2"
+	# 参数经 stdin 传入。用 head 限制大小，避免异常输入撑爆内存。
+	body="$(head -c 4096 2>/dev/null)"
+	case "$method" in
+	status) m_status ;;
+	panel) m_panel ;;
+	get_token) m_get_token ;;
+	gen_token) m_gen_token ;;
+	set_token) m_set_token "$body" ;;
+	check_update) m_check_update ;;
+	update) m_update "$body" ;;
+	start) m_start ;;
+	stop) m_stop ;;
+	restart) m_restart ;;
+	logs) m_logs "$body" ;;
+	clear_log) m_clear_log "$body" ;;
+	diag) m_diag ;;
+	net_test) m_net_test ;;
+	*) json_result 0 "未知方法: $method" ;;
+	esac
+	;;
+*)
+	echo '{}'
+	;;
+esac

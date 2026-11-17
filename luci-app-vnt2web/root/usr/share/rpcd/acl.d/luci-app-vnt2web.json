@@ -1,0 +1,17 @@
+{
+	"luci-app-vnt2web": {
+		"description": "Grant access to VNT 组网 (vnt2_web) configuration and control",
+		"read": {
+			"uci": [ "vnt2web" ],
+			"ubus": {
+				"vnt2web": [ "status", "panel", "get_token", "check_update", "logs", "diag", "net_test" ]
+			}
+		},
+		"write": {
+			"uci": [ "vnt2web" ],
+			"ubus": {
+				"vnt2web": [ "gen_token", "set_token", "update", "start", "stop", "restart", "clear_log" ]
+			}
+		}
+	}
+}

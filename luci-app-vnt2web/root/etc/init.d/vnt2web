@@ -1,0 +1,280 @@
+#!/bin/sh /etc/rc.common
+# VNT 组网（vnt2_web 版）服务。
+#
+# 本插件是「壳」：用 procd 托管 vnt2_web 核心进程。
+# vnt2_web 自带网页界面，组网的添加与启停都在网页里完成，
+# LuCI 这边只负责：监听地址/端口、访问令牌、核心下载与更新、日志。
+#
+# vnt2_web 的关键行为（据上游源码 src/main_web.rs）：
+#   --addr  本地监听地址，默认 127.0.0.1:19099
+#   --token 访问令牌；也可用环境变量 VNT_WEB_TOKEN。不传则随机生成并写入日志
+#   配置目录为**相对路径** vnt_config —— 因此必须先把工作目录切过去，
+#   否则配置会落到 procd 的默认 cwd（/）下。
+
+USE_PROCD=1
+START=90
+STOP=10
+EXTRA_COMMANDS="status log check_update update_core diag panel"
+EXTRA_HELP="	status		查看运行状态
+	log		查看核心日志
+	check_update	查询最新核心版本
+	update_core	下载并安装最新核心
+	diag		自检（环境、核心、配置、网络）
+	panel		打印组网面板地址（含令牌）"
+
+VNT_SH="/usr/share/vnt2web/vnt.sh"
+VNT_CORE_SH="/usr/share/vnt2web/vnt-core.sh"
+
+[ -f "$VNT_SH" ] || {
+	echo "缺少组件: $VNT_SH"
+	exit 1
+}
+# shellcheck disable=SC1090
+. "$VNT_SH"
+# shellcheck disable=SC1090
+. "$VNT_CORE_SH"
+
+start_service() {
+	vnt_ensure_dirs
+	# vnt2_web 的配置目录是相对路径 vnt_config，因此要把工作目录切到
+	# 用户指定的配置目录（默认 /etc/vnt2web/config）。
+	local cfgdir bindir
+	cfgdir="$(vnt_config_path)"
+	bindir="$(dirname "$(vnt_bin_path)")"
+	mkdir -p "$cfgdir" "$bindir" 2>/dev/null
+
+	if [ "$(vnt_uci_get enabled '0')" != "1" ]; then
+		vnt_log "start: 未启用（在 LuCI 中勾选「启用服务」后再启动）"
+		return 1
+	fi
+
+	if ! vnt_core_installed; then
+		vnt_log "start: 核心未安装，跳过启动（请在 LuCI 中下载核心）"
+		return 1
+	fi
+
+	if ! vnt_core_runs; then
+		vnt_log "ERROR: 核心无法在本机运行（架构可能不符）：$(vnt_distrib_arch)"
+		return 1
+	fi
+
+	# 令牌：缺失则自动生成并写回 UCI，保证界面上显示的值与实际一致
+	local token
+	token="$(vnt_get_token)"
+	if [ -z "$token" ]; then
+		token="$(vnt_gen_token)"
+		vnt_log "start: 已自动生成访问令牌（$(vnt_token_hint)）"
+	fi
+
+	local addr bin
+	addr="$(vnt_web_addr)"
+	bin="$(vnt_bin_path)"
+
+	# 启动前清掉残留实例：否则它占着端口会让新进程 bind 失败、立即退出
+	vnt_kill_stale_core
+
+	# 日志放 /tmp（内存盘），启动时按大小截断一次
+	vnt_trim_log "$VNT_CORE_LOG"
+
+	vnt_log "start: $bin --addr $addr  (cwd=$cfgdir)"
+
+	procd_open_instance
+	# vnt2_web 的配置目录是相对路径 vnt_config，必须切到配置目录再执行。
+	# 用 sh -c 包一层是为了 cd 与重定向；
+	# `exec` 让 PID 保持为核心自身（重定向不影响 PID），procd 才能正确监管与重启。
+	# 核心日志重定向到 $VNT_CORE_LOG（/tmp 下，不写 Flash）。
+	procd_set_param command /bin/sh -c \
+		"cd '$cfgdir' && exec '$bin' --addr '$addr' >> '$VNT_CORE_LOG' 2>&1"
+	# 令牌经环境变量传入，避免出现在 ps 命令行里
+	procd_set_param env VNT_WEB_TOKEN="$token"
+	procd_append_param env "$(vnt_log_level_env)"
+	# 由 procd 写 PID 文件：实例启动时写入、停止时删除。
+	# 放 /tmp 下（内存盘，重启即清，不占 Flash）。
+	# 有了它，状态检测就不必靠猜进程名或扫端口。
+	mkdir -p "$(dirname "$VNT_PID_FILE")" 2>/dev/null
+	procd_set_param pidfile "$VNT_PID_FILE"
+	procd_set_param respawn 3600 5 5
+	procd_close_instance
+
+	# 把 vnt 虚拟网卡加入防火墙区域（点对网/跨网段访问需要）
+	if [ "$(vnt_uci_get fw_auto '1')" = "1" ]; then
+		(
+			sleep 6
+			vnt_firewall_sync vnt
+		) &
+	fi
+
+	# 启动后短暂观察：若核心立即退出，把日志尾部打回 main.log，
+	# 否则用户只能看到「已停止」而不知原因（核心秒退时它自己来不及写日志）。
+	(
+		sleep 3
+		if ! vnt_core_running; then
+			vnt_log "ERROR: 核心启动后立即退出，未在运行"
+			if vnt_port_listening; then
+				vnt_log "       端口 $(vnt_web_port) 已被占用（可能有其它程序在用，或残留进程）"
+			fi
+			if [ -s "$VNT_CORE_LOG" ]; then
+				vnt_log "       核心日志尾部："
+				tail -n 15 "$VNT_CORE_LOG" 2>/dev/null | while IFS= read -r _l; do
+					vnt_log "       | $_l"
+				done
+			else
+				vnt_log "       核心日志为空（程序未输出任何信息即退出）"
+			fi
+		fi
+	) &
+
+	vnt_log "start: 服务已拉起，面板地址 $(vnt_panel_url)"
+	return 0
+}
+
+stop_service() {
+	vnt_firewall_sync >/dev/null 2>&1
+	rm -f "$VNT_PID_FILE" 2>/dev/null
+	vnt_log "stop: 服务已停止"
+	return 0
+}
+
+service_triggers() {
+	procd_add_reload_trigger "vnt2web"
+}
+
+reload_service() {
+	vnt_log "reload: 配置变更，重启服务"
+	stop
+	start
+}
+
+# ---------------------------------------------------------------------------
+# 扩展命令
+# ---------------------------------------------------------------------------
+status() {
+	local v state bind port tk
+	v="$(vnt_installed_version)"
+	[ -n "$v" ] || v="未安装"
+	if vnt_core_running; then state="运行中"; else state="已停止"; fi
+	bind="$(vnt_uci_get bind '0.0.0.0')"
+	port="$(vnt_uci_get port '19099')"
+	tk="$(vnt_token_hint)"
+
+	echo "核心版本 : $v"
+	echo "运行状态 : $state"
+	echo "监听地址 : ${bind}:${port}"
+	echo "访问令牌 : $tk"
+	echo "启用状态 : $(vnt_uci_get enabled '0')"
+	echo "系统架构 : $(vnt_distrib_arch)"
+	echo "核心路径 : $(vnt_bin_path)"
+	echo "配置目录 : $(vnt_config_path)"
+	echo "日志目录 : $VNT_LOG_DIR"
+	echo "面板地址 : $(vnt_panel_url)"
+	return 0
+}
+
+log() {
+	[ -f "$VNT_CORE_LOG" ] && tail -n 80 "$VNT_CORE_LOG"
+	[ -f "$VNT_MAIN_LOG" ] && echo "--- main ---" && tail -n 30 "$VNT_MAIN_LOG"
+	return 0
+}
+
+panel() {
+	vnt_panel_url
+	return 0
+}
+
+check_update() {
+	local cur latest
+	cur="$(vnt_installed_version)"
+	latest="$(vnt_latest_version)" || {
+		echo "无法查询最新版本（网络不通？可在 LuCI 里配置镜像前缀或代理）"
+		return 1
+	}
+	echo "已安装: ${cur:-未安装}"
+	echo "最新版: $latest"
+	if [ -z "$cur" ]; then
+		echo "建议: 下载核心"
+	elif [ "$cur" = "$latest" ]; then
+		echo "建议: 已是最新"
+	else
+		echo "建议: 更新到 $latest"
+	fi
+	return 0
+}
+
+update_core() {
+	local ver
+	ver="$(vnt_latest_version)" || {
+		echo "无法查询最新版本"
+		return 1
+	}
+	echo "正在安装核心 v$ver ..."
+	vnt_install_core "$ver"
+	local rc=$?
+	if [ "$rc" = "0" ]; then
+		echo "安装成功"
+		stop
+		start
+	else
+		echo "安装失败（错误码 $rc），详见 $VNT_UPDATE_LOG"
+	fi
+	return $rc
+}
+
+diag() {
+	echo "=== vnt2web 自检 ==="
+	echo "[架构] $(vnt_distrib_arch)"
+	local triple
+	if triple="$(vnt_asset_triple)"; then
+		echo "[架构映射] 支持 -> $triple"
+	else
+		echo "[架构映射] 不支持，vnt 可能没有对应预编译包"
+	fi
+	local cli
+	if cli="$(vnt_http_client)"; then
+		echo "[HTTP 客户端] $cli"
+	else
+		echo "[HTTP 客户端] 缺失（需 curl / uclient-fetch / wget）"
+	fi
+	if vnt_have_cmd unzip || vnt_have_cmd python3 || vnt_have_cmd bsdtar; then
+		echo "[解压工具] 可用"
+	else
+		echo "[解压工具] 缺失，无法解压核心包（请安装 unzip）"
+	fi
+	if vnt_core_installed; then
+		echo "[核心] 已安装 $(vnt_installed_version)"
+		if vnt_core_runs; then
+			echo "[核心] 可执行，架构匹配"
+		else
+			echo "[核心] 无法执行（架构不符或文件损坏）"
+		fi
+	else
+		echo "[核心] 未安装"
+	fi
+	echo "[配置] 监听 $(vnt_web_addr)，令牌 $(vnt_token_hint)"
+	echo "[路径] 核心 $(vnt_bin_path)"
+	echo "[路径] 配置 $(vnt_config_path)"
+	echo "[路径] 日志 $VNT_LOG_DIR"
+	# 目录可写性检查（路径可自定义，写不进去是常见故障）
+	local _d
+	for _d in "$(dirname "$(vnt_bin_path)")" "$(vnt_config_path)" "$VNT_LOG_DIR"; do
+		if [ -d "$_d" ] && [ -w "$_d" ]; then
+			echo "[目录] $_d 可写"
+		elif [ -d "$_d" ]; then
+			echo "[目录] $_d 不可写（权限问题）"
+		else
+			echo "[目录] $_d 不存在"
+		fi
+	done
+	if vnt_core_running; then
+		echo "[进程] 运行中 (pid $(vnt_core_pid))"
+		if vnt_port_listening; then
+			echo "[端口] 监听正常"
+		else
+			echo "[端口] 进程在跑但端口未监听，请查看核心日志"
+		fi
+	else
+		echo "[进程] 未运行"
+	fi
+	[ -n "$(vnt_get_proxy)" ] && echo "[代理] $(vnt_get_proxy)"
+	[ -n "$(vnt_get_mirror)" ] && echo "[镜像] $(vnt_get_mirror)"
+	return 0
+}

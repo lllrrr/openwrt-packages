@@ -1,0 +1,35 @@
+config vnt2web 'main'
+	# 本插件是「壳」：托管 vnt2_web 核心进程，组网的添加与启停全部在
+	# vnt2_web 自带的网页里完成。这里只提供端口、绑定地址、访问令牌与核心更新。
+
+	# 是否启用服务
+	option enabled '0'
+
+	# ---- 访问控制 ----
+	# 监听地址：0.0.0.0 表示局域网内其它设备也能打开组网面板；
+	# 127.0.0.1 表示只有路由器本机（含经 LuCI 反代）可访问，更安全。
+	option bind '0.0.0.0'
+	# 监听端口
+	option port '19099'
+	# 访问令牌：打开组网面板需要。留空则启动时自动随机生成。
+	# 至少 16 位（vnt2_web 要求，过短会被拒绝）。
+	option token ''
+
+	# ---- 核心更新 ----
+	# 镜像前缀，例 'https://ghfast.top'，留空直连 GitHub
+	option mirror ''
+	# 网络代理，例 'socks5h://127.0.0.1:1080'，留空直连
+	# 注意：走代理需要系统已安装 curl
+	option proxy ''
+
+	# ---- 其它 ----
+	# 日志级别：error / warn / info / debug
+	option log_level 'info'
+
+	# ---- 存储路径（留空即用默认值）----
+	# 核心二进制路径。默认 /usr/bin/vnt2web
+	# 提示：若想升级固件后仍保留核心、免去重新下载，可改到 /etc 下（如 /etc/vnt2web/bin/vnt2_web）。
+	option bin_path ''
+	# 组网配置目录。默认 /etc/vnt2web/config
+	# 放 /etc 下是有意的：sysupgrade 升级固件时只保留 /etc，配置得以延续。
+	option config_dir ''

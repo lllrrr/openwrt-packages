@@ -1,0 +1,34 @@
+#!/bin/sh
+# 安装后首次运行：初始化目录、生成访问令牌、清理 LuCI 菜单缓存。
+# 注意：默认不启用服务（enabled=0），需用户在 LuCI 中勾选后才会启动。
+
+# 目录按默认路径创建；若用户在 UCI 里改过路径，启动时 vnt_ensure_dirs 会再补建。
+# bin 默认在 /usr/bin/vnt2web（单个文件，无独立目录）
+mkdir -p /etc/vnt2web/config 2>/dev/null
+mkdir -p /tmp/vnt2web/run 2>/dev/null
+chmod 700 /etc/vnt2web 2>/dev/null
+
+# 生成初始访问令牌（vnt2_web 要求至少 16 位）
+if [ ! -s /etc/vnt2web/token ]; then
+	tk=""
+	if command -v openssl >/dev/null 2>&1; then
+		tk="$(openssl rand -hex 24 2>/dev/null)"
+	elif [ -r /dev/urandom ]; then
+		tk="$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+	fi
+	if [ -z "$tk" ]; then
+		tk="$(date +%s)$$$(cat /proc/sys/kernel/random/uuid 2>/dev/null | tr -d '-')"
+	fi
+	printf '%s' "$tk" >/etc/vnt2web/token 2>/dev/null
+	chmod 600 /etc/vnt2web/token 2>/dev/null
+	# 同步进 UCI，界面可直接读取
+	if command -v uci >/dev/null 2>&1 && [ -n "$tk" ]; then
+		uci -q set "vnt2web.main.token=$tk" && uci -q commit vnt2web
+	fi
+fi
+
+# 刷新 LuCI 菜单与索引缓存，让新菜单立刻出现
+rm -f /tmp/luci-indexcache* 2>/dev/null
+rm -rf /tmp/luci-modulecache/ 2>/dev/null
+
+exit 0
