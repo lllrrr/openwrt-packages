@@ -24,7 +24,7 @@
 // 路径走 NBLIB env override（默认 /usr/share/rpcd/ucode/lib）。
 // shebang 与 'use strict' 在 module 模式下都不允许，已删除。
 
-import { popen, access, open, unlink, lsdir, stat } from 'fs';
+import { popen, access, open, unlink, lsdir, stat, mkdir } from 'fs';
 import * as uci from 'uci';
 
 const _LIB = getenv('NBLIB') || '/usr/share/rpcd/ucode/lib';
@@ -182,6 +182,21 @@ function _resolve_mgmt_url(arg_url) {
     return { ok: true, url: null };
 }
 
+// _uci_commit(c, conf) → bool：提交游标里 conf 的改动。
+// OpenWrt 22.03 自带的 ucode uci 模块（2022-12-02）在 commit()/save() 带配置名时直接返回
+// EINVAL、什么也不写；23.05 起带名提交正常。22.03 上也不能退回不带参数的 commit()：游标里
+// 加载过两个以上配置时它提交后会死循环，卡住整个 rpcd。所以带名提交失败时，用不带参数的
+// save() 把改动写进默认暂存目录（/tmp/.uci，与 uci 命令共用），再由 uci 命令提交这一个配置。
+// 本文件每次提交前，游标里只改了要提交的那一个配置（撤销流程先提交 firewall 再改 network），
+// 不会把别的配置的改动一起暂存下来。
+function _uci_commit(c, conf) {
+    if (c.commit(conf) === true)
+        return true;
+    if (c.save() !== true)
+        return false;
+    return system('uci commit ' + shell_quote(conf) + ' >/dev/null 2>&1') == 0;
+}
+
 // _persist_mgmt_url(url) — 把 management_url 写入 UCI 并 commit（非机密）。
 // 仅在 caller 显式传入合法 url 时调用；空值不写（避免清空已有值）。
 function _persist_mgmt_url(url) {
@@ -192,7 +207,7 @@ function _persist_mgmt_url(url) {
     if (c.get('netbird', 'settings') == null)
         c.set('netbird', 'settings', 'netbird');
     c.set('netbird', 'settings', 'management_url', url);
-    c.commit('netbird');
+    _uci_commit(c, 'netbird');
 }
 
 // _norm_mgmt_url(u) → 管理 URL 归一化（仅比较用）：小写、去尾斜杠、无端口时补 scheme
@@ -253,7 +268,7 @@ function _persist_setup_key_hint(key) {
     if (c.get('netbird', 'settings') == null)
         c.set('netbird', 'settings', 'netbird');
     c.set('netbird', 'settings', 'setup_key_hint', hint);
-    c.commit('netbird');
+    _uci_commit(c, 'netbird');
 }
 
 // _persist_runtime_error(message) / _clear_runtime_error()
@@ -266,7 +281,7 @@ function _persist_runtime_error(message) {
     if (c.get('netbird', 'runtime') == null)
         c.set('netbird', 'runtime', 'state');
     c.set('netbird', 'runtime', 'last_error', msg);
-    c.commit('netbird');
+    _uci_commit(c, 'netbird');
 }
 
 function _clear_runtime_error() {
@@ -280,7 +295,7 @@ function _set_desired_connected(want) {
     if (c.get('netbird', 'runtime') == null)
         c.set('netbird', 'runtime', 'state');
     c.set('netbird', 'runtime', 'desired_connected', want ? '1' : '0');
-    c.commit('netbird');
+    _uci_commit(c, 'netbird');
 }
 
 // _mark_service_enabled() — 把 UCI service_enabled 置 '1' 并 commit（已是 '1' 则免写）。
@@ -294,44 +309,82 @@ function _mark_service_enabled() {
     if (c.get('netbird', 'settings', 'service_enabled') == '1')
         return;
     c.set('netbird', 'settings', 'service_enabled', '1');
-    c.commit('netbird');
+    _uci_commit(c, 'netbird');
 }
 
-// _mgmt_url_from_config() → string|''：从 /etc/netbird/config.json 只读重建管理 URL。
+// _netbird_init_paths() → { config, state_dir }：解析 /etc/init.d/netbird（netbird 包自带）
+// 传给 daemon 的 NB_CONFIG / NB_STATE_DIR，未声明的项为 null。
+// 不同包的声明不同：OpenWrt opkg 包传 NB_CONFIG=/etc/netbird/config.json；
+// apk 包传 NB_STATE_DIR=/root/.config/netbird；有的固件两项都不传（daemon 用上游默认）。
+function _netbird_init_paths() {
+    let r = { config: null, state_dir: null };
+    let f = open('/etc/init.d/netbird', 'r');
+    if (f) {
+        let txt = f.read('all');
+        f.close();
+        let m = match(txt, /NB_CONFIG="([^"]+)"/);
+        if (m) r.config = m[1];
+        m = match(txt, /NB_STATE_DIR="([^"]+)"/);
+        if (m) r.state_dir = m[1];
+    }
+    return r;
+}
+
+// _read_json_file(path) → 解析后的值|null：读失败、空文件或不是合法 JSON 都返回 null。
+function _read_json_file(path) {
+    let f = open(path, 'r');
+    if (f == null)
+        return null;
+    let raw = f.read('all') || '';
+    f.close();
+    if (length(raw) == 0)
+        return null;
+    try {
+        return json(raw);
+    } catch (e) {
+        return null;
+    }
+}
+
+// _mgmt_url_from_config() → string|''：从 daemon 的配置文件只读重建管理 URL。
 //
-// 安全基线：config.json 只读，绝不写——本函数仅用于「展示」预填管理 URL（当 UCI 无值时）。
-// config.json 的 ManagementURL 是对象 {Scheme, Host, ...}；URL = Scheme + "://" + Host。
-// 路径不硬编码为唯一值：候选序探测（与上游默认一致），读失败/解析失败静默返 ''。
+// 文件顶部「read 方法禁直读 config.json」的例外：daemon 不在运行或未登录时没有 CLI 能给出
+// 已保存的管理地址，这里只读、绝不写，且仅用于 UCI 无值时「展示」预填管理 URL。
+// 配置里的 ManagementURL 是对象 {Scheme, Host, ...}（0.83 仍如此）；URL = Scheme + "://" + Host。
+//
+// 只看 default profile：本插件的连接和登录都不带 --profile，操作的始终是 default profile。
+// 不读 active_profile.json：命令行另建的 profile 在二进制换成 0.74 以前的版本后仍留在磁盘上，
+// 而旧 daemon 只认 NB_CONFIG，按 active profile 找会预填一个 daemon 并不使用的管理地址。
+// 候选按优先级取第一个存在的文件（读失败/解析失败静默返 ''）：
+//   1. init 声明的 NB_CONFIG（daemon 的 --config 只作用于 default profile）；
+//   2. <state_dir>/default.json（0.74+ 的 default profile；state_dir = NB_STATE_DIR，未声明时
+//      为上游默认 /var/lib/netbird）；
+//   3. /var/lib/netbird/default.json（无 env 裸启的 0.74+）；
+//   4. 0.74 以前的两个旧路径：/etc/netbird/config.json（-c 旧默认）、/var/lib/netbird/config.json。
 function _mgmt_url_from_config() {
-    let candidates = [
-        '/etc/netbird/config.json',      // -c flag 默认
-        '/var/lib/netbird/config.json',  // 官方上游 Linux 默认
-    ];
+    let init = _netbird_init_paths();
+    let state_dir = init.state_dir || '/var/lib/netbird';
+    let candidates = [];
+    if (init.config)
+        push(candidates, init.config);
+    push(candidates,
+        state_dir + '/default.json',
+        '/var/lib/netbird/default.json',
+        '/etc/netbird/config.json',
+        '/var/lib/netbird/config.json');
     let path = null;
     for (let p in candidates) {
         if (access(p, 'f')) { path = p; break; }
     }
     if (path == null)
         return '';
-    // 只读：cat 文件（path 字面常量，无用户输入）；解析 ManagementURL 对象重建 URL。
-    let fd = popen('cat ' + shell_quote(path) + ' 2>/dev/null', 'r'); // shell-audit-ok: path 字面常量经 shell_quote
-    if (fd == null)
-        return '';
-    let raw = fd.read('all') || '';
-    fd.close();
-    if (length(raw) == 0)
-        return '';
-    try {
-        let js = json(raw);
-        let mu = (js != null) ? js.ManagementURL : null;
-        if (mu != null && type(mu) == 'object' &&
-            type(mu.Scheme) == 'string' && length(mu.Scheme) > 0 &&
-            type(mu.Host) == 'string' && length(mu.Host) > 0)
-            return mu.Scheme + '://' + mu.Host;
-    } catch (e) {
-        return '';  // 解析失败静默返空（前端回退 placeholder）
-    }
-    return '';
+    let js = _read_json_file(path);
+    let mu = (js != null && type(js) == 'object') ? js.ManagementURL : null;
+    if (mu != null && type(mu) == 'object' &&
+        type(mu.Scheme) == 'string' && length(mu.Scheme) > 0 &&
+        type(mu.Host) == 'string' && length(mu.Host) > 0)
+        return mu.Scheme + '://' + mu.Host;
+    return '';  // 前端回退 placeholder
 }
 
 // _wipe_local_identity() → int：删除的本地身份文件数；-1 = 存在但删除失败。
@@ -340,20 +393,22 @@ function _mgmt_url_from_config() {
 //   - 上游 Linux 默认 /var/lib/netbird/config.json；
 //   - netbird 0.74+ profile 布局把身份放 NB_STATE_DIR/<profile>.json
 //     （含 active_profile.json，apk 包 init 传 NB_STATE_DIR=/root/.config/netbird）。
+//   - init 不传 NB_STATE_DIR 时（22.03/23.05 软件源包的 init 什么 env 都不传，换成官方
+//     0.74+ 二进制后即如此），daemon 用上游默认状态目录 /var/lib/netbird，身份在其中的
+//     default.json；只传 NB_CONFIG 也一样，它只改 default profile 的文件路径，
+//     active_profile.json、state.json 仍写在 /var/lib/netbird。
 // 优先解析 init 脚本实际声明的路径，再叠加已知默认路径兜底；全部幂等（不存在即跳过）。
+// 删除范围：上面的固定文件、init 声明的 NB_CONFIG，以及状态目录顶层的 *.json（不进子目录，
+// 命令行另建的 profile 在子目录里）。状态目录是 /root/.config/netbird 加上 init 声明的
+// NB_STATE_DIR；init 没声明 NB_STATE_DIR（含没有 init 脚本）时改为加上 /var/lib/netbird。
+// 声明了 NB_STATE_DIR 时 daemon 不再使用 /var/lib/netbird，那里除固定的旧 config.json 外不删。
 // 仅供 do_logout local_only 分支（用户二次确认后的显式销毁）调用；调用前必须已停 daemon。
 function _wipe_local_identity() {
     let candidates = [ '/etc/netbird/config.json', '/var/lib/netbird/config.json' ];
     let state_dirs = [ '/root/.config/netbird' ];
-    let f = open('/etc/init.d/netbird', 'r');
-    if (f) {
-        let txt = f.read('all');
-        f.close();
-        let m = match(txt, /NB_CONFIG="([^"]+)"/);
-        if (m) push(candidates, m[1]);
-        m = match(txt, /NB_STATE_DIR="([^"]+)"/);
-        if (m) push(state_dirs, m[1]);
-    }
+    let init = _netbird_init_paths();
+    if (init.config) push(candidates, init.config);
+    push(state_dirs, init.state_dir || '/var/lib/netbird');
     for (let d in uniq(state_dirs)) {
         let entries = lsdir(d);
         if (entries)
@@ -398,21 +453,27 @@ function _cli_has_flag(bin, verb, flag) {
     return _cli_flag_cache[key];
 }
 
-// _build_auth_cmd(bin, verb, mgmt_url, setup_key) → 拼好的命令字符串
+// _build_auth_cmd(bin, verb, mgmt_url, key_file) → 拼好的命令字符串
 // verb ∈ {'up','login'}。二进制支持时加 --no-browser（避免等 SSO 浏览器挂死；旧版无此 flag，
 // headless 环境下省略效果相同）。
-// 所有动态参数（mgmt_url / setup_key）经 shell_quote（防注入）。
-// bin 来自 resolve_netbird_bin（运行时探测），同样 shell_quote。
+// 所有动态参数（bin / mgmt_url / key_file）经 shell_quote（防注入）。
+// setup key 不进命令串：key_file 非空时，shell 从该文件读出 key、立即删文件，再以环境变量
+// NB_SETUP_KEY 交给 netbird（见 _run_auth_cmd）。读取用 $(cat)：除末尾换行外原样保留
+// key 内容，不经 shell 解释。整组放进 { } 并以 exec 结尾，_exec_auth_cmd 后台运行时 $! 就是
+// netbird 本身；export 只发生在这个后台子 shell 里。
 // 长命令不加 5s timeout（业务层自己轮询控时）；2>&1 合并便于回传错误。
-function _build_auth_cmd(bin, verb, mgmt_url, setup_key) {
+function _build_auth_cmd(bin, verb, mgmt_url, key_file) {
     let cmd = shell_quote(bin) + ' ' + verb;
     if (_cli_has_flag(bin, verb, '--no-browser'))
         cmd += ' --no-browser';
     if (mgmt_url != null && length(mgmt_url) > 0)
         cmd += ' --management-url ' + shell_quote(mgmt_url);
-    if (setup_key != null && length(setup_key) > 0)
-        cmd += ' --setup-key ' + shell_quote(setup_key);
     cmd += ' 2>&1';
+    if (key_file != null) {
+        let qf = shell_quote(key_file);
+        cmd = '{ NB_SETUP_KEY=$(cat ' + qf + ') && rm -f ' + qf +
+            ' && export NB_SETUP_KEY && exec ' + cmd + '; }';
+    }
     return cmd;
 }
 
@@ -439,7 +500,11 @@ function _apply_pending_settings() {
 // _cli_immediate_error(r) → { message, hint } | null：认证 CLI 自行返回（未被墙钟杀掉）且属于
 // 轮询也无法改变的失败——参数用法错误、连不上本机 NetBird 服务——时给出原因；其余返回 null
 // 交给原有的轮询与归因。hint 带 CLI 原话首行，便于定位版本差异。
+// key_error（setup key 临时文件没写成，命令未执行）同样立即返回，轮询只会白等。
 function _cli_immediate_error(r) {
+    if (r.key_error)
+        return { message: 'Could not pass the setup key to NetBird: writing a temporary file under /var/run failed. Free up memory, then try again.',
+                 hint: null };
     let out = r.stdout || '';
     if (r.code == 0 || match(out, /netbird command timed out after/))
         return null;
@@ -492,6 +557,40 @@ function _exec_auth_cmd(cmd, max_bytes, secs) {
             'wait $__nbp 2>/dev/null; printf "\\nnetbird command timed out after ' + secs + 's\\n"; exit 124; ' +
         'fi; wait $__nbp; exit $?';
     return _exec_long(wrapped, max_bytes);
+}
+
+// setup key 经环境变量 NB_SETUP_KEY 交给 netbird（上游 up/login 都把 NB_<FLAG> 当作对应
+// flag 读取，效果与 --setup-key 相同）。放在命令行里时，/proc/<pid>/cmdline 对所有本地用户
+// 可读，netbird、包着它的 /bin/sh -c 在 CLI 运行期间（最长约 25 秒）都会暴露 key；进程的
+// 环境变量只有进程属主能读。ucode 的 popen 不能单独给子进程设环境变量，故先写进 root 专属
+// 临时文件（tmpfs 上的 0700 目录 + 以 0600 创建的文件），命令串里只出现文件路径。
+const _NB_AUTH_KEY_DIR = '/var/run/luci-netbird';
+const _NB_AUTH_KEY_FILE = _NB_AUTH_KEY_DIR + '/setup-key';
+
+// _run_auth_cmd(bin, verb, mgmt_url, setup_key, max_bytes?, secs?) → { code, stdout, key_error? }
+// 组装并有界执行认证命令（墙钟语义见 _exec_auth_cmd）。setup key 非空时经临时文件传入；
+// shell 读到后立即删除，返回前无论成败再删一次（shell 没走到 rm 时兜底）。
+// 临时文件写不完整（如 /tmp 所在 tmpfs 写满）时不执行命令，返回 key_error。
+function _run_auth_cmd(bin, verb, mgmt_url, setup_key, max_bytes, secs) {
+    let key_file = (setup_key != null && length(setup_key) > 0) ? _NB_AUTH_KEY_FILE : null;
+    let cmd = _build_auth_cmd(bin, verb, mgmt_url, key_file);
+    if (key_file != null) {
+        mkdir(_NB_AUTH_KEY_DIR, 0700);
+        let f = open(key_file, 'w', 0600);
+        if (f != null) {
+            f.write(setup_key);
+            f.close();
+        }
+        let st = stat(key_file);
+        if (f == null || st == null || st.size != length(setup_key)) {
+            unlink(key_file);
+            return { code: 1, stdout: '', key_error: true };
+        }
+    }
+    let r = _exec_auth_cmd(cmd, max_bytes, secs); // shell-audit-ok: bin/url/路径均经 shell_quote，verb 字面，key 不进命令串
+    if (key_file != null)
+        unlink(key_file);
+    return r;
 }
 
 // _poll_connected(bin, rounds?) → { connected:bool, json:<dict|null> }
@@ -652,7 +751,7 @@ function _persist_exit_node(id) {
         c.set('netbird', 'settings', 'exit_node', id);
     else
         c.delete('netbird', 'settings', 'exit_node');
-    c.commit('netbird');
+    _uci_commit(c, 'netbird');
 }
 
 // ============================================================================
@@ -957,7 +1056,7 @@ function _do_setup_firewall_zone() {
     // 清理旧版（option network 绑定）升级残留：删 network 选项,避免悬空引用已不存在的
     // network.netbird 接口 section（删不存在 = no-op）。
     c.delete('firewall', _NB_ZONE_SECTION, 'network');
-    c.commit('firewall');
+    _uci_commit(c, 'firewall');
     let reloaded = _run_reload('firewall');
 
     return ok({
@@ -1089,7 +1188,7 @@ function _do_setup_forwarding(req) {
         ? _ensure_forwarding(c, _NB_FWD_N2L, 'netbird', 'lan')
         : _remove_forwarding(c, _NB_FWD_N2L, 'netbird', 'lan');
 
-    c.commit('firewall');
+    _uci_commit(c, 'firewall');
     let reloaded = _run_reload('firewall');
 
     // 删某向后定向冲该向已建 conntrack,让「取消勾选」对已建连接也即时生效(取消转发即时生效)。
@@ -1155,13 +1254,13 @@ function _do_teardown_automation() {
     let zone_existed = (c.get('firewall', _NB_ZONE_SECTION) == 'zone');
     if (zone_existed)
         c.delete('firewall', _NB_ZONE_SECTION);
-    c.commit('firewall');
+    _uci_commit(c, 'firewall');
 
     // 3. 旧版残留：删 network.netbird 接口（仅当确是 interface type;**不 reload network**,见上）。
     let iface_existed = (c.get('network', _NB_IFACE_SECTION) == 'interface');
     if (iface_existed) {
         c.delete('network', _NB_IFACE_SECTION);
-        c.commit('network');
+        _uci_commit(c, 'network');
     }
 
     // 只 reload firewall（撤 netbird zone 规则,安全相关;reload network 会断 netbird,故意不做）。
@@ -1459,14 +1558,25 @@ function _popen_simple(cmd) {
 
 // _dl_sends_headers() → 当前下载器能否附加请求头(API asset 下载必须带 Accept 头)。
 //   curl 恒可;uclient-fetch 到 24.10 才有 --header,22.03/23.05 自带版本遇到该参数会直接报用法错误、
-//   整条下载失败,故按 --help 实测。结果在本进程内缓存。
+//   整条下载失败,故按 --help 实测。
+//   只缓存非 curl 下载器的 --help 探测结果,curl 每次按文件重新判断:rpcd 常驻进程里若把「没有 curl」
+//   缓存下来,用户按提示装好 curl 后,首连自动下载和版本页提示要等 rpcd 重启才会认到。
 let _dl_headers_ok = null;
 function _dl_sends_headers() {
-    if (_dl_headers_ok == null) {
-        let tool = _dl_tool();
-        _dl_headers_ok = (tool == 'curl') || index(_popen_simple(tool + ' --help 2>&1').out, '--header') >= 0;
-    }
+    let tool = _dl_tool();
+    if (tool == 'curl')
+        return true;
+    if (_dl_headers_ok == null)
+        _dl_headers_ok = index(_popen_simple(tool + ' --help 2>&1').out, '--header') >= 0;
     return _dl_headers_ok;
+}
+
+// _official_needs_curl() → 下载官方版前是否必须先装 curl。
+//   只有 uclient-fetch 不能带请求头时才是:它只能走 github.com 直链,而 github.com 的响应带一行
+//   4KB 以上的头,uclient-fetch 读到就停住直到超时。真正的 BusyBox wget 会读完并丢弃超长头行,
+//   即使编译时没开长选项(--help 里没有 --header)也能走直链,不拦它。
+function _official_needs_curl() {
+    return _dl_tool() == 'uclient-fetch' && !_dl_sends_headers();
 }
 
 // _github_asset_api_url(ver, filename) → 该 release 资产的 API 下载地址 | ''。
@@ -2252,6 +2362,8 @@ function _do_get_binary_info(req) {
         latest_version:   latest,
         opkg_upgradable:  opkg_upgradable,
         pkg_mgr:          _pkg_mgr(),
+        // 下载器不能带请求头时官方版下载会直接失败(见 _update_binary_locked),版本页据此提前提示装 curl。
+        official_needs_curl: _official_needs_curl(),
         update_available: update_available,
         release_url:      _uci_binary('release_url', ''),
         luci_app_version: opkg.luci_app_netbird || '',
@@ -2320,8 +2432,10 @@ function _binop_guard(fn, req) {
 // 经 symlink 决定。决策树(失败忠实传播,尽量不让 box 处于无 netbird 可用态):
 //   1. arch 解析过白名单 → arch_mismatch
 //   2. 解析下载 URL+文件名:custom 用 args.url(校验 http/https);否则 GitHub latest 拼 URL
+//      (官方来源而下载器不能带请求头 → download_failed,提示装 curl,不发任何请求)
 //   3. 下载 tarball 到 /tmp → download_failed
-//   4. sha256 校验(有版本号则去 GitHub 抓对应 checksums;custom 镜像同版本亦可校验;无则跳过记 note)→ checksum_mismatch
+//   4. sha256 校验(有版本号则去 GitHub 抓对应 checksums;官方路径取不到或无对应条目也中止;
+//      custom 镜像同版本亦可校验,无则跳过记 note)→ checksum_mismatch
 //   5. 解压取 netbird 成员 → install_failed
 //   6. **ELF 头校验 arch 匹配**(防坏包/错架构替换崩服务)→ arch_mismatch(绝不安装)
 //   7. 解压件能执行 `version` → install_failed
@@ -2380,6 +2494,16 @@ function _update_binary_locked(req) {
         if (vm)
             ver = vm[1];
     } else {
+        // 官方来源必须用能带请求头的下载器(curl,或 24.10 起的 uclient-fetch):这样二进制和校验和
+        // 都走 api.github.com 的资产地址。不能带头时只能走 github.com 的 releases/download 直链,
+        // 而 github.com 的页面和 302 都带一行 4KB 以上的 Content-Security-Policy 头,22.03/23.05 自带的
+        // uclient-fetch 读到这种超长头行就停住,一直等到 -T 超时才报 Connection timed out。
+        // 所以在发起任何 GitHub 请求之前就失败,让首连自动下载也能立刻回落软件源。
+        // 文案固定(按包管理器二选一),后台进度只回传 message,固定串前端才能按 po 翻译。
+        if (_official_needs_curl())
+            return fail_pre(CODE.DOWNLOAD_FAILED, _pkg_mgr() == 'apk'
+                ? 'The download tool built into this router cannot read the responses from GitHub, so the official release cannot be downloaded. Install curl with "apk update && apk add curl", then try again.'
+                : 'The download tool built into this router cannot read the responses from GitHub, so the official release cannot be downloaded. Install curl with "opkg update && opkg install curl", then try again.');
         ver = _latest_version();
         if (!match(ver, _SEMVER_RE))
             return fail_pre(CODE.INVALID_INPUT, 'Could not fetch or parse the latest version from GitHub (network failure or unexpected format).');
@@ -2455,8 +2579,11 @@ function _update_binary_locked(req) {
 
     // step 4 — 校验和。优先用用户在「自定义 URL」页填的校验和硬校验(按十六进制长度自动判算法:
     //   32=md5 / 40=sha1 / 64=sha256 / 128=sha512);否则有版本号就去 GitHub 抓官方 sha256
-    //   checksums 比对(无 curl 机/取不到时 best-effort 跳过)。用户提供的校验和在解压/执行**之前**
-    //   硬校验,不匹配立即中止(防 http:// 镜像被替换;md5/sha1 仅防意外损坏,抗篡改请用 sha256+)。
+    //   checksums 比对。用户提供的校验和在解压/执行**之前**硬校验,不匹配立即中止(防 http:// 镜像
+    //   被替换;md5/sha1 仅防意外损坏,抗篡改请用 sha256+)。
+    //   官方 release 路径(非自定义 URL)必须核对成功才继续:checksums 取不到、或里面没有本资产名的条目,
+    //   都在解压和以 root 执行 `version` 之前中止并清理 work——否则下载被替换或截断时会直接执行未校验的
+    //   文件。自定义 URL 的镜像常不带 checksums 文件,仍按 best-effort 跳过并记 note。
     let checksum_note = '';
     let want_ck = (type(a.checksum) == 'string') ? lc(trim(a.checksum)) : '';
     if (length(want_ck) > 0) {
@@ -2509,9 +2636,16 @@ function _update_binary_locked(req) {
                     return fail_work(CODE.CHECKSUM_MISMATCH,
                                      sprintf('sha256 checksum mismatch (expected=%s… actual=%s); aborted',
                                              substr(expected, 0, 16), length(actual) == 64 ? substr(actual, 0, 16) : '(compute failed)'));
+            } else if (!is_custom) {
+                // 文案固定(不拼资产名),前端经后台进度只拿到 message,固定串才能按 po 翻译。
+                return fail_work(CODE.CHECKSUM_MISMATCH,
+                                 'The official checksum list has no entry for this download, so it was not installed. Try again later; the release may still be publishing its files.');
             } else {
                 checksum_note = 'no matching filename in checksums; skipped sha256';
             }
+        } else if (!is_custom) {
+            return fail_work(CODE.CHECKSUM_MISMATCH,
+                             'Could not download the official checksum list, so the download was not installed. Check that the router can reach github.com, then try again.');
         } else {
             checksum_note = 'could not fetch checksums; skipped sha256 (custom mirror/network)';
         }
@@ -2732,7 +2866,7 @@ function _set_binary_source_locked(req) {
     if (c.get('netbird_bin', 'binary') == null)
         c.set('netbird_bin', 'binary', 'netbird_bin');
     c.set('netbird_bin', 'binary', 'binary_source', source);
-    c.commit('netbird_bin');
+    _uci_commit(c, 'netbird_bin');
 
     // 已是目标来源?(custom 还要确认是同一版本)
     let active = _active_source();
@@ -3068,13 +3202,12 @@ function _do_up(req) {
         _mark_settings_pending();
 
     let log_before = _recent_log_text(100);
-    let cmd = _build_auth_cmd(bin, 'up', mr.url, setup_key);
     // watchdog 的周期重连用短墙钟 + 短确认轮询:管理端不可达时 netbird up 内部
     // backoff 不返回,每次尝试都会跑满墙钟;同脚本 RPC 串行使状态页在此期间排队,
     // 长尝试 = 页面长时间假死。健康恢复场景 up 几秒即返回,10s 足够;真不可达时
     // 缩短的只是「注定失败的等待」,下一轮尝试与 30s 状态巡检兜底恢复。
     // 用户点击的连接保持 25s/6 轮:错误归因需要让 CLI/daemon 日志有时间沉淀。
-    let r = _exec_auth_cmd(cmd, 4096, from_watchdog ? 10 : 25); // shell-audit-ok: bin/url/key 均经 shell_quote，verb 字面
+    let r = _run_auth_cmd(bin, 'up', mr.url, setup_key, 4096, from_watchdog ? 10 : 25);
     // 安全加固：若 CLI 把 setup_key 回显进 stdout，先脱敏再用于任何错误回传。
     if (length(setup_key) > 0 && r.stdout != null)
         r.stdout = replace(r.stdout, setup_key, '***');
@@ -3362,7 +3495,9 @@ return {
                     usesKernelInterface:   !!js.usesKernelInterface,
                     quantumResistance:     !!js.quantumResistance,
                     lazyConnectionEnabled: !!js.lazyConnectionEnabled,
-                    forwardingRules:       (js.forwardingRules != null) ? js.forwardingRules : 0,
+                    // forwardingRules 只在 0.38–0.80 的 status --json 里有（0.81 下线 ingress 端口转发时删掉了），
+                    // 缺失时给 null 而不是 0，前端据此区分「没有这个字段」和「规则数为 0」。
+                    forwardingRules:       (type(js.forwardingRules) == 'int' || type(js.forwardingRules) == 'double') ? js.forwardingRules : null,
                     networks:              js.networks || [],
                     profileName:           js.profileName || '',
                     peers: {
@@ -3465,8 +3600,7 @@ return {
                     return err(CODE.NOT_INSTALLED, 'The netbird binary is not installed.');
 
                 let log_before = _recent_log_text(100);
-                let cmd = _build_auth_cmd(bin, 'login', mr.url, setup_key);
-                let r = _exec_auth_cmd(cmd, 4096); // shell-audit-ok: bin/url/key 均经 shell_quote，verb 字面
+                let r = _run_auth_cmd(bin, 'login', mr.url, setup_key, 4096);
                 // 安全加固：若 CLI 把 setup_key 回显进 stdout，先脱敏再用于任何错误回传。
                 if (length(setup_key) > 0 && r.stdout != null)
                     r.stdout = replace(r.stdout, setup_key, '***');

@@ -1641,6 +1641,9 @@ msgstr ""
 msgid "The NetBird service is not running or not responding. Start it, then try again."
 msgstr ""
 
+msgid "Could not pass the setup key to NetBird: writing a temporary file under /var/run failed. Free up memory, then try again."
+msgstr ""
+
 msgid "The %s package lists are not loaded (they are cleared on reboot), so netbird cannot be looked up. Run \"%s update\", then reload this page."
 msgstr ""
 
@@ -1675,4 +1678,16 @@ msgid "The configured source is NetBird-Release, but its binary is not on this d
 msgstr ""
 
 msgid "Saved settings are not active yet. They will be applied the next time NetBird connects."
+msgstr ""
+
+msgid "The official checksum list has no entry for this download, so it was not installed. Try again later; the release may still be publishing its files."
+msgstr ""
+
+msgid "Could not download the official checksum list, so the download was not installed. Check that the router can reach github.com, then try again."
+msgstr ""
+
+msgid "The download tool built into this router cannot read the responses from GitHub, so the official release cannot be downloaded. Install curl with \"opkg update && opkg install curl\", then try again."
+msgstr ""
+
+msgid "The download tool built into this router cannot read the responses from GitHub, so the official release cannot be downloaded. Install curl with \"apk update && apk add curl\", then try again."
 msgstr ""

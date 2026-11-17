@@ -1185,6 +1185,9 @@ msgstr "NetBird 客户端拒绝了该命令，可能版本太旧，不支持此�
 msgid "The NetBird service is not running or not responding. Start it, then try again."
 msgstr "NetBird 服务未运行或无响应，请先启动后再试。"
 
+msgid "Could not pass the setup key to NetBird: writing a temporary file under /var/run failed. Free up memory, then try again."
+msgstr "无法把安装密钥交给 NetBird：在 /var/run 下写临时文件失败。请释放内存后重试。"
+
 msgid "The %s package lists are not loaded (they are cleared on reboot), so netbird cannot be looked up. Run \"%s update\", then reload this page."
 msgstr "%s 的软件包列表尚未加载（重启后会被清空），因此查不到 netbird。请先运行“%s update”，再刷新本页。"
 
@@ -1220,3 +1223,15 @@ msgstr "配置的来源是 NetBird-Release，但本机没有它的二进制（�
 
 msgid "Saved settings are not active yet. They will be applied the next time NetBird connects."
 msgstr "已保存的设置尚未生效，将在 NetBird 下次连接成功后应用。"
+
+msgid "The official checksum list has no entry for this download, so it was not installed. Try again later; the release may still be publishing its files."
+msgstr "官方校验和列表里没有这个下载文件的条目，无法核对，未安装。请稍后重试，该版本的发布文件可能还在上传中。"
+
+msgid "Could not download the official checksum list, so the download was not installed. Check that the router can reach github.com, then try again."
+msgstr "无法下载官方校验和列表，下载的文件未经核对，未安装。请检查路由器能否访问 github.com，然后重试。"
+
+msgid "The download tool built into this router cannot read the responses from GitHub, so the official release cannot be downloaded. Install curl with \"opkg update && opkg install curl\", then try again."
+msgstr "这台路由器自带的下载工具读不了 GitHub 的响应，无法下载官方版本。请先安装 curl（运行 \"opkg update && opkg install curl\"），然后重试。"
+
+msgid "The download tool built into this router cannot read the responses from GitHub, so the official release cannot be downloaded. Install curl with \"apk update && apk add curl\", then try again."
+msgstr "这台路由器自带的下载工具读不了 GitHub 的响应，无法下载官方版本。请先安装 curl（运行 \"apk update && apk add curl\"），然后重试。"
