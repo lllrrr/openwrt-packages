@@ -119,7 +119,10 @@ function M.hits(limit)
 	end
 	local blocked = M.load().names
 	local hits = {}
-	local fh = io.popen("logread 2>/dev/null | grep -F 'query[' | tail -n 4000", "r")
+	-- rpcd worker 的 io.popen 读大量 logread 会挂;走临时文件
+	local tmp = "/tmp/languard-dnshits.log"
+	sys.call("logread 2>/dev/null | grep -F 'query[' | tail -n 4000 > " .. tmp .. " 2>/dev/null")
+	local fh = io.open(tmp, "r")
 	if fh then
 		for line in fh:lines() do
 			local dom, ip = line:match("query%[%w+%]%s+(%S+)%s+from%s+(%d+%.%d+%.%d+%.%d+)")
@@ -128,6 +131,7 @@ function M.hits(limit)
 			end
 		end
 		fh:close()
+		os.remove(tmp)
 	end
 	local out = {}
 	for i = #hits, math.max(1, #hits - limit + 1), -1 do

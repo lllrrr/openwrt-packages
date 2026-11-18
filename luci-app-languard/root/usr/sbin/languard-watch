@@ -92,7 +92,7 @@ main() {
 	# No live instance: clear leftovers from a previous run. These are shells
 	# whose `logread -f` child died, so they hold the pidfile but do nothing.
 	MYPPID=$(awk '{print $4}' "/proc/$$/stat" 2>/dev/null)
-	for _p in $(ps w 2>/dev/null | grep "[c]lientblock-watch" | awk '{print $1}'); do
+	for _p in $(ps w 2>/dev/null | grep "[l]anguard-watch" | awk '{print $1}'); do
 		[ "$_p" = "$$" ] && continue
 		[ "$_p" = "$MYPPID" ] && continue
 		grep -q "languard-watch" "/proc/$_p/cmdline" 2>/dev/null && kill -9 "$_p" 2>/dev/null

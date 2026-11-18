@@ -60,9 +60,10 @@ function M.exportfile()
 		end
 	end
 
-	math.randomseed(os.time())
-	local name = string.format("languard-backup-%06x%04x.json",
-		math.random(0, 0xffffff), math.random(0, 0xffff))
+	local raw = sys.exec("od -An -N8 -tx1 /dev/urandom 2>/dev/null") or ""
+	raw = raw:gsub("%s+", "")
+	if #raw < 16 then return err("cannot read /dev/urandom") end
+	local name = "languard-backup-" .. raw:sub(1, 16) .. ".json"
 	local f = io.open("/www/" .. name, "w")
 	if not f then return err("cannot write /www") end
 	f:write(body) f:close()
@@ -99,16 +100,17 @@ function M.importconfig(payload)
 		end
 	end
 
+	-- 逐个原子写:半途崩溃不会留下截断的文件;加锁避免与 tick/watcher
+	-- 的读改写交错,后写覆盖先写。
+	local first_path = nil
+	for _, path in pairs(cfg.files) do first_path = path break end
+	local lk = first_path and d.lock_acquire(first_path, 10) or false
 	local n = 0
 	for key, path in pairs(cfg.files) do
 		local v = p.data[key]
-		if type(v) == "table" then
-			local o = jsonc.stringify(v)
-			if o == "[]" then o = "{}" end
-			local f = io.open(path, "w")
-			if f then f:write(o) f:close() n = n + 1 end
-		end
+		if type(v) == "table" and d.save_json_map(path, v) then n = n + 1 end
 	end
+	if lk then d.lock_release(first_path) end
 	d.render_rules(d.load_state())
 	d.reload_firewall()
 	return ok({ imported = n })

@@ -41,6 +41,7 @@
 | **设备识别** | 每台设备显示首次出现时间、MAC 厂商、推测的设备类型 |
 | **丢包统计** | 每条规则显示实际丢弃的包数与字节数 |
 | **开机自愈** | 重启后从状态文件重建 nftables 规则 |
+| **流量账本** | 按应用 / 设备 / 出口组 / 域名统计流量，终身累计，跨天、跨重启、跨重置都不丢 |
 
 ---
 
@@ -243,14 +244,40 @@ ubus call luci.languard logclear
 /etc/languard/blocked_ips.json               外部 IP 黑名单
 /etc/languard/names.json                     设备名称
 /etc/languard/auto.json                      自动防护参数
+/etc/languard/appstats.json                  流量账本（终身累计）
+/etc/languard/honk_pending.json              连接字节增量（采集器写、tick 归类）
 /etc/nftables.d/90-languard.nft              生成的 nftables 规则
+test/run_tests.lua                           回归测试（在路由器上用 lua 运行）
 ```
 
 ---
 
 ## 依赖
 
-**必需**：`luci-base`、`rpcd`、`nftables`、`firewall4`
+**必需（核心功能）**：
+
+| 依赖 | 用途 |
+|---|---|
+| `luci-base` | LuCI 页面与 `luci.jsonc`、`luci.sys`、`nixio.fs` 库 |
+| `rpcd` | ubus 后端 `luci.languard` |
+| `nftables` + `firewall4` | 设备 / IP 封禁规则 |
+| `coreutils` + `coreutils-sleep` | 脚本里的 `sleep`、文件操作 |
+| `bash` | watcher 与采集循环 |
+
+**流量统计（应用识别 / Proxy quota，满足其一即可）**：
+
+| 引擎 | 版本要求 | 说明 |
+|---|---|---|
+| `honk`（eBPF TPROXY） | native API `:9527` + Clash 兼容层 | 采集器自动探测，优先用它 |
+| OpenClash | Clash API `:9090` | 无 honk 时自动回退到它 |
+
+两者都没有时设备 / 封禁 / 防护等核心功能照常工作，只是应用与流量统计无数据。采集走 `curl` 拉本地 API，需要系统有 `curl`（OpenClash / honk 环境通常自带）。
+
+**应用限速（QoS，可选）**：`qosmate`（hfsc on `pppoe-wan`）；缺失时 DSCP 分档功能不可用，其余不受影响。
+
+**入站 SOCKS5 代理（可选，临时功能）**：`sing-box`（`/usr/bin/sing-box`）+ `openssl-util`（自签证书）；不装则该页签不可用。
+
+**测试（可选）**：`lua` 解释器 + 上面的 `luci-base` 库；在路由器上运行 `lua test/run_tests.lua`，无需额外依赖。
 
 **IP 归属（可选）**：按顺序查找，缺失时归属列显示 `-`，其余功能不受影响
 
@@ -297,12 +324,14 @@ ubus call luci.languard logclear
 
 ## 应用识别
 
-「应用」标签页按应用统计流量。识别分两路：
+「应用」标签页按应用统计流量。数据源是当前在跑的代理引擎——**honk**（native `:9527`）或 **OpenClash**（Clash `:9090`），后端自动探测，两者都能用：
 
-| 流量 | 来源 | 依据 |
+| 引擎 | 数据源 | 说明 |
 |---|---|---|
-| 走 Clash 代理 | Clash 的 `/connections` 接口 | 真实主机名（路由器看到的是假 IP，只有 Clash 知道域名） |
-| 直连 / UDP 游戏 | 路由器 conntrack 流表 | 端口范围、地址段 |
+| honk | native `/api/v1/connections` + Clash 兼容层补节点名 | 连接只活约 10 秒，watcher 每 2 秒采样增量 |
+| OpenClash | `/connections` | 从 `chains` 取出口组与叶节点，直连（DIRECT/REJECT）不计入 |
+
+watcher 每 2 秒把连接增量写进 `honk_pending.json`，55 秒的 tick 只做归类落盘——连接短命，靠高频采样才不会漏。两种引擎写出的 pending 结构一致，归集层不区分来源。
 
 **特征库可导入 OAF 格式**（`#format v3.0`）：
 
@@ -321,6 +350,20 @@ ubus call luci.languard logclear
 再点一次取消。这样能直接回答「抖音是谁在刷」，为「只限制某台设备的某个应用」做准备。
 
 设备行同时显示**名称 + IP**，名称来自 DHCP 租约 / 静态绑定 / 手动重命名。
+
+### Proxy quota（出口组流量）
+
+「Proxy quota」卡片按**域名**列出流量，每个域名下挂它走过的**出口组**与**节点**。哪些域名走了代理、用了哪个组一目了然，方便核对订阅质量。走直连（DIRECT/REJECT）的流量不计入。
+
+### 流量账本与持久化
+
+流量统计写在 `/etc/languard/appstats.json`，是**终身累计**账本：按应用、按设备、按出口组、按域名四个维度各自累加。
+
+- **不随日期清零**：午夜只滚存每日计数器（应用 / 设备），出口组、节点、域名流量持续累计。
+- **跨重启保留**：状态文件原子写（临时文件 + rename），rpcd 重启、掉电都不会留下半截文件。
+- **重置不丢**：界面上的「Reset counters」只清当日的应用 / 设备计数，不动出口组与域名的终身累计。
+
+统计来自代理引擎的连接字节增量；没有抓包依赖，纯 API 采样。
 
 ### 载荷指纹校验
 

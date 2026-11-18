@@ -140,16 +140,6 @@ end
 
 
 
-local function save_ipstate(st)
-	fs.mkdirr(STATE_DIR)
-	local f = io.open(IPSTATE_FILE, "w")
-	if not f then return false end
-	local s = jsonc.stringify(st)
-	if s == "[]" then s = "{}" end
-	f:write(s)
-	f:close()
-	return true
-end
 
 -- "1.2.3.4" or "1.2.3.0/24" -> normalized form, or nil
 
@@ -1114,11 +1104,17 @@ end
 local function honk_get(path)
 	local secret = honk_secret()
 	if secret == "" then return nil end
-	local raw = sys.exec(string.format(
-		"curl -s -m 3 -H %s %s 2>/dev/null",
+	-- rpcd worker 的 io.popen 与 ubus socket 的 stdio 交互在 curl 拉大段 JSON 上会挂,
+	-- 与 openclash_poll 同因:改走临时文件,os.execute 不经管道,一定返回
+	os.execute(string.format(
+		"curl -s -m 3 -H %s %s -o /tmp/honk_conns.json 2>/dev/null",
 		shq("Authorization: Bearer " .. secret),
 		shq("http://" .. HONK_API .. path)))
-	if not raw or raw == "" then return nil end
+	local f = io.open("/tmp/honk_conns.json", "r")
+	if not f then return nil end
+	local raw = f:read("*a") or ""
+	f:close()
+	if raw == "" then return nil end
 	local ok_, doc = pcall(jsonc.parse, raw)
 	if not ok_ or type(doc) ~= "table" then return nil end
 	return doc
@@ -1136,11 +1132,15 @@ local HONK_PENDING = STATE_DIR .. "/honk_pending.json"
 local function honk_chains()
 	local secret = honk_secret()
 	if secret == "" then return {} end
-	local raw = sys.exec(string.format(
-		"curl -s -m 3 -H %s %s 2>/dev/null",
+	os.execute(string.format(
+		"curl -s -m 3 -H %s %s -o /tmp/honk_chains.json 2>/dev/null",
 		shq("Authorization: Bearer " .. secret),
 		shq(clash_base() .. "/connections")))
-	if not raw or raw == "" then return {} end
+	local cf = io.open("/tmp/honk_chains.json", "r")
+	if not cf then return {} end
+	local raw = cf:read("*a") or ""
+	cf:close()
+	if raw == "" then return {} end
 	local ok_, doc = pcall(jsonc.parse, raw)
 	if not ok_ or type(doc) ~= "table" then return {} end
 	local map = {}
@@ -1220,6 +1220,114 @@ local function honk_poll(now)
 	return added
 end
 
+-- 探测当前在跑的代理引擎:honk(native 9527) 或 OpenClash(clash 9090)。
+-- 端口互斥:先探 9527,不通再探 9090。结果缓存进 IDX。
+-- 全部挂 IDX.*,不新增顶层 local(已贴 200 上限)。
+IDX.openclash_api = "127.0.0.1:9090"
+
+IDX.proxy_active = function(force)
+	if not force and IDX.proxy_engine ~= nil then return IDX.proxy_engine end
+	local engine = nil
+	local h = sys.exec("curl -s -m 2 -o /dev/null -w '%{http_code}' " ..
+		" " .. shq("http://" .. HONK_API .. "/api/v1/groups") .. " 2>/dev/null")
+	if h and h:match("%d") and h ~= "000" then
+		engine = "honk"
+	else
+		local o = sys.exec("curl -s -m 2 -o /dev/null -w '%{http_code}' " ..
+			" " .. shq("http://" .. IDX.openclash_api .. "/proxies") .. " 2>/dev/null")
+		if o and o:match("%d") and o ~= "000" then
+			engine = "openclash"
+		end
+	end
+	IDX.proxy_engine = engine
+	return engine
+end
+
+IDX.openclash_secret = function()
+	if IDX.oc_secret ~= nil then return IDX.oc_secret end
+	local s = trim(sys.exec("uci -q get openclash.config.dashboard_password 2>/dev/null") or "")
+	IDX.oc_secret = s
+	return s
+end
+
+-- OpenClash 走标准 clash API:连接给 upload/download(累计)和 metadata.*。
+-- 归一化成与 honk_poll 相同的 pending 结构,复用 HONK_PENDING / HONK_SEEN。
+IDX.openclash_poll = function(now)
+	local secret = IDX.openclash_secret()
+	if secret == "" then return 0 end
+	-- rpcd worker 的 io.popen 与 ubus socket 的 stdio 交互在 curl 上会挂,
+	-- 与 honk_get 同因:改走临时文件,os.execute 不经管道,一定返回
+	os.execute(string.format(
+		"curl -s -m 3 -H %s %s/connections -o /tmp/oc_conns.json 2>/dev/null",
+		shq("Authorization: Bearer " .. secret),
+		shq("http://" .. IDX.openclash_api)))
+	local f = io.open("/tmp/oc_conns.json", "r")
+	if not f then return 0 end
+	local raw = f:read("*a") or ""
+	f:close()
+	if raw == "" then
+		return 0 end
+	local ok_, doc = pcall(jsonc.parse, raw)
+	if not ok_ or type(doc) ~= "table" then return 0 end
+
+	local prev = load_json_map(HONK_SEEN, function() return {} end)
+	local pend = load_json_map(HONK_PENDING, function() return {} end)
+	local cur, added = {}, 0
+
+	for _, c in ipairs(doc.connections or {}) do
+		local id = c.id
+		if id then
+			local m = c.metadata or {}
+			local src = (m.sourceIP or "") .. ":" .. (m.sourcePort or "")
+			local ip = (m.sourceIP or ""):match("^(%d+%.%d+%.%d+%.%d+)")
+			local up = tonumber(c.upload or "0") or 0
+			local dn = tonumber(c.download or "0") or 0
+			local old = prev[id]
+			local du = up - (old and tonumber(old.u) or 0)
+			local dd = dn - (old and tonumber(old.d) or 0)
+			if du < 0 then du = up end
+			if dd < 0 then dd = dn end
+			cur[id] = { u = up, d = dn }
+			if du + dd > 0 and ip then
+				-- OpenClash 的 chains 是 leaf-first:首位是实际节点,末位是根组。
+				-- 直连/拒绝归一成 "direct"/"block",让 collect_app_stats 排除掉,
+				-- 否则 proxy quota 会把直连流量也算进去。
+				local ch = c.chains or {}
+				local ob_out, leaf_ch = "", nil
+				local node = ch[1]
+				local grp = ch[#ch]
+				if node then
+					local nl = node:lower()
+					if nl == "direct" then
+						ob_out = "direct"
+					elseif nl == "reject" then
+						ob_out = "block"
+					else
+						leaf_ch = { node }
+						ob_out = grp and grp or node
+					end
+				end
+				local p = pend[id]
+				if not p then
+					p = { ip = ip, up = 0, dn = 0, network = m.network or "tcp",
+					      domain = m.host, outbound = ob_out, chain = leaf_ch,
+					      dst = (m.destinationIP or "") .. ":" .. (m.destinationPort or ""),
+					      src = src }
+					pend[id] = p
+				end
+				if m.host and not p.domain then p.domain = m.host end
+				p.up = p.up + du
+				p.dn = p.dn + dd
+				added = added + du + dd
+			end
+		end
+	end
+
+	save_json_map(HONK_SEEN, cur)
+	save_json_map(HONK_PENDING, pend)
+	return added
+end
+
 local function collect_app_stats(now)
 	local apps = load_apps()
 	if #apps.apps == 0 then return nil end
@@ -1232,18 +1340,17 @@ local function collect_app_stats(now)
 	end)
 	local today = os.date("%Y-%m-%d", now)
 	if st.day ~= today then
-		-- midnight is not a reset: the finished day is filed away so the
-		-- window can still be read, and only a week of it is worth keeping
+		-- midnight 只滚存每日计数器(apps/dev/low);proxy quota 是终身累计,
+		-- 不归档、不清空,否则跨天后就丢了。hist 仍只留 7 天。
 		st.hist = st.hist or {}
 		if st.day and st.day ~= "" and st.apps then
-			st.hist[st.day] = { apps = st.apps, dev = st.dev, low = st.low,
-			                    proxy = st.proxy, node = st.node, ph = st.ph }
+			st.hist[st.day] = { apps = st.apps, dev = st.dev, low = st.low }
 		end
 		local days = {}
 		for d in pairs(st.hist) do days[#days + 1] = d end
 		table.sort(days)
 		for i = 1, #days - 7 do st.hist[days[i]] = nil end
-		st.day, st.apps, st.dev, st.low, st.proxy, st.node, st.ph = today, {}, {}, nil, {}, {}, {}
+		st.day, st.apps, st.dev, st.low = today, {}, {}, nil
 	end
 
 	-- 采集器每两秒把增量写进 honk_pending.json;这里只做归类和落盘,然后
@@ -1253,6 +1360,7 @@ local function collect_app_stats(now)
 
 	for key, f in pairs(flows) do
 		local delta = f.up + f.dn
+
 		-- 只记 LAN 侧发起的流:路由器自己出网的流量没有设备可归属
 		local dev_ip = f.ip
 		if not dev_ip or dev_ip:sub(1, #prefix) ~= prefix then dev_ip = nil end
@@ -1275,7 +1383,7 @@ local function collect_app_stats(now)
 					st.ph = st.ph or {}
 					local e = st.ph[host]
 					if not e or type(e.n) ~= "table" then
-						if not e and #st.ph > 4000 then st.ph = {} end
+						-- ph 是终身累计,不再按条目数清空;视图层已限 1000 条
 						e = { b = 0, n = {}, g = {} }
 						st.ph[host] = e
 					end
@@ -1680,10 +1788,8 @@ local CLASS_NAMES = {
 function methods.flows()
 	local secret = honk_secret()
 	if secret == "" then return { success = false, error = "no honk secret" } end
-	local raw = sys.exec(string.format(
-		"curl -s -m 8 -H %s %s 2>/dev/null",
-		shq("Authorization: Bearer " .. secret),
-		shq("http://127.0.0.1:9527/api/v1/flows?limit=300&detail=full")))
+	local raw = fetch_curl(
+		"http://127.0.0.1:9527/api/v1/flows?limit=300&detail=full", secret, 8)
 	if not raw or raw == "" then return { success = true, running = true, flows = {}, by_outbound = {} } end
 	local ok_, doc = pcall(jsonc.parse, raw)
 	if not ok_ or type(doc) ~= "table" then
@@ -1770,9 +1876,7 @@ function methods.probeurl(host)
 		-- db 模式:一次连接 + native_api 的连接表
 		sys.exec("curl -s -m 3 -o /dev/null https://" .. shq(clean) .. " 2>/dev/null")
 		for i = 1, 3 do
-			local raw = sys.exec(string.format(
-				"curl -s -m 3 -H %s " .. shq(clash_base() .. "/api/v1/connections") .. " 2>/dev/null",
-				shq("Authorization: Bearer " .. secret)))
+			local raw = fetch_curl(clash_base() .. "/api/v1/connections", secret, 3)
 			if raw and raw ~= "" then
 				local okj, doc = pcall(jsonc.parse, raw)
 				if okj and type(doc) == "table" then
@@ -1799,9 +1903,7 @@ function methods.probeurl(host)
 	if type(chains) == "table" then
 		local names = {}
 		local function idmap(path)
-			local raw = sys.exec(string.format(
-				"curl -s -m 4 -H %s " .. shq(clash_base() .. path) .. " 2>/dev/null",
-				shq("Authorization: Bearer " .. (secret or ""))))
+			local raw = fetch_curl(clash_base() .. path, secret, 4)
 			if raw and raw ~= "" then
 				local okd, dd = pcall(jsonc.parse, raw)
 				if okd and type(dd) == "table" then
@@ -1844,10 +1946,7 @@ function methods.groupfinals()
 	local secret = honk_secret()
 	if secret == "" then return { success = false, error = "no honk secret" } end
 
-	local raw = sys.exec(string.format(
-		"curl -s -m 8 -H %s %s 2>/dev/null",
-		shq("Authorization: Bearer " .. secret),
-		shq("http://127.0.0.1:9527/api/v1/groups")))
+	local raw = fetch_curl("http://127.0.0.1:9527/api/v1/groups", secret, 8)
 	if not raw or raw == "" then return { success = true, running = true, groups = {} } end
 	local ok_, doc = pcall(jsonc.parse, raw)
 	if not ok_ or type(doc) ~= "table" then
@@ -1863,9 +1962,7 @@ function methods.groupfinals()
 
 	-- 每个组拉一次 config 拿 final;顺带把 Clash 的 now 也带过来
 	local clash_now = {}
-	local craw = sys.exec(string.format(
-		"curl -s -m 8 -H %s " .. shq(clash_base() .. "/proxies") .. " 2>/dev/null",
-		shq("Authorization: Bearer " .. secret)))
+	local craw = fetch_curl(clash_base() .. "/proxies", secret, 8)
 	if craw and craw ~= "" then
 		local okc, cdoc = pcall(jsonc.parse, craw)
 		if okc and type(cdoc) == "table" then
@@ -1879,10 +1976,9 @@ function methods.groupfinals()
 	for _, g in ipairs(groups or {}) do
 		local name = g.name or ""
 		local fin, cfg_ok = nil, false
-		local raw2 = sys.exec(string.format(
-			"curl -s -m 5 -H %s %s 2>/dev/null",
-			shq("Authorization: Bearer " .. secret),
-			shq("http://127.0.0.1:9527/api/v1/groups/" .. (g.id or "") .. "/config")))
+		local raw2 = fetch_curl(
+			"http://127.0.0.1:9527/api/v1/groups/" .. (g.id or "") .. "/config",
+			secret, 5)
 		if raw2 and raw2 ~= "" then
 			local ok2, cdoc = pcall(jsonc.parse, raw2)
 			if ok2 and type(cdoc) == "table" and type(cdoc.config) == "table" then
@@ -2424,6 +2520,9 @@ sysm.setup({
 		-- 这些名字此时可能还没赋值,用闭包在调用时解析
 		read_all = function(p) return read_all(p) end,
 		load_json_map = function(a, b) return load_json_map(a, b) end,
+		save_json_map = function(a, b) return save_json_map(a, b) end,
+		lock_acquire = function(a, b) return lock_acquire(a, b) end,
+		lock_release = function(a) return lock_release(a) end,
 		load_state = function() return load_state() end,
 		render_rules = function(st) return render_rules(st) end,
 		reload_firewall = function() return reload_firewall() end,
@@ -2522,6 +2621,7 @@ appm.setup({
 	save_json_map = function(a, b) return save_json_map(a, b) end,
 	load_state = function() return load_state() end,
 	save_state = function(v) return save_state(v) end,
+	normalize_ip = function(v) return normalize_ip(v) end,
 	notify_event = function(...) return notify_event(...) end,
 	read_all = function(p) return read_all(p) end,
 	trim = function(v) return trim(v) end,
@@ -3407,10 +3507,9 @@ local function scan_failures(cfg)
 	sc.counted = fresh
 
 	for _, pat in ipairs(patterns) do
-		local fh = io.popen(string.format(
-			"logread -e %q 2>/dev/null | tail -n 400", pat), "r")
-		if fh then
-			for line in fh:lines() do
+		local raw = fetch_log(string.format("logread -e %q 2>/dev/null | tail -n 400", pat))
+		if raw and raw ~= "" then
+			for line in raw:gmatch("[^\n]+") do
 				-- dropbear: "... from <1.2.3.4:5678>" or luci: "... from 1.2.3.4"
 				local ip = line:match("from%s+<([%d%.]+):%d+>")
 					or line:match("from%s+([%d%.]+)%s*$")
@@ -3439,7 +3538,6 @@ local function scan_failures(cfg)
 					end
 				end
 			end
-			fh:close()
 		end
 	end
 
@@ -3566,7 +3664,7 @@ local function load_socks()
 	if d.password == nil then d.password = "" end
 	if d.listen == nil then d.listen = "0.0.0.0" end
 	if d.fwd == nil then d.fwd = true end
-	if d.enabled == nil then d.enabled = true end
+	if d.enabled == nil then d.enabled = false end
 	if d.tls == nil then d.tls = true end
 	if d.tlsport == nil then d.tlsport = 8894 end
 	return d
@@ -3926,13 +4024,9 @@ function methods.socksgenpw()
 		pw = table.concat(out)
 	end
 	if pw == "" then
-		local chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
-		local out = {}
-		math.randomseed(os.time())
-		for _ = 1, 32 do
-			out[#out + 1] = chars:sub(math.random(1, #chars), math.random(1, #chars))
-		end
-		pw = table.concat(out)
+		-- 不能回退到 math.random:Lua 5.1 的 LCG 由 os.time 播种,可预测,
+		-- 而这是 WAN 代理的唯一凭据。od 不可用就报错,让用户重试。
+		return err("cannot read /dev/urandom; retry or set a password manually")
 	end
 	local d = load_socks()
 	d.password = pw
@@ -4092,6 +4186,29 @@ function read_all(path)
 	return d
 end
 
+-- rpcd worker 的 io.popen/sys.exec 在 curl 拉大段 JSON、logread 吐大量
+-- 日志时会与 ubus socket 的 stdio 交互挂死。统一走临时文件 + sys.call:
+-- 不经管道,一定返回。
+function fetch_curl(url, auth, timeout)
+	local tmp = "/tmp/languard-fetch.json"
+	sys.call(string.format(
+		"curl -s -m %d -H %s %s -o %s 2>/dev/null",
+		tonumber(timeout) or 8,
+		auth and shq("Authorization: Bearer " .. auth) or "''",
+		shq(url), tmp))
+	local raw = read_all(tmp)
+	fs.unlink(tmp)
+	return raw
+end
+
+function fetch_log(cmd)
+	local tmp = "/tmp/languard-fetch.log"
+	sys.call(string.format("%s > %s 2>/dev/null", cmd, tmp))
+	local raw = read_all(tmp)
+	fs.unlink(tmp)
+	return raw
+end
+
 -- ============================================================
 -- Scheduled blocking
 -- ------------------------------------------------------------
@@ -4233,8 +4350,7 @@ local function check_new_devices()
 	if not known then
 		local seed = {}
 		for mac in pairs(neigh) do seed[mac] = true end
-		local f = io.open(KNOWN_FILE, "w")
-		if f then f:write(jsonc.stringify(seed)) f:close() end
+		save_json_map(KNOWN_FILE, seed)
 		return 0
 	end
 	-- A device that is not in the baseline stays untrusted until the user
@@ -4257,16 +4373,6 @@ end
 -- ============================================================
 -- Device groups, curfew and per-device port restrictions
 -- ============================================================
-function load_json_map(file, shape)
-	local f = io.open(file, "r")
-	if not f then return shape() end
-	local raw = f:read("*a")
-	f:close()
-	local p = jsonc.parse(raw)
-	if type(p) ~= "table" then return shape() end
-	return p
-end
-
 -- Addresses that sit in front of the LAN and therefore never appear as the
 -- real source in a backend log: lucky, nginx, HAProxy, a WAF. Blocking one of
 -- these would cut every proxied service at once, so they are excluded from
@@ -4294,42 +4400,10 @@ extract_forwarded = function(line)
 	return normalize_ip(last)
 end
 
-function save_json_map(file, v)
-	fs.mkdirr(STATE_DIR)
-	local o = jsonc.stringify(v)
-	if o == "[]" then o = "{}" end
-	-- write beside the target and rename: a reader that opens the file while
-	-- it is being rewritten gets a truncated document, fails to parse it and
-	-- then saves the empty result back, wiping everything the file held
-	local tmp = file .. ".tmp"
-	local f = io.open(tmp, "w")
-	if not f then return false end
-	f:write(o)
-	f:close()
-	os.rename(tmp, file)
-	return true
-end
-
 -- 读-改-写必须串行:watcher 的 ubus ipadd 与 tick 的 feed 合并会同时
 -- 写 blocked_ips.json,原子改名只防半截文件,防不住后写覆盖先写。
 -- 用一个锁目录(创建成功即持有,失败即被占)做互斥,不需要外部命令;
 -- 持锁超过 5 秒视为陈旧并强制夺回,避免崩溃后永久卡死。
-function lock_acquire(file, timeout)
-	local lock = file .. ".lock"
-	local deadline = os.time() + (timeout or 5)
-	while true do
-		if fs.mkdir(lock) then return true end
-		-- 陈旧锁:持有者早已不在
-		local st = fs.stat(lock, "mtime")
-		if st and (os.time() - st) > 10 then fs.rmdir(lock) end
-		if os.time() >= deadline then return false end
-		sys.call("sleep 0.05")
-	end
-end
-
-function lock_release(file)
-	fs.rmdir(file .. ".lock")
-end
 
 -- 带锁的读改写。所有对 blocked_ips.json 的变更都走这里。
 function update_ipstate(fn)
@@ -4550,7 +4624,8 @@ end
 
 function methods.tick()
 	local now = os.time()
-	honk_poll(now)
+	local engine = IDX.proxy_active()
+	if engine == "honk" then honk_poll(now) else IDX.openclash_poll(now) end
 	local cfg = load_json_map(STATE_DIR .. "/tick.json", function() return { enabled = true } end)
 	if cfg.enabled == false then
 		return { success = true, running = true, skipped = true }

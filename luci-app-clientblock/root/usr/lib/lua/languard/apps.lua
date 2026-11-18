@@ -39,22 +39,25 @@ function M.appstats(range)
 		buckets[#buckets + 1] = st
 	end
 	local apps, dev, low, prox, nodes, ph = {}, {}, {}, {}, {}, {}
-	for _, b in ipairs(buckets) do
-		for k, v in pairs(b.proxy or {}) do prox[k] = (prox[k] or 0) + v end
-		for k, v in pairs(b.node or {}) do nodes[k] = (nodes[k] or 0) + v end
-		for k, v in pairs(b.ph or {}) do
-			local e = ph[k]
-			if not e then e = { b = 0, n = {}, g = {} }; ph[k] = e end
-			e.b = e.b + (v.b or 0)
-			if type(v.n) == "table" then
-				for n, x in pairs(v.n) do e.n[n] = (e.n[n] or 0) + x end
-				for n, x in pairs(v.g or {}) do e.g[n] = (e.g[n] or 0) + x end
-			else
-				-- entries written before the split existed carry one name
-				if v.n then e.n[v.n] = (e.n[v.n] or 0) + (v.b or 0) end
-				if v.g then e.g[v.g] = (e.g[v.g] or 0) + (v.b or 0) end
-			end
+	-- proxy quota 是终身累计,只取 st 的当前值,不随 range/hist 聚合:
+	-- 否则 week/yesterday 会把它当每日值重复累加,或在 hist 被清理后丢数
+	for k, v in pairs(st.proxy or {}) do prox[k] = (prox[k] or 0) + v end
+	for k, v in pairs(st.node or {}) do nodes[k] = (nodes[k] or 0) + v end
+	for host, e0 in pairs(st.ph or {}) do
+		local e = ph[host]
+		if not e then e = { b = 0, n = {}, g = {} }; ph[host] = e end
+		e.b = e.b + (e0.b or 0)
+		if type(e0.n) == "table" then
+			for n, x in pairs(e0.n) do e.n[n] = (e.n[n] or 0) + x end
+			for n, x in pairs(e0.g or {}) do e.g[n] = (e.g[n] or 0) + x end
+		else
+			-- entries written before the split existed carry one name
+			if e0.n then e.n[e0.n] = (e.n[e0.n] or 0) + (e0.b or 0) end
+			if e0.g then e.g[e0.g] = (e.g[e0.g] or 0) + (e0.b or 0) end
 		end
+	end
+	-- apps/dev/low 仍是每日计数,按 range 聚合(含 hist)
+	for _, b in ipairs(buckets) do
 		for k, v in pairs(b.apps or {}) do apps[k] = (apps[k] or 0) + v end
 		for k, v in pairs(b.low or {}) do low[k] = (low[k] or 0) + v end
 		for ip, m in pairs(b.dev or {}) do
@@ -136,7 +139,10 @@ function M.appreset(confirm)
 	if not (confirm == "yes" or confirm == true or confirm == 1 or confirm == "1" or confirm == "true") then
 		return D.err("refusing to reset counters without confirmation; pass {\"confirm\":\"yes\"}")
 	end
-	D.save_json_map(D.APPSTAT_FILE, { day = os.date("%Y-%m-%d"), apps = {}, dev = {} })
+	local cur = D.load_json_map(D.APPSTAT_FILE, function() return {} end)
+	D.save_json_map(D.APPSTAT_FILE, {
+		day = os.date("%Y-%m-%d"), apps = {}, dev = {}, low = {},
+		hist = cur.hist, proxy = cur.proxy, node = cur.node, ph = cur.ph })
 	D.save_json_map(D.CT_SEEN_FILE, {})
 	return D.ok({})
 end
@@ -260,6 +266,12 @@ end
 function M.qosadd(ip, app, dscp)
 	if (not ip or ip == "") and (not app or app == "") then
 		return D.err("pick a device, an app, or both")
+	end
+	-- ip 会直接拼进 nft 规则,不校验就能注入语法;与 ipadd 同规则
+	if ip and ip ~= "" then
+		local norm = D.normalize_ip(ip)
+		if not norm then return D.err("invalid IP address or CIDR") end
+		ip = norm
 	end
 	if dscp and dscp ~= "block" and D.QOS_LEVELS[dscp] == nil then
 		return D.err("unknown class")
