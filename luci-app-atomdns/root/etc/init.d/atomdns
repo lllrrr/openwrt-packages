@@ -1,0 +1,82 @@
+#!/bin/sh /etc/rc.common
+# AtomDNS procd init script
+# 配置目录首次从 /usr/share/atomdns 初始化；每次启动都把 UCI 端口写入 config_custom.yaml，
+# 保证在 LuCI 改端口后重启即可生效，并避开 dnsmasq 的 53 端口。
+
+START=99
+STOP=10
+USE_PROCD=1
+
+CONFIG=atomdns
+
+load_atomdns_conf() {
+	config_load "$CONFIG"
+	config_get_bool enabled main enabled 0
+	config_get dns_port main dns_port 2053
+	config_get webui_port main webui_port 9099
+	config_get conf_dir main config_dir /etc/atomdns
+	config_get log_file main log_file /tmp/atomdns.log
+}
+
+# 首次初始化配置目录：把官方 config_rust 包内容复制到可写目录
+prepare_conf_dir() {
+	local src=/usr/share/atomdns
+	local dst="$conf_dir"
+
+	[ -f "$dst/config_custom.yaml" ] && return 0
+	mkdir -p "$dst" || return 1
+	cp -a "$src"/. "$dst"/ || return 1
+	[ -f "$dst/config_custom.yaml" ] || return 1
+	logger -t atomdns "配置目录已初始化: $dst"
+}
+
+# 每次启动都幂等应用 UCI 端口与日志路径。
+# config_custom.yaml 中仅 udp_all/tcp_all 两处 listen 与 api 一处 http 需要改写。
+apply_uci_ports() {
+	local cfg="$conf_dir/config_custom.yaml"
+	[ -f "$cfg" ] || return 1
+
+	sed -i \
+		-e "s|listen: \":[0-9][0-9]*\"|listen: \":${dns_port}\"|g" \
+		-e "s|http: \"0\.0\.0\.0:[0-9][0-9]*\"|http: \"0.0.0.0:${webui_port}\"|" \
+		-e "s|file: \"/tmp/mosdns.log\"|file: \"${log_file}\"|" \
+		"$cfg"
+}
+
+start_service() {
+	load_atomdns_conf
+	[ "$enabled" = "1" ] || {
+		logger -t atomdns "已禁用（UCI: atomdns.main.enabled=0），未启动"
+		return 0
+	}
+
+	prepare_conf_dir || {
+		logger -t atomdns "配置目录初始化失败，放弃启动"
+		return 1
+	}
+	apply_uci_ports || {
+		logger -t atomdns "端口配置写入失败，放弃启动"
+		return 1
+	}
+
+	procd_open_instance atomdns
+	procd_set_param command /usr/bin/atomdns start -d "$conf_dir" -c config_custom.yaml
+	procd_set_param respawn 3600 5 5
+	procd_set_param stdout 0
+	procd_set_param stderr 1
+	procd_set_param user root
+	procd_close_instance
+}
+
+stop_service() {
+	# 让程序自行优雅退出以保存缓存与学习数据；procd 会按需 SIGKILL。
+	:
+}
+
+reload_service() {
+	restart
+}
+
+service_triggers() {
+	procd_add_reload_trigger "$CONFIG"
+}

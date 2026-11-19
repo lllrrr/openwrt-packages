@@ -1,0 +1,44 @@
+#!/bin/sh
+# rpcd 插件：为 LuCI 提供 AtomDNS 状态查询与重启
+# 通过 ubus 调用：ubus call atomdns status / restart
+
+case "$1" in
+	list)
+		echo '{ "status": {}, "restart": {} }'
+		;;
+	call)
+		case "$2" in
+			status)
+				read -r input
+				enabled=$(uci -q get atomdns.main.enabled)
+				[ -n "$enabled" ] || enabled=0
+
+				dns_port=$(uci -q get atomdns.main.dns_port)
+				[ -n "$dns_port" ] || dns_port=2053
+
+				webui_port=$(uci -q get atomdns.main.webui_port)
+				[ -n "$webui_port" ] || webui_port=9099
+
+				conf_dir=$(uci -q get atomdns.main.config_dir)
+				[ -n "$conf_dir" ] || conf_dir=/etc/atomdns
+
+				running=0
+				pidof atomdns >/dev/null 2>&1 && running=1
+
+				version=$(/usr/bin/atomdns version 2>/dev/null | head -n1)
+				[ -n "$version" ] || version="unknown"
+
+				json=$(printf '{"enabled":%s,"running":%s,"dns_port":"%s","webui_port":"%s","config_dir":"%s","version":"%s"}' \
+					"$([ "$enabled" = 1 ] && echo true || echo false)" \
+					"$([ "$running" = 1 ] && echo true || echo false)" \
+					"$dns_port" "$webui_port" "$conf_dir" "$version")
+				echo "$json"
+				;;
+			restart)
+				read -r input
+				/etc/init.d/atomdns restart >/dev/null 2>&1
+				echo '{ "result": "ok" }'
+				;;
+		esac
+		;;
+esac

@@ -1,0 +1,6 @@
+config atomdns 'main'
+	option enabled '0'
+	option dns_port '2053'
+	option webui_port '9099'
+	option config_dir '/etc/atomdns'
+	option log_file '/tmp/atomdns.log'

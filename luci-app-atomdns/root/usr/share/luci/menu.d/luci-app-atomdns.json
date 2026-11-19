@@ -1,0 +1,14 @@
+{
+	"admin/services/atomdns": {
+		"title": "AtomDNS",
+		"order": 60,
+		"action": {
+			"type": "view",
+			"path": "atomdns/status"
+		},
+		"depends": {
+			"acl": ["luci-app-atomdns"],
+			"fs": { "/usr/bin/atomdns": true }
+		}
+	}
+}
