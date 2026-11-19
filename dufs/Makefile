@@ -48,8 +48,6 @@ define Package/dufs/install
 	$(INSTALL_CONF) $(CURDIR)/files/dufs.config $(1)/etc/config/dufs
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) $(CURDIR)/files/dufs.init $(1)/etc/init.d/dufs
-	$(INSTALL_DIR) $(1)/etc/uci-defaults
-	$(INSTALL_BIN) $(CURDIR)/files/dufs.uci $(1)/etc/uci-defaults/90-dufs-uci-migration
 endef
 
 $(eval $(call RustBinPackage,dufs))

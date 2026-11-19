@@ -78,7 +78,7 @@ define Package/curl/Default
   SECTION:=net
   CATEGORY:=Network
   URL:=https://curl.se/
-  MAINTAINER:=Aleksey Vasilenko <aleksey.vasilenko@gmail.com>
+  MAINTAINER:=
 endef
 
 define Package/curl
