@@ -110,6 +110,10 @@ function themeClass() {
 }
 
 function stripCidr(value) {
+	// netifd stores lan.addr as "list ipaddr", so uci.get() returns an array.
+	if (Array.isArray(value))
+		value = value[0];
+
 	if (typeof value !== 'string')
 		return '';
 
@@ -318,7 +322,7 @@ return view.extend({
 			L.resolveDefault(uci.load('wireless'), null),
 			uci.load('network'),
 			uci.load('smartnetpilot'),
-			L.resolveDefault(callGetIp(), { ip: '' }),
+			L.resolveDefault(callGetIp(), ''),
 			L.resolveDefault(callApplyStatus(), null),
 			L.resolveDefault(callPhysicalPorts(), null)
 		]);
@@ -330,7 +334,9 @@ return view.extend({
 		var boardPorts = (data[6] && data[6].known && Array.isArray(data[6].ports))
 			? data[6].ports : null;
 		var devices = data[0] || [];
-		var lanIp = (data[4] && data[4].ip) ? data[4].ip : stripCidr(uci.get('network', 'lan', 'ipaddr'));
+		// rpc.declare() with an "expect" map resolves to the selected field
+		// itself, so callGetIp() yields the address string, not a reply object.
+		var lanIp = data[4] || stripCidr(uci.get('network', 'lan', 'ipaddr'));
 		var networkProto = uci.get('network', 'wan', 'proto');
 		var storedMode = uci.get('smartnetpilot', 'default', 'wan_proto');
 		var currentMode = MODES[storedMode] ? storedMode : modeNameFromNetwork(networkProto);

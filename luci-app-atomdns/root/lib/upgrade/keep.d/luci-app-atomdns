@@ -1,0 +1,5 @@
+# AtomDNS 的数据与规则目录，运行时由 init 脚本从 /usr/share/atomdns 初始化。
+# 内含 config_custom.yaml、WebUI 订阅规则(srs/adguard)、缓存与学习数据，
+# 位于 /etc/config 之外，opkg conffiles 不追踪，因此必须用 keep.d 显式列出，
+# 否则 "保留配置" 升级固件时整个目录会被丢弃，规则与订阅全部丢失。
+/etc/atomdns

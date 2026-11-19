@@ -4,13 +4,6 @@
 'require uci';
 'require form';
 
-var callStatus = rpc.declare({
-	object: 'atomdns',
-	method: 'status',
-	params: [],
-	expect: { enabled: false, running: false, dns_port: '2053', webui_port: '9099', config_dir: '/etc/atomdns', version: '' }
-});
-
 var callRestart = rpc.declare({
 	object: 'atomdns',
 	method: 'restart',
@@ -19,47 +12,16 @@ var callRestart = rpc.declare({
 
 return view.extend({
 	load: function () {
-		return Promise.all([
-			uci.load('atomdns'),
-			callStatus()
-		]);
+		return uci.load('atomdns');
 	},
 
-	render: function (data) {
-		var status = data[1] || {};
-
+	render: function () {
 		var m, s, o;
 
 		m = new form.Map('atomdns', _('AtomDNS'),
 			_('Rust 版 DNS 分流器，支持国内外分流、FakeIP、路由学习与内置 WebUI。'));
 
-		// ---------- 运行状态 ----------
-		// 必须映射到真实存在的 UCI section（atomdns.main）。
-		// 若用 TypedSection + 不存在的类型（如 _status），cfgsections() 返回空数组，
-		// 该 section 下的所有 DummyValue 都不会渲染，状态区整个消失。
-		s = m.section(form.NamedSection, 'main', 'atomdns', _('运行状态'));
-		s.addremove = false;
-
-		o = s.option(form.DummyValue, '_running', _('服务状态'));
-		o.cfgvalue = function () {
-			if (status.enabled !== true) return _('已禁用（请在下方启用）');
-			return status.running ? _('运行中') : _('未运行');
-		};
-
-		o = s.option(form.DummyValue, '_version', _('版本'));
-		o.cfgvalue = function () { return status.version || '-'; };
-
-		o = s.option(form.DummyValue, '_ports', _('当前监听'));
-		o.cfgvalue = function () {
-			return 'DNS %s / WebUI %s'.format(
-				status.dns_port || '2053',
-				status.webui_port || '9099');
-		};
-
-		o = s.option(form.DummyValue, '_confdir', _('配置目录'));
-		o.cfgvalue = function () { return status.config_dir || '/etc/atomdns'; };
-
-		// ---------- 配置 ----------
+		// ---------- 服务设置 ----------
 		s = m.section(form.NamedSection, 'main', 'atomdns', _('服务设置'));
 
 		o = s.option(form.Flag, 'enabled', _('启用'),
@@ -93,7 +55,7 @@ return view.extend({
 			'class': 'btn cbi-button-action',
 			'click': function (ev) {
 				ev.preventDefault();
-				var port = (uci.get('atomdns', 'main', 'webui_port') || status.webui_port || '9099');
+				var port = uci.get('atomdns', 'main', 'webui_port') || '9099';
 				var host = window.location.hostname || window.location.host;
 				// AtomDNS 内置 WebUI 只提供明文 HTTP（api.http），不随 LuCI 的 HTTPS 切换；
 				// 若沿用 window.location.protocol，在 HTTPS 访问 LuCI 时会拼出 https://host:9099 导致 SSL 失败。
