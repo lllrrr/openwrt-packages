@@ -65,7 +65,7 @@ make package/luci-app-smartnetpilot/compile V=s
    - **宽带账号**：宽带账号、密码；可指定 WAN 物理端口，也可以自定义 DNS。
    - **现有路由器**：WAN 用 DHCP 自动获取，或选择「静态 IPv4 地址」后填写地址、掩码、网关和 DNS。
    - **旁路由**：设置本机 LAN 地址（静态或由上级分配），并填写主路由器地址作为网关；「局域网 DNS 服务器」会下发给局域网客户端。
-3. 需要改 Wi-Fi 时进入「无线设置」：每个 radio（2.4 GHz / 5 GHz / 6 GHz…）各占一个标签页，可以分别设置名称（SSID）、密码（WPA2-PSK，至少 8 位）、信道和频宽。字段里显示的是该 radio 当前主 AP 的设置，不动或留空即保持现状；已禁用的 radio 会标注「已关闭」，其设置会被保存，但射频保持关闭。
+3. 需要改 Wi-Fi 时进入「无线设置」：每个 radio（2.4 GHz / 5 GHz / 6 GHz…）各占一个标签页，可以分别设置名称（SSID）、加密方式、密码（至少 8 位）、信道和频宽。加密方式按该 radio 的频段列出：2.4 GHz / 5 GHz 可选 WPA3-Personal（SAE）、WPA2/WPA3 混合、WPA2-Personal（PSK）、WPA/WPA2 混合、增强开放（OWE）或开放网络；6 GHz 只允许 SAE 和 OWE。选择 OWE 或开放网络时密码项会隐藏，应用时会清除原有密码。字段里显示的是该 radio 当前主 AP 的设置，不动或留空即保持现状；已禁用的 radio 会标注「已关闭」，其设置会被保存，但射频保持关闭。
 4. 点开右上角的「高级设置」，可以开启 IPv6、关闭 LAN 的 DHCP 服务器、向客户端通告指定 DNS、把管理页面重定向到 HTTPS；「其他设置」分区里还有 SYN Flood 防护。在「宽带账号」和「现有路由器」页面，高级设置还会显示 LAN IPv4 地址、LAN IPv4 子网掩码、局域网 DNS 服务器（「现有路由器」另有 LAN IPv4 网关），内容取自路由器当前配置，可以直接修改；再点一次「收起高级设置」即可隐藏。
 5. 点击页面底部的「保存并应用」。只想暂存修改时，可以先点「保存」。点右上角的「返回主页」会直接清除页面上尚未保存的修改并回到首页，不会保存这些内容。
 6. 如果改动会影响你访问设备的方式（管理地址变化、LAN 变成 DHCP 客户端、HTTPS 开关切换、无线设置变化），页面会先弹出确认框，逐条列出将会发生什么。确认后配置开始应用；管理地址变化时当前页面会断开，并自动打开新地址。
@@ -104,7 +104,7 @@ make package/luci-app-smartnetpilot/compile V=s
 - **network**：按模式重建 `wan` / `wan6`（PPPoE、DHCP 或静态地址）；旁路由模式只改写 LAN。「宽带账号」和「现有路由器」模式只在你改动高级设置里的 LAN 项时更新 `network.lan` 的地址、掩码、网关或 DNS，其余项保持原样。
 - **firewall**：重建 WAN 区域和 lan→wan 转发，写入 SYN Flood 开关；检测到 `dockerd` 时补上 Docker 区域与相关转发。
 - **dhcp**：按需关闭 LAN 的 DHCP 服务器，或通过 `dhcp_option 6` 向客户端下发指定 DNS。
-- **wireless**：按 radio 只更新主 AP 的 SSID / 密码（WPA2-PSK），并在需要时更新该 radio 的信道和频宽；加密方式写为 WPA2-PSK，禁用中的 radio 不会被重新启用。
+- **wireless**：按 radio 只更新主 AP 的 SSID、加密方式和密码，并在需要时更新该 radio 的信道和频宽；加密方式取界面上选中的值（6 GHz 只接受 SAE / OWE），切换为 OWE 或开放网络时删除密码。禁用中的 radio 不会被重新启用。
 - **uhttpd 或 nginx**：HTTPS 开关与 HTTP→HTTPS 重定向；没有 nginx 时用 uhttpd，并生成 10 年有效期的本地自签证书。
 - 提交前把 `network`、`firewall`、`dhcp`、`wireless`、`system`、`uhttpd`、`nginx` 备份到 `/tmp/smartnetpilot_backup_<时间戳>`，提交失败会自动恢复。
 - 提交成功后，在后台重启 network，并按需 reload WiFi、system、rpcd、uhttpd、dnsmasq 和 firewall。
@@ -165,7 +165,7 @@ make package/luci-app-smartnetpilot/compile V=s
 - `uhttpd`（默认）或 `nginx`：HTTPS 管理在两者之一上生效
 - `openssl`：开启 HTTPS 时生成本地证书
 - `dnsmasq` 与系统防火墙（`firewall4` / `firewall3`）：随 OpenWrt 自带
-- 无线设置需要设备存在 `/etc/config/wireless` 与 `wifi` 命令；无无线的设备会自动隐藏「无线设置」分区按钮。信道列表来自 `iwinfo` 的频段报告，取不到时使用内置列表。
+- 无线设置需要设备存在 `/etc/config/wireless` 与 `wifi` 命令；无无线的设备会自动隐藏「无线设置」分区按钮。信道列表来自 `iwinfo` 的频段报告，取不到时使用内置列表；加密方式列表按频段内置，6 GHz 只允许 WPA3（SAE / OWE）。
 
 ## 许可证
 

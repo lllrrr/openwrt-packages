@@ -78,11 +78,15 @@ The built packages end up in `bin/packages/<arch>/base/`.
      upstream router) and enter the main router as the gateway; **LAN DNS
      servers** are handed to LAN clients.
 3. To change Wi-Fi, open **Wireless Settings**: every radio (2.4 GHz / 5 GHz /
-   6 GHz …) gets its own tab where you can set the SSID, password (WPA2-PSK, at
-   least 8 characters), channel and bandwidth. The fields show the live settings
-   of that radio's main AP; leaving them as they are keeps the current
-   configuration. A disabled radio is marked and stays off even though its
-   settings are saved.
+   6 GHz …) gets its own tab where you can set the SSID, encryption, password
+   (at least 8 characters), channel and bandwidth. The encryption list follows
+   the radio's band: 2.4 GHz and 5 GHz offer WPA3-Personal (SAE), WPA2/WPA3
+   mixed, WPA2-Personal (PSK), WPA/WPA2 mixed, Enhanced Open (OWE) and an open
+   network, while 6 GHz only allows SAE and OWE. Choosing OWE or an open network
+   hides the password field, and applying it removes the stored password. The
+   fields show the live settings of that radio's main AP; leaving them as they
+   are keeps the current configuration. A disabled radio is marked and stays off
+   even though its settings are saved.
 4. **Advanced settings** reveals IPv6, the LAN DHCP server, the DNS server
    advertised to clients and HTTPS redirection; the **Other Settings** section also
    holds SYN-flood protection. On the **PPPoE Dial-up** and **DHCP Client** pages
@@ -172,9 +176,11 @@ What gets written:
   present.
 - **dhcp**: disables the LAN DHCP server on request, or advertises the chosen
   DNS server through `dhcp_option 6`.
-- **wireless**: writes the SSID and password (WPA2-PSK) to the main AP of each
-  radio and updates that radio's channel and bandwidth when they changed; a
-  disabled radio is never re-enabled.
+- **wireless**: writes the SSID, encryption and password to the main AP of each
+  radio and updates that radio's channel and bandwidth when they changed; the
+  encryption comes from the selected value (6 GHz only accepts SAE or OWE), and
+  switching to OWE or an open network removes the stored password. A disabled
+  radio is never re-enabled.
 - **uhttpd or nginx**: toggles HTTPS and the HTTP→HTTPS redirect; without nginx
   it uses uhttpd and generates a local self-signed certificate valid for
   10 years.
@@ -279,7 +285,8 @@ the current LAN address and to warn about management-address changes.
 - The wireless settings need `/etc/config/wireless` and the `wifi` command; on
   a device without wireless the **Wireless Settings** button is hidden
   automatically. Channels come from the `iwinfo` frequency report, with a
-  built-in list as the fallback.
+  built-in list as the fallback; the encryption list is built in per band, and
+  6 GHz only allows WPA3 (SAE or OWE).
 
 ## License
 

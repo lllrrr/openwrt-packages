@@ -1065,6 +1065,7 @@ find_main_ap() {
 # 无线项留空表示“保持现状”，只校验真正填写的值。
 validate_wireless_overrides() {
     local cfg=$1 radio slug ssid key channel htmode len
+    local encryption band ap cur_key
 
     for radio in $(uci show wireless 2>/dev/null | sed -n "s/^wireless\.\([^.=]*\)=wifi-device$/\1/p"); do
         slug=$(printf '%s' "$radio" | sed 's/[^A-Za-z0-9_]/_/g')
@@ -1073,6 +1074,42 @@ validate_wireless_overrides() {
         key=$(uci -q get "smartnetpilot.${cfg}.wifi_${slug}_key")
         channel=$(uci -q get "smartnetpilot.${cfg}.wifi_${slug}_channel")
         htmode=$(uci -q get "smartnetpilot.${cfg}.wifi_${slug}_htmode")
+        encryption=$(uci -q get "smartnetpilot.${cfg}.wifi_${slug}_encryption")
+        band=$(uci -q get "wireless.${radio}.band")
+        ap=$(find_main_ap "$radio")
+
+        # 6 GHz only permits WPA3 (SAE or OWE); the other bands may also use
+        # WPA2/WPA and the keyless modes.
+        if [ -n "$encryption" ]; then
+            case "$band:$encryption" in
+                6g:sae|6g:owe)
+                    ;;
+                6g:*)
+                    log "Encryption '$encryption' is not allowed on '$radio' (6 GHz requires WPA3); refusing to apply"
+                    return 1
+                    ;;
+                *:sae|*:sae-mixed|*:psk2|*:psk-mixed|*:owe|*:none)
+                    ;;
+                *)
+                    log "Encryption '$encryption' is not supported on '$radio'; refusing to apply"
+                    return 1
+                    ;;
+            esac
+
+            case "$encryption" in
+                sae|sae-mixed|psk2|psk-mixed)
+                    cur_key=
+                    [ -n "$ap" ] && cur_key=$(uci -q get "wireless.${ap}.key")
+                    # A radio without an AP is only configured once an SSID
+                    # is given, so an untouched radio does not need a key.
+                    if [ -z "$key" ] && [ -z "$cur_key" ] &&
+                       { [ -n "$ap" ] || [ -n "$ssid" ]; }; then
+                        log "Encryption '$encryption' on '$radio' requires a password; refusing to apply"
+                        return 1
+                    fi
+                    ;;
+            esac
+        fi
 
         if [ -n "$ssid" ] && [ ${#ssid} -gt 32 ]; then
             log "Wireless name for '$radio' is longer than 32 bytes; refusing to apply"
@@ -1117,7 +1154,7 @@ validate_wireless_overrides() {
 # 因此禁用中的 radio 不会因为这里写入了 SSID 而被重新启用。
 apply_wireless_settings() {
     local cfg=$1 radio slug ap ssid key channel htmode
-    local cur_ssid cur_key cur_channel cur_htmode
+    local encryption band cur_ssid cur_key cur_encryption cur_channel cur_htmode
 
     for radio in $(uci show wireless 2>/dev/null | sed -n "s/^wireless\.\([^.=]*\)=wifi-device$/\1/p"); do
         slug=$(printf '%s' "$radio" | sed 's/[^A-Za-z0-9_]/_/g')
@@ -1126,6 +1163,8 @@ apply_wireless_settings() {
         key=$(uci -q get "smartnetpilot.${cfg}.wifi_${slug}_key")
         channel=$(uci -q get "smartnetpilot.${cfg}.wifi_${slug}_channel")
         htmode=$(uci -q get "smartnetpilot.${cfg}.wifi_${slug}_htmode")
+        encryption=$(uci -q get "smartnetpilot.${cfg}.wifi_${slug}_encryption")
+        band=$(uci -q get "wireless.${radio}.band")
 
         ap=$(find_main_ap "$radio")
 
@@ -1145,17 +1184,53 @@ apply_wireless_settings() {
         if [ -n "$ap" ]; then
             cur_ssid=$(uci -q get "wireless.${ap}.ssid")
             cur_key=$(uci -q get "wireless.${ap}.key")
+            cur_encryption=$(uci -q get "wireless.${ap}.encryption")
 
             if [ -n "$ssid" ] && [ "$ssid" != "$cur_ssid" ]; then
                 $UCISET "wireless.${ap}.ssid=${ssid}"
                 wifi_changed=1
             fi
 
-            if [ -n "$key" ] && [ "$key" != "$cur_key" ]; then
-                $UCISET "wireless.${ap}.key=${key}"
-                $UCISET "wireless.${ap}.encryption=psk2"
-                wifi_changed=1
-            fi
+            case "$encryption" in
+                '')
+                    # An older wizard page did not send an encryption mode;
+                    # keep the live one and only handle a new password.
+                    if [ -n "$key" ] && [ "$key" != "$cur_key" ]; then
+                        $UCISET "wireless.${ap}.key=${key}"
+                        case "$cur_encryption" in
+                            ''|none)
+                                if [ "$band" = "6g" ]; then
+                                    $UCISET "wireless.${ap}.encryption=sae"
+                                else
+                                    $UCISET "wireless.${ap}.encryption=psk2"
+                                fi
+                                ;;
+                        esac
+                        wifi_changed=1
+                    fi
+                    ;;
+                none|owe)
+                    # These modes carry no password, so any stored key goes.
+                    if [ -n "$cur_key" ]; then
+                        $UCIDEL "wireless.${ap}.key"
+                        wifi_changed=1
+                    fi
+                    if [ "$encryption" != "$cur_encryption" ]; then
+                        $UCISET "wireless.${ap}.encryption=${encryption}"
+                        wifi_changed=1
+                    fi
+                    ;;
+                *)
+                    if [ -n "$key" ] && [ "$key" != "$cur_key" ]; then
+                        $UCISET "wireless.${ap}.key=${key}"
+                        wifi_changed=1
+                    fi
+                    if [ "$encryption" != "$cur_encryption" ]; then
+                        $UCISET "wireless.${ap}.encryption=${encryption}"
+                        wifi_changed=1
+                    fi
+                    ;;
+            esac
         fi
 
         if [ -n "$channel" ]; then

@@ -895,8 +895,18 @@ html.dark .snp-app,
 	line-height: 1.4;
 }
 
-.snp-form-shell .cbi-value-field {
-	min-width: 0;
+/* LuCI puts the description inside the field box, so centering the label
+   against that box lines it up with the description instead of the control
+   (Argon's label was visibly lower than its input). Dissolve the box into the
+   row grid and give the description its own row below the control; the label
+   then centers against the control itself. */
+.snp-form-shell .cbi-value > .cbi-value-field {
+	display: contents;
+}
+
+.snp-form-shell .cbi-value > .cbi-value-field > .cbi-value-description {
+	grid-column: 2;
+	margin-top: 0;
 }
 
 .snp-form-shell .cbi-value-description,
@@ -1269,6 +1279,10 @@ html.dark .snp-app,
 	.snp-form-shell .cbi-value {
 		grid-template-columns: minmax(0, 1fr);
 		gap: 0.3rem;
+	}
+
+	.snp-form-shell .cbi-value > .cbi-value-field > .cbi-value-description {
+		grid-column: 1;
 	}
 
 	.snp-app .cbi-page-actions {
