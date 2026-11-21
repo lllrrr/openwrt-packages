@@ -65,10 +65,10 @@ make package/luci-app-smartnetpilot/compile V=s
    - **宽带账号**：宽带账号、密码；可指定 WAN 物理端口，也可以自定义 DNS。
    - **现有路由器**：WAN 用 DHCP 自动获取，或选择「静态 IPv4 地址」后填写地址、掩码、网关和 DNS。
    - **旁路由**：设置本机 LAN 地址（静态或由上级分配），并填写主路由器地址作为网关；「局域网 DNS 服务器」会下发给局域网客户端。
-3. 需要改 Wi-Fi 时填写「无线设置」里的名称（SSID）和密码（WPA2-PSK，至少 8 位）。留空则不改动现有无线配置。
+3. 需要改 Wi-Fi 时进入「无线设置」：每个 radio（2.4 GHz / 5 GHz / 6 GHz…）各占一个标签页，可以分别设置名称（SSID）、密码（WPA2-PSK，至少 8 位）、信道和频宽。字段里显示的是该 radio 当前主 AP 的设置，不动或留空即保持现状；已禁用的 radio 会标注「已关闭」，其设置会被保存，但射频保持关闭。
 4. 点开右上角的「高级设置」，可以开启 IPv6、关闭 LAN 的 DHCP 服务器、向客户端通告指定 DNS、把管理页面重定向到 HTTPS；「其他设置」分区里还有 SYN Flood 防护。在「宽带账号」和「现有路由器」页面，高级设置还会显示 LAN IPv4 地址、LAN IPv4 子网掩码、局域网 DNS 服务器（「现有路由器」另有 LAN IPv4 网关），内容取自路由器当前配置，可以直接修改；再点一次「收起高级设置」即可隐藏。
 5. 点击页面底部的「保存并应用」。只想暂存修改时，可以先点「保存」。点右上角的「返回主页」会直接清除页面上尚未保存的修改并回到首页，不会保存这些内容。
-6. 如果改动会影响你访问设备的方式（管理地址变化、LAN 变成 DHCP 客户端、HTTPS 开关切换、无线名称或密码变化），页面会先弹出确认框，逐条列出将会发生什么。确认后配置开始应用；管理地址变化时当前页面会断开，并自动打开新地址。
+6. 如果改动会影响你访问设备的方式（管理地址变化、LAN 变成 DHCP 客户端、HTTPS 开关切换、无线设置变化），页面会先弹出确认框，逐条列出将会发生什么。确认后配置开始应用；管理地址变化时当前页面会断开，并自动打开新地址。
 7. 应用后设备进入 120 秒确认期：页面显示倒计时和新的管理地址。用新地址重新打开向导页，点「保留配置」即可；如果连不上新地址，倒计时结束（或点「立即回滚」）后会自动恢复应用前的配置。需要直接生效时，可以在确认框里选择「不确认，直接应用」，此时不再自动回滚。
 
 > 旁路由模式下，如果主路由器已经在提供 DHCP，记得展开「高级设置」并打开「关闭 LAN DHCP 服务器」，同一网络中只应有一个 DHCP 服务器。
@@ -104,7 +104,7 @@ make package/luci-app-smartnetpilot/compile V=s
 - **network**：按模式重建 `wan` / `wan6`（PPPoE、DHCP 或静态地址）；旁路由模式只改写 LAN。「宽带账号」和「现有路由器」模式只在你改动高级设置里的 LAN 项时更新 `network.lan` 的地址、掩码、网关或 DNS，其余项保持原样。
 - **firewall**：重建 WAN 区域和 lan→wan 转发，写入 SYN Flood 开关；检测到 `dockerd` 时补上 Docker 区域与相关转发。
 - **dhcp**：按需关闭 LAN 的 DHCP 服务器，或通过 `dhcp_option 6` 向客户端下发指定 DNS。
-- **wireless**：把 SSID / 密码写入所有 AP 接口和默认 radio，加密方式为 WPA2-PSK。
+- **wireless**：按 radio 只更新主 AP 的 SSID / 密码（WPA2-PSK），并在需要时更新该 radio 的信道和频宽；加密方式写为 WPA2-PSK，禁用中的 radio 不会被重新启用。
 - **uhttpd 或 nginx**：HTTPS 开关与 HTTP→HTTPS 重定向；没有 nginx 时用 uhttpd，并生成 10 年有效期的本地自签证书。
 - 提交前把 `network`、`firewall`、`dhcp`、`wireless`、`system`、`uhttpd`、`nginx` 备份到 `/tmp/smartnetpilot_backup_<时间戳>`，提交失败会自动恢复。
 - 提交成功后，在后台重启 network，并按需 reload WiFi、system、rpcd、uhttpd、dnsmasq 和 firewall。
@@ -132,7 +132,7 @@ make package/luci-app-smartnetpilot/compile V=s
 - 应用成功后有 120 秒确认期；未确认就自动恢复应用前的快照（`network`、`firewall`、`dhcp`、`wireless`、`system`、`uhttpd`、`nginx`、`smartnetpilot`），避免新地址不可达后设备失联。
 - 「不确认，直接应用」会跳过倒计时和自动回滚，配置立即生效；如果新地址有误，设备可能无法再访问，需要通过串口、SSH、TTL 或恢复模式处理。
 - IPv4 地址先校验再写入，非法值不会被写进 UCI。
-- 会影响访问方式的修改（管理地址、LAN DHCP 角色、HTTPS、无线密码）先确认再应用。
+- 会影响访问方式的修改（管理地址、LAN DHCP 角色、HTTPS、无线设置）先确认再应用。
 - 管理地址变化或 LAN 变成 DHCP 客户端时直接提交到 `admin/uci/apply_unchecked`，绕开 LuCI 自带的应用后刷新；确认和回滚由本插件自己的 120 秒定时器负责，浏览器断开不会误触发回滚。
 - HTTPS 使用本机生成的自签证书，浏览器首次访问会提示不受信任，属正常现象；设备已安装 nginx 时优先通过 nginx 完成跳转。
 - 应用过程有锁文件保护（`/var/lock/smartnetpilot-boot.lock`），300 秒后视为残留并自动清理，避免两个应用流程同时改网络配置。
@@ -165,7 +165,7 @@ make package/luci-app-smartnetpilot/compile V=s
 - `uhttpd`（默认）或 `nginx`：HTTPS 管理在两者之一上生效
 - `openssl`：开启 HTTPS 时生成本地证书
 - `dnsmasq` 与系统防火墙（`firewall4` / `firewall3`）：随 OpenWrt 自带
-- 无线设置需要设备存在 `/etc/config/wireless` 与 `wifi` 命令；无无线的设备会自动隐藏「无线设置」分区按钮
+- 无线设置需要设备存在 `/etc/config/wireless` 与 `wifi` 命令；无无线的设备会自动隐藏「无线设置」分区按钮。信道列表来自 `iwinfo` 的频段报告，取不到时使用内置列表。
 
 ## 许可证
 

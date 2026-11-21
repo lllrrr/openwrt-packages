@@ -898,6 +898,8 @@ preflight_config() {
             ;;
     esac
 
+    validate_wireless_overrides "${cfg:-default}" || return 1
+
     return 0
 }
 
@@ -1037,10 +1039,167 @@ resolve_wan_interface() {
     return 1
 }
 
+# 每个 radio 的主 AP：优先 default_<radio>，否则该 radio 上第一个
+# mode=ap 的接口。只认 AP，避免把中继/客户端接口当成主 AP。
+find_main_ap() {
+    local radio=$1 idx=0 device mode
+
+    if [ "$(uci -q get "wireless.default_${radio}.mode")" = "ap" ]; then
+        echo "default_${radio}"
+        return 0
+    fi
+
+    while [ $idx -lt 10 ] && uci -q get "wireless.@wifi-iface[$idx]" >/dev/null 2>&1; do
+        device=$(uci -q get "wireless.@wifi-iface[$idx].device")
+        mode=$(uci -q get "wireless.@wifi-iface[$idx].mode")
+        if [ "$device" = "$radio" ] && [ "$mode" = "ap" ]; then
+            echo "@wifi-iface[$idx]"
+            return 0
+        fi
+        idx=$((idx + 1))
+    done
+
+    return 1
+}
+
+# 无线项留空表示“保持现状”，只校验真正填写的值。
+validate_wireless_overrides() {
+    local cfg=$1 radio slug ssid key channel htmode len
+
+    for radio in $(uci show wireless 2>/dev/null | sed -n "s/^wireless\.\([^.=]*\)=wifi-device$/\1/p"); do
+        slug=$(printf '%s' "$radio" | sed 's/[^A-Za-z0-9_]/_/g')
+
+        ssid=$(uci -q get "smartnetpilot.${cfg}.wifi_${slug}_ssid")
+        key=$(uci -q get "smartnetpilot.${cfg}.wifi_${slug}_key")
+        channel=$(uci -q get "smartnetpilot.${cfg}.wifi_${slug}_channel")
+        htmode=$(uci -q get "smartnetpilot.${cfg}.wifi_${slug}_htmode")
+
+        if [ -n "$ssid" ] && [ ${#ssid} -gt 32 ]; then
+            log "Wireless name for '$radio' is longer than 32 bytes; refusing to apply"
+            return 1
+        fi
+
+        if [ -n "$key" ]; then
+            len=${#key}
+            if [ "$len" -lt 8 ] || { [ "$len" -gt 63 ] && ! echo "$key" | grep -Eq '^[0-9A-Fa-f]{64}$'; }; then
+                log "Wireless password for '$radio' is invalid; refusing to apply"
+                return 1
+            fi
+        fi
+
+        if [ -n "$channel" ] && [ "$channel" != "auto" ]; then
+            case "$channel" in
+                *[!0-9]*)
+                    log "Wireless channel '$channel' is invalid; refusing to apply"
+                    return 1
+                    ;;
+            esac
+            if [ "$channel" -lt 1 ] || [ "$channel" -gt 233 ]; then
+                log "Wireless channel '$channel' is out of range; refusing to apply"
+                return 1
+            fi
+        fi
+
+        if [ -n "$htmode" ] && [ "$htmode" != "auto" ]; then
+            case "$htmode" in
+                *[!A-Za-z0-9]*)
+                    log "Wireless bandwidth '$htmode' is invalid; refusing to apply"
+                    return 1
+                    ;;
+            esac
+        fi
+    done
+
+    return 0
+}
+
+# 按 radio 应用无线设置：只改主 AP，radio 的 disabled 状态保持不动，
+# 因此禁用中的 radio 不会因为这里写入了 SSID 而被重新启用。
+apply_wireless_settings() {
+    local cfg=$1 radio slug ap ssid key channel htmode
+    local cur_ssid cur_key cur_channel cur_htmode
+
+    for radio in $(uci show wireless 2>/dev/null | sed -n "s/^wireless\.\([^.=]*\)=wifi-device$/\1/p"); do
+        slug=$(printf '%s' "$radio" | sed 's/[^A-Za-z0-9_]/_/g')
+
+        ssid=$(uci -q get "smartnetpilot.${cfg}.wifi_${slug}_ssid")
+        key=$(uci -q get "smartnetpilot.${cfg}.wifi_${slug}_key")
+        channel=$(uci -q get "smartnetpilot.${cfg}.wifi_${slug}_channel")
+        htmode=$(uci -q get "smartnetpilot.${cfg}.wifi_${slug}_htmode")
+
+        ap=$(find_main_ap "$radio")
+
+        if [ -z "$ap" ]; then
+            if uci -q get "wireless.default_${radio}" >/dev/null 2>&1; then
+                log "wireless.default_${radio} is not an access point; leaving it untouched"
+            elif [ -n "$ssid" ]; then
+                ap="default_${radio}"
+                $UCISET "wireless.${ap}=wifi-iface"
+                $UCISET "wireless.${ap}.device=${radio}"
+                $UCISET "wireless.${ap}.network=lan"
+                $UCISET "wireless.${ap}.mode=ap"
+                wifi_changed=1
+            fi
+        fi
+
+        if [ -n "$ap" ]; then
+            cur_ssid=$(uci -q get "wireless.${ap}.ssid")
+            cur_key=$(uci -q get "wireless.${ap}.key")
+
+            if [ -n "$ssid" ] && [ "$ssid" != "$cur_ssid" ]; then
+                $UCISET "wireless.${ap}.ssid=${ssid}"
+                wifi_changed=1
+            fi
+
+            if [ -n "$key" ] && [ "$key" != "$cur_key" ]; then
+                $UCISET "wireless.${ap}.key=${key}"
+                $UCISET "wireless.${ap}.encryption=psk2"
+                wifi_changed=1
+            fi
+        fi
+
+        if [ -n "$channel" ]; then
+            cur_channel=$(uci -q get "wireless.${radio}.channel")
+            case "$cur_channel" in
+                ''|0) cur_channel=auto ;;
+            esac
+            if [ "$channel" != "$cur_channel" ]; then
+                $UCISET "wireless.${radio}.channel=${channel}"
+                wifi_changed=1
+            fi
+        fi
+
+        if [ -n "$htmode" ] && [ "$htmode" != "auto" ]; then
+            cur_htmode=$(uci -q get "wireless.${radio}.htmode")
+            if [ "$htmode" != "$cur_htmode" ]; then
+                $UCISET "wireless.${radio}.htmode=${htmode}"
+                wifi_changed=1
+            fi
+        elif [ "$htmode" = "auto" ]; then
+            if [ -n "$(uci -q get "wireless.${radio}.htmode")" ]; then
+                $UCIDEL "wireless.${radio}.htmode"
+                wifi_changed=1
+            fi
+        fi
+    done
+
+    # 旧版向导保存的全局无线项已经不再使用，顺手清掉避免残留。
+    $UCIDEL smartnetpilot.default.wifi_ssid
+    $UCIDEL smartnetpilot.default.wifi_key
+    $UCIDEL smartnetpilot.default.old_wifi_ssid
+    $UCIDEL smartnetpilot.default.old_wifi_key
+
+    if [ "$wifi_changed" = "1" ]; then
+        uci -q commit wireless
+    fi
+
+    return 0
+}
+
 configure_network() {
     local cfg=$1
     local wan_proto wan_ipaddr wan_netmask wan_gateway wan_dns wan_pppoe_user wan_pppoe_pass
-    local ipv6 wifi_ssid wifi_key old_wifi_ssid old_wifi_key
+    local ipv6
     local lan_ipaddr lan_netmask lan_gateway lan_dns lan_dhcp wan_interface lan_proto
     local dns_tables synflood https
     local ifname i
@@ -1067,10 +1226,6 @@ configure_network() {
     config_get wan_pppoe_user "$cfg" wan_pppoe_user
     config_get wan_pppoe_pass "$cfg" wan_pppoe_pass
     config_get dhcp_proto "$cfg" dhcp_proto 'dhcp'
-    config_get wifi_ssid "$cfg" wifi_ssid
-    config_get wifi_key "$cfg" wifi_key
-    config_get old_wifi_ssid "$cfg" old_wifi_ssid
-    config_get old_wifi_key "$cfg" old_wifi_key
 
     [ "$APPLY_FAILED" = "1" ] && return 1
 
@@ -1293,38 +1448,8 @@ EOF
         fi
     fi
     
-    if [ -n "${wifi_ssid}" ] && [ -n "${wifi_key}" ]; then
-        idx=0
-        max_wifi_ifaces=10
-        while [ $idx -lt $max_wifi_ifaces ] && uci -q get wireless.@wifi-iface[$idx] >/dev/null; do
-            if [ "$(uci -q get wireless.@wifi-iface[$idx].mode)" = "ap" ]; then
-                $UCISET wireless.@wifi-iface[$idx].ssid="${wifi_ssid}"
-                $UCISET wireless.@wifi-iface[$idx].key="${wifi_key}"
-                $UCISET wireless.@wifi-iface[$idx].encryption='psk2'
-            fi
-            idx=$((idx + 1))
-        done
-        
-        for radio in radio0 radio1 radio2 radio3; do
-            if uci -q get wireless.${radio} >/dev/null 2>&1; then
-                if [ "$(uci -q get wireless.${radio}.band)" = "5g" ]; then
-                    $UCISET wireless.default_${radio}.ssid="${wifi_ssid}_5G"
-                else
-                    $UCISET wireless.default_${radio}.ssid="${wifi_ssid}_2.4G"
-                fi
-                $UCISET wireless.default_${radio}.device="${radio}"
-                $UCISET wireless.default_${radio}.encryption='psk2'
-                $UCISET wireless.default_${radio}.key="${wifi_key}"
-            fi
-        done
-        
-        [ "${wifi_ssid}" = "${old_wifi_ssid}" ] && [ "${wifi_key}" = "${old_wifi_key}" ] || wifi_changed=1
+    apply_wireless_settings "$cfg"
 
-        $UCISET smartnetpilot.default.old_wifi_ssid="${wifi_ssid}"
-        $UCISET smartnetpilot.default.old_wifi_key="${wifi_key}"
-        uci commit wireless
-    fi
-    
     # 提交所有配置
     uci -q batch <<'COMMIT_EOF' >/dev/null
         commit uhttpd

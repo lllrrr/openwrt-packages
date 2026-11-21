@@ -45,6 +45,15 @@ var callRollbackApply = rpc.declare({
 	params: [ 'token' ]
 });
 
+// Regulatory channel list of one radio; empty when iwinfo cannot answer, in
+// which case the view falls back to a static list.
+var callFrequencyList = rpc.declare({
+	object: 'iwinfo',
+	method: 'freqlist',
+	params: [ 'device' ],
+	expect: { results: [] }
+});
+
 // Board-declared physical ports; used to keep the switch CPU port out of the
 // WAN device list.
 var callPhysicalPorts = rpc.declare({
@@ -118,6 +127,127 @@ function stripCidr(value) {
 		return '';
 
 	return value.split('/')[0];
+}
+
+// Every per-radio wireless option lives on the wizard's single section, e.g.
+// smartnetpilot.default.wifi_radio0_ssid. Radio names come from UCI, so they
+// are reduced to a token that is safe inside an option name.
+function wifiOption(slug, field) {
+	return 'wifi_' + slug + '_' + field;
+}
+
+var WIFI_BANDS = {
+	'2g': '2.4 GHz',
+	'5g': '5 GHz',
+	'6g': '6 GHz',
+	'60g': '60 GHz'
+};
+
+// iwinfo reports the band as a number; UCI uses the suffix shown above.
+var WIFI_BAND_NUMBERS = {
+	'2g': 2,
+	'5g': 5,
+	'6g': 6,
+	'60g': 60
+};
+
+// Used when iwinfo has no frequency list for the radio.
+function fallbackChannels(band) {
+	var list = [];
+	var i;
+
+	if (band === '5g') {
+		var unii = [36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116,
+			120, 124, 128, 132, 136, 140, 144, 149, 153, 157, 161, 165];
+		for (i = 0; i < unii.length; i++)
+			list.push(unii[i]);
+	}
+	else if (band === '6g') {
+		for (i = 1; i <= 233; i += 4)
+			list.push(i);
+	}
+	else {
+		for (i = 1; i <= 13; i++)
+			list.push(i);
+	}
+
+	return list;
+}
+
+// Used when the radio device cannot report its supported htmode list.
+function fallbackHtmodes(band) {
+	if (band === '2g')
+		return [ 'HT20', 'HT40', 'HE20', 'HE40', 'EHT20', 'EHT40' ];
+	if (band === '6g')
+		return [ 'HE20', 'HE40', 'HE80', 'HE160',
+			'EHT20', 'EHT40', 'EHT80', 'EHT160', 'EHT320' ];
+
+	return [ 'HT20', 'HT40', 'VHT20', 'VHT40', 'VHT80', 'VHT160',
+		'HE20', 'HE40', 'HE80', 'HE160',
+		'EHT20', 'EHT40', 'EHT80', 'EHT160', 'EHT320' ];
+}
+
+// Some iwinfo builds leave out "band", so fall back to the frequency.
+function freqBand(entry) {
+	var band = parseInt(entry.band, 10);
+
+	if (!isNaN(band))
+		return band;
+
+	var mhz = parseInt(entry.mhz, 10);
+
+	if (isNaN(mhz))
+		return null;
+
+	if (mhz >= 2400 && mhz < 2500)
+		return 2;
+	if (mhz >= 4900 && mhz < 5925)
+		return 5;
+	if (mhz >= 5925 && mhz < 7125)
+		return 6;
+	if (mhz >= 57000)
+		return 60;
+
+	return null;
+}
+
+// iwinfo exposes flag names such as "no_ir" in an array; older builds use
+// plain booleans.
+function freqNoIr(entry) {
+	if (entry.no_ir)
+		return true;
+
+	var flags = entry.flags;
+
+	if (Array.isArray(flags))
+		for (var i = 0; i < flags.length; i++)
+			if (String(flags[i]).replace(/[^a-z0-9_]/g, '') === 'no_ir')
+				return true;
+
+	return false;
+}
+
+// OpenWrt stores automatic channel selection as either "auto" or "0"
+// depending on the driver, so both are shown as the same choice.
+function normalizeChannel(value) {
+	if (value == null || value === '' || value === '0' || value === 0 || value === 'auto')
+		return 'auto';
+
+	return String(value);
+}
+
+// The 2.4 GHz band is the safe assumption for radios that predate the
+// explicit "band" option.
+function wifiBandOf(section) {
+	if (WIFI_BANDS[section.band])
+		return section.band;
+
+	var hwmode = String(section.hwmode || '');
+
+	if (/^11(a|na|ac|ax|be)$/.test(hwmode))
+		return '5g';
+
+	return '2g';
 }
 
 function currentScriptPage() {
@@ -324,8 +454,20 @@ return view.extend({
 			uci.load('smartnetpilot'),
 			L.resolveDefault(callGetIp(), ''),
 			L.resolveDefault(callApplyStatus(), null),
-			L.resolveDefault(callPhysicalPorts(), null)
-		]);
+			L.resolveDefault(callPhysicalPorts(), null),
+			L.resolveDefault(network.getWifiDevices(), [])
+		]).then(function(data) {
+			// The channel selector follows the regulatory list of each radio;
+			// an empty answer simply means the static fallback is used.
+			var radioSections = uci.sections('wireless', 'wifi-device') || [];
+
+			return Promise.all(radioSections.map(function(radio) {
+				return L.resolveDefault(callFrequencyList(radio['.name']), []);
+			})).then(function(freqLists) {
+				data[8] = freqLists;
+				return data;
+			});
+		});
 	},
 
 	render: function(data) {
@@ -363,13 +505,12 @@ return view.extend({
 		this._hasWifi = wifiSections.length > 0 || wifiDeviceSections.length > 0;
 		this._currentMode = currentMode;
 		this._wifiSsid = ap ? (ap.ssid || '') : '';
-		this._wifiKey = ap ? (ap.key || '') : '';
+		this._wifiRadios = this._buildWifiRadios(data[7] || [], data[8] || []);
+		this._wifiRadioSlug = null;
 		this._initialHttps = uci.get('smartnetpilot', 'default', 'https') === '1';
 		this._initial = {
 			lanIp: this._lanIp,
-			https: this._initialHttps,
-			wifiSsid: this._wifiSsid,
-			wifiKey: this._wifiKey
+			https: this._initialHttps
 		};
 
 		var params = new URLSearchParams(window.location.search);
@@ -563,7 +704,7 @@ return view.extend({
 
 		s.tab('wansetup', _('WAN Settings'));
 		if (this._hasWifi)
-			s.tab('wifisetup', _('Wireless Settings'), _('Set the wireless name and password. For advanced options, open Network → Wireless.'));
+			s.tab('wifisetup', _('Wireless Settings'), _('Set the wireless name, password, channel and bandwidth of each radio.'));
 		s.tab('othersetup', _('Other Settings'));
 
 		this._addModeFields(s, mode);
@@ -583,6 +724,8 @@ return view.extend({
 			self._decorateForm(root);
 			self._activateTab(root, requestedTab || 'wansetup');
 			self._buildHeroTabs(root);
+			if (self._hasWifi)
+				self._buildWifiTabs(root);
 			window.setTimeout(syncTheme, 120);
 
 			return root;
@@ -662,6 +805,20 @@ return view.extend({
 
 		this._activateTab(root, pane.getAttribute('data-tab'));
 		this._syncHeroTabs(root);
+
+		// The wireless pane shows one radio at a time, so reveal the radio that
+		// owns the rejected field instead of a hidden one.
+		var row = invalid.closest('[data-field]');
+		var field = row ? row.getAttribute('data-field') : '';
+		var match = /\.wifi_(.+)_(ssid|key|channel|htmode)$/.exec(field);
+
+		if (match) {
+			var radios = this._wifiRadios || [];
+
+			for (var i = 0; i < radios.length; i++)
+				if (radios[i].slug === match[1])
+					this._selectWifiRadio(root, match[1]);
+		}
 	},
 
 	_toggleAdvanced: function(button) {
@@ -726,16 +883,21 @@ return view.extend({
 		return '';
 	},
 
+	// Bind a field to a value read from the live configuration at render time.
+	// An empty field means "keep the current setting"; the server only writes
+	// the values that actually differ from the live configuration.
+	_useLive: function(o, getter) {
+		o.cfgvalue = getter;
+		o.forcewrite = true;
+		o.rmempty = true;
+	},
+
 	_useLiveLan: function(o, option) {
 		var self = this;
 
-		o.cfgvalue = function() {
+		this._useLive(o, function() {
 			return self._lanLive(option);
-		};
-		o.forcewrite = true;
-		// An empty field means "keep the current setting"; the server only
-		// writes the entries that actually differ from the live configuration.
-		o.rmempty = true;
+		});
 	},
 
 	_addWanFields: function(s) {
@@ -892,19 +1054,308 @@ return view.extend({
 		o.rmempty = false;
 	},
 
+	// One radio tab per wifi-device. Each tab edits the main access point of
+	// that radio, prefilled with what the router actually broadcasts.
+	_buildWifiRadios: function(devices, freqLists) {
+		var sections = uci.sections('wireless', 'wifi-device') || [];
+		var ifaces = uci.sections('wireless', 'wifi-iface') || [];
+		var radios = [];
+		var seen = {};
+
+		for (var i = 0; i < sections.length; i++) {
+			var section = sections[i];
+			var name = section['.name'];
+
+			if (!name || seen[name])
+				continue;
+
+			seen[name] = true;
+
+			var band = wifiBandOf(section);
+			var ap = this._wifiMainAp(name, ifaces);
+			var channel = normalizeChannel(section.channel);
+			var channels = this._wifiChannelChoices(freqLists[i], band);
+			var htmodes = this._wifiHtmodeChoices(devices, name, band);
+
+			// Keep the configured values selectable even when the radio reports
+			// a shorter list than the current configuration uses.
+			if (channel !== 'auto' && !channels.some(function(choice) {
+				return choice.value === channel;
+			})) {
+				channels.unshift({ value: channel, text: channel });
+			}
+
+			if (section.htmode && htmodes.indexOf(section.htmode) < 0)
+				htmodes.push(section.htmode);
+
+			radios.push({
+				name: name,
+				slug: name.replace(/[^A-Za-z0-9_]/g, '_'),
+				band: band,
+				bandLabel: WIFI_BANDS[band] || name,
+				disabled: section.disabled === '1' || section.disabled === true,
+				ssid: ap ? (ap.ssid || '') : '',
+				key: ap ? (ap.key || '') : '',
+				apName: ap ? ap['.name'] : ('default_' + name),
+				channel: channel,
+				htmode: section.htmode || 'auto',
+				channels: channels,
+				htmodes: htmodes
+			});
+		}
+
+		return radios;
+	},
+
+	// Prefer default_<radio>; otherwise take the first AP interface on it.
+	// Interfaces in other modes (station, mesh, ...) are left alone.
+	_wifiMainAp: function(name, ifaces) {
+		var fallback = null;
+
+		for (var i = 0; i < ifaces.length; i++) {
+			var iface = ifaces[i];
+
+			if (iface['.name'] === 'default_' + name && iface.mode === 'ap')
+				return iface;
+		}
+
+		for (i = 0; i < ifaces.length; i++) {
+			iface = ifaces[i];
+
+			if (iface.device === name && iface.mode === 'ap' && !fallback)
+				fallback = iface;
+		}
+
+		return fallback;
+	},
+
+	// Regulatory channel list reported by iwinfo. The report covers every
+	// radio on the device, so entries are narrowed to this radio's band.
+	// Channels that forbid initiating radiation cannot carry an AP, so they
+	// are left out.
+	_wifiChannelChoices: function(list, band) {
+		var choices = [];
+		var seen = {};
+		var wanted = WIFI_BAND_NUMBERS[band];
+
+		for (var i = 0; i < (list || []).length; i++) {
+			var entry = list[i];
+
+			if (!entry || entry.channel == null || freqNoIr(entry))
+				continue;
+
+			var entryBand = freqBand(entry);
+
+			if (wanted != null && entryBand != null && entryBand !== wanted)
+				continue;
+
+			var value = String(entry.channel);
+
+			if (seen[value])
+				continue;
+
+			seen[value] = true;
+			choices.push({
+				value: value,
+				text: entry.restricted ? value + ' (DFS)' : value
+			});
+		}
+
+		if (!choices.length) {
+			var fallback = fallbackChannels(band);
+
+			for (i = 0; i < fallback.length; i++)
+				choices.push({ value: String(fallback[i]), text: String(fallback[i]) });
+		}
+
+		choices.sort(function(a, b) {
+			return parseInt(a.value, 10) - parseInt(b.value, 10);
+		});
+
+		return choices;
+	},
+
+	_wifiHtmodeChoices: function(devices, name, band) {
+		var list = devices || [];
+		var modes = null;
+
+		for (var i = 0; i < list.length; i++) {
+			var device = list[i];
+
+			if (!device || typeof device.getName !== 'function' || device.getName() !== name)
+				continue;
+
+			if (typeof device.getHTModes === 'function') {
+				try {
+					modes = device.getHTModes();
+				}
+				catch (e) {
+					modes = null;
+				}
+			}
+		}
+
+		if (!modes || !modes.length)
+			modes = fallbackHtmodes(band);
+
+		return modes.slice();
+	},
+
+	// One tab per radio inside the wireless pane. The form's own tab menu is
+	// hidden, so these pills are the only radio switcher on the page.
+	_buildWifiTabs: function(root) {
+		var radios = this._wifiRadios || [];
+		var pane = root.querySelector('[data-tab="wifisetup"]');
+
+		if (!pane || !radios.length)
+			return;
+
+		var self = this;
+		var header = E('div', { 'class': 'snp-wifi-header' });
+
+		if (radios.length > 1) {
+			var nav = E('nav', {
+				'class': 'snp-wifi-tabs',
+				'role': 'tablist',
+				'aria-label': _('Wireless radios')
+			});
+
+			radios.forEach(function(radio) {
+				var button = E('button', {
+					'type': 'button',
+					'class': 'snp-tab-btn snp-wifi-tab-btn',
+					'data-radio': radio.slug,
+					'role': 'tab',
+					'aria-selected': 'false',
+					'click': function(ev) {
+						self._selectWifiRadio(root, radio.slug);
+						ev.currentTarget.blur();
+					}
+				}, [
+					E('span', { 'class': 'snp-wifi-tab-main' }, radio.bandLabel),
+					E('span', { 'class': 'snp-wifi-tab-name' }, radio.name)
+				]);
+
+				if (radio.disabled)
+					button.appendChild(E('span', { 'class': 'snp-wifi-off' }, _('Disabled')));
+
+				nav.appendChild(button);
+			});
+
+			header.appendChild(nav);
+		}
+
+		this._wifiNote = E('div', { 'class': 'snp-wifi-note', 'hidden': 'hidden' }, [
+			icon('info', 'snp-wifi-note-icon'),
+			E('span', {}, _('This radio is disabled. Its settings are saved, but the radio stays off.'))
+		]);
+		header.appendChild(this._wifiNote);
+
+		var descr = pane.querySelector('.cbi-tab-descr');
+
+		if (descr && descr.parentNode === pane)
+			pane.insertBefore(header, descr.nextSibling);
+		else
+			pane.insertBefore(header, pane.firstChild);
+
+		this._selectWifiRadio(root, radios[0].slug);
+	},
+
+	_selectWifiRadio: function(root, slug) {
+		var radios = this._wifiRadios || [];
+		var pane = root.querySelector('[data-tab="wifisetup"]');
+		var selected = null;
+
+		if (!pane || !radios.length)
+			return;
+
+		for (var i = 0; i < radios.length; i++)
+			if (radios[i].slug === slug)
+				selected = radios[i];
+
+		if (!selected)
+			selected = radios[0];
+
+		this._wifiRadioSlug = selected.slug;
+
+		radios.forEach(function(radio) {
+			var active = (radio.slug === selected.slug);
+
+			[ 'ssid', 'key', 'channel', 'htmode' ].forEach(function(field) {
+				var row = pane.querySelector('.cbi-value[data-field="cbid.smartnetpilot.default.' +
+					wifiOption(radio.slug, field) + '"]');
+
+				if (row)
+					row.classList.toggle('snp-wifi-row-hidden', !active);
+			});
+		});
+
+		pane.querySelectorAll('.snp-wifi-tab-btn').forEach(function(button) {
+			var active = (button.getAttribute('data-radio') === selected.slug);
+
+			button.classList.toggle('is-active', active);
+			button.setAttribute('aria-selected', active ? 'true' : 'false');
+		});
+
+		if (this._wifiNote)
+			this._wifiNote.hidden = !selected.disabled;
+	},
+
 	_addWirelessFields: function(s) {
-		var o = s.taboption('wifisetup', form.Value, 'wifi_ssid', _('Wireless name (SSID)'));
-		o.default = this._wifiSsid || '';
+		var radios = this._wifiRadios || [];
+		var o;
+
+		if (!radios.length) {
+			o = s.taboption('wifisetup', form.DummyValue, 'wifi_none');
+			o.cfgvalue = function() {
+				return _('No wireless hardware was detected on this device.');
+			};
+
+			return;
+		}
+
+		for (var i = 0; i < radios.length; i++)
+			this._addWifiRadioFields(s, radios[i]);
+	},
+
+	_addWifiRadioFields: function(s, radio) {
+		var prefix = wifiOption(radio.slug, '');
+		var o;
+
+		o = s.taboption('wifisetup', form.Value, prefix + 'ssid',
+			_('Wireless name (SSID)'), radio.bandLabel + ' · ' + radio.name);
 		o.datatype = 'maxlength(32)';
 		o.placeholder = _('Enter a wireless name');
-		o.rmempty = true;
+		this._useLive(o, function() {
+			return radio.ssid;
+		});
 
-		o = s.taboption('wifisetup', form.Value, 'wifi_key', _('Wireless password'));
-		o.default = this._wifiKey || '';
+		o = s.taboption('wifisetup', form.Value, prefix + 'key',
+			_('Wireless password'), _('Leaving this field empty keeps the current password.'));
 		o.password = true;
 		o.datatype = 'wpakey';
 		o.placeholder = _('At least 8 characters');
-		o.rmempty = true;
+		this._useLive(o, function() {
+			return radio.key;
+		});
+
+		o = s.taboption('wifisetup', form.ListValue, prefix + 'channel',
+			_('Channel'), _('Channels supported by this radio.'));
+		o.value('auto', _('Automatic'));
+		for (var i = 0; i < radio.channels.length; i++)
+			o.value(radio.channels[i].value, radio.channels[i].text);
+		this._useLive(o, function() {
+			return radio.channel;
+		});
+
+		o = s.taboption('wifisetup', form.ListValue, prefix + 'htmode',
+			_('Bandwidth'), _('Channel width and modulation of this radio.'));
+		o.value('auto', _('Automatic'));
+		for (i = 0; i < radio.htmodes.length; i++)
+			o.value(radio.htmodes[i], radio.htmodes[i]);
+		this._useLive(o, function() {
+			return radio.htmode;
+		});
 	},
 
 	_addOtherFields: function(s) {
@@ -914,13 +1365,37 @@ return view.extend({
 		o.rmempty = false;
 	},
 
+	// Compare the saved per-radio options with the values the form showed when
+	// it rendered. Untouched fields are prefilled with the live value, so only
+	// real edits differ; an empty SSID or password means "keep the current".
+	_wifiConfigurationChanged: function() {
+		var radios = this._wifiRadios || [];
+
+		for (var i = 0; i < radios.length; i++) {
+			var radio = radios[i];
+			var ssid = uci.get('smartnetpilot', 'default', wifiOption(radio.slug, 'ssid'));
+			var key = uci.get('smartnetpilot', 'default', wifiOption(radio.slug, 'key'));
+			var channel = uci.get('smartnetpilot', 'default', wifiOption(radio.slug, 'channel'));
+			var htmode = uci.get('smartnetpilot', 'default', wifiOption(radio.slug, 'htmode'));
+
+			if (ssid && ssid !== radio.ssid)
+				return true;
+			if (key && key !== radio.key)
+				return true;
+			if (channel != null && channel !== radio.channel)
+				return true;
+			if ((htmode || 'auto') !== radio.htmode)
+				return true;
+		}
+
+		return false;
+	},
+
 	_buildApplyPlan: function() {
 		var mode = this._mode || uci.get('smartnetpilot', 'default', 'wan_proto') || 'siderouter';
 		var lanProto = uci.get('smartnetpilot', 'default', 'lan_proto') || 'static';
 		var lanIp = uci.get('smartnetpilot', 'default', 'lan_ipaddr') || '';
 		var https = uci.get('smartnetpilot', 'default', 'https') === '1';
-		var ssid = uci.get('smartnetpilot', 'default', 'wifi_ssid') || '';
-		var key = uci.get('smartnetpilot', 'default', 'wifi_key') || '';
 		var initial = this._initial || {};
 		var initialIp = initial.lanIp || window.location.hostname || '';
 		var lanMode = (mode === 'siderouter');
@@ -932,8 +1407,7 @@ return view.extend({
 		var desiredIp = lanApplies ? lanIp : null;
 		var ipChanged = !lanDhcp && desiredIp && initialIp && desiredIp !== initialIp;
 		var httpsChanged = https !== !!initial.https;
-		var wifiChanged = this._hasWifi &&
-			((ssid && ssid !== initial.wifiSsid) || (key && key !== initial.wifiKey));
+		var wifiChanged = this._hasWifi && this._wifiConfigurationChanged();
 		var warnings = [];
 		var targetIp = null;
 
@@ -952,7 +1426,7 @@ return view.extend({
 		}
 
 		if (wifiChanged)
-			warnings.push(_('The wireless name or password changed. Wireless clients will need to reconnect.'));
+			warnings.push(_('The wireless settings changed. Wireless clients will need to reconnect.'));
 
 		var redirectTarget = null;
 		if (targetIp && (ipChanged || httpsChanged))

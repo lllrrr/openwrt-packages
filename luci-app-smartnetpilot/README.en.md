@@ -77,9 +77,12 @@ The built packages end up in `bin/packages/<arch>/base/`.
    - **Side Router**: set this device's LAN address (static or assigned by the
      upstream router) and enter the main router as the gateway; **LAN DNS
      servers** are handed to LAN clients.
-3. To change Wi-Fi, fill in the SSID and password under **Wireless Settings**
-   (WPA2-PSK, at least 8 characters). Leave them empty to keep the current
-   wireless configuration untouched.
+3. To change Wi-Fi, open **Wireless Settings**: every radio (2.4 GHz / 5 GHz /
+   6 GHz …) gets its own tab where you can set the SSID, password (WPA2-PSK, at
+   least 8 characters), channel and bandwidth. The fields show the live settings
+   of that radio's main AP; leaving them as they are keeps the current
+   configuration. A disabled radio is marked and stays off even though its
+   settings are saved.
 4. **Advanced settings** reveals IPv6, the LAN DHCP server, the DNS server
    advertised to clients and HTTPS redirection; the **Other Settings** section also
    holds SYN-flood protection. On the **PPPoE Dial-up** and **DHCP Client** pages
@@ -91,7 +94,7 @@ The built packages end up in `bin/packages/<arch>/base/`.
    only want to stage the changes. **Back to home** in the header discards any
    unsaved edits on the page and returns to the mode chooser; nothing is saved.
 6. If a change affects how you reach the device — the management address, the
-   LAN DHCP role, the HTTPS setting, or the wireless name/password — a
+   LAN DHCP role, the HTTPS setting, or the wireless settings — a
    confirmation dialog lists what will happen before anything is applied. When
    the management address changes, the page disconnects and then opens the new
    address.
@@ -169,8 +172,9 @@ What gets written:
   present.
 - **dhcp**: disables the LAN DHCP server on request, or advertises the chosen
   DNS server through `dhcp_option 6`.
-- **wireless**: writes the SSID and password (WPA2-PSK) to every AP interface
-  and to the default radios.
+- **wireless**: writes the SSID and password (WPA2-PSK) to the main AP of each
+  radio and updates that radio's channel and bandwidth when they changed; a
+  disabled radio is never re-enabled.
 - **uhttpd or nginx**: toggles HTTPS and the HTTP→HTTPS redirect; without nginx
   it uses uhttpd and generates a local self-signed certificate valid for
   10 years.
@@ -229,7 +233,7 @@ the current LAN address and to warn about management-address changes.
 - IPv4 values are validated before being written; invalid values never reach
   UCI.
 - Changes that affect how you reach the device (management address, LAN DHCP
-  role, HTTPS, wireless password) are confirmed before they are applied.
+  role, HTTPS, wireless settings) are confirmed before they are applied.
 - When the management address changes or LAN becomes a DHCP client, the view
   commits straight to `admin/uci/apply_unchecked`, bypassing LuCI's own
   post-apply reload. The plugin's 120-second timer owns confirmation and
@@ -273,7 +277,9 @@ the current LAN address and to warn about management-address changes.
 - `dnsmasq` and the system firewall (`firewall4` / `firewall3`), both ship
   with OpenWrt
 - The wireless settings need `/etc/config/wireless` and the `wifi` command; on
-  a device without wireless the **Wireless Settings** button is hidden automatically
+  a device without wireless the **Wireless Settings** button is hidden
+  automatically. Channels come from the `iwinfo` frequency report, with a
+  built-in list as the fallback.
 
 ## License
 

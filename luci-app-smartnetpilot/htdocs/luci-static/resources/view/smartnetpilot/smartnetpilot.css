@@ -624,6 +624,80 @@ html.dark .snp-app,
 	box-shadow: 0 10px 20px -14px rgba(80, 84, 255, 0.72);
 }
 
+/* Per-radio switcher inside the wireless tab. */
+.snp-wifi-header {
+	margin: 0 0 0.9rem;
+}
+
+.snp-wifi-tabs {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.45rem;
+	margin-bottom: 0.55rem;
+}
+
+.snp-wifi-tab-btn {
+	gap: 0.4rem;
+}
+
+.snp-wifi-tab-main {
+	font-weight: 750;
+}
+
+.snp-wifi-tab-name {
+	font-size: 0.68rem;
+	font-weight: 600;
+	opacity: 0.75;
+}
+
+.snp-wifi-off {
+	padding: 0.05rem 0.4rem;
+	border-radius: 999px;
+	background: var(--snp-surface);
+	color: var(--snp-muted);
+	font-size: 0.64rem;
+	font-weight: 700;
+}
+
+.snp-tab-btn.is-active .snp-wifi-off {
+	background: rgba(255, 255, 255, 0.22);
+	color: #ffffff;
+}
+
+.snp-wifi-note {
+	display: flex;
+	align-items: flex-start;
+	gap: 0.5rem;
+	padding: 0.55rem 0.75rem;
+	border: 1px solid var(--snp-border);
+	border-radius: var(--snp-radius-sm);
+	background: var(--snp-surface-2);
+	color: var(--snp-muted);
+	font-size: 0.78rem;
+	line-height: 1.45;
+}
+
+.snp-wifi-note[hidden] {
+	display: none;
+}
+
+.snp-wifi-note .snp-wifi-note-icon {
+	display: inline-flex;
+	flex: 0 0 16px;
+	width: 16px;
+	height: 16px;
+	margin-top: 0.1rem;
+}
+
+.snp-wifi-note .snp-wifi-note-icon svg {
+	width: 16px;
+	height: 16px;
+}
+
+.snp-wifi-row-hidden {
+	display: none !important;
+}
+
 .snp-config .cbi-tabmenu {
 	display: none;
 }
