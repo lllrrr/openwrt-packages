@@ -268,7 +268,7 @@ btn1info.rawhtml = true
 btn1info:depends("cmdmode", "原版")
 btn1info.cfgvalue = function(self, section)
     local content = nixio.fs.readfile("/tmp/vnt-cli_info") or ""
-    return string.format("<pre>%s</pre>", luci.util.pcdata(content))
+    return string.format("<pre>%s</pre>", luci.xml.pcdata(content))
 end
 
 vnt_all = s:taboption("infos", Button, "vnt_all" )
@@ -294,7 +294,7 @@ btn2all.rawhtml = true
 btn2all:depends("cmdmode", "原版")
 btn2all.cfgvalue = function(self, section)
     local content = nixio.fs.readfile("/tmp/vnt-cli_all") or ""
-    return string.format("<pre>%s</pre>", luci.util.pcdata(content))
+    return string.format("<pre>%s</pre>", luci.xml.pcdata(content))
 end
 
 vnt_list = s:taboption("infos", Button, "vnt_list" )
@@ -320,7 +320,7 @@ btn3list.rawhtml = true
 btn3list:depends("cmdmode", "原版")
 btn3list.cfgvalue = function(self, section)
     local content = nixio.fs.readfile("/tmp/vnt-cli_list") or ""
-    return string.format("<pre>%s</pre>", luci.util.pcdata(content))
+    return string.format("<pre>%s</pre>", luci.xml.pcdata(content))
 end
 
 vnt_route = s:taboption("infos", Button, "vnt_route" )
@@ -346,7 +346,7 @@ btn4route.rawhtml = true
 btn4route:depends("cmdmode", "原版")
 btn4route.cfgvalue = function(self, section)
     local content = nixio.fs.readfile("/tmp/vnt-cli_route") or ""
-    return string.format("<pre>%s</pre>", luci.util.pcdata(content))
+    return string.format("<pre>%s</pre>", luci.xml.pcdata(content))
 end
 
 btnchart = s:taboption("infos", Button, "btnchart")
@@ -367,7 +367,7 @@ btn4chart.rawhtml = true
 btn4chart:depends("cmdmode", "原版")
 btn4chart.cfgvalue = function(self, section)
     local content = nixio.fs.readfile("/tmp/vnt-cli_chart") or ""
-    return string.format("<pre>%s</pre>", luci.util.pcdata(content))
+    return string.format("<pre>%s</pre>", luci.xml.pcdata(content))
 end
 
 vnt_cmd = s:taboption("infos", Button, "vnt_cmd" )
@@ -393,7 +393,7 @@ btn5cmd.rawhtml = true
 btn5cmd:depends("cmdmode", "原版")
 btn5cmd.cfgvalue = function(self, section)
     local content = nixio.fs.readfile("/tmp/vnt-cli_cmd") or ""
-    return string.format("<pre>%s</pre>", luci.util.pcdata(content))
+    return string.format("<pre>%s</pre>", luci.xml.pcdata(content))
 end
 
 local upload = s:taboption("upload", FileUpload, "upload_file")
@@ -475,7 +475,7 @@ local btnup = s:taboption("upload", DummyValue, "btnup")
 btnup.rawhtml = true
 btnup.cfgvalue = function(self, section)
     local content = nixio.fs.readfile("/tmp/vnt_update") or ""
-    return string.format("<pre>%s</pre>", luci.util.pcdata(content))
+    return string.format("<pre>%s</pre>", luci.xml.pcdata(content))
 end
 
 -- vnts
@@ -593,7 +593,7 @@ btn6cmd.rawhtml = true
 btn6cmd:depends("enabled", "1")
 btn6cmd.cfgvalue = function(self, section)
     local content = nixio.fs.readfile("/tmp/vnts_cmd") or ""
-    return string.format("<pre>%s</pre>", luci.util.pcdata(content))
+    return string.format("<pre>%s</pre>", luci.xml.pcdata(content))
 end
 
 return m
