@@ -633,8 +633,8 @@ start_service() {
            mipstype=$(echo -n I | hexdump -o 2>/dev/null | awk '{ print substr($2,6,1); exit}') 
            [ "$mipstype" = "0" ] && cpucore="mips" || cpucore="mipsle"
         fi
-        proxys="https://github.moeyy.xyz/
-	https://gh.llkk.cc/
+        proxys="https://gh-proxy.com/
+	https://github.akams.cn/
 	https://mirror.ghproxy.com/
 	https://ghproxy.net/
 	"
