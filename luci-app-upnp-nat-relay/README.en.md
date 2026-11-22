@@ -2,7 +2,7 @@
 
 **English** | [中文](README.md)
 
-OpenWrt LuCI plugin for relaying downstream router UPnP mappings through upstream NAT, with nftables DNAT and OpenClash RETURN support.
+OpenWrt LuCI plugin for relaying downstream router UPnP mappings through upstream NAT. The relay writes DNAT directly to its own nftables chain; OpenClash rules do not participate in DNAT.
 
 ## What It Does
 
@@ -11,7 +11,7 @@ In a dual-router (multi-NAT) setup, the downstream router can create UPnP port m
 1. Reads real UPnP mappings from the downstream router's LAN side
 2. Applies security filtering
 3. Creates corresponding DNAT rules on the upstream OpenWrt
-4. Optionally configures OpenClash RETURN rules to bypass transparent proxy
+4. Leaves OpenClash configuration untouched and does not restart the proxy while syncing mappings. Proxy-side bypass depends on OpenClash runtime rules.
 5. Automatically removes DNAT when downstream UPnP mappings disappear
 
 This replaces the need for wide-range DMZ or manual port forwarding on the upstream router.
@@ -196,7 +196,7 @@ Step-by-step guide to configure the plugin:
 - Test ping and UPnP connectivity
 - Configure the downstream router WAN IP
 - Set allowed port ranges
-- Configure OpenClash RETURN
+- Check whether OpenClash runtime `localnetwork` contains the original destination (conditional proxy bypass)
 - Enable the service
 
 ### 3. Settings
@@ -218,13 +218,9 @@ Three tables showing:
 - Currently synced DNAT rules on the upstream router
 - Rejected mappings with rejection reasons
 
-### 7. OpenClash
+### 7. OpenClash Compatibility
 
-OpenClash compatibility management:
-- Detect if OpenClash is installed and running
-- Show suggested RETURN rules
-- Apply or remove RETURN rules
-- Backup and restore OpenClash configuration
+The relay installs DNAT in its own firewall table and does not need OpenClash UCI changes or a restart. `lan_ac_traffic` matches source address and source port, so it cannot express the destination-port match needed for inbound mappings; the plugin refuses to generate or write those rules. Whether OpenClash still intercepts a flow depends on the original destination's membership in the runtime `localnetwork` set. The v0.47.156 source has an early RETURN for the router's WAN IPv4, but public aliases and other versions/modes require checking the live set and counters.
 
 ### 8. Diagnostics
 
@@ -246,19 +242,13 @@ If the zone output is REJECT, you will get "Operation not permitted" when runnin
 
 ## OpenClash Compatibility
 
-When OpenClash is running on the upstream router, its transparent proxy rules may intercept DNAT-forwarded traffic. The plugin can add RETURN rules to OpenClash's access control to bypass this.
+OpenClash `lan_ac_traffic` matches source address and source port in its transparent-proxy prerouting chain. An inbound UPnP relay flow arrives from the remote client, with the mapped port as the destination port; its reply arrives from the downstream interface. The relay's `src_ip=downstream WAN IP`, `src_port=mapped port`, and upstream-WAN interface cannot match either direction, so these rules cannot bypass inbound port forwards.
 
-Three modes are available:
+The plugin now refuses to generate or write these rules and reports why in the UI. Legacy `openclash_mode` and `openclash_return_strategy` values remain for config compatibility; `auto` no longer writes OpenClash config. The explicit **Remove Plugin Rule** and **Restart OpenClash** actions remain available. Rules written by an older package may still be present in OpenClash UCI; after removing them, apply the configuration change through OpenClash itself.
 
-| Mode | Behavior |
-|------|----------|
-| **off** | Do not handle OpenClash at all |
-| **prompt** (default) | Show the suggested RETURN rule but do not write it automatically |
-| **auto** | Automatically write the RETURN rule to OpenClash configuration |
+UPnP relay DNAT is independent of OpenClash UCI: it atomically replaces mappings in its own `inet upnp_nat_relay` table. The v0.47.156 source shows OpenClash returning early for prerouting destinations in `localnetwork`; the router's actual WAN IPv4 can therefore continue through relay DNAT, while a public alias outside that runtime set may still enter proxy processing. The relay never adds to or removes from OpenClash's shared set. This version combination has source and isolated kernel-rule evidence, but no real WAN ingress test against a matching OpenClash daemon, so it is not reported as fully supported.
 
-The default RETURN strategy is **per-mapping** (per_mapping): an independent RETURN rule is generated for each synced UPnP mapping, precisely matching the external port. Alternatively, the **port pool** (port_pool) strategy uses a single rule covering the downstream router WAN IP + allowed port range (e.g. `192.168.2.2 / 40000-65535 / TCP+UDP / RETURN`), which is stable and does not need frequent updates.
-
-If automatic writing fails (unrecognized OpenClash config structure), the plugin will display manual configuration instructions with copyable text.
+An isolated IPv4 TCP ingress test against OpenClash v0.48.002 confirmed the generated RETURN rule counter stayed at 0 while the same flow entered the following OpenClash processing chain. UDP and IPv6 combinations have not been verified with real flows; with an IPv4 address and `family=both`, that OpenClash version also rejects the IPv6 rule. These combinations are not reported as supported. Upgrade migration still removes the legacy `openclash_auto_restart` option.
 
 ## Security Considerations
 
@@ -323,7 +313,7 @@ Or use the **Fix Zone** button in the LuCI Network page.
 1. Does the upstream WAN have a public IP? (Check for CGNAT: 100.64.0.0/10)
 2. Do the nftables DNAT rules exist? (`nft list table inet upnp_nat_relay`)
 3. Is OpenClash intercepting the forwarded traffic?
-4. Has an OpenClash RETURN rule been configured?
+4. Is the inbound destination IP in the OpenClash runtime `localnetwork` set?
 5. Does the downstream UPnP mapping still exist?
 6. Does the downstream router's firewall allow the mapping?
 
@@ -425,11 +415,11 @@ package/luci-app-upnp-nat-relay/
 | `restrict_to_subnet` | boolean | 1 | Restrict to subnet |
 | `deny_empty_description` | boolean | 0 | Deny mappings with empty description |
 | `log_rejected` | boolean | 1 | Log rejected mappings |
-| `openclash_mode` | enum | `prompt` | OpenClash mode: `off` / `prompt` / `auto` |
-| `openclash_return_strategy` | enum | `per_mapping` | RETURN strategy: `per_mapping` / `port_pool` |
-| `openclash_backup` | boolean | 1 | OpenClash config backup |
-| `openclash_rule_remark` | string | `UPnP NAT Relay Auto RETURN` | OpenClash rule remark |
-| `openclash_auto_restart` | boolean | 0 | OpenClash auto-restart |
+| `openclash_mode` | enum | `prompt` | Legacy compatibility setting; inbound bypass is unsupported and no rules are written |
+| `openclash_return_strategy` | enum | `per_mapping` | Legacy compatibility setting; RETURN rules are not generated |
+| `openclash_backup` | boolean | 1 | Legacy compatibility setting; no OpenClash rules are written |
+| `openclash_rule_remark` | string | `UPnP NAT Relay Auto RETURN` | Legacy compatibility setting; no OpenClash rules are written |
+| `openclash_auto_restart` | legacy option | — | Deprecated and removed during upgrade. Rule writes never restart OpenClash automatically. |
 | `openclash_sync_interval` | integer | 0 | OpenClash sync interval (0=follow main sync) |
 
 ### deny_ports section (default)

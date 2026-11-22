@@ -24,7 +24,6 @@ start_service() {
 	procd_set_param stderr 1
 	procd_set_param stdout 1
 	procd_set_param pidfile /var/run/upnp_nat_relay.pid
-	procd_set_param file /etc/config/upnp_nat_relay
 	procd_close_instance
 }
 
@@ -54,7 +53,11 @@ reload_service() {
 	config_get_bool enabled main enabled 0
 
 	if [ "$enabled" -eq 0 ]; then
-		stop
+		if service_running; then
+			stop
+		fi
+	elif ! service_running; then
+		start
 	fi
 }
 
@@ -72,7 +75,7 @@ validate_upnp_nat_relay() {
 		'deny_empty_description:bool' 'log_rejected:bool' \
 		'openclash_mode:string' 'openclash_return_strategy:string' \
 		'openclash_backup:bool' 'openclash_rule_remark:string' \
-		'openclash_auto_restart:bool' 'openclash_sync_interval:uinteger'
+		'openclash_sync_interval:uinteger'
 
 	uci_validate_section upnp_nat_relay deny_ports default \
 		'port:list(port)'

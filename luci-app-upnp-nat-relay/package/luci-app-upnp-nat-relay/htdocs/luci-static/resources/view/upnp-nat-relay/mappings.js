@@ -118,13 +118,15 @@ return view.extend({
 				statusTd.setAttribute('data-title', rawHeaders[5]);
 				rawTable.appendChild(row);
 			}
-		} else {
-			rawTable.appendChild(E('tr', { 'class': 'tr' }, E('td', { 'class': 'td', 'colspan': '6', 'data-title': _('Status') }, _('No mappings found.'))));
 		}
 		var rawSection = E('div', { 'class': 'cbi-section' });
 		rawSection.appendChild(E('h3', {}, _('Read UPnP Mappings (Raw)')));
-		rawTableWrap.appendChild(rawTable);
-		rawSection.appendChild(rawTableWrap);
+		if (rawMappings.length > 0) {
+			rawTableWrap.appendChild(rawTable);
+			rawSection.appendChild(rawTableWrap);
+		} else {
+			rawSection.appendChild(E('p', { 'class': 'cbi-value-description', 'data-empty-mapping-state': 'raw' }, _('No mappings found.')));
+		}
 		container.appendChild(rawSection);
 
 		var syncTableWrap = E('div', { 'class': 'ubr-table-scroll' });
@@ -154,13 +156,15 @@ return view.extend({
 				statusTd.setAttribute('data-title', syncHeaders[4]);
 				syncTable.appendChild(row);
 			}
-		} else {
-			syncTable.appendChild(E('tr', { 'class': 'tr' }, E('td', { 'class': 'td', 'colspan': '5', 'data-title': _('Status') }, _('No synced mappings.'))));
 		}
 		var syncSection = E('div', { 'class': 'cbi-section' });
 		syncSection.appendChild(E('h3', {}, _('Synced Mappings (DNAT)')));
-		syncTableWrap.appendChild(syncTable);
-		syncSection.appendChild(syncTableWrap);
+		if (accepted.length > 0) {
+			syncTableWrap.appendChild(syncTable);
+			syncSection.appendChild(syncTableWrap);
+		} else {
+			syncSection.appendChild(E('p', { 'class': 'cbi-value-description', 'data-empty-mapping-state': 'synced' }, _('No synced mappings.')));
+		}
 		container.appendChild(syncSection);
 
 		var rejectTableWrap = E('div', { 'class': 'ubr-table-scroll' });
@@ -187,17 +191,23 @@ return view.extend({
 				reasonTd.setAttribute('data-title', rejectHeaders[4]);
 				rejectTable.appendChild(row);
 			}
-		} else {
-			rejectTable.appendChild(E('tr', { 'class': 'tr' }, E('td', { 'class': 'td', 'colspan': '5', 'data-title': _('Status') }, '\u2714 ' + _('No rejected mappings.'))));
 		}
 		var rejectSection = E('div', { 'class': 'cbi-section' });
 		rejectSection.appendChild(E('h3', {}, _('Rejected Mappings')));
-		rejectTableWrap.appendChild(rejectTable);
-		rejectSection.appendChild(rejectTableWrap);
+		if (rejected.length > 0) {
+			rejectTableWrap.appendChild(rejectTable);
+			rejectSection.appendChild(rejectTableWrap);
+		} else {
+			rejectSection.appendChild(E('p', { 'class': 'cbi-value-description', 'data-empty-mapping-state': 'rejected' }, '\u2714 ' + _('No rejected mappings.')));
+		}
 		container.appendChild(rejectSection);
 
 		utils.appendFooter(container, utils.FOOTER_OPTIONS);
 
 		return container;
-	}
+	},
+
+	handleSave: null,
+	handleSaveApply: null,
+	handleReset: null
 });

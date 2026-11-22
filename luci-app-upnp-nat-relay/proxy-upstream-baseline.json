@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "policy": "A changed upstream ref requires fresh compatibility qualification before this baseline is advanced.",
+  "upstreams": [
+    {
+      "name": "OpenClash",
+      "repo": "vernesong/OpenClash",
+      "kind": "release",
+      "observedRef": "v0.48.002",
+      "qualification": "Relay runtime flow was qualified on v0.47.156; v0.48.002 has source-derived chain evidence, not a full daemon/runtime flow qualification."
+    },
+    {
+      "name": "PassWall1",
+      "repo": "Openwrt-Passwall/openwrt-passwall",
+      "kind": "release",
+      "observedRef": "26.11.11-1",
+      "qualification": "No plugin-generated runtime flow is qualified yet."
+    },
+    {
+      "name": "PassWall2",
+      "repo": "Openwrt-Passwall/openwrt-passwall2",
+      "kind": "release",
+      "observedRef": "26.11.11-1",
+      "qualification": "IPv4/TCP WAN target RETURN flow was qualified with package 26.11.11-r1; UDP, IPv6, and other modes remain unqualified."
+    },
+    {
+      "name": "HomeProxy",
+      "repo": "immortalwrt/homeproxy",
+      "kind": "branch",
+      "branch": "master",
+      "observedRef": "fadaa676104f59ff6ace480a780a258d846d0aec",
+      "qualification": "IPv4/TCP WAN DNAT path was qualified with HomeProxy 26.298.29275~c84adb9; TPROXY/UDP, IPv6, and current master runtime are not claimed."
+    },
+    {
+      "name": "sing-box",
+      "repo": "SagerNet/sing-box",
+      "kind": "release",
+      "observedRef": "v1.14.4",
+      "qualification": "HomeProxy relay runtime evidence used sing-box 1.12.25-r1; newer engine tags require a fresh runtime check."
+    }
+  ]
+}

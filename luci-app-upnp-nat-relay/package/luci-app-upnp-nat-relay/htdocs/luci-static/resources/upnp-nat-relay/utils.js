@@ -2,7 +2,7 @@
 'require uci';
 'require baseclass';
 
-var FOOTER_VERSION = '@PKG_VERSION@';
+var FOOTER_VERSION = '@PKG_FULL_VERSION@';
 
 var FOOTER_OPTIONS = {
 	project: _('UPnP NAT Relay'),
@@ -152,25 +152,11 @@ function loadSharedCSS() {
 		var link = E('link', {
 			'id': 'upnp-shared-css',
 			'rel': 'stylesheet',
-			'href': L.resource('upnp-nat-relay/upnp-nat-relay.css') + '?v=@PKG_FULL_VERSION@'
+			'href': L.resource('upnp-nat-relay/upnp-nat-relay.css') + '?v=@PKG_FULL_VERSION@&ui=footer-pm-match-1'
 		});
 		document.head.appendChild(link);
 	}
 
-	/* 主题没有在 body 上留标记，唯一可靠的信号是主题样式表本身。
-	 * 只在 bootstrap 下加类，供 CSS 做兼容覆盖，避免污染 aurora。 */
-	var body = document.body;
-	if (body && document.querySelector('link[rel="stylesheet"][href*="/bootstrap/"]'))
-		body.classList.add('ubr-theme-bootstrap');
-
-	/* 离开插件页时移除，防止兼容样式泄漏到其他视图 */
-	if (!loadSharedCSS.unwatch) {
-		loadSharedCSS.unwatch = true;
-		window.addEventListener('hashchange', function() {
-			if (document.body)
-				document.body.classList.remove('ubr-theme-bootstrap');
-		});
-	}
 }
 
 function footerSeparator(extraClass) {

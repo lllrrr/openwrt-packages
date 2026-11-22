@@ -1,8 +1,8 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-upnp-nat-relay
-PKG_VERSION:=1.3.15
-PKG_RELEASE:=1
+PKG_VERSION:=1.3.16
+PKG_RELEASE:=16
 
 PKG_MAINTAINER:=yunshu
 PKG_LICENSE:=GPL-3.0
@@ -88,6 +88,9 @@ define Package/luci-app-upnp-nat-relay/postinst
 	fi; \
 	[ -x /etc/init.d/upnp_bridge_relay ] && /etc/init.d/upnp_bridge_relay stop 2>/dev/null; \
 	[ -x /etc/init.d/upnp_bridge_relay ] && /etc/init.d/upnp_bridge_relay disable 2>/dev/null; \
+	if uci -q get upnp_nat_relay.main.openclash_auto_restart >/dev/null 2>&1; then \
+		uci -q delete upnp_nat_relay.main.openclash_auto_restart && uci -q commit upnp_nat_relay; \
+	fi; \
 	[ -x /etc/init.d/upnp_nat_relay ] && /etc/init.d/upnp_nat_relay enable 2>/dev/null; \
 	uci -q get luci.languages.zh_cn >/dev/null || uci -q set luci.languages.zh_cn='简体中文'; \
 	uci -q commit luci; \

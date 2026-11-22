@@ -672,25 +672,34 @@ msgstr ""
 msgid "OpenClash Configuration"
 msgstr ""
 
-msgid "Auto Write Mode"
+msgid "Legacy OpenClash Mode"
 msgstr ""
 
-msgid "Control how OpenClash RETURN rules are handled."
+msgid "OpenClash source-access RETURN rules cannot bypass inbound UPnP port forwards. Rule writes are disabled; the choices remain for configuration compatibility."
 msgstr ""
 
 msgid "Off - Do not handle OpenClash"
 msgstr ""
 
-msgid "Prompt - Show suggested rules only"
+msgid "Unsupported - Report only; do not write rules"
 msgstr ""
 
-msgid "Auto - Automatically write rules"
+msgid "Legacy auto mode - Rule writes disabled"
 msgstr ""
 
 msgid "RETURN Strategy"
 msgstr ""
 
-msgid "Port Pool RETURN (recommended)"
+msgid "Legacy setting retained for compatibility. OpenClash RETURN rules are not generated because they do not match inbound port forwards."
+msgstr ""
+
+msgid "Legacy per-mapping setting"
+msgstr ""
+
+msgid "Legacy port-pool setting"
+msgstr ""
+
+msgid "The relay applies DNAT directly in its own nftables table and does not need an OpenClash rule or restart. OpenClash lan_ac_traffic cannot bypass inbound mappings because it matches source IP and source port. Proxy bypass is conditional: the original destination must be in OpenClash runtime localnetwork (verified for the router WAN IPv4 on v0.47.156); aliases outside that set may still be intercepted. No OpenClash rule was written."
 msgstr ""
 
 msgid "Rule Remark"
@@ -703,9 +712,6 @@ msgid "Backup Before Write"
 msgstr ""
 
 msgid "Create a backup of OpenClash configuration before writing rules."
-msgstr ""
-
-msgid "Auto Restart OpenClash After Rule Write"
 msgstr ""
 
 msgid "Backup Status"
@@ -748,6 +754,9 @@ msgid "OpenClash rule written, but restart may have failed. Please check OpenCla
 msgstr ""
 
 msgid "OpenClash rule written. You need to restart OpenClash for changes to take effect."
+msgstr ""
+
+msgid "OpenClash rule written. Restart OpenClash manually to apply it."
 msgstr ""
 
 msgid "Failed to write OpenClash rule:"
@@ -843,7 +852,7 @@ msgstr ""
 msgid "Last Error:"
 msgstr ""
 
-msgid "Missing Dependencies & Fix Commands"
+msgid "Dependency Status"
 msgstr ""
 
 msgid "Missing dependencies:"
@@ -1161,6 +1170,9 @@ msgstr ""
 msgid "Per-mapping rules written (%d rules). You need to restart OpenClash for changes to take effect."
 msgstr ""
 
+msgid "Per-mapping rules written (%d rules). Restart OpenClash manually to apply them."
+msgstr ""
+
 msgid "Show Advanced Configuration"
 msgstr ""
 
@@ -1450,4 +1462,28 @@ msgid "Click \"Detect\" to check status."
 msgstr ""
 
 msgid "Zone \"%s\" already exists. Use \"Fix Zone Settings\" instead."
+msgstr ""
+
+msgid "Inbound Mapping Compatibility"
+msgstr ""
+
+msgid "The relay applies DNAT in its own nftables table and does not change or restart OpenClash. OpenClash lan_ac_traffic matches source IP and source port, so it cannot bypass inbound UPnP mappings. Proxy bypass is conditional on the original destination being in OpenClash runtime localnetwork; public aliases outside that set may still be intercepted. This was verified only for the router WAN IPv4 on OpenClash 0.47.156."
+msgstr ""
+
+msgid "Legacy OpenClash Cleanup"
+msgstr ""
+
+msgid "Clean Up Legacy OpenClash Changes"
+msgstr ""
+
+msgid "This restores the saved OpenClash backup when available; that replaces the whole persistent OpenClash config with the saved copy. Without a backup, it removes only relay-owned rules. Either operation changes persistent UCI only; running rules may remain until OpenClash applies its configuration through its normal controls."
+msgstr ""
+
+msgid "Unable to remove legacy rules:"
+msgstr ""
+
+msgid "The saved OpenClash config backup was restored. This replaced the persistent config; apply it through OpenClash normal controls if the running rules still need updating."
+msgstr ""
+
+msgid "Removed %d relay-owned rules from persistent OpenClash UCI. Apply OpenClash configuration through its normal controls if its running rules still contain them."
 msgstr ""

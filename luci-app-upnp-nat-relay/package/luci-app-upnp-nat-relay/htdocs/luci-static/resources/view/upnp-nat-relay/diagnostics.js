@@ -42,6 +42,10 @@ var callClearLog = rpc.declare({
 });
 
 return view.extend({
+	handleSave: null,
+	handleSaveApply: null,
+	handleReset: null,
+
 	load: function() {
 		return callStatus().catch(function() { return {}; }).then(function(status) {
 			return { status: status };
@@ -67,12 +71,13 @@ return view.extend({
 			if (state)
 				logArea.classList.add(state);
 
+			logArea.rows = state === 'is-empty' || state === 'is-loading' ? 4 : 20;
 			logArea.value = text;
 			if (!state)
 				logArea.scrollTop = logArea.scrollHeight;
 		};
 
-		var logBtnBar = E('div', { 'class': 'cbi-page-actions' });
+		var logBtnBar = E('div', { 'class': 'ys-actions ubr-log-controls' });
 
 		var LEVEL_OPTIONS = [
 			{ value: 'all', label: _('All') },
@@ -88,7 +93,7 @@ return view.extend({
 
 		var levelSelect = E('select', {
 			'id': 'log-level-select',
-			'style': 'width:auto;margin-right:4px;'
+			'style': 'width:auto;'
 		});
 
 		LEVEL_OPTIONS.forEach(function(opt) {
@@ -172,7 +177,7 @@ return view.extend({
 		var logArea = E('textarea', {
 			'class': 'cbi-input-textarea ubr-log-area is-loading',
 			'id': 'log-area',
-			'rows': 20,
+			'rows': 4,
 			'readonly': 'readonly'
 		});
 		logArea.value = _('Loading...');
@@ -185,13 +190,13 @@ return view.extend({
 		}
 		container.appendChild(logSection);
 
-		var rollbackSection = E('div', { 'class': 'cbi-section' });
+		var rollbackSection = E('div', { 'class': 'cbi-section ubr-rollback-section' });
 		rollbackSection.appendChild(E('h3', {}, _('Rollback & Cleanup')));
 
 		rollbackSection.appendChild(E('div', { 'class': 'alert-message warning' },
 			E('p', {}, _('Warning: Rollback operations will remove configurations created by this plugin. Proceed with caution.'))));
 
-		var rollbackBtnBar = E('div', { 'class': 'cbi-page-actions' });
+		var rollbackBtnBar = E('div', { 'class': 'ys-actions' });
 
 		rollbackBtnBar.appendChild(E('button', {
 			'class': 'cbi-button cbi-button-reset',

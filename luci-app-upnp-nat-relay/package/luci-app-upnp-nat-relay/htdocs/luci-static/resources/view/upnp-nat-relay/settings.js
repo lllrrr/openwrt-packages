@@ -72,11 +72,6 @@ return view.extend({
 		o.default = '0';
 		o.rmempty = false;
 
-		o = s.option(form.Flag, 'openclash_auto_restart', _('Auto Restart OpenClash After Rule Write'),
-			_('Restart OpenClash after rules are written so changes take effect immediately.'));
-		o.default = '0';
-		o.depends('show_advanced_config', '1');
-
 		s = m.section(form.TypedSection, 'service', _('Logging'));
 		s.anonymous = true;
 

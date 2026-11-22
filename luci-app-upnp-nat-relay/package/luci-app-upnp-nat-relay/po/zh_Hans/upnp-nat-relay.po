@@ -683,26 +683,35 @@ msgstr "备注"
 msgid "OpenClash Configuration"
 msgstr "OpenClash 配置"
 
-msgid "Auto Write Mode"
-msgstr "自动写入模式"
+msgid "Legacy OpenClash Mode"
+msgstr "旧版 OpenClash 模式"
 
-msgid "Control how OpenClash RETURN rules are handled."
-msgstr "控制 OpenClash RETURN 规则的处理方式。"
+msgid "OpenClash source-access RETURN rules cannot bypass inbound UPnP port forwards. Rule writes are disabled; the choices remain for configuration compatibility."
+msgstr "OpenClash 来源访问 RETURN 规则无法绕过入站 UPnP 端口转发。规则写入已禁用；保留这些选项仅为兼容现有配置。"
 
 msgid "Off - Do not handle OpenClash"
 msgstr "关闭 - 不处理 OpenClash"
 
-msgid "Prompt - Show suggested rules only"
-msgstr "提示 - 仅显示建议规则"
+msgid "Unsupported - Report only; do not write rules"
+msgstr "不支持 - 仅报告，不写入规则"
 
-msgid "Auto - Automatically write rules"
-msgstr "自动 - 自动写入规则"
+msgid "Legacy auto mode - Rule writes disabled"
+msgstr "旧版自动模式 - 已禁用规则写入"
 
 msgid "RETURN Strategy"
 msgstr "RETURN 策略"
 
-msgid "Port Pool RETURN (recommended)"
-msgstr "端口池 RETURN（推荐）"
+msgid "Legacy setting retained for compatibility. OpenClash RETURN rules are not generated because they do not match inbound port forwards."
+msgstr "为兼容现有配置保留此旧选项。OpenClash RETURN 规则无法匹配入站端口转发，因此不会生成。"
+
+msgid "Legacy per-mapping setting"
+msgstr "旧版逐映射设置"
+
+msgid "Legacy port-pool setting"
+msgstr "旧版端口池设置"
+
+msgid "The relay applies DNAT directly in its own nftables table and does not need an OpenClash rule or restart. OpenClash lan_ac_traffic cannot bypass inbound mappings because it matches source IP and source port. Proxy bypass is conditional: the original destination must be in OpenClash runtime localnetwork (verified for the router WAN IPv4 on v0.47.156); aliases outside that set may still be intercepted. No OpenClash rule was written."
+msgstr "relay 会直接在自己的 nftables 表中应用 DNAT，无需 OpenClash 规则或重启。OpenClash lan_ac_traffic 匹配源 IP 和源端口，无法绕过入站映射流量。代理旁路有条件：原始目标地址必须属于 OpenClash 运行时 localnetwork（已从 v0.47.156 源码确认本机 WAN IPv4 符合）；不在该集合中的公网别名仍可能被代理拦截。插件不会写入 OpenClash 规则。"
 
 msgid "Rule Remark"
 msgstr "规则备注"
@@ -715,9 +724,6 @@ msgstr "写入前备份"
 
 msgid "Create a backup of OpenClash configuration before writing rules."
 msgstr "在写入规则前创建 OpenClash 配置备份。"
-
-msgid "Auto Restart OpenClash After Rule Write"
-msgstr "自动重启 OpenClash"
 
 msgid "Backup Status"
 msgstr "备份状态"
@@ -759,7 +765,10 @@ msgid "OpenClash rule written, but restart may have failed. Please check OpenCla
 msgstr "OpenClash 规则已写入，但重启可能失败。请手动检查 OpenClash 状态。"
 
 msgid "OpenClash rule written. You need to restart OpenClash for changes to take effect."
-msgstr "OpenClash 规则已写入。您需要重启 OpenClash 才能使更改生效。"
+msgstr "OpenClash 规则已写入。您需要手动重启 OpenClash 才能使更改生效。"
+
+msgid "OpenClash rule written. Restart OpenClash manually to apply it."
+msgstr "OpenClash 规则已写入。请手动重启 OpenClash 使其生效。"
 
 msgid "Failed to write OpenClash rule:"
 msgstr "写入 OpenClash 规则失败："
@@ -854,8 +863,8 @@ msgstr "此设备上没有可用的系统日志读取器。"
 msgid "Last Error:"
 msgstr "最近错误："
 
-msgid "Missing Dependencies & Fix Commands"
-msgstr "缺失依赖与修复命令"
+msgid "Dependency Status"
+msgstr "依赖状态"
 
 msgid "Missing dependencies:"
 msgstr "缺失依赖："
@@ -1274,6 +1283,9 @@ msgstr "逐映射规则已写入（%d 条规则）。OpenClash 当前已禁用�
 msgid "Per-mapping rules written (%d rules). You need to restart OpenClash for changes to take effect."
 msgstr "逐映射规则已写入（%d 条规则）。需要手动重启 OpenClash 才能生效。"
 
+msgid "Per-mapping rules written (%d rules). Restart OpenClash manually to apply them."
+msgstr "已写入 %d 条逐映射规则。请手动重启 OpenClash 使其生效。"
+
 msgid "Per-mapping rules are already up to date (%d rules)."
 msgstr "逐映射规则已是最新（%d 条规则）。"
 
@@ -1471,3 +1483,27 @@ msgstr "项目"
 
 msgid "Technical details"
 msgstr "技术详情"
+
+msgid "Inbound Mapping Compatibility"
+msgstr "入站映射兼容性"
+
+msgid "The relay applies DNAT in its own nftables table and does not change or restart OpenClash. OpenClash lan_ac_traffic matches source IP and source port, so it cannot bypass inbound UPnP mappings. Proxy bypass is conditional on the original destination being in OpenClash runtime localnetwork; public aliases outside that set may still be intercepted. This was verified only for the router WAN IPv4 on OpenClash 0.47.156."
+msgstr "Relay 在自己的 nftables 表中应用 DNAT，不修改或重启 OpenClash。OpenClash lan_ac_traffic 按源 IP 和源端口匹配，无法绕过入站 UPnP 映射。代理绕行取决于原始目标地址是否在 OpenClash 运行态 localnetwork 集合中；不在集合内的公网别名仍可能被代理拦截。目前仅针对 OpenClash 0.47.156 的路由器 WAN IPv4 地址完成验证。"
+
+msgid "Legacy OpenClash Cleanup"
+msgstr "旧版 OpenClash 清理"
+
+msgid "Clean Up Legacy OpenClash Changes"
+msgstr "清理旧版 OpenClash 改动"
+
+msgid "This restores the saved OpenClash backup when available; that replaces the whole persistent OpenClash config with the saved copy. Without a backup, it removes only relay-owned rules. Either operation changes persistent UCI only; running rules may remain until OpenClash applies its configuration through its normal controls."
+msgstr "如果存在已保存的 OpenClash 备份，此操作会用备份替换整个持久化配置；没有备份时，只移除 relay 所有的规则。两种操作都只改持久化 UCI；运行规则可能继续存在，直到通过 OpenClash 自身的常规控制应用配置。"
+
+msgid "Unable to remove legacy rules:"
+msgstr "无法移除旧版规则："
+
+msgid "The saved OpenClash config backup was restored. This replaced the persistent config; apply it through OpenClash normal controls if the running rules still need updating."
+msgstr "已恢复保存的 OpenClash 配置备份，持久化配置已被替换。如果运行规则仍需更新，请通过 OpenClash 自身的常规控制应用配置。"
+
+msgid "Removed %d relay-owned rules from persistent OpenClash UCI. Apply OpenClash configuration through its normal controls if its running rules still contain them."
+msgstr "已从持久化 OpenClash UCI 配置中移除 %d 条 relay 所有的规则。如果运行态仍包含这些规则，请通过 OpenClash 自身的常规控制应用配置。"

@@ -236,7 +236,9 @@ detect_firewall() {
     local _dfw_fw="unknown" _dfw_fw4=0 _dfw_nft=0
     if command -v fw4 >/dev/null 2>&1 || [ -x /usr/sbin/fw4 ]; then
         _dfw_fw4=1
-        if fw4 -q print >/dev/null 2>&1; then
+        # Firewall detection is informational; a stuck fw4 must not block the
+        # relay daemon before its first sync or make status requests hang.
+        if timeout -k 1s 5s fw4 -q print >/dev/null 2>&1; then
             _dfw_fw="fw4"
         fi
     fi
@@ -421,7 +423,6 @@ load_config() {
     cfg_openclash_return_strategy="$(uci_get 'main.openclash_return_strategy')"
     cfg_openclash_backup="$(uci_get 'main.openclash_backup')"
     cfg_openclash_rule_remark="$(uci_get 'main.openclash_rule_remark')"
-    cfg_openclash_auto_restart="$(uci_get 'main.openclash_auto_restart')"
     cfg_openclash_sync_interval="$(uci_get 'main.openclash_sync_interval')"
     cfg_backend_timeout="$(uci_get 'upnpc.timeout')"
 
@@ -437,7 +438,6 @@ load_config() {
     [ -z "${cfg_openclash_return_strategy}" ] && cfg_openclash_return_strategy="per_mapping"
     [ -z "${cfg_openclash_backup}" ] && cfg_openclash_backup="1"
     [ -z "${cfg_openclash_rule_remark}" ] && cfg_openclash_rule_remark="UPnP NAT Relay Auto RETURN"
-    [ -z "${cfg_openclash_auto_restart}" ] && cfg_openclash_auto_restart="0"
     [ -z "${cfg_openclash_sync_interval}" ] && cfg_openclash_sync_interval="0"
     [ -z "${cfg_firewall_zone_name}" ] && cfg_firewall_zone_name="upnp_nat"
 
@@ -451,20 +451,10 @@ load_config() {
         cfg_upstream_wan_if="$(detect_default_route_if)"
     fi
 
-    cfg_deny_ports=""
-    _dp_idx=0
-    while true; do
-        _dp_val="$(uci -q get "${UCI_CONFIG}.default.port.${_dp_idx}" 2>/dev/null)"
-        if [ -z "$_dp_val" ]; then
-            break
-        fi
-        if [ -z "${cfg_deny_ports}" ]; then
-            cfg_deny_ports="$_dp_val"
-        else
-            cfg_deny_ports="${cfg_deny_ports} $_dp_val"
-        fi
-        _dp_idx=$((_dp_idx + 1))
-    done
+    # libuci returns a list option as one whitespace-separated value. Numeric
+    # list entries are validated by UCI, so do not try section-style `.0`
+    # indexing here (that syntax is not supported for list items).
+    cfg_deny_ports="$(uci_get 'default.port' || true)"
     if [ -z "${cfg_deny_ports}" ]; then
         cfg_deny_ports="22 23 25 53 80 110 143 443 445 465 587 993 995 1433 3306 3389 5432 6379 8080 8443"
     fi
@@ -759,6 +749,50 @@ nft_add_dnat_rule() {
     return 0
 }
 
+# Replace the relay-owned rule set as one nftables transaction. nft -f submits
+# all commands in one netlink batch, so a parse/commit failure leaves the old
+# rules active instead of exposing an empty or partially rebuilt chain.
+nft_replace_dnat_rules() {
+    _nrd_file="$1"
+    _nrd_dest_ip="$2"
+    _nrd_iface="$3"
+    _nrd_tmp=""
+    _nrd_added=0
+    _nrd_proto=""
+    _nrd_port=""
+    _nrd_rest=""
+
+    case "$_nrd_dest_ip" in ''|*[!0-9.]*|.*|*.) return 1 ;; esac
+    [ "$(printf '%s' "$_nrd_dest_ip" | awk -F. 'NF == 4 { ok=1; for (i=1;i<=4;i++) if ($i !~ /^[0-9]+$/ || $i+0 > 255) ok=0 } END { print ok+0 }')" = 1 ] || return 1
+    _nrd_iface="$(resolve_interface_device "$_nrd_iface")" || return 1
+    case "$_nrd_iface" in ''|*[!A-Za-z0-9_.:@-]*) return 1 ;; esac
+    nft_ensure_table || return 1
+    _nrd_tmp="$(mktemp "${TMPDIR:-/tmp}/upnp-nft-replace.XXXXXX")" || return 1
+    printf 'flush chain inet %s %s\n' "${NFT_TABLE_NAME}" "${NFT_CHAIN}" >"$_nrd_tmp" || { rm -f "$_nrd_tmp"; return 1; }
+
+    if [ -f "$_nrd_file" ]; then
+        while IFS='|' read -r _nrd_action _nrd_proto _nrd_port _nrd_rest; do
+            [ "$_nrd_action" = ACCEPT ] || continue
+            _nrd_proto="$(printf '%s' "$_nrd_proto" | tr 'A-Z' 'a-z')"
+            case "$_nrd_proto" in tcp|udp) ;; *) rm -f "$_nrd_tmp"; return 1 ;; esac
+            case "$_nrd_port" in ''|*[!0-9]*) rm -f "$_nrd_tmp"; return 1 ;; esac
+            [ "$_nrd_port" -ge 1 ] && [ "$_nrd_port" -le 65535 ] || { rm -f "$_nrd_tmp"; return 1; }
+            printf 'add rule inet %s %s iifname "%s" %s dport %s dnat ip to %s:%s comment "%s"\n' \
+                "${NFT_TABLE_NAME}" "${NFT_CHAIN}" "$_nrd_iface" "$_nrd_proto" "$_nrd_port" \
+                "$_nrd_dest_ip" "$_nrd_port" "${NFT_RULE_COMMENT}" >>"$_nrd_tmp" || { rm -f "$_nrd_tmp"; return 1; }
+            _nrd_added=$((_nrd_added + 1))
+        done <"$_nrd_file"
+    fi
+
+    if nft -c -f "$_nrd_tmp" >/dev/null 2>&1 && nft -f "$_nrd_tmp"; then
+        rm -f "$_nrd_tmp"
+        printf '%s' "$_nrd_added"
+        return 0
+    fi
+    rm -f "$_nrd_tmp"
+    return 1
+}
+
 nft_delete_table() {
     if nft_table_exists; then
         nft delete table inet ${NFT_TABLE_NAME} || return 1
@@ -804,29 +838,16 @@ nft_fast_restore() {
         return 0
     fi
 
-    nft_flush_chain
+    _nfr_count="$(nft_replace_dnat_rules "${GENERATED_ACCEPT_CACHE}" "${cfg_downstream_wan_ip}" "${cfg_upstream_wan_if}")" || {
+        log_warn "Fast restore failed atomically; existing DNAT rules were preserved"
+        return 0
+    }
 
-    _nfr_count=0
-    _nfr_fail=0
-    while IFS='|' read -r _nfr_act _nfr_proto _nfr_ext_port _nfr_int_ip _nfr_int_port _nfr_desc; do
-        [ "$_nfr_act" != "ACCEPT" ] && continue
-        if nft_add_dnat_rule "$_nfr_proto" "$_nfr_ext_port" "${cfg_downstream_wan_ip}" "$_nfr_ext_port" "${cfg_upstream_wan_if}"; then
-            _nfr_count=$((_nfr_count + 1))
-        else
-            log_warn "Fast restore: failed to add nft rule ${_nfr_proto} ${_nfr_ext_port} -> ${cfg_downstream_wan_ip}:${_nfr_ext_port}"
-            _nfr_fail=$((_nfr_fail + 1))
-        fi
-    done < "${GENERATED_ACCEPT_CACHE}"
-
-    if [ "$_nfr_fail" -eq 0 ] && [ "$_nfr_count" -gt 0 ]; then
+    if [ "$_nfr_count" -gt 0 ]; then
         printf '%s' "$_nfr_fingerprint" 2>/dev/null > "${NFT_APPLIED_CACHE}" || true
     fi
 
-    if [ "${cfg_openclash_mode}" = "auto" ]; then
-        openclash_inject_localnetwork >/dev/null 2>&1
-    fi
-
-    log_info "Fast restore: ${_nfr_count} DNAT rules restored from cache (${_nfr_fail} failed)"
+    log_info "Fast restore: ${_nfr_count} DNAT rules restored from cache atomically"
     update_nft_cache_status "present"
     return 0
 }
@@ -1200,17 +1221,13 @@ openclash_remove_plugin_rules() {
     printf '%d' "$_orpr_removed"
 }
 
+openclash_inbound_bypass_unsupported() {
+    printf '%s\n' '{"success":false,"action":"unsupported","error":"openclash_inbound_bypass_unsupported","message":"The relay applies DNAT directly in its own nftables table and does not need an OpenClash rule or restart. OpenClash lan_ac_traffic cannot bypass inbound mappings because it matches source IP/source port. Proxy bypass is conditional: the original destination must be in OpenClash runtime localnetwork (verified for the router WAN IPv4 on v0.47.156); aliases outside that set may still be intercepted. No OpenClash rule was written."}'
+    return 1
+}
+
 openclash_generate_return_rule() {
-    _ogrr_proto="$(openclash_protocol_for_rule "${cfg_protocols}")"
-    _ogrr_interface=""
-    [ -n "${cfg_upstream_wan_if}" ] && _ogrr_interface="$(resolve_interface_device "${cfg_upstream_wan_if}")"
-    printf '{"strategy":"port_pool","remark":"%s","comment":"%s","src_ip":"%s","src_port":"%s","proto":"%s","target":"return","enabled":"1","family":"both","interface":"%s"}\n' \
-        "$(json_escape "${cfg_openclash_rule_remark}")" \
-        "$(json_escape "${OPENCLASH_RULE_COMMENT}")" \
-        "$(json_escape "${cfg_downstream_wan_ip}")" \
-        "$(json_escape "${cfg_allowed_external_ports}")" \
-        "$(json_escape "${_ogrr_proto}")" \
-        "$(json_escape "${_ogrr_interface}")"
+    openclash_inbound_bypass_unsupported
 }
 
 openclash_protocol_for_rule() {
@@ -1243,6 +1260,9 @@ openclash_protocol_for_rule() {
 }
 
 openclash_set_lan_ac_traffic_rule() {
+    openclash_inbound_bypass_unsupported
+    return 1
+
     _osacr_remark="$1"
     _osacr_src_ip="$2"
     _osacr_src_port="$3"
@@ -1274,38 +1294,13 @@ openclash_write_suggestion_cache() {
 }
 
 openclash_read_suggestion_cache() {
-    if [ -f "${OPENCLASH_SUGGESTION_CACHE}" ]; then
-        cat "${OPENCLASH_SUGGESTION_CACHE}"
-    elif [ -f "${STATUS_DIR}/openclash_suggestion_cache.json" ]; then
-        cat "${STATUS_DIR}/openclash_suggestion_cache.json"
-    else
-        printf '{"cached":false,"updated_at":"","openclash_suggestion":{}}\n'
-    fi
-}
-
-openclash_inject_localnetwork() {
-    if [ -z "${cfg_downstream_wan_ip}" ]; then
-        return 1
-    fi
-    if nft list table inet fw4 >/dev/null 2>&1; then
-        nft add element inet fw4 localnetwork \{ "${cfg_downstream_wan_ip}" \} 2>/dev/null
-        return 0
-    fi
-    return 1
-}
-
-openclash_remove_localnetwork() {
-    if [ -z "${cfg_downstream_wan_ip}" ]; then
-        return 1
-    fi
-    if nft list table inet fw4 >/dev/null 2>&1; then
-        nft delete element inet fw4 localnetwork \{ "${cfg_downstream_wan_ip}" \} 2>/dev/null
-        return 0
-    fi
-    return 1
+    printf '%s\n' '{"cached":false,"updated_at":"","openclash_suggestion":{"supported":false,"error":"native_firewall_only_conditional_proxy_bypass","message":"Relay writes DNAT directly to its own nft table and does not modify OpenClash UCI or restart it. OpenClash bypass depends on the original inbound destination being in OpenClash localnetwork (verified for the actual WAN IPv4 on 0.47.156); aliases outside that runtime set may still be intercepted."}}'
 }
 
 openclash_apply() {
+    openclash_inbound_bypass_unsupported
+    return 1
+
     if [ ! -f /etc/config/openclash ]; then
         printf '{"success":false,"error":"openclash_not_installed"}\n'
         return 1
@@ -1331,10 +1326,10 @@ openclash_apply() {
 
     write_resource "openclash_rule" "${cfg_openclash_rule_remark}"
 
-    _oa_restart_result="{}"
-    if [ "${cfg_openclash_auto_restart}" = "1" ]; then
-        _oa_restart_result="$(openclash_restart_service)"
-    fi
+    # Rule writes are persistent configuration changes only. Older configs
+    # may still contain openclash_auto_restart=1; deliberately ignore it so
+    # package upgrades cannot trigger an implicit proxy restart.
+    _oa_restart_result='{"restarted":false,"error":"automatic_restart_disabled"}'
 
     printf '{"success":true,"error":"","action":"added","restart":%s}\n' "$_oa_restart_result"
     return 0
@@ -1485,35 +1480,13 @@ openclash_remove_per_mapping_rules() {
 }
 
 openclash_generate_per_mapping_rules() {
-    _ogpm_file="$1"
-    _ogpm_collected="$(openclash_collect_ports_by_proto "$_ogpm_file")"
-    _ogpm_tcp_ports="$(echo "$_ogpm_collected" | sed -n 's/^tcp|//p')"
-    _ogpm_udp_ports="$(echo "$_ogpm_collected" | sed -n 's/^udp|//p')"
-    _ogpm_interface=""
-    [ -n "${cfg_upstream_wan_if}" ] && _ogpm_interface="$(resolve_interface_device "${cfg_upstream_wan_if}")"
-    ja_reset
-    if [ -n "$_ogpm_tcp_ports" ]; then
-        _ogpm_remark="$(openclash_per_mapping_remark "TCP")"
-        ja_append "$(printf '{"remark":"%s","comment":"%s","src_ip":"%s","src_port":"%s","proto":"tcp","target":"return","enabled":"1","family":"both","interface":"%s"}' \
-            "$(json_escape "$_ogpm_remark")" \
-            "$(json_escape "${OPENCLASH_RULE_COMMENT}")" \
-            "$(json_escape "${cfg_downstream_wan_ip}")" \
-            "$(json_escape "$_ogpm_tcp_ports")" \
-            "$(json_escape "$_ogpm_interface")")"
-    fi
-    if [ -n "$_ogpm_udp_ports" ]; then
-        _ogpm_remark="$(openclash_per_mapping_remark "UDP")"
-        ja_append "$(printf '{"remark":"%s","comment":"%s","src_ip":"%s","src_port":"%s","proto":"udp","target":"return","enabled":"1","family":"both","interface":"%s"}' \
-            "$(json_escape "$_ogpm_remark")" \
-            "$(json_escape "${OPENCLASH_RULE_COMMENT}")" \
-            "$(json_escape "${cfg_downstream_wan_ip}")" \
-            "$(json_escape "$_ogpm_udp_ports")" \
-            "$(json_escape "$_ogpm_interface")")"
-    fi
-    printf '{"strategy":"per_mapping","rules":[%s]}' "$_ja"
+    openclash_inbound_bypass_unsupported
 }
 
 openclash_sync_per_mapping() {
+    openclash_inbound_bypass_unsupported
+    return 1
+
     _ospm_file="$1"
 
     if [ ! -f /etc/config/openclash ]; then
@@ -1582,10 +1555,7 @@ openclash_sync_per_mapping() {
 
     write_resource "openclash_rule" "${cfg_openclash_rule_remark}"
 
-    _ospm_restart_result="{}"
-    if [ "${cfg_openclash_auto_restart}" = "1" ] && [ "$_ospm_count" -gt 0 ]; then
-        _ospm_restart_result="$(openclash_restart_service)"
-    fi
+    _ospm_restart_result='{"restarted":false,"error":"automatic_restart_disabled"}'
 
     log_info "OpenClash per-mapping rules updated: ${_ospm_count} rules"
 
@@ -2057,75 +2027,25 @@ do_sync() {
             _sync_cleanup; trap - EXIT; return 1
         fi
 
-        nft_flush_chain
-
-        _s_nft_added=0
-        if [ -f "$_s_accept_file" ]; then
-            while IFS='|' read -r _s_act _s_proto _s_ext_port _s_int_ip _s_int_port _s_desc; do
-                [ "$_s_act" != "ACCEPT" ] && continue
-                if ! nft_add_dnat_rule "$_s_proto" "$_s_ext_port" "${cfg_downstream_wan_ip}" "$_s_ext_port" "${cfg_upstream_wan_if}"; then
-                    log_warn "Failed to add nft rule: ${_s_proto} ${_s_ext_port} -> ${cfg_downstream_wan_ip}:${_s_ext_port}"
-                    _s_nft_fail=$((_s_nft_fail + 1))
-                else
-                    _s_nft_added=$((_s_nft_added + 1))
-                fi
-            done < "$_s_accept_file"
-        fi
+        _s_nft_added="$(nft_replace_dnat_rules "$_s_accept_file" "${cfg_downstream_wan_ip}" "${cfg_upstream_wan_if}")" || {
+            _s_nft_fail=1
+            _s_last_error="nft_rule_batch_failed: previous_rules_preserved"
+            log_warn "Atomic DNAT update failed; existing rules remain active"
+        }
 
         if [ "$_s_nft_fail" -eq 0 ]; then
             printf '%s' "$_s_accept_fingerprint" 2>/dev/null > "${NFT_APPLIED_CACHE}" || true
-            log_info "DNAT rules rebuilt: ${_s_nft_added} rules added"
+            log_info "DNAT rules replaced atomically: ${_s_nft_added} rules active"
         else
-            rm -f "${NFT_APPLIED_CACHE}" 2>/dev/null
-            log_warn "DNAT rules rebuild partial: ${_s_nft_added} added, ${_s_nft_fail} failed"
+            log_warn "DNAT fingerprint cache retained so the next sync retries the atomic update"
         fi
     fi
 
     _s_oc_action="skipped"
     if [ "${cfg_openclash_mode}" = "auto" ]; then
-        if ! openclash_sync_needed; then
-            _s_oc_action="deferred"
-            log_debug "OpenClash sync deferred (interval=${cfg_openclash_sync_interval}s not elapsed)"
-        elif [ -f /etc/config/openclash ]; then
-            if [ "${cfg_openclash_return_strategy}" = "per_mapping" ]; then
-                _s_oc_result="$(openclash_sync_per_mapping "${GENERATED_ACCEPT_CACHE}")"
-                _s_oc_action="$(echo "$_s_oc_result" | sed -n 's/.*"action":"\([^"]*\)".*/\1/p')"
-            else
-                if openclash_port_pool_matches; then
-                    _s_oc_action="unchanged"
-                    log_debug "OpenClash port_pool rule unchanged"
-                else
-                    _s_oc_result="$(openclash_apply)"
-                    if [ "${_s_oc_result}" != "${_s_oc_result#*success\":true}" ]; then
-                        _s_oc_action="updated"
-                        log_info "OpenClash port_pool rule updated"
-                    else
-                        _s_oc_action="failed"
-                        log_warn "OpenClash port_pool auto sync failed: ${_s_oc_result}"
-                    fi
-                fi
-            fi
-            case "$_s_oc_action" in
-                updated|unchanged)
-                    openclash_record_sync_time
-                    ;;
-            esac
-            # Update suggestion cache after sync
-            if [ "$_s_oc_action" = "updated" ] || [ "$_s_oc_action" = "unchanged" ]; then
-                if [ "${cfg_openclash_return_strategy}" = "per_mapping" ] && [ -f "${GENERATED_ACCEPT_CACHE}" ]; then
-                    _s_oc_suggestion="$(openclash_generate_per_mapping_rules "${GENERATED_ACCEPT_CACHE}")"
-                else
-                    _s_oc_suggestion="$(openclash_generate_return_rule)"
-                fi
-                openclash_write_suggestion_cache "$_s_oc_suggestion"
-            fi
-            if openclash_inject_localnetwork; then
-                log_debug "OpenClash localnetwork injected: ${cfg_downstream_wan_ip}"
-            fi
-        else
-            _s_oc_action="not_installed"
-            log_debug "OpenClash not installed, skipping auto sync"
-        fi
+        _s_oc_result="$(openclash_inbound_bypass_unsupported)"
+        _s_oc_action="unsupported"
+        log_warn "OpenClash auto bypass is unsupported for inbound relay mappings; no lan_ac_traffic rule was written"
     fi
 
     _s_failure_count=0
@@ -2333,10 +2253,8 @@ do_dry_run() {
 }
 
 do_generate_openclash_rule() {
-    load_config
-    ensure_dirs
-    remove_rule_caches
-    do_dry_run 1
+    openclash_inbound_bypass_unsupported
+    return 1
 }
 
 do_clear() {
@@ -2356,7 +2274,9 @@ do_clear() {
         sleep 1
         _clear_wait=$((_clear_wait + 1))
     done
-    openclash_remove_localnetwork
+    # Never remove an address from OpenClash's shared localnetwork set by
+    # address alone. Older builds did not record whether this relay inserted
+    # the element, so it may belong to OpenClash or the administrator.
     _clear_oc_removed="$(openclash_remove_per_mapping_rules 2>/dev/null)"
     if [ "${_clear_oc_removed:-0}" -gt 0 ] 2>/dev/null; then
         log_info "Cleared ${_clear_oc_removed} OpenClash rule section(s)"
@@ -2589,6 +2509,9 @@ do_fix_zone() {
 do_setup_openclash() {
     load_config
 
+    openclash_inbound_bypass_unsupported
+    return 1
+
     if is_main_sync_running; then
         log_warn "Main sync is running, cannot modify OpenClash config now"
         printf '{"success":false,"error":"main_sync_running","message":"Main sync is currently running, please try again later"}\n'
@@ -2748,17 +2671,13 @@ do_remove_openclash_rule() {
 }
 
 do_sync_openclash() {
+    # Report the same unsupported result regardless of legacy mode or whether
+    # OpenClash is installed. This endpoint must never imply that a write can
+    # make the inbound relay mapping bypass supported.
+    openclash_inbound_bypass_unsupported
+    return 1
+
     load_config
-
-    if [ "${cfg_openclash_mode}" = "off" ]; then
-        printf '{"success":false,"error":"openclash_mode_off","message":"OpenClash sync is disabled (mode=off)"}\n'
-        return 1
-    fi
-
-    if [ ! -f /etc/config/openclash ]; then
-        printf '{"success":false,"error":"openclash_not_installed","message":"OpenClash is not installed"}\n'
-        return 1
-    fi
 
     if is_main_sync_running; then
         log_warn "Main sync is running, waiting for it to finish..."

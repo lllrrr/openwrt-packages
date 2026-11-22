@@ -2,7 +2,7 @@
 
 [English](README.en.md) | **中文**
 
-OpenWrt LuCI 插件，用于在双路由器（多级 NAT）网络环境中，将下游路由器的 UPnP 端口映射接力穿透上游 NAT，支持 nftables DNAT 和 OpenClash RETURN 规则。
+OpenWrt LuCI 插件，用于在双路由器（多级 NAT）网络环境中，将下游路由器的 UPnP 端口映射接力穿透上游 NAT。映射由插件直接写入自有 nftables DNAT 链；OpenClash 规则不参与 DNAT。
 
 ## 它做了什么
 
@@ -11,7 +11,7 @@ OpenWrt LuCI 插件，用于在双路由器（多级 NAT）网络环境中，将
 1. 从下游路由器 LAN 侧读取真实的 UPnP 映射
 2. 对映射进行安全过滤
 3. 在上游 OpenWrt 上创建对应的 DNAT 规则
-4. 可选配置 OpenClash RETURN 规则以绕过透明代理
+4. 不修改 OpenClash 配置，也不为同步映射重启代理。代理侧是否放行取决于 OpenClash 运行时规则
 5. 当下游 UPnP 映射消失时自动移除 DNAT 规则
 
 这比在上游路由器上开大范围 DMZ 或手动逐条配置端口转发更安全、更省心。
@@ -196,7 +196,7 @@ opkg install miniupnpc nftables coreutils-timeout flock luci-base rpcd uci
 - 测试 ping 和 UPnP 连通性
 - 配置下游路由器 WAN IP
 - 设置允许的端口范围
-- 配置 OpenClash RETURN
+- 检查 OpenClash 运行时 `localnetwork` 是否包含原始目标地址（条件性代理旁路）
 - 启用服务
 
 ### 3. 基本设置
@@ -218,13 +218,9 @@ opkg install miniupnpc nftables coreutils-timeout flock luci-base rpcd uci
 - 上游路由器上当前同步的 DNAT 规则
 - 被拒绝的映射及拒绝原因
 
-### 7. OpenClash
+### 7. OpenClash 兼容性
 
-OpenClash 兼容性管理：
-- 检测 OpenClash 是否安装并运行
-- 显示建议的 RETURN 规则
-- 应用或移除 RETURN 规则
-- 备份和恢复 OpenClash 配置
+relay 直接在上游防火墙自有表中安装 DNAT，不需要 OpenClash UCI 规则或重启。`lan_ac_traffic` 按来源地址和来源端口匹配，不能表达入站映射所需的目的端口，因此插件拒绝生成或写入这类规则。OpenClash 是否继续拦截取决于原始目标地址是否属于其运行时 `localnetwork` 集合；v0.47.156 源码对本机 WAN IPv4 有提前 RETURN，但公网别名和其他版本/模式仍需检查运行时集合与计数器。
 
 ### 8. 诊断与回滚
 
@@ -246,19 +242,13 @@ OpenClash 兼容性管理：
 
 ## OpenClash 兼容性
 
-当上游路由器运行 OpenClash 时，其透明代理规则可能会拦截 DNAT 转发的流量。插件可以向 OpenClash 的访问控制添加 RETURN 规则以绕过此拦截。
+OpenClash `lan_ac_traffic` 在透明代理的 prerouting 链中按源地址和源端口匹配。UPnP relay 的入站 DNAT 流量来自远端客户端，映射端口是目的端口；回包则从下游接口进入。relay 生成的 `src_ip=下游 WAN IP`、`src_port=映射端口` 和上游 WAN interface 不能匹配这两个方向，因此不能用于绕过入站端口转发。
 
-三种模式可选：
+插件现在会拒绝生成或写入这类规则，并在页面显示“不支持”的原因。旧的 `openclash_mode` 和 `openclash_return_strategy` 值为兼容已有配置而保留；`auto` 不会再写入 OpenClash 配置。页面上的 **移除插件规则** 和显式 **重启 OpenClash** 操作仍可用。更新前写入的插件规则可能仍保存在 OpenClash UCI 配置中；移除后需通过 OpenClash 自身操作应用配置变更。
 
-| 模式 | 行为 |
-|------|------|
-| **off** | 完全不处理 OpenClash |
-| **prompt**（默认） | 显示建议的 RETURN 规则，但不自动写入 |
-| **auto** | 自动将 RETURN 规则写入 OpenClash 配置 |
+UPnP relay 的 nftables DNAT 与 OpenClash UCI 无关：relay 会在自有 `inet upnp_nat_relay` 表中原子替换映射规则。v0.47.156 的源码显示，OpenClash 在 prerouting 处理链中会对属于 `localnetwork` 的目标执行 RETURN；因此实际 WAN IPv4 可以沿 relay DNAT 路径继续，但公网别名若不在该运行时集合中仍可能进入代理处理。relay 不会自行把地址加入或移出 OpenClash 共享集合。该版本组合目前只有规则来源和隔离内核规则行为证据，尚无匹配版本 OpenClash daemon 的真实 WAN 入站流量验收，不能据此标为完整支持。
 
-默认 RETURN 策略为**逐映射**（per_mapping）：为每个已同步的 UPnP 映射生成独立的 RETURN 规则，精确匹配外部端口。也可选择**端口池**（port_pool）策略：一条规则覆盖下游路由器 WAN IP + 允许端口范围（如 `192.168.2.2 / 40000-65535 / TCP+UDP / RETURN`），端口池方式稳定且不需要频繁更新。
-
-如果自动写入失败（无法识别 OpenClash 配置结构），插件会显示手动配置说明，可直接复制使用。
+OpenClash v0.48.002 的隔离 IPv4 TCP 入站测试确认，生成的 RETURN 规则计数为 0，而同一流量进入了后续 OpenClash 处理链。UDP 和 IPv6 组合尚无真实流量验收；IPv4 地址配 `family=both` 时，该版本还会拒绝对应 IPv6 规则。由于规则写入已被禁用，这些组合不会被报告为支持。旧 `openclash_auto_restart` 升级迁移仍会移除该选项。
 
 ## 安全注意事项
 
@@ -323,7 +313,7 @@ fw4 reload
 1. 上游 WAN 是否有公网 IP？（检查 CGNAT：100.64.0.0/10）
 2. nftables DNAT 规则是否存在？（`nft list table inet upnp_nat_relay`）
 3. OpenClash 是否拦截了转发流量？
-4. 是否已配置 OpenClash RETURN 规则？
+4. 入站目标 IP 是否位于 OpenClash 运行时 `localnetwork` 集合？
 5. 下游 UPnP 映射是否仍然存在？
 6. 下游路由器防火墙是否允许该映射？
 
@@ -425,11 +415,11 @@ package/luci-app-upnp-nat-relay/
 | `restrict_to_subnet` | boolean | 1 | 限制到子网 |
 | `deny_empty_description` | boolean | 0 | 拒绝空描述映射 |
 | `log_rejected` | boolean | 1 | 记录被拒绝的映射 |
-| `openclash_mode` | enum | `prompt` | OpenClash 模式：`off` / `prompt` / `auto` |
-| `openclash_return_strategy` | enum | `per_mapping` | RETURN 策略：`per_mapping` / `port_pool` |
-| `openclash_backup` | boolean | 1 | OpenClash 配置备份 |
-| `openclash_rule_remark` | string | `UPnP NAT Relay Auto RETURN` | OpenClash 规则备注 |
-| `openclash_auto_restart` | boolean | 0 | OpenClash 自动重启 |
+| `openclash_mode` | enum | `prompt` | 旧配置兼容项；入站转发旁路不支持，不写入规则 |
+| `openclash_return_strategy` | enum | `per_mapping` | 旧配置兼容项；当前不生成 RETURN 规则 |
+| `openclash_backup` | boolean | 1 | 旧配置兼容项；不写入 OpenClash 规则 |
+| `openclash_rule_remark` | string | `UPnP NAT Relay Auto RETURN` | 旧配置兼容项；不写入 OpenClash 规则 |
+| `openclash_auto_restart` | 旧配置项 | — | 已废弃；升级时删除。写入规则不会自动重启 OpenClash |
 | `openclash_sync_interval` | integer | 0 | OpenClash 同步间隔（0=跟随主同步） |
 
 ### deny_ports section (default)

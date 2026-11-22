@@ -98,22 +98,28 @@ return view.extend({
 
 		container.appendChild(E('h2', { 'name': 'content' }, _('Setup Wizard')));
 
-		var modeBar = E('div', { 'class': 'cbi-section ys-actions' });
+		var modeBar = E('div', { 'class': 'cbi-section ys-actions ubr-wizard-mode-bar' });
 		var safeBtn = E('button', {
 			'class': 'cbi-button' + (self.wizardMode === 'safe' ? ' cbi-button-apply' : ''),
+			'aria-pressed': self.wizardMode === 'safe' ? 'true' : 'false',
 			'click': function() {
 				self.wizardMode = 'safe';
-				safeBtn.classList.add('active');
-				autoBtn.classList.remove('active');
+				safeBtn.classList.add('cbi-button-apply');
+				autoBtn.classList.remove('cbi-button-apply');
+				safeBtn.setAttribute('aria-pressed', 'true');
+				autoBtn.setAttribute('aria-pressed', 'false');
 				self.renderStep(container);
 			}
 		}, _('Safe Mode (Detect Only)'));
 		var autoBtn = E('button', {
 			'class': 'cbi-button' + (self.wizardMode === 'auto' ? ' cbi-button-apply' : ''),
+			'aria-pressed': self.wizardMode === 'auto' ? 'true' : 'false',
 			'click': function() {
 				self.wizardMode = 'auto';
-				autoBtn.classList.add('active');
-				safeBtn.classList.remove('active');
+				autoBtn.classList.add('cbi-button-apply');
+				safeBtn.classList.remove('cbi-button-apply');
+				autoBtn.setAttribute('aria-pressed', 'true');
+				safeBtn.setAttribute('aria-pressed', 'false');
 				self.renderStep(container);
 			}
 		}, _('Auto Mode (Apply Changes)'));
@@ -1069,5 +1075,9 @@ return view.extend({
 			.catch(function(e) {
 				ui.addNotification(null, E('p', _('Configuration failed:') + ' ' + e.message), 'error');
 			});
-	}
+	},
+
+	handleSave: null,
+	handleSaveApply: null,
+	handleReset: null
 });

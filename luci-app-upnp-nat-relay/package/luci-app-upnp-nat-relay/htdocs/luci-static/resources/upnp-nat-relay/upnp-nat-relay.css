@@ -11,10 +11,13 @@
 /* ===== Overview Stats ===== */
 .ubr-stats-grid {
 	display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-	gap: 1em; margin-bottom: 1.5em;
+	gap: 1em;
+	margin-top: calc(var(--spacing, .25rem) * 4);
+	margin-bottom: 0;
 }
+/* The cards retain native CBI surfaces, while the grid owns their spacing. */
+#maincontent .ubr-stats-grid > .ubr-stat-card { margin: 0; }
 .ubr-stat-card {
-	padding: 1em 1.2em; border-radius: 8px;
 	text-align: center;
 }
 .ubr-stat-card .ubr-stat-value {
@@ -31,21 +34,50 @@
 /* ===== Wizard Progress ===== */
 .ubr-wizard-progress {
 	display: flex; align-items: center; margin-bottom: 1.5em;
-	flex-wrap: wrap;
+	flex-wrap: nowrap;
 }
+.ubr-wizard-mode-bar { margin-bottom: calc(var(--spacing, .25rem) * 4); }
 .ubr-wizard-dot {
 	display: flex; align-items: center; justify-content: center;
-	width: 28px; height: 28px; border-radius: 50%;
-	border: 1px solid;
-	font-size: 0.8em; font-weight: bold;
+	box-sizing: border-box; flex: 0 0 28px;
+	width: 28px; height: 28px; border: 1px solid;
+	border-color: var(--border-color, color-mix(in srgb, currentColor 24%, transparent));
+	border-radius: 50%;
+	background: var(--background-color-low, var(--surface-sunken, transparent));
+	color: var(--subtext-color, var(--text-muted, currentColor));
+	font-size: 0.75em; font-weight: 600;
 }
-.ubr-wizard-dot.done,
-.ubr-wizard-dot.active { outline: 2px solid currentColor; }
-.ubr-wizard-line { flex: 1; height: 3px; border-top: 3px solid currentColor; }
+.ubr-wizard-dot.done {
+	border-color: color-mix(in srgb, var(--brand, var(--main-color, currentColor)) 35%, transparent);
+	background: color-mix(in srgb, var(--brand, var(--main-color, currentColor)) 12%, transparent);
+	color: var(--brand, var(--main-color, currentColor));
+}
+.ubr-wizard-dot.active {
+	border-color: var(--brand, var(--main-color, currentColor));
+	background: var(--brand, var(--main-color, currentColor));
+	color: var(--on-brand, #fff);
+}
+.ubr-wizard-line {
+	flex: 1 1 auto; min-width: 0; height: 2px;
+	background: color-mix(in srgb, currentColor 16%, transparent);
+}
+.ubr-wizard-line.done {
+	background: color-mix(in srgb, var(--brand, var(--main-color, currentColor)) 55%, transparent);
+}
 .ubr-wizard-nav {
 	display: flex; gap: 1em; margin-top: 1.2em;
-	padding-top: 1em; border-top: 1px solid;
 	flex-wrap: wrap;
+}
+@media screen and (max-width: 375px) {
+	.ubr-wizard-progress { flex-wrap: nowrap; }
+	.ubr-wizard-dot {
+		box-sizing: border-box;
+		flex: 0 0 20px;
+		width: 20px;
+		height: 20px;
+		font-size: 0.7em;
+	}
+	.ubr-wizard-line { min-width: 0; }
 }
 
 /* ===== Diagnostics Log ===== */
@@ -59,6 +91,7 @@
 .ubr-log-area.is-empty,
 .ubr-log-area.is-loading { font-style: italic; }
 .ubr-log-area.is-error { font-weight: bold; }
+.ubr-rollback-section { margin-top: calc(var(--spacing, .25rem) * 3); }
 
 /* ===== 原生表格滚动容器 ===== */
 /* mappings 表已使用 .tr/.th/.td 契约 + data-title，窄屏由主题负责堆叠；
@@ -69,51 +102,12 @@
 	.ubr-stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
-/* ===== Bootstrap 兼容层（例外 E20） ===== */
-/* 仅当 body.ubr-theme-bootstrap（由 utils.loadSharedCSS 按主题样式表探测）时生效，
- * aurora 与其他主题完全不受影响。 */
-
-/* 触摸目标 >= 32px（主题按钮 28–30px，达不到可访问性底线） */
-body.ubr-theme-bootstrap .cbi-button,
-body.ubr-theme-bootstrap .cbi-page-actions button { min-height: 32px; line-height: 30px; }
-body.ubr-theme-bootstrap .cbi-tabmenu > li > a {
-	line-height: 32px; padding-top: 0; padding-bottom: 0;
-}
-
-/* 窄屏按钮换行，避免 flex 等分后出现省略号 */
-@media screen and (max-width: 600px) {
-	body.ubr-theme-bootstrap .cbi-page-actions { flex-wrap: wrap; }
-	body.ubr-theme-bootstrap .cbi-page-actions .cbi-button {
-		flex: 1 1 100%; white-space: normal;
-		overflow: visible; text-overflow: clip;
+/* Keep every native route tab reachable through tablet widths. */
+@media screen and (max-width: 1023px) {
+	#tabmenu ul.tabs {
+		flex-wrap: wrap;
+		overflow-x: visible;
 	}
-}
-
-/* 对比度补偿：括号内为按主题实际背景计算的对比度（WCAG AA 正文 >= 4.5） */
-/* Save 在“有 Apply 在前”时用浅底绿字、否则用绿底白字，两套都低估；
- * 统一成同一套深绿底白字，避免受兄弟选择器影响。 */
-body.ubr-theme-bootstrap .cbi-page-actions .cbi-button-save {
-	background: #00713d; border-color: #006635; color: #fff; /* 6.1:1 */
-}
-body.ubr-theme-bootstrap .cbi-button-reset { color: #b3261e; } /* 6.0:1 */
-html[data-darkmode="true"] body.ubr-theme-bootstrap .cbi-button-reset { color: #ff9d97; } /* 8.0:1 */
-html[data-darkmode="true"] body.ubr-theme-bootstrap .cbi-page-actions .cbi-button-apply {
-	background: #2a6a80; color: #fff; /* 6.1:1 */
-}
-body.ubr-theme-bootstrap .cbi-input-invalid { color: #b3261e; } /* 6.0:1 */
-html[data-darkmode="true"] body.ubr-theme-bootstrap .cbi-input-invalid { color: #ff9d97; } /* 8.0:1 */
-body.ubr-theme-bootstrap .label.success { background: #00713d; border-color: #006635; color: #fff; } /* 6.1:1 */
-body.ubr-theme-bootstrap .alert-message.success { background: #007a4a; color: #fff; } /* 5.4:1 */
-/* danger 在暗色下主题给的是深灰字，裸文本节点没有 h3/p 可挂，必须改容器色 */
-body.ubr-theme-bootstrap .alert-message.danger { color: #fff; } /* 亮 5.7:1 / 暗 5.4:1 */
-html[data-darkmode="true"] body.ubr-theme-bootstrap .alert-message.info {
-	background: #2a5f70; color: #fff; /* 7.1:1 */
-}
-/* 主题只给提示块容器上色，h3/p/b 有各自颜色规则（深灰），需显式跟随白字 */
-body.ubr-theme-bootstrap .alert-message.success :is(h3,h4,h5,p,b,strong,li),
-body.ubr-theme-bootstrap .alert-message.danger :is(h3,h4,h5,p,b,strong,li),
-html[data-darkmode="true"] body.ubr-theme-bootstrap .alert-message.info :is(h3,h4,h5,p,b,strong,li) {
-	color: #fff;
 }
 
 /* Shared Yunshu OpenWrt plugin footer. Keep this block identical across
@@ -127,7 +121,6 @@ html[data-darkmode="true"] body.ubr-theme-bootstrap .alert-message.info :is(h3,h
 	align-items: center;
 	justify-content: space-between;
 	gap: .8em 1em;
-	margin-top: 2em;
 	padding: 1em 0 0;
 	color: var(--subtext-color, #666);
 	font-size: .875em;
@@ -140,8 +133,17 @@ html[data-darkmode="true"] body.ubr-theme-bootstrap .alert-message.info :is(h3,h
 	gap: .35em;
 }
 .ys-tool-footer-brand { flex-wrap: wrap; }
-.ys-tool-footer-links { white-space: nowrap; }
+/* Keep a 32px link target while drawing its background close to the text. */
+.ys-tool-footer-links {
+	flex: 0 0 auto;
+	white-space: nowrap;
+	gap: calc(var(--spacing, .25rem) * 2);
+}
 .ys-tool-footer-mark {
+	display: inline-flex;
+	align-items: center;
+	box-sizing: border-box;
+	min-height: 1.5rem;
 	padding: .18em .5em;
 	border-radius: 4px;
 	background-color: var(--ys-footer-blue-bg);
@@ -160,24 +162,43 @@ html[data-darkmode="true"] body.ubr-theme-bootstrap .alert-message.info :is(h3,h
 .ys-tool-footer-link,
 .ys-tool-footer a.ys-tool-footer-link {
 	display: inline-flex;
+	flex: 0 0 auto;
 	align-items: center;
+	justify-content: center;
 	gap: .35em;
+	min-height: 2rem;
+	box-sizing: border-box;
 	padding: .18em .5em;
 	border: 0;
 	border-radius: 4px;
-	background-color: var(--ys-footer-blue-bg);
-	background: color-mix(in srgb, var(--ys-footer-blue) 12%, transparent);
+	position: relative;
+	isolation: isolate;
+	background: transparent;
 	color: var(--ys-footer-blue);
 	font-size: .86em;
 	font-weight: 700;
 	line-height: 1.6;
 	text-decoration: none;
 }
+.ys-tool-footer-link::before,
+.ys-tool-footer a.ys-tool-footer-link::before {
+	position: absolute;
+	inset: .25rem 0;
+	border-radius: inherit;
+	background-color: var(--ys-footer-blue-bg);
+	background: color-mix(in srgb, var(--ys-footer-blue) 12%, transparent);
+	content: "";
+	z-index: -1;
+	pointer-events: none;
+}
 .ys-tool-footer-link:hover,
 .ys-tool-footer a.ys-tool-footer-link:hover {
+	text-decoration: none;
+}
+.ys-tool-footer-link:hover::before,
+.ys-tool-footer a.ys-tool-footer-link:hover::before {
 	background-color: var(--ys-footer-blue-bg-hover);
 	background: color-mix(in srgb, var(--ys-footer-blue) 18%, transparent);
-	text-decoration: none;
 }
 .ys-tool-footer-link-icon {
 	width: 1em;
@@ -196,29 +217,51 @@ html[data-darkmode="true"] body.ubr-theme-bootstrap .alert-message.info :is(h3,h
 	.ys-tool-footer-project-link,
 	.ys-tool-footer-project-separator { display: none; }
 	.ys-tool-footer-links { flex-wrap: wrap; white-space: normal; }
-	.ys-tool-footer-links .ys-tool-footer-link.github .ys-tool-footer-link-label,
-	.ys-tool-footer-links .ys-tool-footer-link.x .ys-tool-footer-link-label { display: none; }
 }
 
-/* Shared interaction rhythm: side-by-side buttons follow the theme spacing
- * scale instead of hardcoded pixels. Keep identical across sibling plugins. */
-.ys-actions,
-.cbi-page-actions {
+/* Plugin-owned action groups use the theme spacing scale. Native
+ * .cbi-page-actions remain controlled by the active LuCI theme. */
+#maincontent { --ys-action-gap: calc(var(--spacing, .25rem) * 3); }
+.ys-actions {
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
-	gap: calc(var(--spacing, .25rem) * 3);
+	gap: var(--ys-action-gap);
 }
-.cbi-page-actions { justify-content: flex-end; }
+#maincontent .ys-actions { gap: var(--ys-action-gap); }
 .ys-actions > .cbi-button,
 .ys-actions > button,
 .ys-actions > select,
-.ys-actions > input,
-.cbi-page-actions > form,
-.cbi-page-actions > button { margin: 0; }
+.ys-actions > input { margin: 0; }
+
+/* Keep service controls apart from the following information section. On
+ * compact themes the native CBI section margin can be zero; use the theme's
+ * spacing scale without changing native section colors or typography. */
+#maincontent .ubr-overview-control-section {
+	margin-top: calc(var(--spacing, .25rem) * 4);
+	margin-bottom: calc(var(--spacing, .25rem) * 4);
+}
+#maincontent .ubr-overview-control-section > h3 { margin-top: 0; }
+.ubr-log-controls { margin-bottom: calc(var(--spacing, .25rem) * 4); }
+
+/* Comma separated port lists and other machine values have no break
+ * opportunity, so a long list in a read-only value field widens the whole
+ * page instead of wrapping. */
+#maincontent .cbi-value-field { overflow-wrap: anywhere; }
+
+/* Native CBI rows may wrap a long action button beneath its label on narrow
+ * layouts. Keep a theme-scaled gap between those wrapped parts. */
+#maincontent .ubr-openclash-actions .cbi-value {
+	row-gap: calc(var(--spacing, .25rem) * 2);
+}
 
 /* Shared table contract: every table on the page shares one first-column
  * basis (minimum width + alignment) instead of content-driven widths. */
+.table > thead > tr > :first-child,
+.table > tbody > tr > :first-child,
+.table > tr > :first-child {
+	vertical-align: middle;
+}
 @media screen and (min-width: 48rem) {
 	.table > thead > tr > :first-child,
 	.table > tbody > tr > :first-child,
@@ -226,6 +269,5 @@ html[data-darkmode="true"] body.ubr-theme-bootstrap .alert-message.info :is(h3,h
 		width: 1%;
 		min-width: 9rem;
 		text-align: left;
-		vertical-align: top;
 	}
 }

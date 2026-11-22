@@ -120,7 +120,7 @@ function makeOcBadge(status) {
 
 function buildDepSection(missingDeps, pkgManager) {
 	var section = E('div', { 'class': 'cbi-section' });
-	section.appendChild(E('h3', {}, _('Missing Dependencies & Fix Commands')));
+	section.appendChild(E('h3', {}, _('Dependency Status')));
 	if (missingDeps.length > 0) {
 		var installCmd = pkgManager === 'apk' ?
 			'apk add --allow-untrusted ' + missingDeps.join(' ') :
@@ -220,10 +220,10 @@ return view.extend({
 
 		container.appendChild(statsGrid);
 
-			var controlSection = E('div', { 'class': 'cbi-section' });
+		var controlSection = E('div', { 'class': 'cbi-section ubr-overview-control-section' });
 		controlSection.appendChild(E('h3', {}, _('Service Control')));
 
-		var btnGroup = E('div', { 'class': 'cbi-page-actions' });
+		var btnGroup = E('div', { 'class': 'ys-actions' });
 
 		if (!running) {
 			btnGroup.appendChild(E('button', {
@@ -311,7 +311,7 @@ return view.extend({
 
 		var infoTable = E('table', { 'class': 'table' });
 
-		var versionTd = E('td', { 'data-title': _('Plugin Version') } , version);
+		var versionTd = E('td', {} , version);
 		infoTable.appendChild(E('tr', {}, [
 			E('th', { 'class': 'th' }, _('Plugin Version')),
 			versionTd
@@ -319,7 +319,7 @@ return view.extend({
 
 		infoTable.appendChild(E('tr', {}, [
 			E('th', { 'class': 'th' }, _('GitHub')),
-			E('td', { 'data-title': _('GitHub') } , E('a', {
+			E('td', {} , E('a', {
 				'href': 'https://github.com/hello-yunshu/luci-app-upnp-nat-relay',
 				'target': '_blank',
 				'rel': 'noopener'
@@ -328,12 +328,12 @@ return view.extend({
 
 		infoTable.appendChild(E('tr', {}, [
 			E('th', { 'class': 'th' }, _('Current Backend')),
-			E('td', { 'data-title': _('Current Backend') } , backend)
+			E('td', {} , backend)
 		]));
 
 		infoTable.appendChild(E('tr', {}, [
 			E('th', { 'class': 'th' }, _('Last Sync Time')),
-			E('td', { 'data-title': _('Last Sync Time') } , lastSync)
+			E('td', {} , lastSync)
 		]));
 
 		var lastResultBadge;
@@ -350,25 +350,25 @@ return view.extend({
 	}
 		infoTable.appendChild(E('tr', {}, [
 			E('th', { 'class': 'th' }, _('Last Sync Result')),
-			E('td', { 'data-title': _('Last Sync Result') } , lastResultBadge)
+			E('td', {} , lastResultBadge)
 		]));
 
 		var nftBadge = makeNftBadge(nftStatus);
-		var nftTd = E('td', { 'data-title': _('nftables Table') } , nftBadge);
+		var nftTd = E('td', {} , nftBadge);
 		infoTable.appendChild(E('tr', {}, [
 			E('th', { 'class': 'th' }, _('nftables Table')),
 			nftTd
 		]));
 
 		var ocBadge = makeOcBadge(openclashStatus);
-		var ocTd = E('td', { 'data-title': _('OpenClash') } , ocBadge);
+		var ocTd = E('td', {} , ocBadge);
 		infoTable.appendChild(E('tr', {}, [
 			E('th', { 'class': 'th' }, _('OpenClash')),
 			ocTd
 		]));
 
 		var envUpdatedAt = status.updated_at || '';
-		var envTimeTd = E('td', { 'data-title': _('Last Env Check') } , envUpdatedAt || '-');
+		var envTimeTd = E('td', {} , envUpdatedAt || '-');
 		infoTable.appendChild(E('tr', {}, [
 			E('th', { 'class': 'th' }, _('Last Env Check')),
 			envTimeTd
@@ -416,7 +416,7 @@ return view.extend({
 				badgeVal = sval;
 				badgeStatus = item.statusFn(status[item.statusKey]);
 			}
-			var td = E('td', { 'data-title': item.label }, E('span', { 'class': 'label ' + ({ green: 'success', orange: 'warning', red: 'important', gray: '' }[badgeStatus] || '') }, badgeVal));
+			var td = E('td', {}, E('span', { 'class': 'label ' + ({ green: 'success', orange: 'warning', red: 'important', gray: '' }[badgeStatus] || '') }, badgeVal));
 			envTds.push({ td: td, item: item });
 			envTable.appendChild(E('tr', {}, [
 				E('th', { 'class': 'th' }, item.label),
@@ -428,7 +428,7 @@ return view.extend({
 		envTableWrap.appendChild(envTable);
 		envSection.appendChild(envTableWrap);
 
-		var envBtnBar = E('div', { 'class': 'cbi-page-actions' });
+		var envBtnBar = E('div', { 'class': 'ys-actions' });
 		envBtnBar.appendChild(E('button', {
 			'class': 'cbi-button cbi-button-apply',
 			'click': function() {
@@ -498,5 +498,9 @@ return view.extend({
 		utils.appendFooter(container, utils.FOOTER_OPTIONS);
 
 		return container;
-	}
+	},
+
+	handleSave: null,
+	handleSaveApply: null,
+	handleReset: null
 });

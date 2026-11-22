@@ -862,10 +862,10 @@ html.dark .snp-app,
 .snp-form-shell .cbi-value {
 	display: grid;
 	grid-template-columns: minmax(10.5rem, 33%) minmax(0, 1fr);
-	gap: 0.45rem 1.35rem;
+	gap: 0.2rem 1.35rem;
 	align-items: center;
 	margin: 0;
-	padding: 0.85rem 0;
+	padding: 0.5rem 0;
 	border-bottom: 1px solid var(--snp-border);
 }
 
@@ -907,6 +907,16 @@ html.dark .snp-app,
 .snp-form-shell .cbi-value > .cbi-value-field > .cbi-value-description {
 	grid-column: 2;
 	margin-top: 0;
+	padding: 0.25rem 0 0;
+}
+
+/* The dissolved field box makes a dropdown widget a grid item, which stretches
+   it across the whole value column. Pin it to the theme's control width so it
+   matches the selects and text inputs at every breakpoint (Argon narrows that
+   width on smaller screens). */
+.snp-form-shell .cbi-value > .cbi-value-field > .cbi-dropdown {
+	width: var(--form-control-min-width, auto);
+	max-width: 100%;
 }
 
 .snp-form-shell .cbi-value-description,
@@ -920,14 +930,31 @@ html.dark .snp-app,
 .snp-app input[type="text"],
 .snp-app input[type="password"],
 .snp-app input[type="number"],
-.snp-app select,
 .snp-app textarea {
 	max-width: 100%;
 	min-height: 38px;
 	padding: 0.48rem 0.65rem;
 	border: 1px solid var(--snp-input-border);
 	border-radius: 10px;
-	background: var(--snp-input-bg);
+	background-color: var(--snp-input-bg);
+	color: var(--snp-text);
+	font-family: inherit;
+	font-size: 0.83rem;
+	transition:
+		border-color 150ms ease,
+		box-shadow 150ms ease;
+}
+
+/* Keep the theme's dropdown chevron: only override the background colour, and
+   leave room for the arrow that Argon draws as a background image on the right
+   (a `background` shorthand here would erase it). */
+.snp-app select {
+	max-width: 100%;
+	min-height: 38px;
+	padding: 0.48rem 2.5rem 0.48rem 0.65rem;
+	border: 1px solid var(--snp-input-border);
+	border-radius: 10px;
+	background-color: var(--snp-input-bg);
 	color: var(--snp-text);
 	font-family: inherit;
 	font-size: 0.83rem;
@@ -1278,7 +1305,7 @@ html.dark .snp-app,
 
 	.snp-form-shell .cbi-value {
 		grid-template-columns: minmax(0, 1fr);
-		gap: 0.3rem;
+		gap: 0.2rem;
 	}
 
 	.snp-form-shell .cbi-value > .cbi-value-field > .cbi-value-description {

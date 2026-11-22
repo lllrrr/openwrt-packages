@@ -27,7 +27,6 @@ config service 'main'
 	option openclash_return_strategy 'per_mapping'
 	option openclash_backup '1'
 	option openclash_rule_remark 'UPnP NAT Relay Auto RETURN'
-	option openclash_auto_restart '0'
 	option openclash_sync_interval '0'
 
 config deny_ports 'default'
