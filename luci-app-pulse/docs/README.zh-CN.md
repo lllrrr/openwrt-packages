@@ -1,3 +1,24 @@
+<!-- plugin-list: zh w9315273/luci-app-pulse -->
+<table>
+  <tr><th colspan="3">我的插件列表</th></tr>
+  <tr valign="top">
+    <td><a href="https://github.com/w9315273/luci-app-pulse"><img src="https://img.shields.io/github/stars/w9315273/luci-app-pulse?style=flat&amp;label=%E2%98%85&amp;color=57606a" height="16" alt="LuCI Pulse · GitHub 星数"></a></td>
+    <td><strong>LuCI Pulse</strong></td>
+    <td width="360"><details><summary>系统监控</summary><a href="https://raw.githubusercontent.com/w9315273/luci-app-pulse/HEAD/docs/screenshot-zh-cn.png"><img src="https://raw.githubusercontent.com/w9315273/luci-app-pulse/HEAD/docs/screenshot-zh-cn.png" width="100%" alt="LuCI Pulse · 界面截图"></a></details></td>
+  </tr>
+  <tr valign="top">
+    <td><a href="https://github.com/w9315273/luci-app-adguardhome"><img src="https://img.shields.io/github/stars/w9315273/luci-app-adguardhome?style=flat&amp;label=%E2%98%85&amp;color=57606a" height="16" alt="AdGuard Home for LuCI · GitHub 星数"></a></td>
+    <td><strong><a href="https://github.com/w9315273/luci-app-adguardhome">AdGuard Home for LuCI</a></strong></td>
+    <td width="360"><details><summary>AdGuard Home 管理</summary><a href="https://raw.githubusercontent.com/w9315273/luci-app-adguardhome/HEAD/docs/screenshots/base-zh-cn.png"><img src="https://raw.githubusercontent.com/w9315273/luci-app-adguardhome/HEAD/docs/screenshots/base-zh-cn.png" width="100%" alt="AdGuard Home for LuCI · 界面截图"></a></details></td>
+  </tr>
+  <tr valign="top">
+    <td><a href="https://github.com/w9315273/openwrt-traffic-stats"><img src="https://img.shields.io/github/stars/w9315273/openwrt-traffic-stats?style=flat&amp;label=%E2%98%85&amp;color=57606a" height="16" alt="OpenWrt Traffic Stats · GitHub 星数"></a></td>
+    <td><strong><a href="https://github.com/w9315273/openwrt-traffic-stats">OpenWrt Traffic Stats</a></strong></td>
+    <td width="360"><details><summary>设备流量统计</summary><a href="https://raw.githubusercontent.com/w9315273/openwrt-traffic-stats/HEAD/docs/images/overview.png"><img src="https://raw.githubusercontent.com/w9315273/openwrt-traffic-stats/HEAD/docs/images/overview.png" width="100%" alt="OpenWrt Traffic Stats · 界面截图"></a></details></td>
+  </tr>
+</table>
+<!-- /plugin-list -->
+
 # Pulse
 
 ### 轻量级 OpenWrt LuCI 仪表盘，集中展示系统资源、网络流量、网口与容器状态。
