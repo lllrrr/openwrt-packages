@@ -68,7 +68,7 @@ function loadSharedCSS() {
 		var link = E('link', {
 			'id': 'nm-shared-css',
 			'rel': 'stylesheet',
-			'href': L.resource('nginx-manager/nginx-manager.css') + '?v=@PKG_FULL_VERSION@&ui=footer-pm-match-1&credentials=1&files-mobile-cards=6&toolbar-clearance=2'
+			'href': L.resource('nginx-manager/nginx-manager.css') + '?v=@PKG_FULL_VERSION@&ui=footer-pm-match-1&credentials=1&files-mobile-cards=6&toolbar-clearance=2&test-panel=4'
 		});
 		document.head.appendChild(link);
 	}
@@ -193,6 +193,168 @@ function getErrorMessage(err) {
 	if (typeof err.toString === 'function')
 		return err.toString();
 	return '';
+}
+
+/* nginx -t / nginx -T 的输出分行归类。
+ * 只认 nginx 自己的日志行，配置正文（-T 会整份打印）保持原样，不会被误判成错误。 */
+var NGINX_TS_ENTRY_RE = /^\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2} \[([a-z]+)\] \d+#\d+: (.*)$/;
+var NGINX_ENTRY_RE = /^(?:nginx: )?\[([a-z]+)\] (.*)$/;
+var NGINX_ERROR_LEVELS = { emerg: true, alert: true, crit: true, error: true };
+var NGINX_LOCATION_RE = / in (\/[^\s:]+)(?::(\d+))?$/;
+
+function classifyTestOutput(output) {
+	var lines = String(output || '').split('\n');
+	var errors = [];
+	var warnings = [];
+	var notices = [];
+	var sawOk = false;
+
+	lines.forEach(function(raw) {
+		var line = raw.replace(/\s+$/, '');
+		if (!line)
+			return;
+
+		var match = line.match(NGINX_TS_ENTRY_RE) || line.match(NGINX_ENTRY_RE);
+		if (match) {
+			var location = match[2].match(NGINX_LOCATION_RE);
+			var entry = {
+				level: match[1],
+				text: match[2],
+				path: location ? location[1] : '',
+				line: location && location[2] ? location[2] : ''
+			};
+			if (NGINX_ERROR_LEVELS[entry.level])
+				errors.push(entry);
+			else if (entry.level === 'warn')
+				warnings.push(entry);
+			else
+				notices.push(entry);
+			return;
+		}
+
+		if (/syntax is ok/.test(line) || /test is successful/.test(line))
+			sawOk = true;
+	});
+
+	return {
+		errors: errors,
+		warnings: warnings,
+		notices: notices,
+		sawOk: sawOk,
+		passed: errors.length === 0,
+		total: errors.length + warnings.length + notices.length
+	};
+}
+
+function renderTestEntries(entries) {
+	return E('ul', { 'class': 'nm-test-list' }, entries.map(function(entry) {
+		var text = entry.path ? entry.text.replace(/\s+in \/[^\s:]+(?::\d+)?$/, '') : entry.text;
+		var children = [
+			E('span', { 'class': 'nm-test-level' }, entry.level),
+			E('span', { 'class': 'nm-test-text' }, text)
+		];
+		if (entry.path) {
+			children.push(E('span', { 'class': 'nm-test-loc' },
+				entry.path + (entry.line ? ':' + entry.line : '')));
+		}
+		return E('li', {}, children);
+	}));
+}
+
+/* 把 nginx 测试输出渲染成「结论 + 计数 + 折叠明细」。
+ * 通过但带 warn 时只用 warning 外观，明细默认折叠；失败时错误直接展开。
+ * 没有可识别的日志行时返回 null，调用方保持原有纯文本展示。 */
+function testOutputPanel(output) {
+	var info = classifyTestOutput(output);
+	if (!info.sawOk && info.total === 0)
+		return null;
+
+	var severity = info.passed ? (info.warnings.length ? 'warning' : 'success') : 'danger';
+	var children = [];
+	var headline = info.passed ? _('Config test passed') : _('Config test failed');
+	var counts = [];
+
+	if (info.errors.length)
+		counts.push(_('Errors') + ' (' + info.errors.length + ')');
+	if (info.warnings.length)
+		counts.push(_('Warnings') + ' (' + info.warnings.length + ')');
+	if (info.notices.length)
+		counts.push(_('Notices') + ' (' + info.notices.length + ')');
+
+	children.push(E('strong', { 'class': 'nm-test-headline' },
+		headline + (counts.length ? ' · ' + counts.join(' · ') : '')));
+
+	if (info.passed) {
+		children.push(E('p', {}, info.warnings.length
+			? _('Nginx accepted the configuration; these warnings do not block loading.')
+			: _('No errors or warnings.')));
+	} else {
+		children.push(E('p', {}, _('Nginx rejected the configuration. Fix the errors below before reloading.')));
+	}
+
+	if (info.errors.length)
+		children.push(renderTestEntries(info.errors));
+
+	if (info.warnings.length) {
+		children.push(E('details', {}, [
+			E('summary', {}, _('Warnings') + ' (' + info.warnings.length + ')'),
+			renderTestEntries(info.warnings)
+		]));
+	}
+
+	if (info.notices.length) {
+		children.push(E('details', {}, [
+			E('summary', {}, _('Notices') + ' (' + info.notices.length + ')'),
+			renderTestEntries(info.notices)
+		]));
+	}
+
+	return E('div', {
+		'class': 'alert-message nm-test-panel ' + severity,
+		'role': info.passed ? 'status' : 'alert'
+	}, children);
+}
+
+/* 面板已经归类展示的日志行（含 "syntax is ok" 结论行）从原文剔除，
+ * 编辑器只留正文，避免同一段警告在弹窗里出现两遍。 */
+function stripTestDiagnostics(output) {
+	var rest = [];
+	String(output || '').split('\n').forEach(function(raw) {
+		var line = raw.replace(/\s+$/, '');
+		if (line.match(NGINX_TS_ENTRY_RE) || line.match(NGINX_ENTRY_RE))
+			return;
+		if (/syntax is ok/.test(line) || /test is successful/.test(line))
+			return;
+		rest.push(raw);
+	});
+	while (rest.length && !rest[0].trim())
+		rest.shift();
+	while (rest.length && !rest[rest.length - 1].trim())
+		rest.pop();
+	return rest.join('\n');
+}
+
+/* 逐字原文收进折叠：需要复制、核对时间戳或 PID 时再展开。 */
+function rawOutputDetails(output) {
+	return E('details', { 'class': 'nm-test-raw' }, [
+		E('summary', {}, _('Raw output')),
+		E('pre', {}, String(output || ''))
+	]);
+}
+
+/* 弹窗正文统一编排：结论面板置顶（诊断明细折叠），编辑器只放正文，
+ * 逐字原文折叠备查。识别不出日志行时退回纯文本编辑器。 */
+function testOutputModalBody(output) {
+	var panel = testOutputPanel(output);
+	if (!panel)
+		return [createCodeEditor(String(output || ''), 'nginx.conf', { readonly: true }).container];
+
+	var nodes = [panel];
+	var rest = stripTestDiagnostics(output);
+	if (rest)
+		nodes.push(createCodeEditor(rest, 'nginx.conf', { readonly: true }).container);
+	nodes.push(rawOutputDetails(output));
+	return nodes;
 }
 
 function isApplyNoDataError(err) {
@@ -842,6 +1004,9 @@ return baseclass.extend({
 	updateResponsiveTableSizing: updateResponsiveTableSizing,
 	loadSharedCSS: loadSharedCSS,
 	errorPanel: errorPanel,
+	classifyTestOutput: classifyTestOutput,
+	testOutputPanel: testOutputPanel,
+	testOutputModalBody: testOutputModalBody,
 	safeApply: safeApply,
 	isApplyNoDataError: isApplyNoDataError,
 	validateNameInput: validateNameInput,

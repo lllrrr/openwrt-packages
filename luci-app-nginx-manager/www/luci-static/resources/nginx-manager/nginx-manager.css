@@ -399,6 +399,14 @@ body:has(.floating-toolbar:not(.collapsed)) #maincontent #view:has(.nm-file-tool
 
 /* 外层滚动容器：表格在窄视口可横向滚动，不撑破文档 */
 .nm-table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
+/* 主题可能把 section 内的表格拉出容器（Vantage 用负侧边距把表格加宽，并带
+ * !important），滚动容器会把这截裁掉：首列内边距被吃掉，图标和文字贴着卡片
+ * 左缘，还多出一段横向滚动。容器内的表格把宽度和负边距交回容器。 */
+#maincontent .nm-table-scroll > table.table:not(.nm-table-intrinsic-width) {
+	width: 100% !important;
+	margin-left: 0 !important;
+	margin-right: 0 !important;
+}
 /* Sticky headers use the nearest scrollport as their reference. Inside this
  * horizontal scroller that offsets the header over the first data row (e.g.
  * themes that make native .th cells sticky), so keep the header in table flow. */
@@ -426,7 +434,12 @@ body:has(.floating-toolbar:not(.collapsed)) #maincontent #view:has(.nm-file-tool
 	/* Keep readable columns in themes still using a table at tablet widths.
 	 * The sizing class is omitted when the active theme already renders native
 	 * table rows as cards. */
-	.nm-table-scroll > table.table.nm-table-intrinsic-width { width: max-content; min-width: 100%; }
+	.nm-table-scroll > table.table.nm-table-intrinsic-width {
+		width: max-content !important;
+		min-width: 100%;
+		margin-left: 0 !important;
+		margin-right: 0 !important;
+	}
 }
 /* 主题 mobile.css 给 .tr 加了 margin:0 -3px，概览的键值表未套滚动容器，
  * 窄屏每行右侧多出 3px 撑出 section（V8）；插件页内收回负边距。 */
@@ -631,5 +644,63 @@ body:has(.floating-toolbar:not(.collapsed)) #maincontent #view:has(.nm-file-tool
 		width: 1%;
 		min-width: 9rem;
 		text-align: left;
+	}
+}
+
+/* === Config test output (nginx -t / -T modals) ===
+ * 结论区沿用主题原生 alert-message 外观，插件只负责明细列表排版；
+ * 级别用文字标注，不只依赖颜色。 */
+.nm-test-panel { margin-bottom: calc(var(--spacing, .25rem) * 4); }
+.nm-test-panel > p { margin: calc(var(--spacing, .25rem) * 2) 0 0; }
+.nm-test-panel > details { margin-top: calc(var(--spacing, .25rem) * 2); }
+.nm-test-list {
+	margin: calc(var(--spacing, .25rem) * 2) 0 calc(var(--spacing, .25rem) * 2);
+	padding: 0;
+	list-style: none;
+}
+.nm-test-list > li {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: .4em;
+	padding: calc(var(--spacing, .25rem) * 1) 0;
+}
+.nm-test-level {
+	flex: 0 0 auto;
+	font-family: var(--font-mono);
+	font-size: .75em;
+	letter-spacing: .04em;
+	text-transform: uppercase;
+	opacity: .85;
+}
+.nm-test-text { flex: 1 1 14em; min-width: 0; overflow-wrap: anywhere; }
+.nm-test-loc {
+	flex: 0 1 auto;
+	font-family: var(--font-mono);
+	font-size: .85em;
+	opacity: .85;
+	overflow-wrap: anywhere;
+}
+/* 逐字原文折叠：与面板里的归类明细互补，需要时展开复制 */
+.nm-test-raw { margin-top: calc(var(--spacing, .25rem) * 4); }
+.nm-test-raw > summary { cursor: pointer; }
+.nm-test-raw > pre {
+	margin: calc(var(--spacing, .25rem) * 2) 0 0;
+	overflow-x: auto;
+	white-space: pre;
+	font-family: var(--font-mono);
+	font-size: .85em;
+}
+/* 窄屏（与共享表头规则同一 600px 断点）：路径改到正文下一行，
+ * 避免三列布局在小容器里把消息挤成两行、路径又贴最右的松散感。 */
+@media (max-width: 600px) {
+	.nm-test-list > li { display: block; }
+	.nm-test-level,
+	.nm-test-text { display: inline; }
+	/* 块级化后 flex 的 gap 不再生效，标签与正文之间补回间距 */
+	.nm-test-level { margin-right: .4em; }
+	.nm-test-loc {
+		display: block;
+		margin-top: .15em;
 	}
 }

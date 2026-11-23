@@ -317,6 +317,9 @@ msgstr "Downstream router WAN IP (DNAT target). Leave empty and run Detect to au
 msgid "Select the OpenWrt logical WAN interface for DNAT rules. Leave empty to auto-detect from the default route; the underlying device is resolved automatically."
 msgstr "Select the OpenWrt logical WAN interface for DNAT rules. Leave empty to auto-detect from the default route; the underlying device is resolved automatically."
 
+msgid "Last Check"
+msgstr "Last Check"
+
 msgid "Interface Status"
 msgstr "Interface Status"
 

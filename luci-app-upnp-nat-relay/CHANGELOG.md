@@ -1,5 +1,51 @@
 # CHANGELOG
 
+## 1.3.16-18
+
+网络页的状态区以前必须手动点一次“检测”才有内容，点完又只弹一条“点击状态选项卡查看结果”的提示——结果就在按钮上方，却不会自己刷新，用户得切页签或刷新整页才看得到。
+
+### 打开页面即自动检测
+
+- 首屏先把状态项标成“检测中”，随后自动跑一次 `check-network`：缓存命中时先显示上次结果再原地刷新，没有缓存也不会停在“点击检测查看状态”。
+- 自动检测排在表单渲染之后（`Promise` 链 + 120ms）再发请求，避免和页面自身的 ubus 调用抢连接；实测手动点“检测”期间页面渲染不再被拖慢。
+- 后台检测不回填字段（`autoFill` 只在用户点“检测”时开启），否则一进页面 UCI 就变成“未保存”。
+
+### 检测完成后状态区原位刷新
+
+- 状态项改为按 key 可重算的 `statusRenderers`：每行只渲染一次外层 `span[id]`，检测返回后按 id 重绘 `innerHTML`，不用刷新页面；DOM 尚未落地时最多补刷 20 次（150ms 间隔）。
+- 自动检测与“检测”按钮共用同一条链路，同一时刻只发一次请求。
+- 新增“上次检测”一行显示 `updated_at`；检测失败时这一行直接显示原因，其余项回到“点击检测查看状态”。
+
+### 顺手修掉的快照比对缺陷
+
+`hasNetCheckData()` 原来拿缓存里的 `bind_ip` / `downstream_lan_subnet` / `upstream_wan_if` 去比“UCI 值或即时推导值”，但后端 `load_config` 会先把这些字段推导出来再写缓存，于是 UCI 留空（默认拓扑）时缓存永远对不上，状态区一直停在“点击检测查看状态”。改为只校验用户真正填过的值，未显式配置的字段不再作为失效条件。
+
+### 自动检测也要节流，不能一打开就探测
+
+- `check-network` 缓存里补 `updated_at_epoch`，`--network-cache` 读取时用路由器自己的时钟算出 `age`（秒）注入输出：浏览器与设备时区/时钟不一致也算得准；旧版本写的缓存没有 epoch，一律按过期处理（宁可重测，不显示陈旧结果）。
+- UI 侧 `age < 15` 且快照对得上当前配置 → 直接复用结果，不再发检测请求。反复打开/刷新页面、多标签页同时打开，都不会一直重复探测下游路由；手动点「检测」不受限制，永远强制重测。
+- 并发去抖：`do_check_network` 用独立锁串行化，拿不到锁说明另一次检测正在跑，等它写完缓存直接复用结果（BusyBox flock 无 `-w`，沿用 1 秒重试循环）。
+- 新增回归测试：`tests/network-cache-age.sh`（缓存 age 契约）、`tests/network-auto-detect-throttle.sh`（纯 Node 桩件跑真实 `network.js`：5s 缓存 0 次检测 / 600s 与无缓存各 1 次 / 快照失配仍检测 / 手动检测强制重测并原位刷新），已接入 `proxy-compatibility.yml`。
+
+验证：本地 LuCI 静态页（aurora/light，1280）实测——无缓存进入页面先显示“检测中”，检测返回后 10 项状态与“上次检测”时间自动出现；点“检测”只弹一条完成提示，状态区无需切页签即可看到最新结果。
+
+## 1.3.16-17
+
+修掉两处让概览页“说谎”的运行时问题。其一，OpenClash 状态只在守护进程启动时扫一次，之后永远读那份快照：设备上快照停在 `2026-11-22 14:03:15`（当时 OpenClash 恰好停止），而实际核心已运行 20 多小时，页面就一直显示 `⚠ 已安装（已停止）`。现在 `do_sync` 每轮与 `--status`（页面加载）都会重新探测 OpenClash 三字段并原位修补 `env_cache.json`，`updated_at` 仍只代表完整环境扫描时间。其二，`openclash_mode=auto` 下“入站映射无法用 lan_ac_traffic 绕过”的结论每个同步周期都 `log_warn` 一次，2 分钟一条、约 720 条/天，把 64KB 的 syslog 环形缓冲冲成了满屏相同告警；改为状态变化时才警告，其余降到 debug，OpenClash 重启会重新触发一次。
+
+### 日志梳理：持久状况只报一次
+
+上一处的修法只覆盖了 OpenClash 一条，同类的“每轮重复”还有五处，这次一并收敛。新增 `log_once` / `log_recovered` / `log_prune_cycle_keys`（状态放 `/tmp/upnp_nat_relay/log_state`）：同一状况只在签名变化时出声，恢复时补一条“已恢复”，开机后首次出现必报。
+
+- `upnpc read failed`：上游重启、WAN 抖动时每轮一条 `daemon.err`（720 条/天）。现在一个失败串只报首条，成功后补 `upnpc read recovered after N failed cycle(s)`；`status.json` 的 `failure_count` / `last_error` 照旧每轮更新，UI 不受影响。
+- `nft not found` / `upnpc not found`：依赖丢失时每轮一条 err，改为一次性，恢复后提示可用。
+- `required config missing` 与随后的“Stale rules cleared”：一次性 err + 一次性 warn，配置补回后报“sync resumed”。
+- `nft conflict` / `UCI conflict`：按 `proto_port` 建键，冲突持续时不再逐轮刷，映射不再冲突时键被回收，冲突重现会再报一次。
+- `Rejected:`（`log_rejected=1`，默认开）：同样按 `proto_port` 去重，保留“哪些映射被拒”的信息量但不再逐轮重复。
+- `failure count reached grace count`：每次清空规则后要再攒够 grace 次失败才会再次触发，改为一次性并对成功同步重新布防。
+- `Dry run mode enabled`：一次性，退出 dry-run 时补一条恢复提示。
+- 守护进程循环改为 `do_sync >/dev/null 2>&1`：procd 会把守护进程的 stdout/stderr 原样转进 syslog，nft/upnpc 失败时的原始 stderr 会叠加在自己那条消息之外、每轮重复；CLI（`--sync` 等）的 stderr 保持可见，方便手工排查。
+
 ## 1.3.15-1
 
 修复 po2lmo 缺失时静默跳过导致的空 lmo，并去掉 msgid 首尾空白，让 `_()` 的 trimws 能命中；按钮组/操作列改用主题 spacing 变量留间距，表格首列统一 `min-width:9rem`，页脚改回 `div` 并移除自身 `border-top`，避免 bootstrap 裸 `footer` 选择器再次画出横线。

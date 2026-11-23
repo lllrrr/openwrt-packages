@@ -23,9 +23,11 @@ GENERATED_CACHE_META="${CACHE_DIR}/generated_mapping_cache.v1.meta"
 NFT_APPLIED_CACHE="${CACHE_DIR}/nft_applied_fingerprint.v1.txt"
 CACHE_TTL_SECONDS=300
 LOCK_FILE="/tmp/upnp_nat_relay.lock"
+NETWORK_CHECK_LOCK_FILE="/tmp/upnp_nat_relay_check.lock"
 OPENCLASH_LOCK_FILE="/tmp/upnp_nat_relay_oc.lock"
 OPENCLASH_BACKUP="/etc/config/openclash.bak.upnp_nat_relay"
 OC_SYNC_TIMESTAMP_FILE="${CACHE_DIR}/openclash_last_sync.txt"
+LOG_STATE_DIR="${STATUS_DIR}/log_state"
 
 uci_get() {
     uci -q get "${UCI_CONFIG}.$1" 2>/dev/null
@@ -136,6 +138,68 @@ log_err() {
     log_emit error daemon.err "$1"
 }
 
+# --- repeat suppression ---------------------------------------------------
+# The daemon syncs every `interval` seconds (120s by default), and a condition
+# that persists - upstream IGD unreachable, a port that stays in conflict, an
+# uninstalled dependency - used to emit the same line on every tick. A tick
+# per line is 720 lines a day against a 64 KiB syslog ring buffer, so the log
+# view degenerated into a wall of duplicates that hid everything else.
+#
+# log_once keeps the last signature per key and only emits when it changes;
+# log_recovered drops the key when the condition clears and announces it once.
+# State lives in /tmp (cleared on reboot), so the first occurrence after a
+# boot is always reported.
+
+log_once() {
+    _lo_key="$1"
+    _lo_sig="$2"
+    _lo_level="$3"
+    _lo_msg="$4"
+    _lo_file="${LOG_STATE_DIR}/${_lo_key}"
+
+    if [ "$(cat "$_lo_file" 2>/dev/null)" = "$_lo_sig" ]; then
+        log_debug "$_lo_msg"
+        return 0
+    fi
+
+    mkdir -p "${LOG_STATE_DIR}" 2>/dev/null
+    printf '%s' "$_lo_sig" > "$_lo_file" 2>/dev/null || true
+
+    case "$_lo_level" in
+        err)  log_err "$_lo_msg" ;;
+        warn) log_warn "$_lo_msg" ;;
+        info) log_info "$_lo_msg" ;;
+        *)    log_debug "$_lo_msg" ;;
+    esac
+}
+
+log_recovered() {
+    _lr_key="$1"
+    _lr_msg="$2"
+
+    [ -f "${LOG_STATE_DIR}/${_lr_key}" ] || return 0
+    rm -f "${LOG_STATE_DIR}/${_lr_key}" 2>/dev/null
+    [ -n "$_lr_msg" ] && log_info "$_lr_msg"
+    return 0
+}
+
+# Drop the per-cycle keys (<prefix>_*) that were not hit in this cycle, so a
+# condition that disappears and later comes back is reported again.
+log_prune_cycle_keys() {
+    _lpk_prefix="$1"
+    _lpk_seen="$2"
+
+    [ -d "${LOG_STATE_DIR}" ] || return 0
+    for _lpk_file in "${LOG_STATE_DIR}/${_lpk_prefix}"_*; do
+        [ -e "$_lpk_file" ] || continue
+        case " ${_lpk_seen} " in
+            *" ${_lpk_file##*/} "*) ;;
+            *) rm -f "$_lpk_file" 2>/dev/null ;;
+        esac
+    done
+    return 0
+}
+
 json_escape() {
     printf '%s' "$1" | awk '
         BEGIN {
@@ -182,6 +246,17 @@ summarize_command_output() {
             if (!done && out != "")
                 printf "%s", out
         }'
+}
+
+# Report a failed apply/sync result. The payload is a JSON document that can
+# embed raw nft stderr - multi-line and arbitrarily large - so it never goes to
+# syslog as-is, and an identical failure on the next tick is not re-announced.
+log_result_failure() {
+    _lrf_key="$1"
+    _lrf_label="$2"
+    _lrf_payload="$3"
+    _lrf_detail="$(summarize_command_output "$_lrf_payload")"
+    log_once "$_lrf_key" "$_lrf_detail" warn "$_lrf_label${_lrf_detail:+: ${_lrf_detail}}"
 }
 
 _ja=""
@@ -402,9 +477,22 @@ openclash_is_running() {
     return 1
 }
 
+openclash_is_installed() {
+    # /etc/config/openclash is a conffile: `apk del` / `opkg remove` leaves it
+    # behind, so its presence alone says nothing about the package still being
+    # there. Requiring it made an uninstalled OpenClash report as
+    # "installed (stopped)" forever. Key off package-owned files instead
+    # (init script, rpcd ACL, LuCI controller); without the init script there
+    # is no service to manage anyway.
+    [ -x /etc/init.d/openclash ] && return 0
+    [ -f /usr/share/rpcd/acl.d/luci-app-openclash.json ] && return 0
+    [ -f /usr/lib/lua/luci/controller/openclash.lua ] && return 0
+    return 1
+}
+
 detect_openclash_status() {
     local _dos_installed=0 _dos_running=0 _dos_has_ac=0
-    if [ -f /etc/config/openclash ]; then
+    if openclash_is_installed; then
         _dos_installed=1
         if openclash_is_running; then
             _dos_running=1
@@ -414,6 +502,44 @@ detect_openclash_status() {
         fi
     fi
     printf '%d\t%d\t%d' "$_dos_installed" "$_dos_running" "$_dos_has_ac"
+}
+
+# Keep the OpenClash fields of the env cache live.
+#
+# The full env scan (do_refresh_env) only runs once when the daemon starts and
+# on an explicit "refresh env" click, so every other field is a harmless
+# snapshot of install state. OpenClash is the exception: it is started and
+# stopped at runtime, and a snapshot taken while it was down kept the overview
+# page showing "Installed (Stopped)" for as long as the daemon lived.
+# Re-detect just those fields on each sync tick; cheap (one init script probe
+# plus pidof) and it leaves the "Last Env Check" timestamp meaning what it says.
+refresh_openclash_cache() {
+    if [ ! -s "${ENV_CACHE_FILE}" ]; then
+        do_refresh_env >/dev/null 2>&1 || true
+        return 0
+    fi
+
+    _roc_data="$(detect_openclash_status)"
+    _roc_installed="$(echo "$_roc_data" | cut -f1)"
+    _roc_running="$(echo "$_roc_data" | cut -f2)"
+    _roc_has_ac="$(echo "$_roc_data" | cut -f3)"
+
+    if [ "$_roc_installed" = "1" ]; then
+        if [ "$_roc_running" = "1" ]; then
+            _roc_status="running"
+        else
+            _roc_status="installed"
+        fi
+    else
+        _roc_status="not_installed"
+    fi
+
+    sed -i \
+        -e 's/"openclash_status":"[^"]*"/"openclash_status":"'"$_roc_status"'"/' \
+        -e 's/"openclash_installed":[0-9]*/"openclash_installed":'"$_roc_installed"'/' \
+        -e 's/"openclash_running":[0-9]*/"openclash_running":'"$_roc_running"'/' \
+        -e 's/"openclash_has_access_control":[0-9]*/"openclash_has_access_control":'"$_roc_has_ac"'/' \
+        "${ENV_CACHE_FILE}" 2>/dev/null || true
 }
 
 load_config() {
@@ -1070,7 +1196,7 @@ remove_rule_caches() {
 openclash_detect() {
     _od_installed=0
     _od_running=0
-    if [ -f /etc/config/openclash ]; then
+    if openclash_is_installed; then
         _od_installed=1
         if openclash_is_running; then
             _od_running=1
@@ -1170,7 +1296,15 @@ ensure_env_cache() {
 
 read_network_cache() {
     if [ -f "${NETWORK_CACHE_FILE}" ]; then
-        cat "${NETWORK_CACHE_FILE}"
+        # 附带 age（秒）：用路由器自己的时钟算，避免浏览器与设备的时区/时钟偏差。
+        # UI 拿它判断结果够不够新、要不要再自动检测一次；旧缓存没有 epoch，按过期处理。
+        _rnc_age=999999
+        _rnc_epoch="$(jsonfilter -e '@.updated_at_epoch' < "${NETWORK_CACHE_FILE}" 2>/dev/null)"
+        if [ -n "${_rnc_epoch}" ]; then
+            _rnc_age=$(( $(date +%s) - _rnc_epoch ))
+            [ "${_rnc_age}" -lt 0 ] && _rnc_age=0
+        fi
+        sed "s/^{/{\"age\":${_rnc_age},/" "${NETWORK_CACHE_FILE}"
     else
         printf '{"cached":0,"updated_at":""}\n'
     fi
@@ -1660,6 +1794,29 @@ do_check_env() {
 do_check_network() {
     load_config
 
+    # 并发去抖：拿不到锁说明另一次检测正在跑（比如多标签页同时打开页面）。
+    # 等它写完缓存后直接复用结果，避免对下游路由重复探测。
+    ensure_dirs
+    exec 9>"${NETWORK_CHECK_LOCK_FILE}"
+    _cn_contended=0
+    if ! flock -n 9; then
+        _cn_contended=1
+        # BusyBox flock has no -w, so wait with a 1s retry loop (up to 15s).
+        _cn_wait=0
+        while ! flock -n 9; do
+            if [ "${_cn_wait}" -ge 15 ]; then
+                break
+            fi
+            sleep 1
+            _cn_wait=$((_cn_wait + 1))
+        done
+    fi
+    if [ "${_cn_contended}" -eq 1 ] && [ -s "${NETWORK_CACHE_FILE}" ]; then
+        cat "${NETWORK_CACHE_FILE}"
+        exec 9>&-
+        return 0
+    fi
+
     _cn_detected_bind_ip="$(detect_interface_ip "${cfg_bind_ifname}")"
     _cn_detected_lan_subnet="$(detect_interface_subnet "${cfg_bind_ifname}")"
     _cn_detected_lan_gateway="$(detect_interface_gateway "${cfg_bind_ifname}")"
@@ -1762,9 +1919,11 @@ do_check_network() {
     done
 
     _cn_updated_at="$(get_timestamp)"
+    _cn_updated_at_epoch="$(date +%s)"
 
-    _cn_json="$(printf '{"cached":1,"updated_at":"%s","bind_ifname":"%s","bind_ip":"%s","downstream_lan_gateway":"%s","downstream_lan_subnet":"%s","downstream_wan_ip":"%s","upstream_wan_if":"%s","detected_bind_ip":"%s","detected_downstream_lan_subnet":"%s","detected_downstream_lan_gateway":"%s","detected_downstream_wan_ip":"%s","detected_upstream_wan_if":"%s","iface_exists":%d,"bind_ip_configured":%d,"gateway_reachable":%d,"upnpc_readable":%d,"upnpc_mapping_count":%d,"wan_ip_reachable":%d,"upstream_wan_exists":%d,"default_route_on_bind":%d,"bad_forwarding":%d,"gateway_set":%d,"gateway_value":"%s","dns_set":%d,"dns_value":"%s","zone_name":"%s","zone_exists":%d,"zone_input":"%s","zone_output":"%s","zone_forward":"%s","zone_masq":"%s"}\n' \
+    _cn_json="$(printf '{"cached":1,"updated_at":"%s","updated_at_epoch":%s,"bind_ifname":"%s","bind_ip":"%s","downstream_lan_gateway":"%s","downstream_lan_subnet":"%s","downstream_wan_ip":"%s","upstream_wan_if":"%s","detected_bind_ip":"%s","detected_downstream_lan_subnet":"%s","detected_downstream_lan_gateway":"%s","detected_downstream_wan_ip":"%s","detected_upstream_wan_if":"%s","iface_exists":%d,"bind_ip_configured":%d,"gateway_reachable":%d,"upnpc_readable":%d,"upnpc_mapping_count":%d,"wan_ip_reachable":%d,"upstream_wan_exists":%d,"default_route_on_bind":%d,"bad_forwarding":%d,"gateway_set":%d,"gateway_value":"%s","dns_set":%d,"dns_value":"%s","zone_name":"%s","zone_exists":%d,"zone_input":"%s","zone_output":"%s","zone_forward":"%s","zone_masq":"%s"}\n' \
         "$(json_escape "$_cn_updated_at")" \
+        "${_cn_updated_at_epoch}" \
         "$(json_escape "${cfg_bind_ifname}")" \
         "$(json_escape "${cfg_bind_ip}")" \
         "$(json_escape "${cfg_downstream_lan_gateway}")" \
@@ -1798,6 +1957,7 @@ do_check_network() {
 
     ensure_dirs
     printf '%s' "$_cn_json" > "${NETWORK_CACHE_FILE}"
+    exec 9>&-
     printf '%s' "$_cn_json"
 }
 
@@ -1806,17 +1966,20 @@ do_sync() {
     load_config
     ensure_dirs
 
+    refresh_openclash_cache
+
     if [ "$_s_clear_cache" = "1" ]; then
         remove_rule_caches
     fi
 
     exec 9>"${LOCK_FILE}"
     if ! flock -n 9; then
-        log_warn "Another sync process is running, skipping"
+        log_once sync_locked busy warn "Another sync process is running, skipping"
         printf '{"success":false,"error":"another_sync_running"}\n'
         exec 9>&-
         return 1
     fi
+    log_recovered sync_locked ""
 
     if [ -z "${cfg_bind_ip}" ] || [ -z "${cfg_downstream_wan_ip}" ] || [ -z "${cfg_upstream_wan_if}" ]; then
         _s_missing=""
@@ -1824,7 +1987,7 @@ do_sync() {
         [ -z "${cfg_downstream_wan_ip}" ] && _s_missing="${_s_missing} downstream_wan_ip"
         [ -z "${cfg_upstream_wan_if}" ] && _s_missing="${_s_missing} upstream_wan_if"
         _s_missing="$(echo "$_s_missing" | sed 's/^ //')"
-        log_err "Sync failed: required config missing: ${_s_missing}"
+        log_once missing_config "${_s_missing}" err "Sync failed: required config missing: ${_s_missing}"
         if [ "${cfg_dry_run}" != "1" ]; then
             # Required config is gone: do not leave DNAT / OpenClash return
             # rules behind, or they keep forwarding to a stale target.
@@ -1832,7 +1995,7 @@ do_sync() {
             rm -f "${NFT_APPLIED_CACHE}" 2>/dev/null
             update_nft_cache_status "not_present" >/dev/null 2>&1
             openclash_remove_per_mapping_rules >/dev/null 2>&1
-            log_warn "Stale rules cleared because required config is missing"
+            log_once stale_rules_cleared "${_s_missing}" warn "Stale rules cleared because required config is missing"
         fi
         _s_missing_running="false"
         is_daemon_running && _s_missing_running="true"
@@ -1841,6 +2004,8 @@ do_sync() {
         exec 9>&-
         return 1
     fi
+    log_recovered missing_config "Required config is back; sync resumed"
+    log_recovered stale_rules_cleared ""
 
     _s_parsed_file="${STATUS_DIR}/_sync_parsed.tmp"
     _s_accept_file="${STATUS_DIR}/_sync_accept.tmp"
@@ -1872,19 +2037,21 @@ do_sync() {
 
     if ! command -v nft >/dev/null 2>&1; then
         _s_last_error="nft not found"
-        log_err "Sync failed: nft not found"
+        log_once dep_nft missing err "Sync failed: nft not found"
         write_status "$_s_daemon_running" "$_s_timestamp" "failed" "${cfg_backend}" 0 0 0 "$_s_failure_count" "" "" "$_s_last_error"
         printf '{"success":false,"error":"%s"}\n' "$_s_last_error"
         _sync_cleanup; trap - EXIT; return 1
     fi
+    log_recovered dep_nft "nft is available again; sync resumed"
 
     if ! command -v upnpc >/dev/null 2>&1; then
         _s_last_error="upnpc not found"
-        log_err "Sync failed: upnpc not found"
+        log_once dep_upnpc missing err "Sync failed: upnpc not found"
         write_status "$_s_daemon_running" "$_s_timestamp" "failed" "${cfg_backend}" 0 0 0 "$_s_failure_count" "" "" "$_s_last_error"
         printf '{"success":false,"error":"%s"}\n' "$_s_last_error"
         _sync_cleanup; trap - EXIT; return 1
     fi
+    log_recovered dep_upnpc "upnpc is available again; sync resumed"
 
     _s_upnpc_output="$(timeout "${cfg_backend_timeout}" upnpc -m "${cfg_bind_ip}" -l 2>&1)"
     _s_upnpc_ret=$?
@@ -1895,12 +2062,14 @@ do_sync() {
             _s_upnpc_detail="timeout after ${cfg_backend_timeout}s"
         fi
         [ -n "$_s_upnpc_detail" ] && _s_last_error="${_s_last_error}: ${_s_upnpc_detail}"
-        log_err "Sync failed: $_s_last_error"
+        # Upstream down / IGD unreachable is normal churn, not a new fault:
+        # report the first failure of a streak, then stay quiet while it lasts.
+        log_once upnpc_read "exit:${_s_upnpc_ret}" err "Sync failed: $_s_last_error"
 
         _s_failure_count=$((_s_failure_count + 1))
 
         if [ "${cfg_failure_grace_count}" -gt 0 ] && [ "$_s_failure_count" -ge "${cfg_failure_grace_count}" ]; then
-            log_warn "Failure count (${_s_failure_count}) reached grace count (${cfg_failure_grace_count}), clearing rules"
+            log_once grace_cleared cleared warn "Failure count (${_s_failure_count}) reached grace count (${cfg_failure_grace_count}), clearing rules"
             nft_flush_chain
             _s_failure_count=0
         fi
@@ -1910,6 +2079,11 @@ do_sync() {
         _sync_cleanup; trap - EXIT; return 1
     fi
 
+    _s_recovered_msg="upnpc read recovered"
+    [ "${_s_failure_count}" -gt 0 ] && _s_recovered_msg="upnpc read recovered after ${_s_failure_count} failed cycle(s)"
+    log_recovered upnpc_read "${_s_recovered_msg}"
+    log_recovered grace_cleared ""
+
     parse_upnpc_to_file "$_s_upnpc_output" "$_s_parsed_file"
 
     _s_ruleset="$(nft list ruleset 2>/dev/null)"
@@ -1917,6 +2091,8 @@ do_sync() {
     _s_read_count=0
     _s_accepted_count=0
     _s_rejected_count=0
+    _s_conflict_keys=""
+    _s_reject_keys=""
 
     while IFS='|' read -r _s_type _s_data1 _s_data2 _s_data3 _s_data4 _s_data5 _s_data6; do
         if [ "$_s_type" = "PARSE_ERROR" ]; then
@@ -1945,7 +2121,10 @@ do_sync() {
         if [ "$_s_action" = "accept" ]; then
             _s_conflict="$(check_port_conflict_single "$_s_proto" "$_s_ext_port" "$_s_ruleset")"
             if [ -n "$_s_conflict" ]; then
-                log_info "nft conflict: ${_s_proto} ${_s_ext_port} -> ${_s_int_ip}:${_s_int_port}, source=${_s_conflict}"
+                _s_conflict_key="conflict_$(printf '%s_%s' "$_s_proto" "$_s_ext_port" | tr 'A-Z' 'a-z')"
+                _s_conflict_keys="${_s_conflict_keys} ${_s_conflict_key}"
+                log_once "$_s_conflict_key" "source=${_s_conflict}" info \
+                    "nft conflict: ${_s_proto} ${_s_ext_port} -> ${_s_int_ip}:${_s_int_port}, source=${_s_conflict}"
                 _s_action="reject"
                 _s_reason="port_conflict:${_s_conflict}"
             fi
@@ -1954,7 +2133,10 @@ do_sync() {
         if [ "$_s_action" = "accept" ]; then
             _s_uci_conflict="$(check_uci_redirect_conflict "$_s_proto" "$_s_ext_port")"
             if [ -n "$_s_uci_conflict" ]; then
-                log_info "UCI conflict: ${_s_proto} ${_s_ext_port} -> ${_s_int_ip}:${_s_int_port}, source=${_s_uci_conflict}"
+                _s_conflict_key="conflict_$(printf '%s_%s' "$_s_proto" "$_s_ext_port" | tr 'A-Z' 'a-z')"
+                _s_conflict_keys="${_s_conflict_keys} ${_s_conflict_key}"
+                log_once "$_s_conflict_key" "source=${_s_uci_conflict}" info \
+                    "UCI conflict: ${_s_proto} ${_s_ext_port} -> ${_s_int_ip}:${_s_int_port}, source=${_s_uci_conflict}"
                 _s_action="reject"
                 _s_reason="port_conflict:${_s_uci_conflict}"
             fi
@@ -1967,10 +2149,17 @@ do_sync() {
             _s_rejected_count=$((_s_rejected_count + 1))
             printf 'REJECT|%s|%s|%s|%s|%s|%s\n' "$_s_proto" "$_s_ext_port" "$_s_int_ip" "$_s_int_port" "$_s_desc" "$_s_reason" >> "$_s_reject_file"
             if [ "${cfg_log_rejected}" = "1" ]; then
-                log_info "Rejected: ${_s_proto} ${_s_ext_port} -> ${_s_int_ip}:${_s_int_port} (${_s_reason})"
+                _s_reject_key="reject_$(printf '%s_%s' "$_s_proto" "$_s_ext_port" | tr 'A-Z' 'a-z')"
+                _s_reject_keys="${_s_reject_keys} ${_s_reject_key}"
+                log_once "$_s_reject_key" "${_s_reason}" info \
+                    "Rejected: ${_s_proto} ${_s_ext_port} -> ${_s_int_ip}:${_s_int_port} (${_s_reason})"
             fi
         fi
     done < "$_s_parsed_file"
+
+    # Per-mapping keys only live as long as the mapping keeps being rejected.
+    log_prune_cycle_keys conflict "${_s_conflict_keys}"
+    log_prune_cycle_keys reject "${_s_reject_keys}"
 
     ja_reset
     if [ -f "$_s_accept_file" ]; then
@@ -2006,7 +2195,7 @@ do_sync() {
     write_generated_mapping_cache "$_s_accept_file" "$_s_reject_file"
 
     if [ "${cfg_dry_run}" = "1" ]; then
-        log_info "Dry run mode enabled, skipping nft rule creation"
+        log_once dry_run on info "Dry run mode enabled, skipping nft rule creation"
         _s_failure_count=0
         write_status "$_s_daemon_running" "$_s_timestamp" "success(dry_run)" "${cfg_backend}" "$_s_read_count" "$_s_accepted_count" "$_s_rejected_count" "$_s_failure_count" "$_s_accepted_json" "$_s_rejected_json" ""
         printf '{"success":true,"dry_run":true,"timestamp":"%s","backend":"%s","read_count":%d,"accepted_count":%d,"rejected_count":%d,"accepted":[%s],"rejected":[%s]}\n' \
@@ -2019,6 +2208,7 @@ do_sync() {
             "$_s_rejected_json"
         _sync_cleanup; trap - EXIT; return 0
     fi
+    log_recovered dry_run "Dry run mode disabled; nft rules are applied again"
 
     _s_nft_fail=0
     _s_nft_action="updated"
@@ -2035,23 +2225,27 @@ do_sync() {
     else
         if ! nft_ensure_table; then
             _s_last_error="Failed to ensure nft table"
-            log_err "Sync failed: $_s_last_error"
+            # A table that cannot be ensured stays broken across ticks; report
+            # the first failure of the streak rather than one line per interval.
+            log_once nft_table "ensure-failed" err "Sync failed: $_s_last_error"
             write_status "$_s_daemon_running" "$_s_timestamp" "failed" "${cfg_backend}" "$_s_read_count" "$_s_accepted_count" "$_s_rejected_count" 0 "" "" "$_s_last_error"
             printf '{"success":false,"error":"%s"}\n' "$_s_last_error"
             _sync_cleanup; trap - EXIT; return 1
         fi
+        log_recovered nft_table "nft table is available again; sync resumed"
 
         _s_nft_added="$(nft_replace_dnat_rules "$_s_accept_file" "${cfg_downstream_wan_ip}" "${cfg_upstream_wan_if}")" || {
             _s_nft_fail=1
             _s_last_error="nft_rule_batch_failed: previous_rules_preserved"
-            log_warn "Atomic DNAT update failed; existing rules remain active"
+            log_once nft_rule_batch "batch-failed" warn "Atomic DNAT update failed; existing rules remain active"
         }
 
         if [ "$_s_nft_fail" -eq 0 ]; then
             printf '%s' "$_s_accept_fingerprint" 2>/dev/null > "${NFT_APPLIED_CACHE}" || true
             log_info "DNAT rules replaced atomically: ${_s_nft_added} rules active"
+            log_recovered nft_rule_batch ""
         else
-            log_warn "DNAT fingerprint cache retained so the next sync retries the atomic update"
+            log_once nft_rule_cache "cache-retained" warn "DNAT fingerprint cache retained so the next sync retries the atomic update"
         fi
     fi
 
@@ -2059,7 +2253,15 @@ do_sync() {
     if [ "${cfg_openclash_mode}" = "auto" ]; then
         _s_oc_result="$(openclash_inbound_bypass_unsupported)"
         _s_oc_action="unsupported"
-        log_warn "OpenClash auto bypass is unsupported for inbound relay mappings; no lan_ac_traffic rule was written"
+        # This verdict is structural (an inbound DNAT mapping cannot be
+        # expressed as a lan_ac_traffic rule), so it holds on every sync
+        # forever. Report it once per OpenClash run state so a restart of the
+        # core re-arms the message, and stay quiet in between.
+        _s_oc_state="running:$(detect_openclash_status | cut -f2)"
+        log_once openclash_bypass "${_s_oc_state}" warn \
+            "OpenClash auto bypass is unsupported for inbound relay mappings; no lan_ac_traffic rule was written"
+    else
+        log_recovered openclash_bypass ""
     fi
 
     _s_failure_count=0
@@ -2328,6 +2530,9 @@ do_full_status() {
     fi
 
     ensure_env_cache
+    # The page reads the cached snapshot; probe OpenClash live so the badge
+    # reflects the current state instead of whatever it was at the last sync.
+    refresh_openclash_cache
     _dfs_env="$(read_env_cache)"
     _dfs_env_inner="$(printf '%s' "$_dfs_env" | sed 's/^{//;s/}$//')"
     [ -z "$_dfs_env_inner" ] && _dfs_env_inner='"nft_table_status":"-","openclash_status":"-","version":"unknown","updated_at":""'
@@ -2630,8 +2835,9 @@ do_setup_openclash() {
         _so_success="$(echo "$_so_result" | sed -n 's/.*"success":\([a-z]*\).*/\1/p')"
         if [ "$_so_success" = "true" ]; then
             log_info "OpenClash per-mapping RETURN rules applied"
+            log_recovered openclash_per_mapping ""
         else
-            log_warn "OpenClash per-mapping RETURN rules failed: $_so_result"
+            log_result_failure openclash_per_mapping "OpenClash per-mapping RETURN rules failed" "$_so_result"
         fi
     else
         _so_result="$(openclash_apply)"
@@ -2640,8 +2846,9 @@ do_setup_openclash() {
         _so_success="$(echo "$_so_result" | sed -n 's/.*"success":\([a-z]*\).*/\1/p')"
         if [ "$_so_success" = "true" ]; then
             log_info "OpenClash RETURN rule applied"
+            log_recovered openclash_return ""
         else
-            log_warn "OpenClash RETURN rule failed: $_so_result"
+            log_result_failure openclash_return "OpenClash RETURN rule failed" "$_so_result"
         fi
     fi
 
@@ -2803,6 +3010,7 @@ do_sync_openclash() {
     if [ "$_dsoc_success" = "true" ]; then
         openclash_record_sync_time
         log_info "OpenClash standalone sync completed"
+        log_recovered openclash_standalone ""
         # Update suggestion cache after sync
         if [ "${cfg_openclash_return_strategy}" = "per_mapping" ] && [ -f "${GENERATED_ACCEPT_CACHE}" ]; then
             _dsoc_suggestion="$(openclash_generate_per_mapping_rules "${GENERATED_ACCEPT_CACHE}")"
@@ -2811,7 +3019,7 @@ do_sync_openclash() {
         fi
         openclash_write_suggestion_cache "$_dsoc_suggestion"
     else
-        log_warn "OpenClash standalone sync failed: $_dsoc_result"
+        log_result_failure openclash_standalone "OpenClash standalone sync failed" "$_dsoc_result"
     fi
 
     printf '%s\n' "$_dsoc_result"
@@ -2901,7 +3109,11 @@ do_daemon() {
     log_info "Daemon started (interval=${cfg_interval}s, backend=${cfg_backend})"
 
     while true; do
-        do_sync >/dev/null
+        # procd mirrors the daemon's stdout/stderr straight into syslog, and
+        # do_sync already reports every outcome through log_*(). Without this
+        # redirect, a failing nft/upnpc call would dump its raw stderr into
+        # the log on top of the message we produce, once per interval.
+        do_sync >/dev/null 2>&1
         # Re-check enabled after sync (do_sync calls load_config which updates cfg_enabled)
         if [ "${cfg_enabled}" = "0" ] || [ "${cfg_enabled}" = "false" ]; then
             log_info "Daemon detected enabled=0, stopping service"
@@ -2956,6 +3168,9 @@ do_clear_log() {
     fi
 
     "$_cl_logread" -z 2>/dev/null || /etc/init.d/log restart >/dev/null 2>&1 || true
+    # Clearing the log also re-arms every suppressed repeat: the next
+    # occurrence of a persistent condition must show up in the fresh view.
+    rm -rf "${LOG_STATE_DIR}" 2>/dev/null || true
     printf '{"success":true}\n'
 }
 

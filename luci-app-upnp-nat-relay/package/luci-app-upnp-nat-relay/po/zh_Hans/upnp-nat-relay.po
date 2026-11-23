@@ -326,6 +326,9 @@ msgstr "下游路由器 WAN IP（DNAT 目标）。留空后运行检测，可在
 msgid "Select the OpenWrt logical WAN interface for DNAT rules. Leave empty to auto-detect from the default route; the underlying device is resolved automatically."
 msgstr "选择用于 DNAT 规则的 OpenWrt 逻辑 WAN 接口。留空将从默认路由自动检测；底层设备会自动解析。"
 
+msgid "Last Check"
+msgstr "上次检测"
+
 msgid "Interface Status"
 msgstr "接口状态"
 

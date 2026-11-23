@@ -341,141 +341,337 @@ return view.extend({
 		o.depends('show_advanced_config', '1');
 
 		var netCheckData = data ? data.network : null;
+		var detecting = false;
+		var detectError = '';
+		var detectPromise = null;
+
+		var STATUS_ID_PREFIX = 'ubr-net-status-';
+
+		var escapeHtml = function(value) {
+			return String(value == null ? '' : value)
+				.replace(/&/g, '&amp;')
+				.replace(/</g, '&lt;')
+				.replace(/>/g, '&gt;');
+		};
+
+		/* 后端会自动推导未显式配置的字段（bind_ip、subnet、gateway、WAN、upstream）。
+		 * 比对快照时只看用户真正填过的值：否则自动推导出来的结果永远和缓存对不上，
+		 * 状态区就会一直停在“点击检测查看状态”。 */
+		var matchConfigured = function(cached, configured) {
+			configured = configured || '';
+			return !configured || (cached || '') === configured;
+		};
+
 		var hasNetCheckData = function() {
 			if (!netCheckData || netCheckData.cached !== 1)
 				return false;
-			var bindIfname = uci.get('upnp_nat_relay', 'main', 'bind_ifname') || '';
-			var bindIp = uci.get('upnp_nat_relay', 'main', 'bind_ip') || getDeviceIPv4(bindIfname);
-			var lanSubnet = uci.get('upnp_nat_relay', 'main', 'downstream_lan_subnet') || getDeviceSubnet(bindIfname);
-			return (netCheckData.bind_ifname || '') === bindIfname &&
-				(netCheckData.bind_ip || '') === (bindIp || '') &&
-				(netCheckData.downstream_lan_gateway || '') === (uci.get('upnp_nat_relay', 'main', 'downstream_lan_gateway') || '') &&
-				(netCheckData.downstream_lan_subnet || '') === (lanSubnet || '') &&
-				(netCheckData.downstream_wan_ip || '') === (uci.get('upnp_nat_relay', 'main', 'downstream_wan_ip') || '') &&
-				(netCheckData.upstream_wan_if || '') === (uci.get('upnp_nat_relay', 'main', 'upstream_wan_if') || '') &&
-				(netCheckData.zone_name || '') === (uci.get('upnp_nat_relay', 'main', 'firewall_zone_name') || 'upnp_nat');
+			var cfg = function(option) {
+				return uci.get('upnp_nat_relay', 'main', option);
+			};
+			return (netCheckData.bind_ifname || '') === (cfg('bind_ifname') || '') &&
+				matchConfigured(netCheckData.bind_ip, cfg('bind_ip')) &&
+				matchConfigured(netCheckData.downstream_lan_gateway, cfg('downstream_lan_gateway')) &&
+				matchConfigured(netCheckData.downstream_lan_subnet, cfg('downstream_lan_subnet')) &&
+				matchConfigured(netCheckData.downstream_wan_ip, cfg('downstream_wan_ip')) &&
+				matchConfigured(netCheckData.upstream_wan_if, cfg('upstream_wan_if')) &&
+				(netCheckData.zone_name || '') === (cfg('firewall_zone_name') || 'upnp_nat');
+		};
+
+		var flagOn = function(value) {
+			return value === 1 || value === '1' || value === 'ok' || value === true;
+		};
+
+		/* 结果在多少秒内算“够新”：够新就不再自动检测，反复打开页面、多标签页
+		 * 都直接复用刚测过的结果。手动点「检测」不受这个限制，永远强制重测。 */
+		var AUTO_DETECT_MAX_AGE = 15;
+		var autoDetectIsFresh = function() {
+			if (!hasNetCheckData())
+				return false;
+			var age = netCheckData.age;
+			return typeof age === 'number' && age >= 0 && age < AUTO_DETECT_MAX_AGE;
+		};
+
+		var pendingStatus = function() {
+			if (detecting)
+				return '<span>&#8987; ' + _('Detecting...') + '</span>';
+			return '<span>' + _('Click "Detect" to check status.') + '</span>';
+		};
+
+		/* 每个状态项都是一段可重算的 HTML：首屏渲染一次，检测返回后按 key 原位重绘，
+		 * 不用刷新整页就能看到最新结果。 */
+		var statusRenderers = {
+			last_check: function() {
+				if (detecting)
+					return '<span>&#8987; ' + _('Detecting...') + '</span>';
+				if (detectError)
+					return '<span>' + _('Detection failed:') + ' ' + escapeHtml(detectError) + '</span>';
+				if (hasNetCheckData() && netCheckData.updated_at)
+					return '<span>' + escapeHtml(netCheckData.updated_at) + '</span>';
+				return pendingStatus();
+			},
+
+			if_status: function() {
+				if (!hasNetCheckData())
+					return pendingStatus();
+				return flagOn(netCheckData.iface_exists)
+					? '<span>&#10004; ' + _('Interface exists') + '</span>'
+					: '<span>&#10008; ' + _('Interface not found') + '</span>';
+			},
+
+			ip_status: function() {
+				if (!hasNetCheckData())
+					return pendingStatus();
+				return flagOn(netCheckData.bind_ip_configured)
+					? '<span>&#10004; ' + _('IP configured') + '</span>'
+					: '<span>&#10008; ' + _('IP not configured') + '</span>';
+			},
+
+			gateway_reachable: function() {
+				if (!hasNetCheckData())
+					return pendingStatus();
+				return flagOn(netCheckData.gateway_reachable)
+					? '<span>&#10004; ' + _('Reachable') + '</span>'
+					: '<span>&#10008; ' + _('Unreachable') + '</span>';
+			},
+
+			upnpc_readable: function() {
+				if (!hasNetCheckData())
+					return pendingStatus();
+				return flagOn(netCheckData.upnpc_readable)
+					? '<span>&#10004; ' + _('Readable') + '</span>'
+					: '<span>&#10008; ' + _('Failed') + '</span>';
+			},
+
+			wan_ip_reachable: function() {
+				if (!hasNetCheckData())
+					return pendingStatus();
+				return flagOn(netCheckData.wan_ip_reachable)
+					? '<span>&#10004; ' + _('Reachable') + '</span>'
+					: '<span>&#10008; ' + _('Unreachable') + '</span>';
+			},
+
+			upstream_wan: function() {
+				if (!hasNetCheckData())
+					return pendingStatus();
+				return flagOn(netCheckData.upstream_wan_exists)
+					? '<span>&#10004; ' + _('Exists') + '</span>'
+					: '<span>&#10008; ' + _('Not found') + '</span>';
+			},
+
+			default_route: function() {
+				if (!hasNetCheckData())
+					return pendingStatus();
+				if (flagOn(netCheckData.default_route_on_bind)) {
+					return '<span>&#9888; ' + _('Default route points to read interface!') + '</span>' +
+						'<p>' + _('The read interface should NOT be a default gateway.') + '</p>';
+				}
+				return '<span>&#10004; ' + _('No default route risk') + '</span>';
+			},
+
+			gateway_set: function() {
+				if (!hasNetCheckData())
+					return pendingStatus();
+				if (flagOn(netCheckData.gateway_set)) {
+					return '<span>&#9888; ' + _('Gateway is set: %s').format(netCheckData.gateway_value || '-') + '</span>' +
+						'<p>' + _('The read interface should not have a gateway configured.') + '</p>';
+				}
+				return '<span>&#10004; ' + _('No gateway set') + '</span>';
+			},
+
+			dns_set: function() {
+				if (!hasNetCheckData())
+					return pendingStatus();
+				if (flagOn(netCheckData.dns_set))
+					return '<span>&#9888; ' + _('DNS is set: %s').format(netCheckData.dns_value || '-') + '</span>';
+				return '<span>&#10004; ' + _('No DNS set') + '</span>';
+			},
+
+			forwarding: function() {
+				if (!hasNetCheckData())
+					return pendingStatus();
+				if (flagOn(netCheckData.bad_forwarding))
+					return '<span>&#9888; ' + _('Unnecessary forwarding detected') + '</span>';
+				return '<span>&#10004; ' + _('No extra forwarding') + '</span>';
+			},
+
+			zone_name: function() {
+				var zoneName = uci.get('upnp_nat_relay', 'main', 'firewall_zone_name') || 'upnp_nat';
+				if (!hasNetCheckData())
+					return pendingStatus();
+				if (flagOn(netCheckData.zone_exists))
+					return '<span>&#10004; ' + escapeHtml(netCheckData.zone_name || zoneName) + '</span>';
+				return '<span>&#10008; ' + escapeHtml(zoneName) + ' (' + _('Zone not found') + ')</span>';
+			},
+
+			zone_input: function() {
+				if (!hasNetCheckData())
+					return pendingStatus();
+				if (!flagOn(netCheckData.zone_exists))
+					return '<span>' + _('Zone not found') + '</span>';
+				var input = escapeHtml(netCheckData.zone_input || '-');
+				if (netCheckData.zone_input === 'ACCEPT')
+					return '<span>' + input + '</span>';
+				return '<span>' + input + ' ' + _('(should be ACCEPT)') + '</span>';
+			},
+
+			zone_output: function() {
+				if (!hasNetCheckData())
+					return pendingStatus();
+				if (!flagOn(netCheckData.zone_exists))
+					return '<span>' + _('Zone not found') + '</span>';
+				var output = escapeHtml(netCheckData.zone_output || '-');
+				if (netCheckData.zone_output === 'ACCEPT')
+					return '<span>' + output + '</span>';
+				return '<span>' + output + ' ' + _('(should be ACCEPT)') + '</span>';
+			},
+
+			zone_forward: function() {
+				if (!hasNetCheckData())
+					return pendingStatus();
+				if (!flagOn(netCheckData.zone_exists))
+					return '<span>' + _('Zone not found') + '</span>';
+				var forward = escapeHtml(netCheckData.zone_forward || '-');
+				if (netCheckData.zone_forward === 'REJECT')
+					return '<span>' + forward + '</span>';
+				return '<span>' + forward + ' ' + _('(should be REJECT)') + '</span>';
+			},
+
+			zone_masq: function() {
+				if (!hasNetCheckData())
+					return pendingStatus();
+				if (!flagOn(netCheckData.zone_exists))
+					return '<span>' + _('Zone not found') + '</span>';
+				if ((netCheckData.zone_masq || '0') === '0')
+					return '<span>' + _('Disabled') + '</span>';
+				return '<span>' + _('Enabled (should be Disabled)') + '</span>';
+			}
+		};
+
+		var statusField = function(key) {
+			return '<span id="' + STATUS_ID_PREFIX + key + '">' + statusRenderers[key]() + '</span>';
+		};
+
+		var statusRefreshAttempts = 0;
+		var refreshStatusDom = function() {
+			var missing = 0;
+			for (var key in statusRenderers) {
+				if (!statusRenderers.hasOwnProperty(key))
+					continue;
+				var node = document.getElementById(STATUS_ID_PREFIX + key);
+				if (node)
+					node.innerHTML = statusRenderers[key]();
+				else
+					missing++;
+			}
+			/* 自动检测可能在表单 DOM 落地之前就返回，元素还没进页面时补一次重绘。 */
+			if (missing > 0 && statusRefreshAttempts < 20) {
+				statusRefreshAttempts++;
+				window.setTimeout(refreshStatusDom, 150);
+			}
+		};
+
+		/* 页面加载自动跑、点“检测”也走这里：同一时刻只发一次请求，
+		 * 返回后统一重绘状态区。autoFill 只在用户主动点击时开启，
+		 * 免得后台检测就悄悄把表单改成“未保存”状态。 */
+		var startDetection = function(options) {
+			options = options || {};
+			/* 自动检测还没回来时点了“检测”：等它结束后再跑一轮，保证回填生效。 */
+			if (detectPromise && options.autoFill) {
+				return detectPromise.catch(function() {}).then(function() {
+					return startDetection(options);
+				});
+			}
+			if (detectPromise)
+				return detectPromise;
+
+			detecting = true;
+			detectError = '';
+			refreshStatusDom();
+
+			detectPromise = utils.rpcWithRetry(callCheckNetwork, { retries: 2 }).then(function(result) {
+				netCheckData = result || null;
+				detecting = false;
+				detectPromise = null;
+				statusRefreshAttempts = 0;
+				var filled = options.autoFill ? applyDetectedSuggestions(result) : 0;
+				refreshStatusDom();
+				return { filled: filled, result: result };
+			}).catch(function(e) {
+				detecting = false;
+				detectPromise = null;
+				statusRefreshAttempts = 0;
+				detectError = utils.getErrorMessage(e) || String(e);
+				refreshStatusDom();
+				throw e;
+			});
+
+			return detectPromise;
+		};
+
+		o = s.taboption('status', form.DummyValue, '_last_check', _('Last Check'));
+		o.rawhtml = true;
+		o.cfgvalue = function() {
+			return statusField('last_check');
 		};
 
 		o = s.taboption('status', form.DummyValue, '_if_status', _('Interface Status'));
 		o.rawhtml = true;
 		o.cfgvalue = function() {
-			if (hasNetCheckData() && netCheckData.iface_exists === 1) {
-				return '<span>&#10004; ' + _('Interface exists') + '</span>';
-			}
-			if (hasNetCheckData()) {
-				return '<span>&#10008; ' + _('Interface not found') + '</span>';
-			}
-			return '<span>' + _('Click "Detect" to check status.') + '</span>';
+			return statusField('if_status');
 		};
 
 		o = s.taboption('status', form.DummyValue, '_ip_status', _('IP Status'));
 		o.rawhtml = true;
 		o.cfgvalue = function() {
-			if (hasNetCheckData() && netCheckData.bind_ip_configured === 1) {
-				return '<span>&#10004; ' + _('IP configured') + '</span>';
-			}
-			if (hasNetCheckData()) {
-				return '<span>&#10008; ' + _('IP not configured') + '</span>';
-			}
-			return '<span>' + _('Click "Detect" to check status.') + '</span>';
+			return statusField('ip_status');
 		};
 
 		o = s.taboption('status', form.DummyValue, '_gateway_reachable', _('Downstream LAN Gateway'));
 		o.rawhtml = true;
 		o.cfgvalue = function() {
-			if (!hasNetCheckData()) {
-				return '<span>' + _('Click "Detect" to check status.') + '</span>';
-			}
-			if (netCheckData.gateway_reachable === 1 || netCheckData.gateway_reachable === 'ok' || netCheckData.gateway_reachable === true) {
-				return '<span>&#10004; ' + _('Reachable') + '</span>';
-			}
-			return '<span>&#10008; ' + _('Unreachable') + '</span>';
+			return statusField('gateway_reachable');
 		};
 
 		o = s.taboption('status', form.DummyValue, '_upnpc_readable', _('UPnP IGD Read'));
 		o.rawhtml = true;
 		o.cfgvalue = function() {
-			if (!hasNetCheckData()) {
-				return '<span>' + _('Click "Detect" to check status.') + '</span>';
-			}
-			if (netCheckData.upnpc_readable === 1 || netCheckData.upnpc_readable === 'ok' || netCheckData.upnpc_readable === true) {
-				return '<span>&#10004; ' + _('Readable') + '</span>';
-			}
-			return '<span>&#10008; ' + _('Failed') + '</span>';
+			return statusField('upnpc_readable');
 		};
 
 		o = s.taboption('status', form.DummyValue, '_wan_ip_reachable', _('Downstream WAN IP'));
 		o.rawhtml = true;
 		o.cfgvalue = function() {
-			if (!hasNetCheckData()) {
-				return '<span>' + _('Click "Detect" to check status.') + '</span>';
-			}
-			if (netCheckData.wan_ip_reachable === 1 || netCheckData.wan_ip_reachable === 'ok' || netCheckData.wan_ip_reachable === true) {
-				return '<span>&#10004; ' + _('Reachable') + '</span>';
-			}
-			return '<span>&#10008; ' + _('Unreachable') + '</span>';
+			return statusField('wan_ip_reachable');
 		};
 
 		o = s.taboption('status', form.DummyValue, '_upstream_wan', _('Upstream WAN Interface'));
 		o.rawhtml = true;
 		o.cfgvalue = function() {
-			if (!hasNetCheckData()) {
-				return '<span>' + _('Click "Detect" to check status.') + '</span>';
-			}
-			if (netCheckData.upstream_wan_exists === 1 || netCheckData.upstream_wan_exists === 'ok' || netCheckData.upstream_wan_exists === true) {
-				return '<span>&#10004; ' + _('Exists') + '</span>';
-			}
-			return '<span>&#10008; ' + _('Not found') + '</span>';
+			return statusField('upstream_wan');
 		};
 
 		o = s.taboption('status', form.DummyValue, '_default_route', _('Default Route Risk'));
 		o.rawhtml = true;
 		o.cfgvalue = function() {
-			if (!hasNetCheckData()) {
-				return '<span>' + _('Click "Detect" to check status.') + '</span>';
-			}
-			if (netCheckData.default_route_on_bind === 1) {
-				return '<span>&#9888; ' + _('Default route points to read interface!') + '</span>' +
-					'<p>' + _('The read interface should NOT be a default gateway.') + '</p>';
-			}
-			return '<span>&#10004; ' + _('No default route risk') + '</span>';
+			return statusField('default_route');
 		};
 
 		o = s.taboption('status', form.DummyValue, '_gateway_set', _('Gateway Setting'));
 		o.rawhtml = true;
 		o.cfgvalue = function() {
-			if (!hasNetCheckData()) {
-				return '<span>' + _('Click "Detect" to check status.') + '</span>';
-			}
-			if (netCheckData.gateway_set === 1) {
-				return '<span>&#9888; ' + _('Gateway is set: %s').format(netCheckData.gateway_value || '-') + '</span>' +
-					'<p>' + _('The read interface should not have a gateway configured.') + '</p>';
-			}
-			return '<span>&#10004; ' + _('No gateway set') + '</span>';
+			return statusField('gateway_set');
 		};
 
 		o = s.taboption('status', form.DummyValue, '_dns_set', _('DNS Setting'));
 		o.rawhtml = true;
 		o.cfgvalue = function() {
-			if (!hasNetCheckData()) {
-				return '<span>' + _('Click "Detect" to check status.') + '</span>';
-			}
-			if (netCheckData.dns_set === 1) {
-				return '<span>&#9888; ' + _('DNS is set: %s').format(netCheckData.dns_value || '-') + '</span>';
-			}
-			return '<span>&#10004; ' + _('No DNS set') + '</span>';
+			return statusField('dns_set');
 		};
 
 		o = s.taboption('status', form.DummyValue, '_forwarding', _('Extra Forwarding'));
 		o.rawhtml = true;
 		o.cfgvalue = function() {
-			if (!hasNetCheckData()) {
-				return '<span>' + _('Click "Detect" to check status.') + '</span>';
-			}
-			if (netCheckData.bad_forwarding === 1) {
-				return '<span>&#9888; ' + _('Unnecessary forwarding detected') + '</span>';
-			}
-			return '<span>&#10004; ' + _('No extra forwarding') + '</span>';
+			return statusField('forwarding');
 		};
 
 		o = s.taboption('status', form.DummyValue, '_hint', _('Hint'));
@@ -499,15 +695,14 @@ return view.extend({
 				btn.node.disabled = true;
 				btn.node.textContent = _('Detecting...');
 			}
-			return callCheckNetwork().then(function(result) {
-				netCheckData = result;
-				var filled = applyDetectedSuggestions(result);
+			return startDetection({ autoFill: true }).then(function(result) {
+				var filled = result.filled;
 				var msg = filled > 0
 					? _('Network detection completed. %d empty field(s) were auto-filled; save and apply to keep them.').format(filled)
-					: _('Network detection completed. Click the Status tab to view results.');
+					: _('Network detection completed.');
 				ui.addNotification(null, E('p', msg), 'info');
 			}).catch(function(e) {
-				ui.addNotification(null, E('p', _('Detection failed:') + ' ' + e.message), 'error');
+				ui.addNotification(null, E('p', _('Detection failed:') + ' ' + (utils.getErrorMessage(e) || '')), 'error');
 			}).finally(function() {
 				if (btn.node) {
 					btn.node.disabled = false;
@@ -556,78 +751,31 @@ return view.extend({
 		o = s.taboption('zone_status', form.DummyValue, '_zone_name', _('Current Zone'));
 		o.rawhtml = true;
 		o.cfgvalue = function() {
-			var zoneName = uci.get('upnp_nat_relay', 'main', 'firewall_zone_name') || 'upnp_nat';
-			if (!hasNetCheckData()) {
-				return '<span>' + _('Click "Detect" to check status.') + '</span>';
-			}
-			if (netCheckData.zone_exists === 1) {
-				return '<span>&#10004; ' + (netCheckData.zone_name || zoneName) + '</span>';
-			}
-			return '<span>&#10008; ' + zoneName + ' (' + _('Zone not found') + ')</span>';
+			return statusField('zone_name');
 		};
 
 		o = s.taboption('zone_status', form.DummyValue, '_zone_input', _('Input Policy'));
 		o.rawhtml = true;
 		o.cfgvalue = function() {
-			if (!hasNetCheckData()) {
-				return '<span>' + _('Click "Detect" to check status.') + '</span>';
-			}
-			if (netCheckData.zone_exists === 1) {
-				var input = netCheckData.zone_input || '-';
-				if (input === 'ACCEPT') {
-					return '<span>' + input + '</span>';
-				}
-				return '<span>' + input + ' ' + _('(should be ACCEPT)') + '</span>';
-			}
-			return '<span>' + _('Zone not found') + '</span>';
+			return statusField('zone_input');
 		};
 
 		o = s.taboption('zone_status', form.DummyValue, '_zone_output', _('Output Policy'));
 		o.rawhtml = true;
 		o.cfgvalue = function() {
-			if (!hasNetCheckData()) {
-				return '<span>' + _('Click "Detect" to check status.') + '</span>';
-			}
-			if (netCheckData.zone_exists === 1) {
-				var output = netCheckData.zone_output || '-';
-				if (output === 'ACCEPT') {
-					return '<span>' + output + '</span>';
-				}
-				return '<span>' + output + ' ' + _('(should be ACCEPT)') + '</span>';
-			}
-			return '<span>' + _('Zone not found') + '</span>';
+			return statusField('zone_output');
 		};
 
 		o = s.taboption('zone_status', form.DummyValue, '_zone_forward', _('Forward Policy'));
 		o.rawhtml = true;
 		o.cfgvalue = function() {
-			if (!hasNetCheckData()) {
-				return '<span>' + _('Click "Detect" to check status.') + '</span>';
-			}
-			if (netCheckData.zone_exists === 1) {
-				var forward = netCheckData.zone_forward || '-';
-				if (forward === 'REJECT') {
-					return '<span>' + forward + '</span>';
-				}
-				return '<span>' + forward + ' ' + _('(should be REJECT)') + '</span>';
-			}
-			return '<span>' + _('Zone not found') + '</span>';
+			return statusField('zone_forward');
 		};
 
 		o = s.taboption('zone_status', form.DummyValue, '_zone_maq', _('Masquerading'));
 		o.rawhtml = true;
 		o.cfgvalue = function() {
-			if (!hasNetCheckData()) {
-				return '<span>' + _('Click "Detect" to check status.') + '</span>';
-			}
-			if (netCheckData.zone_exists === 1) {
-				var masq = netCheckData.zone_masq || '0';
-				if (masq === '0') {
-					return '<span>' + _('Disabled') + '</span>';
-				}
-				return '<span>' + _('Enabled (should be Disabled)') + '</span>';
-			}
-			return '<span>' + _('Zone not found') + '</span>';
+			return statusField('zone_masq');
 		};
 
 		o = s.taboption('zone_status', form.DummyValue, '_zone_recommendation', _('Recommendation'));
@@ -716,7 +864,24 @@ return view.extend({
 			});
 		};
 
-		return utils.renderWithFooter(m.render(), utils.FOOTER_OPTIONS);
+		/* 打开页面自动跑一次检测：状态区直接出结果，用户不用先点“检测”才看到信息。
+		 * 但结果够新（15 秒内）就直接复用，反复打开/刷新页面、多标签页不会一直重复探测；
+		 * 没有缓存或缓存对不上当前配置时才显示“检测中”并重新测。 */
+		var skipAutoDetect = autoDetectIsFresh();
+		if (!skipAutoDetect)
+			detecting = true;
+
+		return Promise.resolve(utils.renderWithFooter(m.render(), utils.FOOTER_OPTIONS)).then(function(node) {
+			if (skipAutoDetect)
+				return node;
+			/* 等表单渲染完成再发请求，避免和页面自身的 ubus 调用抢连接。 */
+			window.setTimeout(function() {
+				startDetection({ autoDetect: true }).catch(function() {
+					/* 自动检测失败不打断页面，失败原因已写进状态区。 */
+				});
+			}, 120);
+			return node;
+		});
 	},
 
 	handleSaveApply: function(ev, mode) {

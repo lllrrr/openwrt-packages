@@ -23,6 +23,51 @@ cfip_json_error() {
     jq -cn --arg error "$1" '{success:false,error:$error}'
 }
 
+# Summarize captured command stderr into one bounded, log-safe line.
+# Sub-command stderr used to be appended to the app log verbatim (see
+# cfip_rill_run_captured); a `bash -x` run turned that into 1,164 trace lines
+# that buried the real history. Keep the first meaningful line, clamped, and
+# count the rest.
+cfip_stderr_summary() {
+    local file="$1" limit="${2:-240}" first="" lines=0
+    [[ -f "$file" ]] || return 0
+    lines="$(wc -l <"$file" 2>/dev/null || printf 0)"
+    [[ "$lines" =~ ^[0-9]+$ ]] || lines=0
+    # Skip `bash -x` trace lines: they are the noisiest and least meaningful
+    # part of a dumped stderr, and they are what used to flood the log.
+    first="$(sed -n -e '/^[[:space:]]*+\{1,\} /d' -e '/[^[:space:]]/{p;q;}' "$file" 2>/dev/null || true)"
+    first="${first//$'\t'/ }"
+    # Clamp to a hard byte/char budget. The suffix is ASCII because OpenWrt has
+    # no UTF-8 locale: there `…` counts as three bytes, so the previous clamp
+    # silently exceeded `limit` by two and broke the "one bounded line" promise.
+    if ((${#first} > limit)); then
+        ((limit > 3)) || limit=3
+        first="${first:0:limit-3}..."
+    fi
+    [[ -n "$first" ]] || return 0
+    if ((lines > 1)); then
+        printf '%s (+%d more line(s))' "$first" "$((lines - 1))"
+    else
+        printf '%s' "$first"
+    fi
+}
+
+cfip_log_once() {
+    local key="$1" sig="$2" msg="$3" dir state_file
+    dir="${CFIP_RUNTIME_DIR:-/tmp/cf_ip}/log_state"
+    state_file="$dir/$key"
+    mkdir -p "$dir" 2>/dev/null || true
+    if [[ -f "$state_file" ]] && [[ "$(cat "$state_file" 2>/dev/null)" == "$sig" ]]; then
+        return 0
+    fi
+    printf '%s' "$sig" >"$state_file" 2>/dev/null || true
+    cfip_log "$msg"
+}
+
+cfip_log_reset() {
+    rm -f "${CFIP_RUNTIME_DIR:-/tmp/cf_ip}/log_state/$1" 2>/dev/null || true
+}
+
 # jq on OpenWrt may omit ONIGURUMA. Keep whitespace normalization independent
 # of regex support; indices make trimming linear even for long whitespace runs.
 cfip_jq_trim_filter() {
@@ -453,12 +498,17 @@ cfip_service_status_timeout() {
 
 # Returns sorted PIDs of any running Clash-compatible core process
 # (clash / mihomo / clash_meta — OpenClash core binary names vary by version).
+# pidof exits non-zero for every core that is not running; under
+# `set -o pipefail` that status would propagate out of the pipeline and, with
+# `set -e`, abort the caller even though "no process" is a normal answer here.
+# Each probe is neutralised and the pipeline always succeeds; the empty result
+# is what callers test for.
 cfip_openclash_core_pids() {
-    {
-        pidof clash 2>/dev/null
-        pidof mihomo 2>/dev/null
-        pidof clash_meta 2>/dev/null
-    } | tr ' ' '\n' | grep -v '^$' | sort -un | tr '\n' ' ' | sed 's/ *$//'
+    local core
+    for core in clash mihomo clash_meta; do
+        pidof "$core" 2>/dev/null || true
+        printf '\n'
+    done | tr ' ' '\n' | grep -v '^$' | sort -un | tr '\n' ' ' | sed 's/ *$//' || true
 }
 
 # Boolean check: any Clash-compatible core running.
@@ -931,4 +981,18 @@ cfip_run_with_timeout() {
     if [[ "$timed_out" == true || -f "$marker" ]]; then rm -f "$marker"; return 124; fi
     rm -f "$marker"
     return "$rc"
+}
+
+# Quarantine and backup names use a second-resolution stamp. Two rotations in
+# the same second (same pid, same stamp) used to reuse the destination, and the
+# `.$$` fallback did not help: `mv` then overwrote the older quarantine instead
+# of preserving it, which silently destroyed the evidence the quarantine exists
+# to keep. Always hand out a name that is free right now.
+cfip_unique_path() {
+    local base="$1" candidate="$1" index=0
+    while [[ -e "$candidate" || -L "$candidate" ]]; do
+        index=$((index + 1))
+        candidate="${base}.${index}"
+    done
+    printf '%s' "$candidate"
 }
