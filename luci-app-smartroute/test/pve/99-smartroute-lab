@@ -1,0 +1,135 @@
+#!/bin/sh
+# smartroute PVE 测试环境：首次启动时按 eth0 的 MAC 决定角色并写入 UCI（OpenWrt 的 uci-defaults 机制，只执行一次）
+#   isp     eth0=labwan(10.255.0.1)  eth1=vmbr0(家里局域网, 上游)   扮演运营商 + 模拟“国内/国外”目标
+#   router  eth0=lablan(192.168.99.1) eth1=labwan(DHCP 10.255.0.2)  被测主路由（r24 / r25 用同一对 MAC，只开一台）
+#           WAN 侧用静态 ip6prefix 模拟运营商委派的 /60（这版 odhcpd 不会从 /64 接口再下发 PD）
+#   side    eth0=lablan(192.168.99.3)                                 网关：单臂转发 + SNAT
+mac=$(cat /sys/class/net/eth0/address)
+case "$mac" in
+	02:5a:00:00:01:00) role=isp ;;
+	02:5a:00:00:02:00) role=router; name=r$(. /etc/openwrt_release; echo "$DISTRIB_RELEASE" | cut -c1-2) ;;
+	02:5a:00:00:04:00) role=side ;;
+	*) exit 0 ;;
+esac
+echo "$role" > /etc/lab-role
+
+uci set system.@system[0].hostname="lab-${name:-$role}"
+uci set system.@system[0].timezone='CST-8'
+uci set system.@system[0].zonename='Asia/Shanghai'
+printf 'smartroute\nsmartroute\n' | passwd root >/dev/null 2>&1
+
+# 管理入口：允许从 wan 侧 ssh（isp 的 wan 是家里局域网，router 的 wan 是 labwan）
+# ImmortalWrt 默认 dropbear 只监听 lan，需去掉 Interface 限制
+allow_wan_ssh() {
+	uci -q delete dropbear.main.Interface
+	uci set dropbear.main.PasswordAuth='off'        # isp 的 wan 在家里局域网上，只允许密钥登录
+	uci set dropbear.main.RootPasswordAuth='off'
+	uci add firewall rule >/dev/null
+	uci set firewall.@rule[-1].name='lab-ssh-from-wan'
+	uci set firewall.@rule[-1].src='wan'
+	uci set firewall.@rule[-1].proto='tcp'
+	uci set firewall.@rule[-1].dest_port='22'
+	uci set firewall.@rule[-1].target='ACCEPT'
+}
+
+case "$role" in
+isp)
+	uci batch <<-'EOF'
+		set network.lan.ipaddr='10.255.0.1'
+		set network.lan.netmask='255.255.255.0'
+		set network.lan.ip6assign='64'
+		delete network.globals.ula_prefix
+		set network.wan6.sourcefilter='0'
+		set network.fake=interface
+		set network.fake.proto='static'
+		set network.fake.device='lo'
+		add_list network.fake.ipaddr='223.5.5.5/32'
+		add_list network.fake.ipaddr='8.8.8.8/32'
+		add_list network.fake.ip6addr='240e::1/128'
+		add_list network.fake.ip6addr='2001:4860::8888/128'
+		set network.fake.ip6prefix='2001:db8:100::/48'
+		set network.r6_lab=route6
+		set network.r6_lab.interface='lan'
+		set network.r6_lab.target='2001:db8:100:10::/60'
+		set network.r6_lab.gateway='fe80::5a:ff:fe00:201'
+		set network.r_lab=route
+		set network.r_lab.interface='lan'
+		set network.r_lab.target='192.168.99.0/24'
+		set network.r_lab.gateway='10.255.0.2'
+		set dhcp.lan.dhcpv6='server'
+		set dhcp.lan.ra='server'
+		set dhcp.lan.ra_slaac='1'
+		set dhcp.router=host
+		set dhcp.router.name='lab-router'
+		set dhcp.router.mac='02:5a:00:00:02:01'
+		set dhcp.router.ip='10.255.0.2'
+		set firewall.@zone[1].masq6='1'
+		delete uhttpd.main.listen_http
+		delete uhttpd.main.listen_https
+		add_list uhttpd.main.listen_http='10.255.0.1:80'
+		set uhttpd.echo=uhttpd
+		set uhttpd.echo.home='/www-echo'
+		set uhttpd.echo.cgi_prefix='/cgi-bin'
+		add_list uhttpd.echo.listen_http='223.5.5.5:80'
+		add_list uhttpd.echo.listen_http='8.8.8.8:80'
+		add_list uhttpd.echo.listen_http='[240e::1]:80'
+		add_list uhttpd.echo.listen_http='[2001:4860::8888]:80'
+	EOF
+	mkdir -p /www-echo/cgi-bin
+	cat > /www-echo/cgi-bin/ip <<-'EOF'
+		#!/bin/sh
+		printf 'Content-Type: text/plain\r\n\r\n%s -> %s\n' "$REMOTE_ADDR" "$SERVER_ADDR"
+	EOF
+	chmod +x /www-echo/cgi-bin/ip
+	allow_wan_ssh
+	;;
+router)
+	uci batch <<-'EOF'
+		set network.lan.ipaddr='192.168.99.1'
+		set network.lan.netmask='255.255.255.0'
+		set network.lan.ip6assign='64'
+		delete network.globals.ula_prefix
+		set network.wan6.sourcefilter='0'
+		set network.labpd=interface
+		set network.labpd.proto='static'
+		set network.labpd.device='lo'
+		set network.labpd.ipaddr='127.0.0.2/32'
+		set network.labpd.ip6prefix='2001:db8:100:10::/60'
+		set firewall.@zone[1].masq='0'
+	EOF
+	allow_wan_ssh
+	;;
+side)
+	uci batch <<-'EOF'
+		set network.lan.proto='static'
+		set network.lan.ipaddr='192.168.99.3'
+		set network.lan.netmask='255.255.255.0'
+		set network.lan.gateway='192.168.99.1'
+		add_list network.lan.dns='192.168.99.1'
+		delete network.lan.ip6assign
+		delete network.globals.ula_prefix
+		set network.lan6=interface
+		set network.lan6.proto='dhcpv6'
+		set network.lan6.device='br-lan'
+		set network.lan6.reqprefix='no'
+		set network.lan6.sourcefilter='0'
+		set dhcp.lan.ignore='1'
+		set dhcp.lan.ra='disabled'
+		set dhcp.lan.dhcpv6='disabled'
+		add_list firewall.@zone[0].network='lan6'
+		set firewall.@zone[0].masq='1'
+		set firewall.@zone[0].masq6='1'
+	EOF
+	echo 'net.ipv4.conf.all.send_redirects=0' > /etc/sysctl.d/99-lab.conf
+	echo 'net.ipv4.conf.default.send_redirects=0' >> /etc/sysctl.d/99-lab.conf
+	mkdir -p /etc/nftables.d
+	cat > /etc/nftables.d/99-lab-noredirect.nft <<-'EOF'
+		chain lab_noredirect {
+			type filter hook output priority filter; policy accept;
+			icmpv6 type nd-redirect drop
+		}
+	EOF
+	;;
+esac
+uci commit
+exit 0

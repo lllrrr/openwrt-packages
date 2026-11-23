@@ -1,0 +1,11 @@
+#!/bin/sh
+# 在 fw4 的 forward 链最前面引入本插件的规则文件（放行经网关、被 conntrack 判为无效的连接）；文件由后台运行时生成
+uci -q get firewall.smartroute >/dev/null || {
+	uci set firewall.smartroute=include
+	uci set firewall.smartroute.type=nftables
+	uci set firewall.smartroute.path=/var/etc/smartroute.fw4.nft
+	uci set firewall.smartroute.position=chain-prepend
+	uci set firewall.smartroute.chain=forward
+	uci commit firewall
+}
+exit 0

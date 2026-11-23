@@ -1,0 +1,17 @@
+{
+	"luci-app-smartroute": {
+		"description": "Grant access to SmartRoute",
+		"read": {
+			"ubus": {
+				"smartroute": [ "status", "trace", "dns", "cats", "scan", "info", "export" ]
+			},
+			"uci": [ "smartroute", "firewall" ]
+		},
+		"write": {
+			"ubus": {
+				"smartroute": [ "update", "reload", "import" ]
+			},
+			"uci": [ "smartroute" ]
+		}
+	}
+}
