@@ -1,17 +1,14 @@
 {
 	"luci-app-dufs": {
-		"description": "允许 luci-app-dufs 读写 UCI 配置",
+		"description": "Grant access to Dufs configuration",
 		"read": {
-			"uci": [ "dufs" ],
 			"ubus": {
 				"service": [ "list" ]
-			}
+			},
+			"uci": [ "dufs" ]
 		},
 		"write": {
-			"uci": [ "dufs" ],
-			"ubus": {
-				"luci": [ "setInitAction" ]
-			}
+			"uci": [ "dufs" ]
 		}
 	}
 }

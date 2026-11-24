@@ -27,6 +27,21 @@ var BOOTSTRAP_FORM_STYLE =
 	'.oxidns-bootstrap-form .table.cbi-section-table .oxidns-control { ' +
 	'width: 210px; max-width: 100%; box-sizing: border-box; }';
 
+/*
+ * Themes stack .cbi-value on phones but not the .tr/.td rows this page builds,
+ * so the fixed 240px label column left the control column too narrow for the
+ * textareas. Stack these rows at the same breakpoint and let the textareas use
+ * the full width instead of their desktop one-third width.
+ */
+var GUIDED_FORM_STYLE =
+	'@media screen and (max-width: 600px) {' +
+	' .oxidns-guided-form .oxidns-guided-row,' +
+	' .oxidns-guided-form .oxidns-guided-row > .td {' +
+	' display: block; width: auto !important; }' +
+	' .oxidns-guided-form .oxidns-guided-row .cbi-input-textarea {' +
+	' width: 100% !important; }' +
+	'}';
+
 function isBootstrapTheme() {
 	var links = document.querySelectorAll('link[rel="stylesheet"]');
 
@@ -246,8 +261,8 @@ function pathStartsWith(path, prefix) {
 }
 
 function row(label, control, description) {
-	return E('div', { 'class': 'tr' }, [
-		E('div', { 'class': 'td left', 'style': 'width: 240px' }, label),
+	return E('div', { 'class': 'tr oxidns-guided-row' }, [
+		E('div', { 'class': 'td left oxidns-guided-label', 'style': 'width: 240px' }, label),
 		E('div', { 'class': 'td left' }, [
 			control,
 			description ? E('div', { 'class': 'cbi-value-description', 'style': 'margin-top: .35em;' }, description) : ''
@@ -2794,6 +2809,7 @@ return baseclass.extend({
 
 		var sections = [
 			E('style', {}, UPSTREAM_SELECT_STYLE),
+			E('style', {}, GUIDED_FORM_STYLE),
 			bootstrap ? E('style', {}, BOOTSTRAP_FORM_STYLE) : '',
 			logSection(doc, bindings),
 			runtimeSection(doc, bindings),
@@ -2817,7 +2833,9 @@ return baseclass.extend({
 
 		sections.push(pluginSection(doc, handlers));
 
-		var node = E('div', { 'class': bootstrap ? 'oxidns-bootstrap-form' : null }, sections);
+		var node = E('div', {
+			'class': 'oxidns-guided-form' + (bootstrap ? ' oxidns-bootstrap-form' : '')
+		}, sections);
 
 		if (typeof handlers.onInput === 'function') {
 			node.addEventListener('input', handlers.onInput);
