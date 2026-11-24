@@ -4,16 +4,45 @@
 
 [ -f /etc/config/chfs ] || exit 0
 
-# 创建默认日志目录
-mkdir -p /var/log/chfs 2>/dev/null
+# 创建默认共享目录。默认 path 与这里必须保持一致, 否则首次启用服务会因
+# 目录缺失而拒绝启动。
+share_path="$(uci -q get chfs.main.path)"
+[ -z "$share_path" ] && share_path="/mnt/sda1"
 
-# 首次安装时若共享目录不存在, 创建一个占位目录, 避免服务启动即失败
-if [ ! -d /mnt/shares ]; then
-	mkdir -p /mnt/shares 2>/dev/null
+oldifs="$IFS"
+set -f
+IFS='|'
+for p in $share_path; do
+	[ -z "$p" ] && continue
+	p="$(printf '%s' "$p" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+	case "$p" in
+		\"*\") p="${p#\"}"; p="${p%\"}" ;;
+	esac
+	[ -n "$p" ] && mkdir -p "$p" 2>/dev/null
+done
+IFS="$oldifs"
+set +f
+
+# 创建默认日志目录, 并按运行身份调整属主
+run_as="$(uci -q get chfs.main.run_as)"
+[ -z "$run_as" ] && run_as="root"
+run_group="$run_as"
+[ "$run_as" = "nobody" ] && run_group="nogroup"
+
+mkdir -p /var/log/chfs 2>/dev/null
+if [ "$run_as" != "root" ]; then
+	chown "$run_as:$run_group" /var/log/chfs 2>/dev/null
 fi
 
 # chfs 账户密码所在配置文件权限收紧, 避免明文口令被普通用户读取
 chmod 600 /etc/config/chfs 2>/dev/null
+
+# 内核待安装目录。必须提前存在, cgi-upload 不会自动创建父目录。
+mkdir -p /etc/luci-uploads/chfs 2>/dev/null
+chmod 700 /etc/luci-uploads/chfs 2>/dev/null
+
+# 启用 init 脚本。UCI enabled 是总开关, rc.d 链接必须存在才能真正开机启动。
+/etc/init.d/chfs enable 2>/dev/null
 
 # 清理 LuCI 缓存, 使菜单与视图立即生效
 rm -f /tmp/luci-indexcache 2>/dev/null

@@ -77,7 +77,7 @@ return view.extend({
 		var procCard = E('div', { 'class': 'chfs-card' }, [
 			E('h3', {}, _('Process information')),
 			kv(_('Running status'), st.running ? _('Running') : _('Stopped')),
-			kv(_('Start on boot'), st.enabled ? _('Enabled') : _('Disabled')),
+			kv(_('Start on boot'), (st.autostart ?? st.enabled) ? _('Enabled') : _('Disabled')),
 			st.pid ? kv(_('PID'), st.pid, true) : '',
 			st.mem_mb ? kv(_('Memory usage'), st.mem_mb + ' MB') : '',
 			kv(_('Program file'), st.binary_ok ? _('Present') : _('Missing (/usr/bin/chfs)')),
@@ -134,7 +134,13 @@ return view.extend({
 			'class': 'btn cbi-button',
 			'click': function(ev) {
 				ev.preventDefault();
-				var full = (dav.scheme || 'http') + '://' + (window.location.hostname || '') +
+				var host = window.location.hostname || '';
+
+				// IPv6 字面量需要方括号, 与主设置页保持一致
+				if (host.indexOf(':') >= 0 && host.charAt(0) !== '[')
+					host = '[' + host + ']';
+
+				var full = (dav.scheme || 'http') + '://' + host +
 					':' + (dav.port || '') + '/webdav';
 
 				var done = function() {
@@ -161,7 +167,9 @@ return view.extend({
 		var iniCard = E('div', { 'class': 'chfs-card' }, [
 			E('h3', {}, _('Generated configuration file')),
 			E('p', { 'class': 'chfs-note' },
-				_('The following is the actual chfs.ini read by the service (located at /var/etc/chfs.ini), rendered automatically from the UCI configuration.'))
+				_('The following is the actual chfs.ini read by the service (located at /var/etc/chfs.ini), rendered automatically from the UCI configuration.')),
+			E('p', { 'class': 'chfs-note' },
+				_('Password fields are masked in this preview.'))
 		]);
 
 		if (ini.ok && ini.content)

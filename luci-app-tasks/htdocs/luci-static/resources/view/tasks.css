@@ -148,6 +148,20 @@ body:has(.main-left) .cbi-value > .cbi-value-field > .cbi-checkbox > input[type=
 	min-width: 14em;
 }
 
+/* Argon 3 gives a .cbi-section no padding, so a form card that ends with a
+ * .cbi-value stops immediately under its last control. The task picker is a
+ * card too, but it pays its own .5rem bottom padding, which makes the last
+ * field of every task card look cramped next to it. The same lack of an
+ * inset makes the separator row of the next startup entry or access device
+ * start flush under the previous entry's last field. Add a small inset after
+ * every form node to cover both. Argon 3 is the only supported theme that
+ * both defines --field-gap and has this gap; Argon 2 puts its own inset on
+ * the rows and luci-theme-bootstrap uses a bottom margin, so the min() with
+ * a zero fallback leaves those themes alone. */
+body:has(.main-left) .cbi-map > .cbi-section > .cbi-section-node {
+	padding-bottom: min(var(--field-gap, 0rem), .5rem);
+}
+
 /* --- Status strip ------------------------------------------------------- */
 
 /* Argon's `.cbi-section p` rule (specificity 0,1,1) overrides this padding

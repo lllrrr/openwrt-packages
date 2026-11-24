@@ -54,6 +54,11 @@ return view.extend({
 			if (/[\s\[\]]/.test(v))
 				return _('Account name must not contain spaces, brackets or similar characters');
 
+			// guest 是匿名访问的保留账户, 不允许改名绕过删除保护
+			var old = (uci.get('chfs', section_id, 'name') || '').trim();
+			if (old === 'guest' && v !== 'guest')
+				return _('The guest account name cannot be changed');
+
 			// 检查重名
 			var dup = false;
 			uci.sections('chfs', 'account', function(sec) {

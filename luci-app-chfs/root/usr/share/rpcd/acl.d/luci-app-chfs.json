@@ -6,10 +6,8 @@
 			"ubus": {
 				"service": [ "list" ],
 				"luci.chfs": [
-					"read_config",
 					"status",
 					"read_ini",
-					"preview_ini",
 					"probe_listen",
 					"probe_webdav",
 					"kernel_info",
@@ -22,7 +20,8 @@
 				"/etc/init.d/chfs": [ "read" ],
 				"/usr/bin/chfs": [ "read" ],
 				"/var/etc/chfs.ini": [ "read" ],
-				"/etc/luci-uploads/*": [ "read" ],
+				"/etc/luci-uploads/chfs": [ "read" ],
+				"/etc/luci-uploads/chfs/*": [ "read" ],
 				"/etc/chfs/kernel-backup/*": [ "read" ]
 			}
 		},
@@ -31,12 +30,9 @@
 			"ubus": {
 				"service": [ "list" ],
 				"luci.chfs": [
-					"read_config",
-					"write_config",
 					"init_action",
 					"status",
 					"read_ini",
-					"preview_ini",
 					"probe_listen",
 					"probe_webdav",
 					"kernel_info",
@@ -46,13 +42,15 @@
 					"kernel_download",
 					"kernel_install",
 					"kernel_restore",
-					"kernel_discard"
+					"kernel_discard",
+					"kernel_backup_discard"
 				]
 			},
 			"file": {
 				"/etc/init.d/chfs": [ "exec" ],
 				"/usr/bin/chfs": [ "exec" ],
-				"/etc/luci-uploads/*": [ "write" ],
+				"/etc/luci-uploads/chfs": [ "write" ],
+				"/etc/luci-uploads/chfs/*": [ "write" ],
 				"/etc/chfs/kernel-backup/*": [ "write" ]
 			}
 		}

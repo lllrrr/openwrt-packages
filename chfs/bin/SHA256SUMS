@@ -7,7 +7,7 @@
 #
 # 用途:
 #   1. 云编译校验入库二进制未被篡改
-#   2. LuCI 插件的「一键下载内核」在下载后校验完整性
+#   2. 与 LuCI 插件内置的 SHA256 基准值对照, 一键下载时强制校验
 #   3. 手工核对: sha256sum chfs/bin/arm64/chfs
 #
 # 二进制来源: 上游 http://iscute.cn/tar/chfs/3.1/chfs-linux-<arch>-3.1.zip

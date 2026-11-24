@@ -108,8 +108,11 @@ browser.
 - When access control is enabled with at least one device, the crontab gets a
   line running `tasks-handler run access` every minute. It writes the devices
   that must be blocked right now into the nftables table `tasks_access`, or
-  into the iptables chain `TASKS_ACCESS` when nft is unavailable. Only
-  forwarded traffic is blocked; the device can still reach the router itself.
+  into the iptables chains `TASKS_ACCESS` and `TASKS_ACCESS_PRE` when nft is
+  unavailable. Internet-bound traffic is also dropped at raw priority in the
+  prerouting hook, before a transparent proxy such as OpenClash can REDIRECT
+  or TPROXY it to a local process; the device can still reach the router and
+  the LAN.
 - `/usr/bin/tasks-handler` performs the actual action. It only accepts the
   fixed names `reboot`, `network`, `firewall`, `cleantmp`, `clearmem`,
   `wifion`, `wifioff` and `access`; custom commands are read from UCI at run
@@ -135,9 +138,10 @@ the browser cannot inject arbitrary text into the crontab.
   is safe but pointless to run very often.
 - Startup service entries call `/etc/init.d/<service> start`; the service's
   own autostart setting is never modified.
-- Access control only blocks forwarded traffic, so a limited device can still
-  open the router's admin page to lift the restriction; a MAC target covers
-  both IPv4 and IPv6.
+- Access control blocks both normally forwarded traffic and traffic that a
+  transparent proxy intercepts on the router; the limited device can still
+  reach the router and the LAN, so it can open the admin page to lift the
+  restriction; a MAC target covers both IPv4 and IPv6.
 - The current access-control state is published in `/etc/tasks/access.state`.
   The log only records the moments a device is blocked or released.
 - The log is capped at 500 lines and stored in `/etc/tasks/tasks.log`.

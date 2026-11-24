@@ -95,9 +95,18 @@ tasks_cron_expr() {
 }
 
 # A UCI section name must be safe to embed in generated shell code.
+# Anonymous sections are printed by `uci show` as @type[index]; they occur
+# whenever the web UI creates a section with s.anonymous = true.
 tasks_valid_section() {
 	case "$1" in
-		''|*[!A-Za-z0-9_-]*)
+		'')
+			return 1
+			;;
+		@*)
+			printf '%s' "$1" | grep -qE '^@[A-Za-z0-9_]+\[[0-9]+\]$'
+			return $?
+			;;
+		*[!A-Za-z0-9_-]*)
 			return 1
 			;;
 	esac
@@ -312,10 +321,11 @@ tasks_normalize_target() {
 	esac
 }
 
-# List the access_device UCI sections, one per line.
+# List the access_device UCI sections, one per line. Matches both named
+# sections and the anonymous @access_device[index] form used by the web UI.
 tasks_access_sections() {
 	uci -q show tasks 2>/dev/null |
-		sed -n 's/^tasks\.\([A-Za-z0-9_-]*\)=access_device$/\1/p'
+		sed -n 's/^tasks\.\([^.=]*\)=access_device$/\1/p'
 }
 
 # Return success when at least one enabled access device has a target.

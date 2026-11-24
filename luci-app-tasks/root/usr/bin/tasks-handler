@@ -160,6 +160,29 @@ ACCESS_RULES=$TASKS_DIR/access.rules
 ACCESS_BLOCKED=$TASKS_DIR/access.blocked
 ACCESS_BLOCKED_NEW=$TASKS_DIR/access.blocked.new
 
+# Destinations that stay reachable while a device is blocked: the LAN, VPN,
+# link-scope and reserved ranges. Everything else counts as the internet and
+# is dropped before a transparent proxy can redirect it to a local process.
+ACCESS_LOCAL_DESTS='0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 169.254.0.0/16 172.16.0.0/12 192.168.0.0/16 224.0.0.0/4 240.0.0.0/4'
+
+# access_pre_nft_conds / access_pre_iptables_conds
+# Build the "destination is not local" condition shared by both backends.
+access_pre_nft_conds() {
+	local net
+
+	for net in $ACCESS_LOCAL_DESTS; do
+		printf ' ip daddr != %s' "$net"
+	done
+}
+
+access_pre_iptables_conds() {
+	local net
+
+	for net in $ACCESS_LOCAL_DESTS; do
+		printf ' ! -d %s' "$net"
+	done
+}
+
 # Prefer nftables: it is what firewall4 uses, and it also works when an old
 # firewall3 system happens to have the nft binary installed. Firewall3 systems
 # fall back to iptables.
@@ -249,7 +272,9 @@ access_collect() {
 }
 
 access_rules_apply_nft() {
-	local line
+	local line src pre
+
+	pre=$(access_pre_nft_conds)
 
 	# Rebuild the complete table: old rules may belong to removed devices.
 	nft delete table inet tasks_access 2>/dev/null
@@ -261,20 +286,44 @@ access_rules_apply_nft() {
 		'{ type filter hook forward priority -100; policy accept; }' ||
 		return 1
 
+	# The forward chain covers traffic that is routed normally. When a
+	# transparent proxy (for example OpenClash with REDIRECT/TPROXY) sends the
+	# connection to a local process, it never reaches the forward hook, so the
+	# raw priority prerouting chain drops internet-bound traffic first while
+	# keeping LAN and router access working.
+	nft add chain inet tasks_access prerouting \
+		'{ type filter hook prerouting priority raw; policy accept; }' ||
+		return 1
+
 	while IFS= read -r line; do
 		[ -n "$line" ] || continue
-		nft add rule inet tasks_access forward $line || return 1
+
+		src=${line% drop}
+
+		nft add rule inet tasks_access forward "$src counter drop" ||
+			return 1
+		nft add rule inet tasks_access prerouting "$src$pre counter drop" ||
+			return 1
 	done <"$ACCESS_RULES"
 
 	return 0
 }
 
 access_rules_apply_iptables() {
-	local line addr
+	local line addr conds table
 
-	# Drop the jump first so the chain can be rebuilt safely.
+	conds=$(access_pre_iptables_conds)
+
+	# Drop the jumps first so the chains can be rebuilt safely.
 	while iptables -D FORWARD -j TASKS_ACCESS 2>/dev/null; do :; done
 	iptables -F TASKS_ACCESS 2>/dev/null
+
+	for table in raw mangle; do
+		while iptables -t "$table" -D PREROUTING -j TASKS_ACCESS_PRE \
+				2>/dev/null; do :; done
+		iptables -t "$table" -F TASKS_ACCESS_PRE 2>/dev/null
+		iptables -t "$table" -X TASKS_ACCESS_PRE 2>/dev/null
+	done
 
 	if [ ! -s "$ACCESS_RULES" ]; then
 		iptables -X TASKS_ACCESS 2>/dev/null
@@ -284,23 +333,37 @@ access_rules_apply_iptables() {
 	iptables -n -L TASKS_ACCESS >/dev/null 2>&1 ||
 		iptables -N TASKS_ACCESS || return 1
 
+	# Prefer the raw table, which runs before every mangle/tproxy rule.
+	if iptables -t raw -N TASKS_ACCESS_PRE 2>/dev/null; then
+		table=raw
+	else
+		table=mangle
+		iptables -t "$table" -N TASKS_ACCESS_PRE || return 1
+	fi
+
 	while IFS= read -r line; do
 		case "$line" in
 			ip\ saddr\ *\ drop)
 				addr=${line#ip saddr }
 				addr=${addr% drop}
 				iptables -A TASKS_ACCESS -s "$addr" -j DROP || return 1
+				iptables -t "$table" -A TASKS_ACCESS_PRE -s "$addr"$conds \
+					-j DROP || return 1
 				;;
 			ether\ saddr\ *\ drop)
 				addr=${line#ether saddr }
 				addr=${addr% drop}
 				iptables -A TASKS_ACCESS -m mac --mac-source "$addr" \
 					-j DROP || return 1
+				iptables -t "$table" -A TASKS_ACCESS_PRE \
+					-m mac --mac-source "$addr"$conds -j DROP ||
+					return 1
 				;;
 		esac
 	done <"$ACCESS_RULES"
 
 	iptables -I FORWARD -j TASKS_ACCESS || return 1
+	iptables -t "$table" -I PREROUTING 1 -j TASKS_ACCESS_PRE || return 1
 
 	return 0
 }
@@ -321,12 +384,21 @@ access_rules_apply() {
 
 # Remove every rule this feature may have installed with either backend.
 access_rules_teardown() {
+	local table
+
 	nft delete table inet tasks_access 2>/dev/null
 
 	if command -v iptables >/dev/null 2>&1; then
 		while iptables -D FORWARD -j TASKS_ACCESS 2>/dev/null; do :; done
 		iptables -F TASKS_ACCESS 2>/dev/null
 		iptables -X TASKS_ACCESS 2>/dev/null
+
+		for table in raw mangle; do
+			while iptables -t "$table" -D PREROUTING \
+					-j TASKS_ACCESS_PRE 2>/dev/null; do :; done
+			iptables -t "$table" -F TASKS_ACCESS_PRE 2>/dev/null
+			iptables -t "$table" -X TASKS_ACCESS_PRE 2>/dev/null
+		done
 	fi
 }
 

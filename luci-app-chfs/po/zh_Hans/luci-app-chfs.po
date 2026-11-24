@@ -46,6 +46,9 @@ msgstr "账户名不能为空"
 msgid "Account name must not contain spaces, brackets or similar characters"
 msgstr "账户名不能包含空格、方括号等字符"
 
+msgid "The guest account name cannot be changed"
+msgstr "guest 账户名不可修改"
+
 msgid "Account name already exists"
 msgstr "账户名已存在"
 
@@ -376,6 +379,9 @@ msgstr "以下为服务实际读取的 chfs.ini 内容 (位于 /var/etc/chfs.ini
 msgid "The configuration file has not been generated yet. Start the service once first."
 msgstr "配置文件尚未生成, 请先启动一次服务。"
 
+msgid "Password fields are masked in this preview."
+msgstr "此预览中的密码字段已打码。"
+
 msgid "Refresh status"
 msgstr "刷新状态"
 
@@ -615,3 +621,42 @@ msgstr "打开 WebUI"
 
 msgid "The service is not running; starting it will make the WebUI reachable at this address."
 msgstr "服务未运行; 启动后即可通过该地址访问 WebUI。"
+
+msgid "When enabled, the guest account is written to the chfs configuration and unauthenticated users can access with its rules. When disabled, no guest section is generated."
+msgstr "启用后会把 guest 账户写入 chfs 配置, 未登录用户按其规则访问; 关闭后不会生成 guest 段。"
+
+msgid "Configuration applied, service restarted"
+msgstr "配置已应用, 服务已重启"
+
+msgid "Failed to save or apply the configuration"
+msgstr "保存或应用配置失败"
+
+msgid "Kernel version"
+msgstr "内核版本"
+
+msgid "SHA256 verification"
+msgstr "SHA256 校验"
+
+msgid "Verified"
+msgstr "已通过校验"
+
+msgid "Unverified"
+msgstr "未校验"
+
+msgid "The downloaded file is checked against the built-in SHA256 value before it is accepted."
+msgstr "下载文件会先与内置 SHA256 基准值比对, 通过后才会进入待安装区。"
+
+msgid "The file will be downloaded to the pending area and must pass the built-in SHA256 check. The running kernel is not touched until you click Install."
+msgstr "文件将下载到待安装区, 并且必须通过内置 SHA256 校验。在点击「安装」之前, 不会改动正在运行的内核。"
+
+msgid "Delete this backup?"
+msgstr "删除该备份?"
+
+msgid "The backup file will be permanently removed. This does not affect the running kernel."
+msgstr "备份文件将被永久删除, 不影响正在运行的内核。"
+
+msgid "Deleting backup ..."
+msgstr "正在删除备份 ..."
+
+msgid "Backup deleted"
+msgstr "备份已删除"

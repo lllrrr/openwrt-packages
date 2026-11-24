@@ -8,8 +8,8 @@
 # 即 "chfs-linux-<架构>-<版本>" 形式且不带文件扩展名。
 # 因此不能用固定文件名查找, 需按前缀通配匹配, 并排除压缩包与 Windows 版本。
 #
-# 实现上只使用 POSIX sh 内建能力 (case / test / 参数展开), 不依赖
-# find / sed / awk 等外部工具, 以保证在各类构建主机上行为一致。
+# 实现上只使用 POSIX sh 与常见基础工具 (dd/ls/cp/chmod), 不依赖
+# GNU 专有的 install -D, 以便在 Linux 与 macOS/BSD 构建机上行为一致。
 #
 # 用法: sh extract-bin.sh <构建目录>
 # 产物: <构建目录>/chfs-bin (权限 0755)
@@ -82,5 +82,7 @@ if command -v file >/dev/null 2>&1; then
 	file "$BIN" || true
 fi
 
-install -D -m0755 "$BIN" "$BUILD_DIR/chfs-bin"
+mkdir -p "$BUILD_DIR"
+cp "$BIN" "$BUILD_DIR/chfs-bin"
+chmod 0755 "$BUILD_DIR/chfs-bin"
 echo "chfs: 已规范化安装为 chfs-bin"

@@ -9,6 +9,11 @@ USE_PROCD=1
 PROG=/usr/bin/chfs
 GEN_INI=/var/etc/chfs.ini
 TRASH_MAX_AGE=30
+ANONYMOUS=1
+
+EXTRA_COMMANDS="render_ini clean_trash"
+EXTRA_HELP="	render_ini	仅重新生成 chfs.ini, 不重启服务
+	clean_trash	清理 chfs 回收站中超过 ${TRASH_MAX_AGE} 天的文件"
 
 # ---------------------------------------------------------------------------
 # 工具函数
@@ -20,6 +25,16 @@ bool_yn() {
 		1|on|true|yes|enabled) echo "true" ;;
 		*) echo "false" ;;
 	esac
+}
+
+# 将任意值压缩成单行, 防止换行把额外的键注入 chfs.ini
+ini_value() {
+	printf '%s' "$1" | tr '\r\n' '  '
+}
+
+# 去掉首尾空白, 便于用户书写 "/mnt/a | /mnt/b" 这类列表
+trim_value() {
+	printf '%s' "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
 }
 
 # ---------------------------------------------------------------------------
@@ -36,22 +51,38 @@ validate_port() {
 	[ "$port" -ge 1 ] 2>/dev/null && [ "$port" -le 65535 ] 2>/dev/null
 }
 
-# 校验共享路径列表, 不存在的目录仅告警不阻断 (可能尚未挂载)
+# 校验共享路径列表。目录缺失时返回非 0, 由调用方拒绝启动:
+# chfs 在共享路径不可用时会回退到程序所在目录, 从而把 /usr/bin 暴露出去。
 validate_paths() {
 	local paths="$1"
 	local oldifs="$IFS"
+	local had_glob=0
 	local p
 	local rc=0
 
+	case "$-" in *f*) had_glob=1 ;; esac
+	set -f
+
 	IFS='|'
 	for p in $paths; do
+		p="$(trim_value "$(ini_value "$p")")"
 		[ -z "$p" ] && continue
+
+		# 允许用户手工写入成对引号
+		case "$p" in
+			\"*\") p="${p#\"}"; p="${p%\"}" ;;
+		esac
+		p="$(trim_value "$p")"
+
 		if [ ! -d "$p" ]; then
-			logger -t chfs "警告: 共享目录 '$p' 不存在或不是目录"
+			logger -t chfs "共享目录 '$p' 不存在或不是目录, 拒绝启动"
+			echo "共享目录不存在或不是目录: $p" >&2
 			rc=1
 		fi
 	done
+
 	IFS="$oldifs"
+	[ "$had_glob" = "1" ] || set +f
 
 	return $rc
 }
@@ -76,7 +107,21 @@ _render_one_account() {
 	config_get rule_w "$cfgsec" rule_w ''
 	config_get rule_d "$cfgsec" rule_d ''
 
+	name="$(trim_value "$name")"
 	[ -z "$name" ] && return 0
+
+	# anonymous=0 时不生成 guest 段, 否则 chfs 仍允许匿名访问
+	if [ "$name" = "guest" ] && [ "$ANONYMOUS" != "1" ]; then
+		return 0
+	fi
+
+	# 账户名中的方括号会破坏 [section] 结构, 直接跳过并记录
+	case "$name" in
+		*'['*|*']'*)
+			logger -t chfs "账户名 '$name' 含方括号, 已跳过"
+			return 0
+			;;
+	esac
 
 	# 权限值白名单校验, 防止非法值写进 ini 导致 chfs 解析异常
 	case "$rule_default" in
@@ -86,6 +131,13 @@ _render_one_account() {
 			rule_default='r'
 			;;
 	esac
+
+	name="$(ini_value "$name")"
+	password="$(ini_value "$password")"
+	rule_none="$(ini_value "$rule_none")"
+	rule_r="$(ini_value "$rule_r")"
+	rule_w="$(ini_value "$rule_w")"
+	rule_d="$(ini_value "$rule_d")"
 
 	echo ""
 	echo "[$name]"
@@ -118,13 +170,17 @@ quote_single_path() {
 quote_paths() {
 	local input="$1"
 	local oldifs="$IFS"
+	local had_glob=0
 	local p out=""
+
+	case "$-" in *f*) had_glob=1 ;; esac
+	set -f
 
 	IFS='|'
 	for p in $input; do
+		p="$(trim_value "$(ini_value "$p")")"
 		[ -z "$p" ] && continue
 
-		# 含空格且尚未加引号的路径, 补上双引号
 		case "$p" in
 			\"*\") ;;
 			*" "*) p="\"$p\"" ;;
@@ -136,46 +192,118 @@ quote_paths() {
 			out="$out|$p"
 		fi
 	done
+
 	IFS="$oldifs"
+	[ "$had_glob" = "1" ] || set +f
 
 	printf '%s' "$out"
 }
 
-render_ini() {
-	local enabled port path allow log_path html_title html_notice
-	local image_preview folder_download session_timeout file_remove
+# 实际渲染函数。失败时返回非 0, 由 start_service 拒绝启动。
+render_config() {
+	local port path raw_path allow log_path html_title html_notice
+	local anonymous image_preview folder_download session_timeout file_remove
 	local ssl_cert ssl_key
 
-	config_get enabled      main enabled 0
-	config_get port         main port 8080
-	config_get path         main path '/mnt/sda1'
-	config_get allow        main allow ''
-	config_get log_path     main log_path ''
-	config_get html_title   main html_title 'chfs 文件共享'
-	config_get html_notice  main html_notice ''
-	config_get image_preview main image_preview 0
+	config_get port           main port 8080
+	config_get path           main path '/mnt/sda1'
+	config_get allow          main allow ''
+	config_get log_path       main log_path ''
+	config_get html_title     main html_title 'chfs 文件共享'
+	config_get html_notice    main html_notice ''
+	config_get anonymous      main anonymous 1
+	config_get image_preview  main image_preview 0
 	config_get folder_download main folder_download 'enable'
 	config_get session_timeout main session_timeout 30
-	config_get file_remove  main file_remove 1
-	config_get ssl_cert     main ssl_cert ''
-	config_get ssl_key      main ssl_key ''
+	config_get file_remove    main file_remove 3
+	config_get ssl_cert       main ssl_cert ''
+	config_get ssl_key        main ssl_key ''
 
 	if ! validate_port "$port"; then
 		logger -t chfs "端口 '$port' 非法, 必须为 1-65535 的整数"
+		echo "端口 '$port' 非法, 必须为 1-65535 的整数" >&2
 		return 1
 	fi
 
 	if [ -z "$path" ]; then
 		logger -t chfs "共享根目录为空, 拒绝渲染配置"
+		echo "共享根目录为空, 拒绝渲染配置" >&2
 		return 1
 	fi
 
-	validate_paths "$path"
+	raw_path="$(ini_value "$path")"
+	if ! validate_paths "$raw_path"; then
+		return 1
+	fi
 
 	# 含空格的路径按上游要求加引号
-	path="$(quote_paths "$path")"
+	path="$(quote_paths "$raw_path")"
+	if [ -z "$path" ]; then
+		logger -t chfs "共享根目录为空, 拒绝渲染配置"
+		echo "共享根目录为空, 拒绝渲染配置" >&2
+		return 1
+	fi
 
-	mkdir -p "$(dirname "$GEN_INI")"
+	case "$anonymous" in
+		1|on|true|yes|enabled) ANONYMOUS=1 ;;
+		*) ANONYMOUS=0 ;;
+	esac
+
+	case "$folder_download" in
+		disable|leaf|enable) ;;
+		*)
+			logger -t chfs "下载策略 '$folder_download' 非法, 回退为 enable"
+			folder_download='enable'
+			;;
+	esac
+
+	case "$file_remove" in
+		1|2|3) ;;
+		*)
+			logger -t chfs "删除模式 '$file_remove' 非法, 回退为 3 (彻底删除)"
+			file_remove='3'
+			;;
+	esac
+
+	case "$session_timeout" in
+		''|*[!0-9]*)
+			logger -t chfs "会话超时 '$session_timeout' 非法, 回退为 30"
+			session_timeout='30'
+			;;
+		*)
+			if [ "$session_timeout" -lt 1 ] || [ "$session_timeout" -gt 1440 ]; then
+				logger -t chfs "会话超时 '$session_timeout' 超出 1-1440, 回退为 30"
+				session_timeout='30'
+			fi
+			;;
+	esac
+
+	allow="$(ini_value "$allow")"
+	log_path="$(ini_value "$log_path")"
+	html_title="$(ini_value "$html_title")"
+	html_notice="$(ini_value "$html_notice")"
+	ssl_cert="$(ini_value "$ssl_cert")"
+	ssl_key="$(ini_value "$ssl_key")"
+
+	if [ -n "$ssl_cert" ] || [ -n "$ssl_key" ]; then
+		if [ -z "$ssl_cert" ] || [ -z "$ssl_key" ]; then
+			logger -t chfs "HTTPS 证书与私钥必须同时填写"
+			echo "HTTPS 证书与私钥必须同时填写" >&2
+			return 1
+		fi
+
+		if [ ! -f "$ssl_cert" ] || [ ! -f "$ssl_key" ]; then
+			logger -t chfs "HTTPS 证书或私钥文件不存在"
+			echo "HTTPS 证书或私钥文件不存在" >&2
+			return 1
+		fi
+	fi
+
+	if ! mkdir -p "$(dirname "$GEN_INI")"; then
+		logger -t chfs "无法创建配置目录 $(dirname "$GEN_INI")"
+		echo "无法创建配置目录 $(dirname "$GEN_INI")" >&2
+		return 1
+	fi
 
 	{
 		echo "# 本文件由 /etc/init.d/chfs 自动生成, 请勿手动编辑"
@@ -248,14 +376,49 @@ start_service() {
 		return 1
 	fi
 
-	if ! render_ini; then
+	local run_as run_group syslog port log_path
+	config_get run_as main run_as 'root'
+
+	case "$run_as" in
+		root|nobody) ;;
+		*)
+			logger -t chfs "运行身份 '$run_as' 不受支持, 回退为 root"
+			run_as='root'
+			;;
+	esac
+
+	run_group="$run_as"
+	[ "$run_as" = "nobody" ] && run_group="nogroup"
+
+	if ! render_config; then
 		logger -t chfs "配置渲染失败, 拒绝启动"
 		return 1
 	fi
 
-	local syslog run_as port
+	# chfs 以非 root 身份运行时必须能读取含明文口令的 ini。
+	# root:root 0600 会让 nobody 启动后立即失败。
+	if [ "$run_as" != "root" ]; then
+		if ! chown root:"$run_group" "$GEN_INI" 2>/dev/null; then
+			logger -t chfs "无法将 $GEN_INI 的属组设置为 $run_group"
+			echo "无法将配置文件属组设置为 $run_group" >&2
+			return 1
+		fi
+		chmod 0640 "$GEN_INI"
+	else
+		chmod 0600 "$GEN_INI"
+	fi
+
+	# 日志目录需要运行用户可写, 否则 chfs 无法落盘
+	config_get log_path main log_path ''
+	log_path="$(ini_value "$log_path")"
+	if [ -n "$log_path" ]; then
+		mkdir -p "$log_path" 2>/dev/null
+		if [ "$run_as" != "root" ]; then
+			chown "$run_as:$run_group" "$log_path" 2>/dev/null
+		fi
+	fi
+
 	config_get syslog main syslog 1
-	config_get run_as main run_as 'root'
 	config_get port main port 8080
 
 	procd_open_instance
@@ -273,9 +436,11 @@ start_service() {
 		procd_set_param stderr 0
 	fi
 
-	if [ -n "$run_as" ] && [ "$run_as" != "root" ]; then
+	if [ "$run_as" != "root" ]; then
 		procd_set_param user "$run_as"
-		procd_set_param group "$run_as"
+		procd_set_param group "$run_group"
+		# 非 root 时把 HOME 指向可写目录, 避免回收站功能写失败
+		procd_set_param env HOME=/tmp
 	fi
 
 	procd_close_instance
@@ -302,9 +467,9 @@ service_triggers() {
 # ---------------------------------------------------------------------------
 
 # 仅重新生成 ini, 不重启服务, 便于排查配置问题
-render_ini_cmd() {
+render_ini() {
 	config_load chfs
-	if render_ini; then
+	if render_config; then
 		echo "配置已渲染到 $GEN_INI"
 		return 0
 	fi
@@ -312,24 +477,22 @@ render_ini_cmd() {
 	return 1
 }
 
-# 输出运行状态: running / stopped
-status_cmd() {
-	if pgrep -f "$PROG -file" >/dev/null 2>&1; then
-		echo "running"
-	else
-		echo "stopped"
-	fi
-}
-
-# 清理 chfs 专属回收站中的过期文件
+# 清理 chfs 回收站中的过期文件。chfs 的回收站位于运行用户的 HOME,
+# 这里覆盖 root 与 nobody 两种常见情况, 以及非 root 时的 /tmp。
 clean_trash() {
-	local trash="$HOME/.chfs_trashbin"
+	local trash
+	local found=0
 
-	if [ ! -d "$trash" ]; then
+	for trash in /root/.chfs_trashbin /tmp/.chfs_trashbin /var/.chfs_trashbin; do
+		[ -d "$trash" ] || continue
+		find "$trash" -type f -mtime +"$TRASH_MAX_AGE" -delete 2>/dev/null
+		found=1
+	done
+
+	if [ "$found" = "1" ]; then
+		echo "已清理 $TRASH_MAX_AGE 天前的回收站文件"
+	else
 		echo "回收站不存在"
-		return 0
 	fi
-
-	find "$trash" -type f -mtime +"$TRASH_MAX_AGE" -delete 2>/dev/null
-	echo "已清理 $TRASH_MAX_AGE 天前的回收站文件"
+	return 0
 }

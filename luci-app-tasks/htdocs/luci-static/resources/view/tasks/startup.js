@@ -65,6 +65,25 @@ return view.extend({
 			return uci.get('tasks', section_id, 'title') || _('Custom startup entry');
 		};
 
+		/* The stock Add handler appends an anonymous section to the form model
+		 * and then saves the whole form. If that save fails validation — for
+		 * example because the entry already on screen still misses its
+		 * command — the appended section stays in the model without ever
+		 * being rendered. Every further click stacks up another invisible
+		 * section, and all of them are rendered together once a later save
+		 * succeeds. Remove the appended section again on failure, so that
+		 * Add is a no-op while the form is incomplete. */
+		s.handleAdd = function(ev, name) {
+			var config = this.uciconfig || this.map.config;
+			var map = this.map;
+			var section_id = map.data.add(config, this.sectiontype, name);
+
+			return map.save(null, true).catch(function(err) {
+				map.data.remove(config, section_id);
+				throw err;
+			});
+		};
+
 		var o;
 
 		o = s.option(form.Flag, 'enabled', _('Enable'));
@@ -82,6 +101,7 @@ return view.extend({
 
 		var serviceOpt = s.option(form.ListValue, 'service', _('Service'));
 		serviceOpt.value('', _('-- Please choose a service --'));
+		serviceOpt.rmempty = false;
 		serviceOpt.depends('kind', 'service');
 
 		o = s.option(form.TextValue, 'command', _('Command'));

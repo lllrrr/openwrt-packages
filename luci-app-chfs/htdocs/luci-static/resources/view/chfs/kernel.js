@@ -74,8 +74,15 @@ var callKernelDiscard = rpc.declare({
 	expect: {}
 });
 
+var callKernelBackupDiscard = rpc.declare({
+	object: 'luci.chfs',
+	method: 'kernel_backup_discard',
+	params: [ 'name' ],
+	expect: {}
+});
+
 // 待安装目录, 必须与后端 UPLOAD_DIR 保持一致
-var UPLOAD_DIR = '/etc/luci-uploads';
+var UPLOAD_DIR = '/etc/luci-uploads/chfs';
 
 // ELF e_machine 取值到名称的映射, 用于把裸数字翻译成人能读懂的架构名。
 // 只列出本插件可能遇到的架构, 其余原样显示数字。
@@ -202,7 +209,9 @@ return view.extend({
 				])
 			]));
 			infoCard.appendChild(kv(_('SHA256'), info.sha256 || '-', true));
-			infoCard.appendChild(kv(_('Expected version'), info.version || '-'));
+			infoCard.appendChild(kv(_('Kernel version'), info.version || '-'));
+			infoCard.appendChild(kv(_('SHA256 verification'),
+				info.verified ? _('Verified') : _('Unverified')));
 		}
 
 		container.appendChild(infoCard);
@@ -228,6 +237,8 @@ return view.extend({
 			E('h3', {}, _('One-click download')),
 			E('p', { 'class': 'chfs-note' },
 				_('Download a kernel built for this device from this project repository. The file is saved to the pending area and is not installed automatically.')),
+			E('p', { 'class': 'chfs-note' },
+				_('The downloaded file is checked against the built-in SHA256 value before it is accepted.')),
 			E('div', { 'class': 'chfs-actions' }, [ detectBtn ]),
 			srcBox
 		]));
@@ -389,11 +400,29 @@ return view.extend({
 					}
 				}, _('Roll back'));
 
+				var delBtn = E('button', {
+					'type': 'button',
+					'class': 'btn cbi-button cbi-button-reset',
+					'click': function(ev) {
+						ev.preventDefault();
+						return self.confirmDialog(
+							_('Delete this backup?'),
+							_('The backup file will be permanently removed. This does not affect the running kernel.'),
+							_('Delete'),
+							function() {
+								return self.runAction(
+									callKernelBackupDiscard(b.name),
+									_('Deleting backup ...'),
+									_('Backup deleted'));
+							});
+					}
+				}, _('Delete'));
+
 				btb.appendChild(E('tr', {}, [
 					E('td', { 'class': 'chfs-mono' }, b.name),
 					E('td', {}, fmtBytes(b.size)),
 					E('td', {}, shaShort(b.sha256)),
-					E('td', { 'class': 'chfs-col-action' }, E('div', { 'class': 'chfs-actions' }, [ btn ]))
+					E('td', { 'class': 'chfs-col-action' }, E('div', { 'class': 'chfs-actions' }, [ btn, delBtn ]))
 				]));
 			});
 
@@ -466,7 +495,7 @@ return view.extend({
 						ev.preventDefault();
 						return self.confirmDialog(
 							_('Download this kernel?'),
-							_('The file will be downloaded to the pending area. The running kernel is not touched until you click Install.'),
+							_('The file will be downloaded to the pending area and must pass the built-in SHA256 check. The running kernel is not touched until you click Install.'),
 							_('Download'),
 							function() {
 								return self.runAction(
@@ -477,7 +506,7 @@ return view.extend({
 					}
 				}, _('Download'));
 
-				if (!s.available)
+				if (!s.available || !s.sha256)
 					dlBtn.disabled = true;
 
 				tb.appendChild(E('tr', {}, [
@@ -485,6 +514,7 @@ return view.extend({
 					E('td', { 'class': 'chfs-mono chfs-url-cell' }, s.url),
 					E('td', {}, badge),
 					E('td', { 'class': 'chfs-mono' }, s.http_code || '-'),
+					E('td', {}, shaShort(s.sha256)),
 					E('td', { 'class': 'chfs-col-action' }, E('div', { 'class': 'chfs-actions' }, [ dlBtn ]))
 				]));
 			});
@@ -498,6 +528,7 @@ return view.extend({
 						E('th', {}, _('URL')),
 						E('th', {}, _('Status')),
 						E('th', {}, _('HTTP code')),
+						E('th', {}, _('SHA256')),
 						E('th', { 'class': 'chfs-col-action' }, _('Actions'))
 					])),
 					tb
@@ -517,7 +548,7 @@ return view.extend({
 	// 走 LuCI 标准的 /cgi-bin/cgi-upload 端点, 参数与 luci-base 的 ui.FileUpload
 	// 内部实现一致: sessionid + filename(完整绝对路径) + filedata。
 	// cgi-upload 会按当前会话的 ACL 校验目标路径, 因此 acl.d 里必须有
-	// /etc/luci-uploads/* 的 write 权限, 否则上传会被拒绝。
+	// /etc/luci-uploads/chfs/* 的 write 权限, 否则上传会被拒绝。
 	handleUpload: function(file, btn) {
 		var self = this;
 

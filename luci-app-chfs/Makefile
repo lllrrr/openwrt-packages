@@ -7,7 +7,7 @@
 include $(TOPDIR)/rules.mk
 
 LUCI_TITLE:=LuCI support for chfs (CuteHttpFileServer)
-LUCI_DEPENDS:=+chfs +rpcd +rpcd-mod-ucode +ucode +ucode-mod-fs +ucode-mod-uci
+LUCI_DEPENDS:=+chfs +rpcd +rpcd-mod-ucode +ucode +ucode-mod-fs +ucode-mod-uci +curl
 LUCI_PKGARCH:=all
 LUCI_DESCRIPTION:=chfs (CuteHttpFileServer) 的 LuCI 管理界面, 支持端口与共享目录配置、\
 	账户权限与访问规则、IP 黑白名单、日志与开机自启管理.
@@ -21,6 +21,20 @@ PKG_LICENSE:=Apache-2.0
 
 include $(INCLUDE_DIR)/package.mk
 include $(TOPDIR)/feeds/luci/luci.mk
+
+# 覆盖 luci.mk 的默认 postinst:
+#   1. 安装/升级后启用 init 脚本, 否则 UCI 里的 enabled 开关无法让服务真正
+#      随系统启动 (rc.d 链接不存在时 procd 不会执行 start).
+#   2. 保留 luci.mk 原有的缓存清理与 rpcd reload 行为.
+define Package/luci-app-chfs/postinst
+[ -n "$${IPKG_INSTROOT}" ] || { \
+	rm -f /tmp/luci-indexcache.*; \
+	rm -rf /tmp/luci-modulecache/; \
+	/etc/init.d/rpcd reload 2>/dev/null; \
+	/etc/init.d/chfs enable 2>/dev/null; \
+	exit 0; \
+}
+endef
 
 # 显式修正包内可执行位.
 #

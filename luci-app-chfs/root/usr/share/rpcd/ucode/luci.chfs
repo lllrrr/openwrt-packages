@@ -1,310 +1,281 @@
 // chfs 后端接口
-// 提供配置读写、参数校验、服务控制与状态探测能力。
+// 提供配置读取、状态探测、服务控制与内核管理能力。
 // 由 rpcd-mod-ucode 加载, 前端通过 ubus 对象 'luci.chfs' 调用。
 
 'use strict';
 
 import { cursor } from 'uci';
-import { readfile, stat, popen, open } from 'fs';
+import { readfile, stat, popen, open, unlink } from 'fs';
 
 const UCI_PACKAGE = 'chfs';
 const GEN_INI = '/var/etc/chfs.ini';
 const PROG = '/usr/bin/chfs';
 const INIT_SCRIPT = '/etc/init.d/chfs';
+const RC_LINK = '/etc/rc.d/S95chfs';
 
-// 取值白名单
-// 依据 ucode 官方文档, `in` 运算符对数组执行严格相等比较,
-// 即 `value in array` 可直接用于成员判断, 无需自定义辅助函数.
-const VALID_FOLDER_DOWNLOAD = [ 'disable', 'leaf', 'enable' ];
-const VALID_RULE = [ 'none', 'r', 'w', 'd' ];
-const VALID_FILE_REMOVE = [ '1', '2', '3' ];
 const VALID_ACTIONS = [ 'start', 'stop', 'restart', 'reload', 'enable', 'disable' ];
 const WEBDAV_OK_CODES = [ '200', '207', '301', '302', '401', '403', '405' ];
 
 // ---------------------------------------------------------------------------
-// 参数校验规则
+// 基础工具
 // ---------------------------------------------------------------------------
 
-function validate_port(port) {
-	if (port === null || port === '')
-		return { ok: false, msg: '端口不能为空' };
+// 将字符串安全地包进 POSIX shell 单引号。所有拼接进 popen() 的变量都必须先过这里。
+function shq(s) {
+	let out = "'";
+	s = '' + (s ?? '');
 
-	const s = '' + port;
-
-	if (match(s, /[^0-9]/))
-		return { ok: false, msg: '端口只能包含数字' };
-
-	const n = +s;
-	if (n < 1 || n > 65535)
-		return { ok: false, msg: '端口范围必须是 1-65535' };
-
-	if (n < 1024)
-		return { ok: true, warn: true, msg: '端口小于 1024 属特权端口, 需 root 身份运行' };
-
-	return { ok: true };
-}
-
-function validate_paths(pathstr) {
-	if (!pathstr || pathstr === '')
-		return { ok: false, msg: '共享根目录不能为空' };
-
-	let parts = split('' + pathstr, '|');
-	let missing = [];
-	let count = 0;
-
-	for (let p in parts) {
-		p = trim(p);
-		if (p === '') continue;
-		count++;
-
-		let st = stat(p);
-		if (st == null || st.type !== 'directory')
-			push(missing, p);
+	for (let i = 0; i < length(s); i++) {
+		let c = substr(s, i, 1);
+		if (c === "'")
+			out += "'\\''";
+		else
+			out += c;
 	}
 
-	if (count === 0)
-		return { ok: false, msg: '共享根目录不能为空' };
-
-	if (length(missing) > 0)
-		return { ok: true, warn: true, msg: '以下目录不存在或不是目录: ' + join(', ', missing) };
-
-	return { ok: true };
+	return out + "'";
 }
 
-function validate_allow(allowstr) {
-	if (!allowstr || allowstr === '')
-		return { ok: true };
+// 仅允许安全文件名, 避免路径穿越、隐藏文件与 shell 选项注入
+function safe_name(name) {
+	name = '' + (name ?? '');
 
-	let parts = split('' + allowstr, '|');
-	let bad = [];
+	if (name === '' || substr(name, 0, 1) === '.' || substr(name, 0, 1) === '-')
+		return false;
 
-	for (let p in parts) {
-		p = trim(p);
-		if (p === '') continue;
-		if (!match(p, /^[0-9a-fA-F:.]+$/))
-			push(bad, p);
-	}
+	if (match(name, /^[0-9A-Za-z._-]+$/) == null)
+		return false;
 
-	if (length(bad) > 0)
-		return { ok: false, msg: 'IP 规则格式非法: ' + join(', ', bad) };
+	if (match(name, /\.\./) != null)
+		return false;
 
-	return { ok: true };
+	return true;
 }
 
-function validate_session_timeout(v) {
-	const s = '' + (v ?? '');
+// 把 UCI/ini 中的端口值规范化为数字, 非法返回 0
+function to_port(v) {
+	let s = '' + (v ?? '');
 
-	if (s === '' || match(s, /[^0-9]/))
-		return { ok: false, msg: '会话超时必须是整数分钟' };
+	if (match(s, /^[0-9]+$/) == null)
+		return 0;
 
-	const n = +s;
-	if (n < 1 || n > 1440)
-		return { ok: false, msg: '会话超时范围是 1-1440 分钟' };
-
-	return { ok: true };
+	let n = +s;
+	return (n >= 1 && n <= 65535) ? n : 0;
 }
 
-// ---------------------------------------------------------------------------
-// 读取配置
-// ---------------------------------------------------------------------------
-
-const MAIN_DEFAULTS = {
-	enabled: '0',
-	port: '8080',
-	bind_addr: '',
-	path: '/mnt/sda1',
-	run_as: 'root',
-	allow: '',
-	anonymous: '1',
-	log_path: '',
-	html_title: 'chfs 文件共享',
-	html_notice: '',
-	image_preview: '0',
-	folder_download: 'enable',
-	session_timeout: '30',
-	file_remove: '1',
-	ssl_cert: '',
-	ssl_key: '',
-	syslog: '1',
-	webdav_show: '1'
-};
-
-function read_config() {
-	let uci = cursor();
-	let main = {};
-	let accounts = [];
-
-	uci.load(UCI_PACKAGE);
-
-	for (let k, v in MAIN_DEFAULTS) {
-		let cur = uci.get(UCI_PACKAGE, 'main', k);
-		main[k] = (cur == null) ? v : cur;
-	}
-
-	uci.foreach(UCI_PACKAGE, 'account', function(s) {
-		push(accounts, {
-			'.name': s['.name'],
-			name: s.name ?? '',
-			password: s.password ?? '',
-			rule_default: s.rule_default ?? 'r',
-			rule_none: s.rule_none ?? '',
-			rule_r: s.rule_r ?? '',
-			rule_w: s.rule_w ?? '',
-			rule_d: s.rule_d ?? ''
-		});
-	});
-
-	return { main, accounts };
-}
-
-// ---------------------------------------------------------------------------
-// 写入配置, 校验失败整体拒绝
-// ---------------------------------------------------------------------------
-
-function write_config(payload) {
-	if (type(payload) !== 'object' || payload == null)
-		return { ok: false, msg: '请求数据格式非法' };
-
-	let main = payload.main;
-	let accounts = payload.accounts;
-
-	if (type(main) !== 'object' || main == null)
-		return { ok: false, msg: '缺少主配置段' };
-
-	let errors = [];
-
-	let r_port = validate_port(main.port);
-	if (!r_port.ok) push(errors, '端口: ' + r_port.msg);
-
-	let r_path = validate_paths(main.path);
-	if (!r_path.ok) push(errors, '共享目录: ' + r_path.msg);
-
-	let r_allow = validate_allow(main.allow);
-	if (!r_allow.ok) push(errors, 'IP 过滤: ' + r_allow.msg);
-
-	let r_timeout = validate_session_timeout(main.session_timeout);
-	if (!r_timeout.ok) push(errors, '会话超时: ' + r_timeout.msg);
-
-	if (!(main.folder_download in VALID_FOLDER_DOWNLOAD))
-		push(errors, '下载策略: 取值必须是 disable / leaf / enable');
-
-	if (!(main.file_remove in VALID_FILE_REMOVE))
-		push(errors, '删除模式: 取值必须是 1 / 2 / 3');
-
-	let has_cert = (main.ssl_cert ?? '') !== '';
-	let has_key = (main.ssl_key ?? '') !== '';
-
-	if (has_cert != has_key)
-		push(errors, 'HTTPS: 证书与私钥必须同时填写或同时留空');
-
-	if (has_cert && has_key) {
-		for (let f in [ 'ssl_cert', 'ssl_key' ]) {
-			let p = main[f] ?? '';
-			let st = stat(p);
-			if (st == null || st.type !== 'file')
-				push(errors, 'HTTPS: 文件不存在 - ' + p);
-		}
-	}
-
-	if (type(accounts) === 'array') {
-		let seen = {};
-		for (let a in accounts) {
-			let nm = trim(a.name ?? '');
-
-			if (nm === '') {
-				push(errors, '账户名不能为空');
-				continue;
-			}
-
-			if (seen[nm] != null)
-				push(errors, '账户名重复: ' + nm);
-			else
-				seen[nm] = true;
-
-			if (!(a.rule_default in VALID_RULE))
-				push(errors, '账户 ' + nm + ': 默认权限取值非法');
-		}
-	}
-
-	if (length(errors) > 0)
-		return { ok: false, msg: '配置校验未通过', errors };
-
+function service_enabled() {
 	let uci = cursor();
 	uci.load(UCI_PACKAGE);
+	return (uci.get(UCI_PACKAGE, 'main', 'enabled') ?? '0') === '1';
+}
 
-	let strkeys = [
-		'port', 'bind_addr', 'path', 'run_as', 'allow',
-		'log_path', 'html_title', 'html_notice', 'folder_download',
-		'session_timeout', 'file_remove', 'ssl_cert', 'ssl_key'
-	];
-	let boolkeys = [ 'enabled', 'anonymous', 'image_preview', 'syslog', 'webdav_show' ];
+// 运行中的 ini 端口与 HTTPS 状态。用于状态探测, 避免配置改了但没重启时误报。
+function ini_port() {
+	if (stat(GEN_INI) == null)
+		return null;
 
-	for (let k in strkeys)
-		uci.set(UCI_PACKAGE, 'main', k, '' + (main[k] ?? ''));
+	let content = readfile(GEN_INI) ?? '';
+	let m = match(content, /(^|\n)port=([0-9]+)/);
 
-	for (let k in boolkeys) {
-		let v = main[k];
-		uci.set(UCI_PACKAGE, 'main', k,
-			(v === '1' || v === 1 || v === true) ? '1' : '0');
+	if (m == null)
+		return null;
+
+	let n = +m[2];
+	return (n >= 1 && n <= 65535) ? n : null;
+}
+
+function ini_https() {
+	if (stat(GEN_INI) == null)
+		return false;
+
+	let content = readfile(GEN_INI) ?? '';
+
+	return (match(content, /(^|\n)ssl\.cert=/) != null &&
+	        match(content, /(^|\n)ssl\.key=/) != null);
+}
+
+// ---------------------------------------------------------------------------
+// 架构与 ELF
+// ---------------------------------------------------------------------------
+
+// 设备架构 -> 内核资产文件名后缀
+// 与 chfs/Makefile 的 CHFS_ARCH 映射表保持一致。
+function detect_arch() {
+	let p = popen('uname -m 2>/dev/null');
+	let m = trim('' + (p.read('all') ?? ''));
+	p.close();
+
+	// uname -m 的取值 -> 资产命名
+	//   aarch64 -> arm64     x86_64 -> amd64
+	let map = {
+		'aarch64':   { kernel: 'arm64', elf_machine: 183, arch: 'aarch64' },
+		'x86_64':    { kernel: 'amd64', elf_machine: 62,  arch: 'x86_64' },
+		'armv7l':    { kernel: 'arm',   elf_machine: 40,  arch: 'arm' },
+		'armv6l':    { kernel: 'arm',   elf_machine: 40,  arch: 'arm' },
+		'armv8l':    { kernel: 'arm',   elf_machine: 40,  arch: 'arm' },
+		'mips':      { kernel: 'mips',  elf_machine: 8,   arch: 'mips' },
+		'mipsel':    { kernel: 'mipsle', elf_machine: 8,  arch: 'mipsel' },
+		'mips64':    { kernel: 'mips64', elf_machine: 8,  arch: 'mips64' },
+		'mips64el':  { kernel: 'mips64le', elf_machine: 8, arch: 'mips64el' },
+		'i686':      { kernel: '386',   elf_machine: 3,   arch: 'i386' },
+		'i386':      { kernel: '386',   elf_machine: 3,   arch: 'i386' }
+	};
+
+	return map[m] ?? { kernel: '', elf_machine: -1, arch: m };
+}
+
+// 读取 ELF 头的 e_machine 字段。
+// ELF 头布局: 偏移 18 为 e_machine, 2 字节, 字节序由偏移 5 的 EI_DATA 决定。
+// 返回 -1 表示不是 ELF 或读取失败。
+//
+// 注意: fs.open 读取返回的是 string, 需用全局 ord(str, idx) 取字节值,
+//       不能用 s[idx] 下标访问 (ucode 中该写法返回 null)。
+function elf_machine(path) {
+	let fd = open(path, 'r');
+	if (fd == null)
+		return -1;
+
+	// 读取前 20 字节足以覆盖 ELF 魔数 + EI_CLASS/EI_DATA + e_machine
+	let head = fd.read(20);
+	fd.close();
+
+	if (head == null || length(head) < 20)
+		return -1;
+
+	// 魔数校验: 7f 45 4c 46
+	if (ord(head, 0) != 0x7f || ord(head, 1) != 0x45 ||
+	    ord(head, 2) != 0x4c || ord(head, 3) != 0x46)
+		return -1;
+
+	let ei_class = ord(head, 4);
+	let ei_data = ord(head, 5);
+
+	if ((ei_class != 1 && ei_class != 2) || (ei_data != 1 && ei_data != 2))
+		return -1;
+
+	// EI_DATA: 1 小端, 2 大端
+	if (ei_data == 2)
+		return (ord(head, 18) * 256) + ord(head, 19);
+
+	return ord(head, 18) + (ord(head, 19) * 256);
+}
+
+// 计算文件 sha256, 走 sha256sum 而非自行实现, 避免算法实现引入误差
+function file_sha256(path) {
+	if (stat(path) == null)
+		return '';
+
+	let p = popen('sha256sum ' + shq(path) + ' 2>/dev/null');
+	let out = trim('' + (p.read('all') ?? ''));
+	p.close();
+
+	let sp = split(out, ' ');
+	return (sp != null && length(sp) > 0) ? sp[0] : '';
+}
+
+// ---------------------------------------------------------------------------
+// HTTP 传输辅助
+//
+// 设备实际环境差异 (ImmortalWrt SNAPSHOT 实测):
+//   /usr/bin/wget -> /bin/uclient-fetch   BusyBox 风格, **不支持 -S**,
+//                                          支持 -s/--spider、-T/--timeout
+//   /usr/bin/curl   完整版, 支持 -s -I -o -w --max-time
+//
+// 统一走 curl 取状态码; curl 缺失时退回 uclient-fetch 的 spider 模式,
+// 以退出码判定可达性 (无法区分 404 与 200, 仅作连通性判断)。
+// ---------------------------------------------------------------------------
+
+function detect_fetcher() {
+	let p = popen('command -v curl 2>/dev/null');
+	let c = trim('' + (p.read('all') ?? ''));
+	p.close();
+	if (c !== '')
+		return 'curl';
+
+	p = popen('command -v uclient-fetch 2>/dev/null');
+	let u = trim('' + (p.read('all') ?? ''));
+	p.close();
+	if (u !== '')
+		return 'uclient';
+
+	return '';
+}
+
+function http_probe(url, timeout_sec) {
+	let fetcher = detect_fetcher();
+	let out = { code: 'timeout', available: false };
+
+	if (fetcher === 'curl') {
+		// -I 只取响应头; GitHub Release 资产会 302 跳到 Azure Blob,
+		// 需要 -L 跟随重定向才能拿到最终 200。
+		let cmd = 'curl -s -I -L -o /dev/null -w "%{http_code}" --max-time ' +
+		          (+timeout_sec) + ' ' + shq(url) + ' 2>/dev/null';
+		let p = popen(cmd);
+		let code = trim('' + (p.read('all') ?? ''));
+		p.close();
+
+		out.code = (code !== '') ? code : 'timeout';
+		out.available = (code === '200' || code === '301' || code === '302');
+		return out;
 	}
 
-	if (type(accounts) === 'array') {
-		let existing = [];
-		uci.foreach(UCI_PACKAGE, 'account', function(s) {
-			push(existing, s['.name']);
-		});
+	if (fetcher === 'uclient') {
+		let cmd = 'uclient-fetch -s -T ' + (+timeout_sec) + ' ' + shq(url) + ' >/dev/null 2>&1';
+		let p = popen(cmd);
+		p.read('all');
+		let rc = p.close();
 
-		for (let n in existing)
-			uci.delete(UCI_PACKAGE, n);
+		if (rc == 0) {
+			out.code = '200';
+			out.available = true;
+		}
+		return out;
+	}
 
-		let idx = 0;
-		for (let a in accounts) {
-			let sec = 'account_' + idx;
-			idx++;
+	return out;
+}
 
-			uci.set(UCI_PACKAGE, sec, 'account');
-			uci.set(UCI_PACKAGE, sec, 'name', trim(a.name ?? ''));
-			uci.set(UCI_PACKAGE, sec, 'password', '' + (a.password ?? ''));
-			uci.set(UCI_PACKAGE, sec, 'rule_default', a.rule_default ?? 'r');
-			uci.set(UCI_PACKAGE, sec, 'rule_none', '' + (a.rule_none ?? ''));
-			uci.set(UCI_PACKAGE, sec, 'rule_r', '' + (a.rule_r ?? ''));
-			uci.set(UCI_PACKAGE, sec, 'rule_w', '' + (a.rule_w ?? ''));
-			uci.set(UCI_PACKAGE, sec, 'rule_d', '' + (a.rule_d ?? ''));
+// 读取 /proc/net/tcp{,6} 判断端口是否处于 LISTEN 状态。
+// 比 netstat 少一个外部依赖, 且不受 netstat 输出格式差异影响。
+function port_listening(port) {
+	let want = sprintf('%04X', +port);
+	let checked = false;
+
+	for (let f in [ '/proc/net/tcp', '/proc/net/tcp6' ]) {
+		let content = readfile(f);
+		if (content == null)
+			continue;
+
+		checked = true;
+
+		for (let line in split(content, '\n')) {
+			let m = match(line, /^[ \t]*[0-9]+:[ \t]+[0-9A-Fa-f]+:([0-9A-Fa-f]{4})[ \t]+[0-9A-Fa-f]+:[0-9A-Fa-f]{4}[ \t]+0A[ \t]/);
+
+			if (m != null && m[1] == want)
+				return true;
 		}
 	}
 
-	uci.commit(UCI_PACKAGE);
+	if (!checked) {
+		// 极少数环境没有 /proc/net/tcp, 退回 netstat
+		let p = popen('netstat -ltn 2>/dev/null | grep -c ":' + (+port) + ' "');
+		let cnt = trim('' + (p.read('all') ?? '0'));
+		p.close();
 
-	let warnings = [];
-	if (r_port.warn) push(warnings, r_port.msg);
-	if (r_path.warn) push(warnings, r_path.msg);
+		return ((+cnt) > 0);
+	}
 
-	return { ok: true, warnings };
+	return false;
 }
 
 // ---------------------------------------------------------------------------
-// 服务控制
+// 服务状态
 // ---------------------------------------------------------------------------
-
-function init_action(action) {
-	if (!(action in VALID_ACTIONS))
-		return { ok: false, msg: '不支持的操作: ' + action };
-
-	let res = popen(INIT_SCRIPT + ' ' + action + ' 2>&1');
-	let out = res.read('all') ?? '';
-	let code = res.close();
-
-	if (code != 0)
-		return { ok: false, msg: trim('' + out) || ('操作失败, 退出码 ' + code) };
-
-	return { ok: true, output: trim('' + out) };
-}
 
 function service_status() {
 	// 判定运行状态不能用 pgrep -f "<进程路径>".
 	// pgrep -f 匹配整条 command line, 而执行 pgrep 的那条 sh -c 命令自身也包含
-	// 该字符串, 于是 pgrep 总能匹配到自己并返回 0 —— 进程早已退出也判为"运行中"
-	// (实测: 服务已 stop, pgrep -f 仍返回残留 PID).
+	// 该字符串, 于是 pgrep 总能匹配到自己并返回 0.
 	// 改用 pidof chfs: 它按 /proc/<pid>/comm 精确匹配进程名, 不会自匹配.
 	let p0 = popen('pidof chfs 2>/dev/null | head -n1');
 	let pid = trim('' + (p0.read('all') ?? ''));
@@ -316,15 +287,15 @@ function service_status() {
 	if (running) {
 		st.pid = pid;
 
-		let p2 = popen('awk \'/VmRSS/{print $2}\' /proc/' + pid + '/status 2>/dev/null');
-		let rss = trim('' + (p2.read('all') ?? ''));
-		p2.close();
+		if (match(pid, /^[0-9]+$/)) {
+			let p2 = popen('awk \'/VmRSS/{print $2}\' /proc/' + pid + '/status 2>/dev/null');
+			let rss = trim('' + (p2.read('all') ?? ''));
+			p2.close();
 
-		if (rss !== '')
-			// 注意: ucode 的字符串没有 .format() 方法, 写 '%.1f'.format(x) 会抛
-			// Reference error: left-hand side expression is not an array or object,
-			// 导致整个 status 接口失败. 必须用 printf 系列函数格式化.
-			st.mem_mb = sprintf('%.1f', (+rss) / 1024);
+			if (rss !== '')
+				// ucode 的字符串没有 .format() 方法, 必须用 printf 系列函数格式化.
+				st.mem_mb = sprintf('%.1f', (+rss) / 1024);
+		}
 	}
 
 	let uci = cursor();
@@ -333,84 +304,75 @@ function service_status() {
 	st.enabled = (uci.get(UCI_PACKAGE, 'main', 'enabled') ?? '0') === '1';
 	st.port = uci.get(UCI_PACKAGE, 'main', 'port') ?? '8080';
 
+	// 实际开机是否启动 = rc.d 链接存在且 UCI 开关为启用
+	st.autostart = st.enabled && (stat(RC_LINK) != null);
+
 	let bst = stat(PROG);
 	st.binary_ok = (bst != null);
 
 	let ist = stat(GEN_INI);
 	st.ini_exists = (ist != null);
 
-	// ini 中的端口与 UCI 不一致, 说明改过配置但未重启
-	// 注意: regexp() 返回的 regexp 对象没有 .exec() 方法, 用它会抛
-	// Reference error: left-hand side expression is not an array or object.
-	// 必须用全局 match(str, re) 函数, 返回 [ 整体匹配, 捕获组1, ... ] 或 null.
-	//
-	// 端口与协议都用 "(^|\n)" 锚定行首, 不用裸 port=:
-	// path=/mnt/port=share 这类取值会让裸匹配命中错误的位置.
-	// 同理 ssl.cert 也必须锚行首, 否则 html.notice 里出现该字样会误判为已启用 HTTPS.
+	// 当前真实生效的端口/协议取自 ini, 与 UCI 可能不同 (改过但未重启).
 	if (st.ini_exists) {
-		let content = readfile(GEN_INI) ?? '';
-		let m = match(content, /(^|\n)port=([0-9]+)/);
+		let ip = ini_port();
 
-		if (m != null) {
-			// 当前真实生效的端口 —— 与 uci 的 st.port 可能不同 (改过但未重启).
-			// 前端按它拼 WebUI 地址, 才不会跳到一个没人监听的端口上.
-			st.ini_port = +m[2];
+		if (ip != null) {
+			st.ini_port = ip;
 
-			if ('' + st.ini_port != st.port)
+			if ('' + ip != st.port)
 				st.port_mismatch = true;
 		}
 
-		// init 脚本仅在证书与私钥同时非空时才写出 ssl.cert, 故它的存在即等价于
-		// "当前生效的是 HTTPS". 与 probe_webdav 里的判定保持同一口径.
-		st.ini_https = (match(content, /(^|\n)ssl\.cert=/) != null);
+		st.ini_https = ini_https();
 	}
 
 	return st;
 }
 
+// ---------------------------------------------------------------------------
+// 配置读取 (只读, 且对密码打码)
+// ---------------------------------------------------------------------------
+
 function read_ini() {
 	if (stat(GEN_INI) == null)
 		return { ok: false, msg: '配置文件尚未生成, 请先启动一次服务' };
 
-	return { ok: true, content: readfile(GEN_INI) ?? '' };
-}
-
-// 实时渲染 ini 预览, 不写盘
-function preview_ini(payload) {
-	let main = (payload != null && type(payload.main) === 'object') ? payload.main : {};
-	let accounts = (payload != null && type(payload.accounts) === 'array') ? payload.accounts : [];
+	let content = readfile(GEN_INI) ?? '';
 	let lines = [];
 
-	push(lines, '# 预览内容, 未写入磁盘');
-	push(lines, 'port=' + (main.port ?? ''));
-	push(lines, 'path=' + (main.path ?? ''));
-	push(lines, 'allow=' + (main.allow ?? ''));
-	push(lines, 'log=' + (main.log_path ?? ''));
-	push(lines, 'html.title=' + (main.html_title ?? ''));
-	push(lines, 'html.notice=' + (main.html_notice ?? ''));
-	push(lines, 'image.preview=' + ((main.image_preview === '1') ? 'true' : 'false'));
-	push(lines, 'folder.download=' + (main.folder_download ?? 'enable'));
-	push(lines, 'session.timeout=' + (main.session_timeout ?? '30'));
-	push(lines, 'file.remove=' + (main.file_remove ?? '1'));
+	for (let line in split(content, '\n')) {
+		// 状态页用于排查配置, 不应把账户明文口令回传给浏览器
+		if (match(line, /^[ \t]*password[ \t]*=/))
+			line = 'password=********';
 
-	if ((main.ssl_cert ?? '') !== '' && (main.ssl_key ?? '') !== '') {
-		push(lines, 'ssl.cert=' + main.ssl_cert);
-		push(lines, 'ssl.key=' + main.ssl_key);
+		push(lines, line);
 	}
 
-	for (let a in accounts) {
-		push(lines, '');
-		push(lines, '[' + (a.name ?? '') + ']');
-		push(lines, 'password=' + (a.password ?? ''));
-		push(lines, 'rule.default=' + (a.rule_default ?? 'r'));
+	return { ok: true, content: join('\n', lines) };
+}
 
-		if ((a.rule_none ?? '') !== '') push(lines, 'rule.none=' + a.rule_none);
-		if ((a.rule_r ?? '') !== '')    push(lines, 'rule.r=' + a.rule_r);
-		if ((a.rule_w ?? '') !== '')    push(lines, 'rule.w=' + a.rule_w);
-		if ((a.rule_d ?? '') !== '')    push(lines, 'rule.d=' + a.rule_d);
-	}
+// ---------------------------------------------------------------------------
+// 服务控制
+// ---------------------------------------------------------------------------
 
-	return { ok: true, content: join('\n', lines) + '\n' };
+function init_action(action) {
+	if (!(action in VALID_ACTIONS))
+		return { ok: false, msg: '不支持的操作: ' + action };
+
+	// 未启用时 start 什么都不会做, 直接返回明确原因。
+	// restart 仍允许执行: 用户可能刚把 enabled 改为 0, 需要借此停止旧进程。
+	if (action === 'start' && !service_enabled())
+		return { ok: false, msg: '服务未启用, 请先在服务设置中勾选「启用服务」并保存' };
+
+	let res = popen(INIT_SCRIPT + ' ' + action + ' 2>&1');
+	let out = res.read('all') ?? '';
+	let code = res.close();
+
+	if (code != 0)
+		return { ok: false, msg: trim('' + out) || ('操作失败, 退出码 ' + code) };
+
+	return { ok: true, output: trim('' + out) };
 }
 
 // ---------------------------------------------------------------------------
@@ -418,16 +380,18 @@ function preview_ini(payload) {
 // ---------------------------------------------------------------------------
 
 function probe_listen() {
-	let uci = cursor();
-	uci.load(UCI_PACKAGE);
+	let port = ini_port();
 
-	let port = uci.get(UCI_PACKAGE, 'main', 'port') ?? '8080';
+	if (port == null) {
+		let uci = cursor();
+		uci.load(UCI_PACKAGE);
+		port = to_port(uci.get(UCI_PACKAGE, 'main', 'port') ?? '8080');
+	}
 
-	let res = popen('netstat -ltn 2>/dev/null | grep -c ":' + port + ' "');
-	let cnt = trim('' + (res.read('all') ?? '0'));
-	res.close();
+	if (port === 0)
+		return { port: 0, listening: false, msg: '端口配置非法' };
 
-	return { port: +port, listening: ((+cnt) > 0) };
+	return { port: port, listening: port_listening(port) };
 }
 
 // 探测 WebDAV 端点
@@ -439,31 +403,57 @@ function probe_webdav() {
 	let uci = cursor();
 	uci.load(UCI_PACKAGE);
 
-	let port = uci.get(UCI_PACKAGE, 'main', 'port') ?? '8080';
-	let cert = uci.get(UCI_PACKAGE, 'main', 'ssl_cert') ?? '';
-	let key = uci.get(UCI_PACKAGE, 'main', 'ssl_key') ?? '';
+	let port = ini_port();
 
-	// 与 init 脚本保持一致: 证书与私钥同时存在才视为启用 HTTPS
-	let scheme = (cert !== '' && key !== '') ? 'https' : 'http';
+	if (port == null)
+		port = to_port(uci.get(UCI_PACKAGE, 'main', 'port') ?? '8080');
 
+	// 优先使用运行中的 ini 判断协议, 未运行时退回 UCI 配置
+	let scheme;
+	if (stat(GEN_INI) != null) {
+		scheme = ini_https() ? 'https' : 'http';
+	}
+	else {
+		let cert = uci.get(UCI_PACKAGE, 'main', 'ssl_cert') ?? '';
+		let key = uci.get(UCI_PACKAGE, 'main', 'ssl_key') ?? '';
+		scheme = (cert !== '' && key !== '') ? 'https' : 'http';
+	}
+
+	if (port === 0)
+		return {
+			available: false,
+			http_code: '',
+			scheme,
+			port: 0,
+			url: '',
+			msg: '端口配置非法, 无法探测'
+		};
+
+	let out = {
+		available: false,
+		http_code: '',
+		scheme,
+		port,
+		url: scheme + '://<host>:' + port + '/webdav'
+	};
+
+	if (detect_fetcher() !== 'curl') {
+		out.msg = '未安装 curl, 无法执行 WebDAV PROPFIND 探测';
+		return out;
+	}
+
+	let url = scheme + '://127.0.0.1:' + port + '/webdav';
 	let cmd = 'curl -s -o /dev/null -w "%{http_code}" -k --max-time 5 ' +
-		'-X PROPFIND -H "Depth: 0" ' + scheme + '://127.0.0.1:' + port + '/webdav 2>/dev/null';
+	          '-X PROPFIND -H "Depth: 0" ' + shq(url) + ' 2>/dev/null';
 
 	let res = popen(cmd);
 	let code = trim('' + (res.read('all') ?? ''));
 	res.close();
 
-	let available = (code in WEBDAV_OK_CODES);
+	out.http_code = code;
+	out.available = (code in WEBDAV_OK_CODES);
 
-	let out = {
-		available,
-		http_code: code,
-		scheme,
-		port: +port,
-		url: scheme + '://<主机地址>:' + port + '/webdav'
-	};
-
-	if (!available) {
+	if (!out.available) {
 		if (code === '000' || code === '')
 			out.msg = '无法连接, 请确认服务已启动且端口正确';
 		else
@@ -493,21 +483,28 @@ function probe_webdav() {
 //     3. 随包内核被裁剪或损坏, 需要恢复
 //
 // 因此提供两条补充路径:
-//   A. 一键下载 —— 从本仓库 (GitHub) 下载对应架构内核。信任锚点是用户自己的
-//      仓库且走 HTTPS, 相比从上游 HTTP 明文下载显著更安全。
+//   A. 一键下载 —— 从本仓库 (GitHub) 下载对应架构内核。下载后必须与内置
+//      SHA256 比对, 只有完全一致才允许进入待安装区。
 //   B. 手动上传 —— 用户自行取得内核文件后在网页上传。
 //
 // 安全边界 (重要):
-//   1. 下载 URL 必须匹配白名单前缀, 不接受任意 URL, 避免沦为 SSRF / 跳板。
-//   2. 上传与下载得到的文件一律先落到 UPLOAD_DIR, 不直接覆盖运行中的内核。
+//   1. 下载 URL 必须匹配白名单前缀, 且拒绝空白/引号等可用于 shell 拼接的字符。
+//   2. 文件一律先落到专用待安装目录, 不直接覆盖运行中的内核。
 //   3. 安装前校验: ELF 魔数、e_machine 与当前设备架构匹配、文件非空、大小合理。
 //   4. 安装前自动备份现有内核, 便于回滚。
-//   5. 安装后清理内核文件系统权限为 0755。
+//   5. 所有拼进 shell 的路径都经过 shq() 转义。
 // ---------------------------------------------------------------------------
 
-const UPLOAD_DIR = '/etc/luci-uploads';
+const UPLOAD_DIR = '/etc/luci-uploads/chfs';
 const BACKUP_DIR = '/etc/chfs/kernel-backup';
 const KERNEL_VERSION = '3.1';
+
+// 预置内核的 SHA256 基准值。与 chfs/bin/SHA256SUMS 保持一致;
+// 一键下载在落盘前会用这里的值做完整性校验。
+const KERNEL_SHA256 = {
+	'amd64': '763a557c7b6916a496639a715cd8d6ff1dbb6c15b73bed060a705797d434c6a6',
+	'arm64': '78ed31c12b7f1c9679867d5cc9051cc1174740bb88b939eaf32b14436b6d3e53'
+};
 
 // 允许下载的 URL 前缀白名单。
 // 用户可在界面上切换主源与镜像源, 但两者都必须命中此列表。
@@ -521,77 +518,15 @@ const ALLOWED_URL_PREFIXES = [
 	'https://ghfast.top/https://raw.githubusercontent.com/LianXia233/luci-app-chfs/'
 ];
 
-// 设备架构 -> 内核资产文件名后缀
-// 与 chfs/Makefile 的 CHFS_ARCH 映射表保持一致。
-function detect_arch() {
-	let p = popen('uname -m 2>/dev/null');
-	let m = trim('' + (p.read('all') ?? ''));
-	p.close();
-
-	// uname -m 的取值 -> 资产命名
-	//   aarch64 -> arm64     x86_64 -> amd64
-	let map = {
-		'aarch64':   { kernel: 'arm64', elf_machine: 183, arch: 'aarch64' },
-		'x86_64':    { kernel: 'amd64', elf_machine: 62,  arch: 'x86_64' },
-		'armv7l':    { kernel: 'arm',   elf_machine: 40,  arch: 'arm' },
-		'mips':      { kernel: 'mips',  elf_machine: 8,   arch: 'mips' },
-		'mipsel':    { kernel: 'mipsle', elf_machine: 8,  arch: 'mipsel' },
-		'mips64':    { kernel: 'mips64', elf_machine: 8,  arch: 'mips64' },
-		'mips64el':  { kernel: 'mips64le', elf_machine: 8, arch: 'mips64el' },
-		'i686':      { kernel: '386',   elf_machine: 3,   arch: 'i386' }
-	};
-
-	return map[m] ?? { kernel: '', elf_machine: -1, arch: m };
-}
-
-// 读取 ELF 头的 e_machine 字段。
-// ELF 头布局: 偏移 0 为 7f 45 4c 46 ('\x7fELF'), e_machine 位于偏移 18, 小端 2 字节。
-// 返回 -1 表示不是 ELF 或读取失败。
-//
-// 注意: fs.open 读取返回的是 string, 需用全局 ord(str, idx) 取字节值,
-//       不能用 s[idx] 下标访问 (ucode 中该写法返回 null)。
-function elf_machine(path) {
-	let fd = open(path, 'r');
-	if (fd == null)
-		return -1;
-
-	// 读取前 20 字节足以覆盖 ELF 魔数 + e_machine
-	let head = fd.read(20);
-	fd.close();
-
-	if (head == null || length(head) < 20)
-		return -1;
-
-	// 魔数校验: 7f 45 4c 46
-	if (ord(head, 0) != 0x7f || ord(head, 1) != 0x45 ||
-	    ord(head, 2) != 0x4c || ord(head, 3) != 0x46)
-		return -1;
-
-	// e_machine: 小端 16 位
-	return ord(head, 18) + (ord(head, 19) * 256);
-}
-
-// 计算文件 sha256, 走 sha256sum 而非自行实现, 避免算法实现引入误差
-function file_sha256(path) {
-	if (stat(path) == null)
-		return '';
-
-	let p = popen('sha256sum ' + path + ' 2>/dev/null');
-	let out = trim('' + (p.read('all') ?? ''));
-	p.close();
-
-	let sp = split(out, ' ');
-	return (sp != null && length(sp) > 0) ? sp[0] : '';
-}
-
-// 当前运行内核的信息: 是否存在 / 大小 / sha256 / 架构 / 来源判定
+// 当前运行内核的信息: 是否存在 / 大小 / sha256 / 架构 / 校验状态
 function kernel_info() {
 	let out = { ok: true };
-
 	let arch = detect_arch();
+
 	out.device_arch = arch.arch;
 	out.kernel_name = arch.kernel;
 	out.elf_machine_want = arch.elf_machine;
+	out.expected_sha256 = KERNEL_SHA256[arch.kernel] ?? '';
 
 	let st = stat(PROG);
 	if (st == null) {
@@ -608,85 +543,28 @@ function kernel_info() {
 	out.elf_machine = m;
 	out.arch_match = (m == arch.elf_machine);
 	out.sha256 = file_sha256(PROG);
+	out.verified = (out.expected_sha256 !== '' && out.sha256 === out.expected_sha256);
 
-	// 与仓库内记录的基准值比对, 判断是否为随包分发的原版内核。
-	// 需要联网获取 SHA256SUMS, 失败时不阻断, 仅标记未校验。
-	out.verified = false;
+	// 读取真实版本; 架构不匹配时不执行, 失败/异常输出时退回随包版本
 	out.version = KERNEL_VERSION;
 
-	return out;
-}
+	if (out.arch_match) {
+		let vp = popen(shq(PROG) + ' -version 2>&1');
+		let ver = trim('' + (vp.read('all') ?? ''));
+		vp.close();
 
-// ---------------------------------------------------------------------------
-// HTTP 传输辅助
-//
-// 设备实际环境差异 (ImmortalWrt SNAPSHOT 实测):
-//   /usr/bin/wget -> /bin/uclient-fetch   BusyBox 风格, **不支持 -S**,
-//                                          支持 -s/--spider、-T/--timeout
-//   /usr/bin/curl   8.21.0 完整版, 支持 -s -I -o -w --max-time
-//
-// 因此统一走 curl 取状态码; curl 缺失时退回 uclient-fetch 的 spider 模式,
-// 以退出码判定可达性 (无法区分 404 与 200, 仅作连通性判断)。
-// ---------------------------------------------------------------------------
-
-// 检测可用下载器, 返回 'curl' / 'uclient' / ''
-function detect_fetcher() {
-	let p = popen('command -v curl 2>/dev/null');
-	let c = trim('' + (p.read('all') ?? ''));
-	p.close();
-	if (c !== '')
-		return 'curl';
-
-	p = popen('command -v uclient-fetch 2>/dev/null');
-	let u = trim('' + (p.read('all') ?? ''));
-	p.close();
-	if (u !== '')
-		return 'uclient';
-
-	return '';
-}
-
-// 探测 URL 可达性, 返回 { code, available }
-// curl 路径能拿到真实 3 位状态码; uclient 路径只能给出 ok/timeout。
-function http_probe(url, timeout_sec) {
-	let fetcher = detect_fetcher();
-	let out = { code: 'timeout', available: false };
-
-	if (fetcher === 'curl') {
-		// -I 只取响应头; GitHub Release 资产是 302 跳到 Azure Blob,
-		// 需要 -L 跟随重定向才能拿到最终 200。
-		let cmd = 'curl -s -I -L -o /dev/null -w "%{http_code}" --max-time ' +
-		          timeout_sec + ' "' + url + '" 2>/dev/null';
-		let p = popen(cmd);
-		let code = trim('' + (p.read('all') ?? ''));
-		p.close();
-
-		out.code = (code !== '') ? code : 'timeout';
-		out.available = (code === '200' || code === '301' || code === '302');
-		return out;
-	}
-
-	if (fetcher === 'uclient') {
-		// uclient-fetch 无 -S, 用 spider 模式 + 退出码判定
-		let cmd = 'uclient-fetch -s -T ' + timeout_sec + ' "' + url + '" >/dev/null 2>&1';
-		let p = popen(cmd);
-		p.read('all');
-		let rc = p.close();
-
-		if (rc == 0) {
-			out.code = '200';
-			out.available = true;
-		}
-		return out;
+		if (ver !== '' && length(ver) < 64)
+			out.version = ver;
 	}
 
 	return out;
 }
 
-// 探测下载源可达性: 对每个候选源发起 HEAD 请求, 返回状态码
+// 探测下载源可达性: 对每个候选源发起 HEAD 请求, 返回状态码与内置校验值
 function kernel_sources() {
 	let arch = detect_arch();
-	let out = { ok: true, kernel: arch.kernel, sources: [] };
+	let expected = KERNEL_SHA256[arch.kernel] ?? '';
+	let out = { ok: true, kernel: arch.kernel, expected_sha256: expected, sources: [] };
 
 	if (arch.kernel === '') {
 		out.ok = false;
@@ -698,6 +576,12 @@ function kernel_sources() {
 	if (out.fetcher === '') {
 		out.ok = false;
 		out.msg = '设备上未找到 curl 或 uclient-fetch, 无法在线下载, 请使用手动上传';
+		return out;
+	}
+
+	if (expected === '') {
+		out.ok = false;
+		out.msg = '该架构没有内置校验值, 为防止下载到错误文件, 请使用手动上传';
 		return out;
 	}
 
@@ -723,10 +607,11 @@ function kernel_sources() {
 	];
 
 	for (let c in cands) {
-		let r = http_probe(c.url, 15);
+		let r = http_probe(c.url, 5);
 
 		c.available = r.available;
 		c.http_code = r.code;
+		c.sha256 = expected;
 
 		// 探测结果回传 URL 供用户核对; 不暴露任何凭据。
 		push(out.sources, c);
@@ -735,14 +620,17 @@ function kernel_sources() {
 	return out;
 }
 
-// 从白名单 URL 下载内核到 UPLOAD_DIR, 不直接覆盖运行中的内核
+// 从白名单 URL 下载内核到 UPLOAD_DIR, 并强制校验内置 SHA256
 function kernel_download(url) {
 	if (url === null || '' + url === '')
 		return { ok: false, msg: '下载地址不能为空' };
 
 	url = '' + url;
 
-	// 白名单校验: 必须命中已知前缀, 防止被当作任意 URL 下载器
+	// 除了前缀白名单, 再拒绝空白/引号等容易被误用的字符
+	if (match(url, /[\s"']/))
+		return { ok: false, msg: '下载地址包含非法字符' };
+
 	let allowed = false;
 	for (let pre in ALLOWED_URL_PREFIXES) {
 		if (substr(url, 0, length(pre)) === pre) {
@@ -754,21 +642,21 @@ function kernel_download(url) {
 	if (!allowed)
 		return { ok: false, msg: '下载地址不在允许列表内, 仅支持从本仓库下载' };
 
-	// 目录准备
-	let mk = popen('mkdir -p ' + UPLOAD_DIR + ' 2>&1');
+	let arch = detect_arch();
+	let expected = KERNEL_SHA256[arch.kernel] ?? '';
+
+	if (expected === '')
+		return { ok: false, msg: '当前架构没有内置校验值, 请使用手动上传' };
+
+	let mk = popen('mkdir -p ' + shq(UPLOAD_DIR) + ' && chmod 700 ' + shq(UPLOAD_DIR) + ' 2>/dev/null');
 	mk.read('all');
 	mk.close();
 
-	let arch = detect_arch();
 	let target = UPLOAD_DIR + '/chfs-upload';
 
-	// 下载前清理同名的旧产物, 避免失败时残留半截文件被误判为成功
-	let rm = popen('rm -f ' + target + ' 2>&1');
-	rm.read('all');
-	rm.close();
+	// 下载前清理旧的同名产物, 避免失败时残留半截文件
+	unlink(target);
 
-	// 超时 180 秒: 8MB 二进制在慢速链路上需要充裕时间。
-	// curl 路径加 -L 跟随 Release 资产的重定向; uclient-fetch 默认跟随。
 	let fetcher = detect_fetcher();
 
 	if (fetcher === '')
@@ -776,41 +664,61 @@ function kernel_download(url) {
 
 	let cmd;
 	if (fetcher === 'curl')
-		cmd = 'curl -L -s -o ' + target + ' --max-time 180 "' + url + '" 2>&1';
+		cmd = 'curl -L -s -o ' + shq(target) + ' --max-filesize 67108864 --max-time 180 ' +
+		      shq(url) + ' 2>&1';
 	else
-		cmd = 'uclient-fetch -q -T 180 -O ' + target + ' "' + url + '" 2>&1';
+		cmd = 'uclient-fetch -q -T 180 -O ' + shq(target) + ' ' + shq(url) + ' 2>&1';
 
 	let p = popen(cmd);
 	let out = '' + (p.read('all') ?? '');
 	let code = p.close();
 
 	if (code != 0) {
-		let rm2 = popen('rm -f ' + target + ' 2>&1');
-		rm2.read('all');
-		rm2.close();
+		unlink(target);
 
 		return { ok: false, msg: '下载失败 (退出码 ' + code + ')' + (trim(out) !== '' ? ': ' + trim(out) : '') };
 	}
 
 	let st = stat(target);
-	if (st == null || st.size == 0) {
-		return { ok: false, msg: '下载得到的文件为空' };
+	if (st == null || st.size == 0 || st.type !== 'file') {
+		unlink(target);
+		return { ok: false, msg: '下载得到的文件为空或不是普通文件' };
+	}
+
+	if (st.size > 64 * 1024 * 1024) {
+		unlink(target);
+		return { ok: false, msg: '文件过大 (' + st.size + ' 字节), 超出合理范围' };
 	}
 
 	let m = elf_machine(target);
 	if (m < 0) {
+		unlink(target);
 		return { ok: false, msg: '下载内容不是有效的 ELF 可执行文件, 可能被网络劫持或返回了错误页面', size: st.size };
+	}
+
+	let sum = file_sha256(target);
+	if (sum !== expected) {
+		unlink(target);
+
+		return {
+			ok: false,
+			msg: 'SHA256 校验失败, 文件已删除。期望 ' + expected + ', 实际 ' + sum,
+			sha256: sum,
+			expected_sha256: expected
+		};
 	}
 
 	return {
 		ok: true,
 		path: target,
 		size: st.size,
-		sha256: file_sha256(target),
+		sha256: sum,
+		expected_sha256: expected,
+		verified: true,
 		elf_machine: m,
 		arch_match: (m == arch.elf_machine),
 		device_arch: arch.arch,
-		msg: '下载完成, 可点击「安装」写入 ' + PROG
+		msg: '下载完成并通过 SHA256 校验, 可点击「安装」写入 ' + PROG
 	};
 }
 
@@ -818,24 +726,35 @@ function kernel_download(url) {
 function kernel_pending() {
 	let out = { ok: true, files: [] };
 
+	// 兼容从旧版本升级、尚未执行新版 uci-defaults 的设备
+	if (stat(UPLOAD_DIR) == null) {
+		let mk = popen('mkdir -p ' + shq(UPLOAD_DIR) + ' && chmod 700 ' + shq(UPLOAD_DIR) + ' 2>/dev/null');
+		mk.read('all');
+		mk.close();
+	}
+
 	if (stat(UPLOAD_DIR) == null)
 		return out;
 
-	let p = popen('ls -1 ' + UPLOAD_DIR + ' 2>/dev/null');
+	let p = popen('ls -1 ' + shq(UPLOAD_DIR) + ' 2>/dev/null');
 	let txt = '' + (p.read('all') ?? '');
 	p.close();
 
 	let arch = detect_arch();
+	let expected = KERNEL_SHA256[arch.kernel] ?? '';
 
 	for (let name in split(txt, '\n')) {
 		name = trim(name);
-		if (name === '') continue;
+		if (!safe_name(name))
+			continue;
 
 		let full = UPLOAD_DIR + '/' + name;
 		let st = stat(full);
-		if (st == null) continue;
+		if (st == null || st.type !== 'file')
+			continue;
 
 		let m = elf_machine(full);
+		let sum = file_sha256(full);
 
 		push(out.files, {
 			name: name,
@@ -844,7 +763,8 @@ function kernel_pending() {
 			elf_machine: m,
 			is_elf: (m >= 0),
 			arch_match: (m == arch.elf_machine),
-			sha256: file_sha256(full)
+			sha256: sum,
+			verified: (expected !== '' && sum === expected)
 		});
 	}
 
@@ -874,9 +794,9 @@ function swap_kernel(from, to, consume) {
 		mover = 'mv';
 
 	let s = '';
-	s += 'INIT=' + INIT_SCRIPT + '; ';
-	s += 'FROM=' + from + '; ';
-	s += 'TO=' + to + '; ';
+	s += 'INIT=' + shq(INIT_SCRIPT) + '; ';
+	s += 'FROM=' + shq(from) + '; ';
+	s += 'TO=' + shq(to) + '; ';
 	// 兜底: 任何退出路径都要把服务拉起来
 	s += 'trap "$INIT start >/dev/null 2>&1" EXIT INT TERM; ';
 	s += '$INIT stop >/dev/null 2>&1 || true; ';
@@ -907,21 +827,24 @@ function swap_kernel(from, to, consume) {
 	};
 }
 
-// src 只允许是 UPLOAD_DIR 下的文件, 不接受任意路径, 避免被利用覆盖系统文件。
+// src 只允许是 UPLOAD_DIR 下的文件, 不接受任意路径。
 function kernel_install(src) {
 	if (src === null || '' + src === '')
 		return { ok: false, msg: '未指定内核文件' };
 
 	src = '' + src;
 
-	// 路径必须落在 UPLOAD_DIR 内。
-	// 用前缀比对而非 realpath, 是为了在文件不存在时也能给出明确拒绝理由;
-	// 因此额外拒绝包含 '..' 的路径, 防止前缀比对被绕过。
-	if (substr(src, 0, length(UPLOAD_DIR) + 1) !== UPLOAD_DIR + '/' || match(src, /\.\./))
+	// 路径必须落在 UPLOAD_DIR 内, 且文件名必须安全
+	if (substr(src, 0, length(UPLOAD_DIR) + 1) !== UPLOAD_DIR + '/' ||
+	    match(src, /\.\./))
 		return { ok: false, msg: '非法的内核文件路径' };
 
+	let base = substr(src, length(UPLOAD_DIR) + 1);
+	if (!safe_name(base))
+		return { ok: false, msg: '非法的内核文件名' };
+
 	let st = stat(src);
-	if (st == null)
+	if (st == null || st.type !== 'file')
 		return { ok: false, msg: '内核文件不存在: ' + src };
 
 	if (st.size < 1024 * 100)
@@ -947,21 +870,31 @@ function kernel_install(src) {
 	// 备份现有内核。时间戳后缀, 保留多次。
 	let bak = '';
 	if (stat(PROG) != null) {
-		let mk = popen('mkdir -p ' + BACKUP_DIR + ' 2>&1');
+		let mk = popen('mkdir -p ' + shq(BACKUP_DIR) + ' 2>&1');
 		mk.read('all');
 		mk.close();
 
-		let ts = trim('' + popen('date +%Y%m%d-%H%M%S').read('all'));
-		bak = BACKUP_DIR + '/chfs.' + ts;
+		let dp = popen('date +%Y%m%d-%H%M%S');
+		let ts = trim('' + (dp.read('all') ?? ''));
+		dp.close();
 
-		let cp = popen('cp -p ' + PROG + ' ' + bak + ' 2>&1');
-		let cerr = '' + (cp.read('all') ?? '');
-		let ccode = cp.close();
+		if (ts !== '') {
+			bak = BACKUP_DIR + '/chfs.' + ts;
 
-		if (ccode != 0) {
-			bak = '';
+			let cp = popen('cp -p ' + shq(PROG) + ' ' + shq(bak) + ' 2>&1');
+			cp.read('all');
+			let ccode = cp.close();
+
+			if (ccode != 0)
+				return {
+					ok: false,
+					msg: '备份现有内核失败, 已中止安装 (请检查 /etc/chfs 剩余空间)',
+					backup: ''
+				};
 		}
 	}
+
+	let enabled = service_enabled();
 
 	// 替换内核。swap_kernel 内部用 shell trap 兜底, 保证服务一定被拉起。
 	let r = swap_kernel(src, PROG, true);
@@ -974,12 +907,13 @@ function kernel_install(src) {
 			     (r.running ? '。服务已恢复运行'
 			                : '。服务未能启动, 请手动检查'),
 			backup: bak,
-			rolled_back: r.running
+			rolled_back: false
 		};
 	}
 
-	// 替换成功但服务起不来: 用备份回滚
-	if (!r.running) {
+	// 替换成功但服务起不来: 仅在服务本应启用时回滚。
+	// 服务本来停用时, 安装成功但不拉起属于正常行为。
+	if (!r.running && enabled) {
 		let rolled = false;
 
 		if (bak !== '')
@@ -997,15 +931,23 @@ function kernel_install(src) {
 
 	let nst = stat(PROG);
 	let nm = elf_machine(PROG);
+	let msg = '内核已安装';
+
+	if (r.running)
+		msg += '并重启服务';
+	else
+		msg += '; 服务当前未启用或未运行, 启动后生效';
 
 	return {
 		ok: true,
-		msg: '内核已安装并重启服务',
+		msg: msg,
 		path: PROG,
 		size: (nst != null ? nst.size : 0),
 		sha256: file_sha256(PROG),
 		elf_machine: nm,
 		backup: bak,
+		service_enabled: enabled,
+		running: r.running,
 		output: r.out
 	};
 }
@@ -1017,16 +959,18 @@ function kernel_backups() {
 	if (stat(BACKUP_DIR) == null)
 		return out;
 
-	let p = popen('ls -1t ' + BACKUP_DIR + '/chfs.* 2>/dev/null');
+	let p = popen('ls -1t ' + shq(BACKUP_DIR) + '/chfs.* 2>/dev/null');
 	let txt = '' + (p.read('all') ?? '');
 	p.close();
 
 	for (let f in split(txt, '\n')) {
 		f = trim(f);
-		if (f === '') continue;
+		if (f === '')
+			continue;
 
 		let st = stat(f);
-		if (st == null) continue;
+		if (st == null || st.type !== 'file')
+			continue;
 
 		push(out.backups, {
 			path: f,
@@ -1040,24 +984,27 @@ function kernel_backups() {
 }
 
 // 把备份文件还原为内核。
-// name 只接受 BACKUP_DIR 下的文件名, 用 basename 语义杜绝路径穿越。
+// name 只接受 BACKUP_DIR 下的安全文件名, 用 basename 语义杜绝路径穿越。
 function kernel_restore(name) {
 	if (name === null || '' + name === '')
 		return { ok: false, msg: '未指定备份文件' };
 
 	name = '' + name;
 
-	// 拒绝任何含路径分隔符或上跳的输入
-	if (match(name, /\//) || match(name, /\.\./))
+	if (!safe_name(name))
 		return { ok: false, msg: '非法的备份文件名' };
 
 	let src = BACKUP_DIR + '/' + name;
-	if (stat(src) == null)
+	let st = stat(src);
+
+	if (st == null || st.type !== 'file')
 		return { ok: false, msg: '备份不存在: ' + name };
 
 	// 备份文件也必须是合法 ELF, 防止被诱导安装垃圾内容
 	if (elf_machine(src) < 0)
 		return { ok: false, msg: '备份文件不是有效的 ELF 可执行文件' };
+
+	let enabled = service_enabled();
 
 	// 还原: consume=false 走 cp, 备份文件得以保留
 	let r = swap_kernel(src, PROG, false);
@@ -1065,17 +1012,20 @@ function kernel_restore(name) {
 	if (!r.ok)
 		return { ok: false, msg: '回滚失败' + (r.out !== '' ? ': ' + r.out : '') };
 
-	if (!r.running)
+	if (!r.running && enabled)
 		return { ok: false, msg: '内核已还原但服务未能启动, 请手动检查' };
 
 	let nst = stat(PROG);
+	let note = r.running ? '' : '; 服务当前未启用或未运行, 启动后生效';
 
 	return {
 		ok: true,
-		msg: '已回滚到 ' + name,
+		msg: '已回滚到 ' + name + note,
 		path: PROG,
 		size: (nst != null ? nst.size : 0),
-		sha256: file_sha256(PROG)
+		sha256: file_sha256(PROG),
+		running: r.running,
+		service_enabled: enabled
 	};
 }
 
@@ -1086,30 +1036,48 @@ function kernel_discard(name) {
 
 	name = '' + name;
 
-	if (match(name, /\//) || match(name, /\.\./))
+	if (!safe_name(name))
 		return { ok: false, msg: '非法的文件名' };
 
 	let full = UPLOAD_DIR + '/' + name;
-	if (stat(full) == null)
+	let st = stat(full);
+
+	if (st == null || st.type !== 'file')
 		return { ok: false, msg: '文件不存在' };
 
-	let p = popen('rm -f ' + full + ' 2>&1');
-	let out = '' + (p.read('all') ?? '');
-	let code = p.close();
-
-	if (code != 0)
-		return { ok: false, msg: '删除失败' + (trim(out) !== '' ? ': ' + trim(out) : '') };
+	if (!unlink(full))
+		return { ok: false, msg: '删除失败' };
 
 	return { ok: true, msg: '已删除 ' + name };
+}
+
+// 删除某个内核备份。备份可能占满小容量闪存, 必须允许用户主动清理。
+function kernel_backup_discard(name) {
+	if (name === null || '' + name === '')
+		return { ok: false, msg: '未指定备份文件' };
+
+	name = '' + name;
+
+	if (!safe_name(name))
+		return { ok: false, msg: '非法的备份文件名' };
+
+	let full = BACKUP_DIR + '/' + name;
+	let st = stat(full);
+
+	if (st == null || st.type !== 'file')
+		return { ok: false, msg: '备份不存在: ' + name };
+
+	if (!unlink(full))
+		return { ok: false, msg: '删除失败' };
+
+	return { ok: true, msg: '已删除备份 ' + name };
 }
 
 // ---------------------------------------------------------------------------
 // ubus 对象声明
 //
-// 关键约定（与 luci.homeproxy / luci.wolultra 等上游模块一致）:
-//   返回值必须是**扁平的单键对象**, 键名用引号包裹的完整点分对象名,
-//   且该键名必须与文件名完全一致:
-//     return { 'luci.chfs': methods };   // 文件名 luci.chfs  ->  ubus 对象 luci.chfs
+// 返回值必须是扁平的单键对象, 键名与文件名完全一致:
+//   return { 'luci.chfs': methods };   // 文件名 luci.chfs -> ubus 对象 luci.chfs
 // 写成嵌套的 { luci: { chfs: methods } } 不会注册成功.
 //
 // 另: 文件必须落在 /usr/share/rpcd/ucode/ 下且带可执行位, rpcd 才加载.
@@ -1117,13 +1085,6 @@ function kernel_discard(name) {
 
 return {
 	'luci.chfs': {
-		read_config: {
-			call: function() { return read_config(); }
-		},
-		write_config: {
-			args: { payload: {} },
-			call: function(req) { return write_config(req.args.payload); }
-		},
 		init_action: {
 			args: { action: '' },
 			call: function(req) { return init_action(req.args.action); }
@@ -1133,10 +1094,6 @@ return {
 		},
 		read_ini: {
 			call: function() { return read_ini(); }
-		},
-		preview_ini: {
-			args: { payload: {} },
-			call: function(req) { return preview_ini(req.args.payload); }
 		},
 		probe_listen: {
 			call: function() { return probe_listen(); }
@@ -1173,6 +1130,10 @@ return {
 		kernel_discard: {
 			args: { name: '' },
 			call: function(req) { return kernel_discard(req.args.name); }
+		},
+		kernel_backup_discard: {
+			args: { name: '' },
+			call: function(req) { return kernel_backup_discard(req.args.name); }
 		}
 	}
 };

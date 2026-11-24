@@ -81,7 +81,7 @@ make package/luci-app-tasks/compile V=s
 
 - `/etc/crontabs/root` 中每个启用的任务对应一行，并带有 `# luci-app-tasks:<动作>` 标记；只会删除带该标记的行，不会碰你自己添加的 cron 任务。
 - `/etc/tasks/startup.sh` 每次保存后重新生成，由 init 脚本的 `boot()` 钩子执行。
-- 上网控制启用且至少有一台设备时，crontab 中会增加一行每分钟执行 `tasks-handler run access` 的任务。该脚本把当前应被禁止的设备写入 nftables 表 `tasks_access`；没有 nft 时改用 iptables 链 `TASKS_ACCESS`。规则只拦截转发流量，不拦截设备访问路由器本身。
+- 上网控制启用且至少有一台设备时，crontab 中会增加一行每分钟执行 `tasks-handler run access` 的任务。该脚本把当前应被禁止的设备写入 nftables 表 `tasks_access`；没有 nft 时改用 iptables 链 `TASKS_ACCESS` 和 `TASKS_ACCESS_PRE`。除了拦截转发流量，还会在 prerouting 的 raw 优先级先一步丢弃发往公网的流量，因此 OpenClash 等透明代理的 REDIRECT / TPROXY 无法绕过；设备访问路由器和局域网不受影响。
 - `/usr/bin/tasks-handler` 执行真正的动作，只接受 `reboot`、`network`、`firewall`、`cleantmp`、`clearmem`、`wifion`、`wifioff`、`access` 等固定名称；自定义命令在运行时从 UCI 读取，不会写进 cron。
 
 因为 cron 行是由 init 脚本生成的（而不是浏览器），前端无法把任意文本注入 crontab。
@@ -97,7 +97,7 @@ make package/luci-app-tasks/compile V=s
 - 清理 `/tmp` 默认只删除已知的 LuCI / opkg 缓存；「按时间清理」模式会跳过 `*.pid` 和 `*.lock`。
 - 释放内存执行的是 `sync && echo 3 > /proc/sys/vm/drop_caches`，安全但不宜过于频繁。
 - 开机启动中的「系统服务」项调用 `/etc/init.d/<服务> start`，不会修改该服务自身的开机自启设置。
-- 上网控制只拦截经过路由器的转发流量，被限制的设备仍可打开路由器管理页面以便解除限制；使用 MAC 地址作为目标可同时覆盖 IPv4 与 IPv6。
+- 上网控制同时拦截正常转发流量和被透明代理在路由器上劫持的流量；被限制的设备仍可访问路由器和局域网，因此可以打开路由器管理页面解除限制；使用 MAC 地址作为目标可同时覆盖 IPv4 与 IPv6。
 - 上网控制的当前状态保存在 `/etc/tasks/access.state`，日志只记录设备被禁止或恢复的瞬间，避免刷屏。
 - 日志上限 500 行，保存在 `/etc/tasks/tasks.log`。
 

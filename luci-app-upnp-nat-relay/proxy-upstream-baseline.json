@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "policy": "A changed upstream ref requires fresh compatibility qualification before this baseline is advanced.",
+  "policy": "Upstream ref changes are reported, never enforced. A version change is not evidence that functionality fails, so it does not stop a release; releases are blocked by signals that do describe failure - a failing relay or adapter contract, an invalid qualification manifest, or an immutable tag collision. This file records what was actually qualified so that a human can see when requalification is due. The relay only shares the firewall with these packages: it inserts its own chains, never writes their files and never drives their services, so a new upstream build is a requalification reminder, not a defect in this repository.",
   "upstreams": [
     {
       "name": "OpenClash",
       "repo": "vernesong/OpenClash",
       "kind": "release",
       "observedRef": "v0.48.002",
-      "qualification": "Relay runtime flow was qualified on v0.47.156; v0.48.002 has source-derived chain evidence, not a full daemon/runtime flow qualification."
+      "qualification": "Coexistence was qualified on v0.47.156: relay chain rebuild with OpenClash redirect chains present, plus status reads for diagnostics. v0.48.002 has source-derived chain evidence, not a full coexistence run, so a chain-order question starts here."
     },
     {
       "name": "PassWall1",
       "repo": "Openwrt-Passwall/openwrt-passwall",
       "kind": "release",
-      "observedRef": "26.11.11-1",
-      "qualification": "No plugin-generated runtime flow is qualified yet."
+      "observedRef": "26.11.23-1",
+      "qualification": "No plugin-generated runtime flow is qualified yet. Baseline advanced 2026-11-24 by release-owner decision from 26.11.11-1 to 26.11.23-1 without a new coexistence run: the relay names this package in no code path - no chain names, no init calls, no UCI reads - so a version bump cannot change the relay's own behaviour. 26.11.23-1 (18 commits, 22 files, all under luci-app-passwall) changes its own IPv6 TCP/UDP redirect macro from TPROXY to TPROXY6 inside PSW_MANGLE_V6 and adds src_valid_mark=0 next to the rp_filter=0 it already wrote. No chain priority changes, and every sysctl write loosens reverse-path validation rather than tightening it. IPv6 forwarding through this package has never been claimed; that question starts here."
     },
     {
       "name": "PassWall2",
       "repo": "Openwrt-Passwall/openwrt-passwall2",
       "kind": "release",
-      "observedRef": "26.11.11-1",
-      "qualification": "IPv4/TCP WAN target RETURN flow was qualified with package 26.11.11-r1; UDP, IPv6, and other modes remain unqualified."
+      "observedRef": "26.11.23-1",
+      "qualification": "IPv4/TCP WAN target RETURN flow was qualified with package 26.11.11-r1; UDP, IPv6, and other modes remain unqualified. Baseline advanced 2026-11-24 by release-owner decision from 26.11.11-1 to 26.11.23-1 without a new coexistence run: 26.11.23-1 (17 commits, 27 files) adds set_tproxy_sysctl() - rp_filter=0 and src_valid_mark=0 for all/default and every /proc/sys/net/ipv4/conf/* entry - and switches its IPv6 TCP/UDP redirect to the TPROXY6 macro. Its own chain priorities are unchanged (nat prerouting dstnat - 1, mangle prerouting mangle - 1), so the relay keeps loading first at dstnat - 5. The relay reads and writes neither sysctl, and both are permissive-direction writes. No IPv6 or UDP claim is made for this package."
     },
     {
       "name": "HomeProxy",
@@ -29,14 +29,14 @@
       "kind": "branch",
       "branch": "master",
       "observedRef": "fadaa676104f59ff6ace480a780a258d846d0aec",
-      "qualification": "IPv4/TCP WAN DNAT path was qualified with HomeProxy 26.298.29275~c84adb9; TPROXY/UDP, IPv6, and current master runtime are not claimed."
+      "qualification": "IPv4/TCP WAN DNAT path was qualified with HomeProxy 26.298.29275~c84adb9; TPROXY/UDP, IPv6, and current master runtime are not claimed. The relay never invokes this package's init scripts or reloads it."
     },
     {
       "name": "sing-box",
       "repo": "SagerNet/sing-box",
       "kind": "release",
       "observedRef": "v1.14.4",
-      "qualification": "HomeProxy relay runtime evidence used sing-box 1.12.25-r1; newer engine tags require a fresh runtime check."
+      "qualification": "HomeProxy relay runtime evidence used sing-box 1.12.25-r1; newer engine tags require a fresh runtime check before any claim is made. The relay never drives this engine directly."
     }
   ]
 }

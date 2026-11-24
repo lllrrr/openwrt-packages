@@ -34,24 +34,6 @@ var callInitAction = rpc.declare({
 	expect: {}
 });
 
-var callProbeListen = rpc.declare({
-	object: 'luci.chfs',
-	method: 'probe_listen',
-	expect: {}
-});
-
-var callProbeWebdav = rpc.declare({
-	object: 'luci.chfs',
-	method: 'probe_webdav',
-	expect: {}
-});
-
-var callReadIni = rpc.declare({
-	object: 'luci.chfs',
-	method: 'read_ini',
-	expect: {}
-});
-
 // 服务状态标签的颜色语义: 依据运行状态与启用状态共同判定
 function statusBadge(st) {
 	var label, cls;
@@ -140,13 +122,15 @@ function statusBadge(st) {
 					}
 				}, label);
 
-				if (!st.binary_ok)
+				if (!st.binary_ok ||
+				    (action === 'start' && (st.running || !st.enabled)) ||
+				    (action === 'stop' && !st.running) ||
+				    (action === 'restart' && !st.running))
 					btn.disabled = true;
 
 				return btn;
 			};
 
-			// 运行中才允许停止与重启, 未运行时才允许启动
 			wrap.appendChild(mk('start', _('Start'), st.running ? 'cbi-button-neutral' : 'cbi-button-action'));
 			wrap.appendChild(mk('stop', _('Stop'), 'cbi-button-reset'));
 			wrap.appendChild(mk('restart', _('Restart'), 'cbi-button-action'));
@@ -237,9 +221,6 @@ function statusBadge(st) {
 			if (isNaN(n) || n < 1 || n > 65535)
 				return _('Port must be an integer between 1 and 65535');
 
-			if (n < 1024)
-				return true;
-
 			return true;
 		};
 
@@ -264,7 +245,7 @@ function statusBadge(st) {
 		// 访问控制
 		// ------------------------------------------------------------------
 		o = s.option(form.Flag, 'anonymous', _('Allow anonymous access'),
-			_('When enabled, unauthenticated users access as the guest account with the rules configured for guest.'));
+			_('When enabled, the guest account is written to the chfs configuration and unauthenticated users can access with its rules. When disabled, no guest section is generated.'));
 
 		o = s.option(form.Value, 'allow', _('IP allowlist'),
 			_('Only allow access from the listed addresses. Leave empty for no restriction. Single addresses such as 192.168.1.10 and subnets such as 192.168.1.0/24 are supported; separate multiple entries with a vertical bar |.'));
@@ -300,7 +281,7 @@ function statusBadge(st) {
 		o.value('1', _('Move to system trash'));
 		o.value('2', _('Move to chfs trash bin (~/.chfs_trashbin)'));
 		o.value('3', _('Delete permanently'));
-		o.default = '1';
+		o.default = '3';
 
 		o = s.option(form.Value, 'session_timeout', _('Session timeout'),
 			_('Validity period of a login session in minutes, range 1-1440.'));
@@ -348,20 +329,23 @@ function statusBadge(st) {
 	},
 
 	// LuCI 保存流程:
-	//   mode '0' 表示仅保存到 UCI, 不重启服务
-	//   mode '1' 表示保存并应用, 需要重启服务使配置生效
-	// 不可覆盖为强制重启, 否则"仅保存"按钮会失去意义。
+	//   mode '0' 表示「保存并应用」, mode '1' 表示「应用未检查」。
+	// chfs 配置不涉及 LuCI 连通性, 两种模式都使用带回滚保护的 uci.apply()。
+	// 必须先提交暂存区改动, 否则 init 脚本读到的仍是旧配置。
+	// 提交完成后再显式重启服务, 以便把启动错误直接反馈给用户。
 	handleSaveApply: function(ev, mode) {
 		var self = this;
+		var msg = (mode === '0')
+			? _('Configuration saved, service restarted')
+			: _('Configuration applied, service restarted');
 
 		return this.handleSave(ev).then(function() {
-			if (mode === '1')
-				return self.handleServiceAction('restart', _('Configuration saved, service restarted'));
-
+			return uci.apply();
+		}).then(function() {
+			return self.handleServiceAction('restart', msg);
+		}).catch(function(e) {
 			ui.addNotification(null,
-				E('p', {}, _('Configuration saved. Changes take effect after restarting the service.')), 'info');
-
-			return;
+				E('p', {}, _('Failed to save or apply the configuration') + ': ' + e), 'danger');
 		});
 	},
 

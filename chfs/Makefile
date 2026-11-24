@@ -24,16 +24,17 @@ PKG_RELEASE:=1
 #   HTTP 协议下证书不参与校验, 下载正常 (实测 HTTP 200).
 #
 # PKG_HASH 说明:
-#   上游未公布各架构二进制的校验值, 且下载包随构建时间变化,
-#   故置为 skip. 如需强校验, 请自行下载后在下方逐架构填写 sha256.
+#   上游未公布各架构二进制的校验值, 且下载包随构建时间变化。
+#   本地已入库的架构直接使用预置文件; 未入库架构必须通过
+#   CHFS_UPSTREAM_SHA256 显式提供哈希, 否则拒绝构建。
 # ---------------------------------------------------------------------------
 
 PKG_SOURCE_PROTO:=default
 PKG_HASH:=skip
 
-
-PKG_LICENSE:=Apache-2.0
-PKG_LICENSE_FILES:=LICENSE
+# 上游只提供免费使用的预编译二进制, 未声明 OSI 许可, 不能标成 Apache-2.0。
+# 如上游补充明确许可, 请同步修改此处。
+PKG_LICENSE:=UNKNOWN
 PKG_MAINTAINER:=LianXia233
 
 # 纯预编译二进制包, 不参与 OpenWrt 的交叉编译流程
@@ -112,12 +113,25 @@ CHFS_HAVE_LOCAL:=$(shell test -s "$(CHFS_LOCAL_BIN)" && echo 1)
 ifeq ($(CHFS_HAVE_LOCAL),1)
   # 本地已预置该架构二进制 -> 置空 URL，构建系统不会尝试下载
   PKG_SOURCE_URL:=
-else
+else ifneq ($(strip $(CHFS_UPSTREAM_SHA256)),)
+  # 回退上游下载必须显式提供 SHA256。上游证书过期只能走 HTTP 明文，
+  # 没有哈希锁定的下载等同于信任沿途任何一个中间人。
   PKG_SOURCE_URL:=http://iscute.cn/tar/chfs/$(PKG_VERSION)
+  PKG_HASH:=$(CHFS_UPSTREAM_SHA256)
+else
+  # 没有本地二进制也没有哈希：不设置下载 URL，等真正编译 chfs 时再明确报错。
+  # 不能在这里用 $(error)，否则会让其它架构构建无关包时也直接失败。
+  PKG_SOURCE_URL:=
+  CHFS_MISSING_LOCAL:=1
 endif
 
 define Build/Prepare
 	rm -rf $(PKG_BUILD_DIR)
+	if [ "$(CHFS_MISSING_LOCAL)" = "1" ]; then \
+		echo "ERROR: 未找到本地 chfs 二进制 ($(CHFS_LOCAL_BIN))，且未设置 CHFS_UPSTREAM_SHA256" >&2; \
+		echo "       请先运行 tools/fetch-chfs.py 入库，或显式提供上游包 SHA256 后再构建" >&2; \
+		exit 1; \
+	fi
 	mkdir -p $(PKG_BUILD_DIR)
 	if [ -s "$(CHFS_LOCAL_BIN)" ]; then \
 		echo "chfs: 使用仓库内预置二进制 $(CHFS_ARCH)"; \
@@ -129,7 +143,7 @@ define Build/Prepare
 		sh $(CURDIR)/extract-bin.sh $(PKG_BUILD_DIR); \
 	fi
 	@test -s $(PKG_BUILD_DIR)/chfs-bin || { echo "ERROR: chfs-bin 提取失败"; exit 1; }
-	@echo "chfs: 架构 $(ARCH) -> 上游 $(CHFS_ARCH), 二进制大小 $$(stat -c%s $(PKG_BUILD_DIR)/chfs-bin) 字节"
+	@echo "chfs: 架构 $(ARCH) -> 上游 $(CHFS_ARCH), 二进制大小 $$(wc -c < $(PKG_BUILD_DIR)/chfs-bin) 字节"
 endef
 
 
