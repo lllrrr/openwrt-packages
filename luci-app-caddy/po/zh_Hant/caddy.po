@@ -1,0 +1,226 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-05-20 09:23+0800\n"
+"PO-Revision-Date: 2026-05-20 14:09+0800\n"
+"Last-Translator: eternalwrt-bot <zj18139624826@gmail.com>\n"
+"Language-Team: Chinese\n"
+"Language: zh_Hant\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:43
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:57
+msgid "Caddy"
+msgstr "Caddy"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:43
+msgid "RUNNING"
+msgstr "執行中"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:45
+msgid "Version"
+msgstr "版本"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:48
+msgid "Uptime"
+msgstr "已執行"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:51
+msgid "CPU"
+msgstr "CPU佔用"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:54
+msgid "Memory"
+msgstr "記憶體佔用"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:57
+msgid "NOT RUNNING"
+msgstr "未執行"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:72
+msgid "Service restarted successfully."
+msgstr "服務重新啟動成功。"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:74
+msgid "Failed to restart service: "
+msgstr "重新啟動服務失敗："
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:99
+msgid "DNS Cache flushed successfully."
+msgstr "DNS快取重新整理成功。"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:109
+msgid "Caddy is a scalable server platform with automatic HTTPS, a fast and extensible multi-platform HTTP/1-2-3 web server."
+msgstr "Caddy 是一個可擴展的伺服器平台，具有自動 HTTPS 功能的快速且可擴展的多平台 HTTP/1-2-3 Web 伺服器"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:110
+msgid "Project URL"
+msgstr "專案網址"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:111
+msgid "Documentation"
+msgstr "文件"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:129
+msgid "Basic Options"
+msgstr "基本設定"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:130
+msgid "Advanced Options"
+msgstr "進階選項"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:131
+msgid "WebDAV"
+msgstr "WebDAV"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:133
+msgid "Enabled"
+msgstr "啟用"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:137
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:139
+msgid "Restart"
+msgstr "重新啟動"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:141
+msgid "Quickly restart the service without modifying parameters."
+msgstr "在未修改參數的情況下快速重新啟動"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:144
+msgid "Startup Mode"
+msgstr "啟動方式"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:145
+msgid "Use custom configuration file. If you do not understand the parameters, do not choose custom."
+msgstr "自訂設定檔啟動，若不了解參數請勿選擇自訂"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:146
+msgid "Default"
+msgstr "預設"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:147
+msgid "Custom"
+msgstr "自訂"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:150
+msgid "Port"
+msgstr "連接埠"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:155
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:222
+msgid "Enable Authentication"
+msgstr "啟用認證"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:159
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:226
+msgid "Username"
+msgstr "使用者名稱"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:164
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:231
+msgid "Password"
+msgstr "密碼"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:170
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:242
+msgid "Enable Compression"
+msgstr "啟用壓縮"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:174
+msgid "Enable Log"
+msgstr "啟用日誌"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:178
+msgid "Log Path"
+msgstr "日誌路徑"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:179
+msgid "Log storage path. Provide full path with log filename.<br>Recommended: /tmp/ directory, e.g., /tmp/caddy/requests.log"
+msgstr "日誌的存放路徑，填寫完整的路徑及日誌檔名<br>建議/tmp裡，例如：/tmp/caddy/requests.log"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:184
+msgid "Binary Path"
+msgstr "程式路徑"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:185
+msgid "Caddy binary storage path. Provide full path with caddy name.<br>Example: /usr/bin/caddy<br>Compile your own architecture binary: <a href=\"https://www.right.com.cn/forum/forum.php?mod=viewthread&tid=6006472&highlight=caddy\" target=\"_blank\">Compile Guide</a>"
+msgstr "caddy二進位的存放路徑，填寫完整的路徑及caddy名稱<br>例如:/usr/bin/caddy<br>可自行編譯對應架構的二進位程式：<a href='https://www.right.com.cn/forum/forum.php?mod=viewthread&tid=6006472&highlight=caddy' target='_blank'>編譯教學</a>"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:189
+msgid "Document Root"
+msgstr "指向路徑"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:190
+msgid "Path for web file access. Default: /mnt"
+msgstr "指向一個路徑，可在web介面存取你的檔案，預設為 /mnt"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:195
+msgid "Enable API"
+msgstr "啟用 API介面"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:199
+msgid "Validate Config"
+msgstr "檢測設定檔"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:200
+msgid "Verify Caddyfile configuration. It simulates starting caddy but does not actually start it."
+msgstr "驗證Caddyfile設定檔是否正確，它會模擬啟動caddy<br>但是並不會真的啟動，會列出詳細資訊，以便修正設定檔"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:202
+msgid "Validate"
+msgstr "檢測"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:206
+msgid "Validation Result"
+msgstr "檢測結果"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:214
+msgid "Allow WAN Access"
+msgstr "允許從外網存取"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:218
+msgid "Enable WebDAV"
+msgstr "啟用 WebDAV"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:237
+msgid "WebDAV Port"
+msgstr "WebDAV連接埠"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:246
+msgid "WebDAV Document Root"
+msgstr "WebDAV指向路徑"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:247
+msgid "Path for WebDAV file access. Default: /mnt<br>Connection URL must add /dav suffix, e.g., 192.168.1.1:12311/dav"
+msgstr "指向一個路徑，使用webdav存取你的檔案，預設為 /mnt<br>連線位址須加/dav後綴&nbsp;&nbsp;如： 192.168.1.1:12311/dav"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:252
+msgid "Caddyfile Configuration"
+msgstr "Caddyfile設定檔"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:253
+msgid "This is the Caddy startup configuration file at /etc/caddy/Caddyfile.<br>Command used: caddy run --config /etc/caddy/Caddyfile --adapter caddyfile<br>To set password, cannot use plain text, need to convert.<br>Convert command: $(uci -q get caddy.@caddy[0].bin_dir) hash-password --plaintext newpassword"
+msgstr "這是caddy的啟動設定檔Caddyfile，路徑在/etc/caddy/Caddyfile<br>使用的命令是：caddy run --config /etc/caddy/Caddyfile --adapter caddyfile<br>如需設定密碼，這裡就不能使用明碼密碼，需要轉換<br>轉換命令：$(uci -q get caddy.@caddy[0].bin_dir) hash-password --plaintext 新密碼"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:265
+msgid "Web Interface"
+msgstr "Web 介面"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:267
+msgid "Open Web Interface"
+msgstr "開啟 Web 介面"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/logs.js:39
+msgid "Log Data"
+msgstr "日誌資料"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/logs.js:50
+msgid "No log data."
+msgstr "無日誌資料"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/logs.js:55
+msgid "Clear Log"
+msgstr "清空日誌"

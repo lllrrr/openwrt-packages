@@ -2,9 +2,34 @@
 	"luci-app-caddy": {
 		"description": "Grant UCI access for luci-app-caddy",
 		"read": {
+			"file": {
+				"/etc/init.d/caddy": [ "exec" ],
+				"/etc/caddy/Caddyfile": [ "read" ],
+				"/usr/bin/caddy": [ "exec" ],
+				"/tmp/caddy/*": [ "read" ],
+				"/var/log/*": [ "read" ]
+			},
+			"ubus": {
+				"file": [ "read" ],
+				"service": [ "list" ],
+				"luci.caddy": [
+					"get_status",
+					"get_log",
+					"clear_log",
+					"validate_config"
+				]
+			},
 			"uci": [ "caddy" ]
 		},
 		"write": {
+			"file": {
+				"/etc/caddy/Caddyfile": [ "write" ],
+				"/tmp/caddy/*": [ "write" ],
+				"/var/log/*": [ "write" ]
+			},
+			"ubus": {
+				"file": [ "write" ]
+			},
 			"uci": [ "caddy" ]
 		}
 	}

@@ -1,0 +1,226 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-03-20 09:23+0800\n"
+"PO-Revision-Date: 2026-05-19 14:09+0800\n"
+"Last-Translator: eternalwrt-bot <zj18139624826@gmail.com>\n"
+"Language-Team: Korean\n"
+"Language: ko\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:43
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:57
+msgid "Caddy"
+msgstr "Caddy"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:43
+msgid "RUNNING"
+msgstr "실행 중"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:45
+msgid "Version"
+msgstr "버전"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:48
+msgid "Uptime"
+msgstr "가동 시간"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:51
+msgid "CPU"
+msgstr "CPU 사용률"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:54
+msgid "Memory"
+msgstr "메모리 사용량"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:57
+msgid "NOT RUNNING"
+msgstr "실행 중이 아님"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:72
+msgid "Service restarted successfully."
+msgstr "서비스가 성공적으로 재시작되었습니다."
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:74
+msgid "Failed to restart service: "
+msgstr "서비스 재시작 실패: "
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:99
+msgid "DNS Cache flushed successfully."
+msgstr "DNS 캐시가 성공적으로 플러시되었습니다."
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:109
+msgid "Caddy is a scalable server platform with automatic HTTPS, a fast and extensible multi-platform HTTP/1-2-3 web server."
+msgstr "Caddy는 자동 HTTPS 기능을 갖춘 확장 가능한 다중 플랫폼 HTTP/1-2-3 웹 서버입니다."
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:110
+msgid "Project URL"
+msgstr "프로젝트 URL"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:111
+msgid "Documentation"
+msgstr "문서"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:129
+msgid "Basic Options"
+msgstr "기본 옵션"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:130
+msgid "Advanced Options"
+msgstr "고급 옵션"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:131
+msgid "WebDAV"
+msgstr "WebDAV"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:133
+msgid "Enabled"
+msgstr "사용"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:137
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:139
+msgid "Restart"
+msgstr "재시작"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:141
+msgid "Quickly restart the service without modifying parameters."
+msgstr "매개변수 수정 없이 빠르게 서비스를 재시작합니다."
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:144
+msgid "Startup Mode"
+msgstr "시작 모드"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:145
+msgid "Use custom configuration file. If you do not understand the parameters, do not choose custom."
+msgstr "사용자 지정 구성 파일을 사용합니다. 매개변수를 이해하지 못했다면 사용자 지정을 선택하지 마십시오."
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:146
+msgid "Default"
+msgstr "기본값"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:147
+msgid "Custom"
+msgstr "사용자 지정"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:150
+msgid "Port"
+msgstr "포트"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:155
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:222
+msgid "Enable Authentication"
+msgstr "인증 사용"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:159
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:226
+msgid "Username"
+msgstr "사용자 이름"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:164
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:231
+msgid "Password"
+msgstr "비밀번호"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:170
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:242
+msgid "Enable Compression"
+msgstr "압축 사용"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:174
+msgid "Enable Log"
+msgstr "로그 사용"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:178
+msgid "Log Path"
+msgstr "로그 경로"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:179
+msgid "Log storage path. Provide full path with log filename.<br>Recommended: /tmp/ directory, e.g., /tmp/caddy/requests.log"
+msgstr "로그 저장 경로. 전체 경로와 로그 파일 이름을 제공하십시오.<br>권장: /tmp/ 디렉터리, 예: /tmp/caddy/requests.log"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:184
+msgid "Binary Path"
+msgstr "바이너리 경로"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:185
+msgid "Caddy binary storage path. Provide full path with caddy name.<br>Example: /usr/bin/caddy<br>Compile your own architecture binary: <a href=\"https://www.right.com.cn/forum/forum.php?mod=viewthread&tid=6006472&highlight=caddy\" target=\"_blank\">Compile Guide</a>"
+msgstr "Caddy 바이너리 저장 경로. 전체 경로와 caddy 이름을 제공하십시오.<br>예: /usr/bin/caddy<br>자신 아키텍처 바이너리 컴파일: <a href='https://www.right.com.cn/forum/forum.php?mod=viewthread&tid=6006472&highlight=caddy' target='_blank'>컴파일 가이드</a>"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:189
+msgid "Document Root"
+msgstr "문서 루트"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:190
+msgid "Path for web file access. Default: /mnt"
+msgstr "웹 파일 액세스를 위한 경로. 기본값: /mnt"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:195
+msgid "Enable API"
+msgstr "API 사용"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:199
+msgid "Validate Config"
+msgstr "구성 검증"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:200
+msgid "Verify Caddyfile configuration. It simulates starting caddy but does not actually start it."
+msgstr "Caddyfile 구성을 검증합니다. caddy 시작을 시뮬레이션하지만 실제로 시작하지는 않습니다."
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:202
+msgid "Validate"
+msgstr "검증"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:206
+msgid "Validation Result"
+msgstr "검증 결과"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:214
+msgid "Allow WAN Access"
+msgstr "WAN 액세스 허용"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:218
+msgid "Enable WebDAV"
+msgstr "WebDAV 사용"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:237
+msgid "WebDAV Port"
+msgstr "WebDAV 포트"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:246
+msgid "WebDAV Document Root"
+msgstr "WebDAV 문서 루트"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:247
+msgid "Path for WebDAV file access. Default: /mnt<br>Connection URL must add /dav suffix, e.g., 192.168.1.1:12311/dav"
+msgstr "WebDAV 파일 액세스를 위한 경로. 기본값: /mnt<br>연결 URL에 /dav 접미사를 추가해야 합니다. 예: 192.168.1.1:12311/dav"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:252
+msgid "Caddyfile Configuration"
+msgstr "Caddyfile 구성"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:253
+msgid "This is the Caddy startup configuration file at /etc/caddy/Caddyfile.<br>Command used: caddy run --config /etc/caddy/Caddyfile --adapter caddyfile<br>To set password, cannot use plain text, need to convert.<br>Convert command: $(uci -q get caddy.@caddy[0].bin_dir) hash-password --plaintext newpassword"
+msgstr "Caddy 시작 구성 파일 /etc/caddy/Caddyfile 입니다.<br>사용 명령어: caddy run --config /etc/caddy/Caddyfile --adapter caddyfile<br>비밀번호 설정 시 평문을 사용할 수 없으며 변환이 필요합니다.<br>변환 명령어: $(uci -q get caddy.@caddy[0].bin_dir) hash-password --plaintext 새비밀번호"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:265
+msgid "Web Interface"
+msgstr "웹 인터페이스"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:267
+msgid "Open Web Interface"
+msgstr "웹 인터페이스 열기"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/logs.js:39
+msgid "Log Data"
+msgstr "로그 데이터"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/logs.js:50
+msgid "No log data."
+msgstr "로그 데이터가 없습니다."
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/logs.js:55
+msgid "Clear Log"
+msgstr "로그 지우기"

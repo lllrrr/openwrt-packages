@@ -9,4 +9,6 @@ EOF
 
 rm -rf /tmp/luci-*
 chmod 755 /etc/init.d/caddy
+chmod 755 /usr/share/rpcd/ucode/luci.caddy
+
 exit 0

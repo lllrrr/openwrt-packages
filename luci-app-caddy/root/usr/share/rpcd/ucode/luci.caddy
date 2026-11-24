@@ -1,0 +1,118 @@
+#!/usr/bin/env ucode
+
+'use strict';
+
+import { popen, stat, readfile, writefile } from 'fs';
+import { cursor } from 'uci';
+
+function exec_sys(cmd) {
+	let p = popen(cmd + " 2>&1", "r");
+	if (!p) return { code: -1, stdout: "" };
+	let stdout = p.read("all");
+	let code = p.close();
+	return { code: code, stdout: stdout || "" };
+}
+
+const methods = {
+	get_status: {
+		call: function() {
+			try {
+				let uci_cursor = cursor();
+				uci_cursor.load('caddy');
+				let bin_dir = uci_cursor.get('caddy', 'cfg01', 'bin_dir') || '/usr/bin/caddy';
+				let port = uci_cursor.get('caddy', 'cfg01', 'port') || '12311';
+
+				let running = exec_sys('pidof caddy >/dev/null 2>&1 && echo "1" || echo "0"');
+				let is_running = running.stdout.trim() === '1';
+
+				if (!is_running) {
+					return { running: false };
+				}
+
+				let version_res = exec_sys(bin_dir + ' version 2>/dev/null | head -1');
+				let version = version_res.stdout.trim();
+
+				let uptime = '';
+				let tagfile = stat('/tmp/caddy_time');
+				if (tagfile) {
+					let start_time = readfile('/tmp/caddy_time').trim();
+					let time_res = exec_sys(`time=$(($(date +%s)-${start_time})) && day=$((time/86400)) && [ $day -eq 0 ] && day='' || day=${day}天 && time=$(date -u -d @${time} +'%H小时%M分%S秒') && echo $day $time`);
+					uptime = time_res.stdout.trim();
+				}
+
+				let cpu = '';
+				let cpu_res = exec_sys(`top -b -n1 | grep -E "$(pidof caddy)" 2>/dev/null | grep -v grep | awk '{for (i=1;i<=NF;i++) {if ($i ~ /caddy/) break; else cpu=i}} END {print $cpu}'`);
+				cpu = cpu_res.stdout.trim() || 'unknown';
+
+				let mem = '';
+				let mem_res = exec_sys(`cat /proc/$(pidof caddy | awk '{print $NF}')/status | grep -w VmRSS | awk '{printf "%.2f MB", $2/1024}'`);
+				mem = mem_res.stdout.trim() || 'unknown';
+
+				return {
+					running: true,
+					version: version,
+					uptime: uptime,
+					cpu: cpu,
+					mem: mem,
+					port: port
+				};
+			} catch (e) {
+				return { error: String(e) };
+			}
+		}
+	},
+
+	get_log: {
+		call: function() {
+			try {
+				let uci_cursor = cursor();
+				uci_cursor.load('caddy');
+				let log_dir = uci_cursor.get('caddy', 'cfg01', 'log_dir') || '/tmp/caddy/requests.log';
+
+				if (stat(log_dir)) {
+					let content = readfile(log_dir);
+					return { log: content || '' };
+				} else {
+					return { log: '' };
+				}
+			} catch (e) {
+				return { error: String(e) };
+			}
+		}
+	},
+
+	clear_log: {
+		call: function() {
+			try {
+				let uci_cursor = cursor();
+				uci_cursor.load('caddy');
+				let log_dir = uci_cursor.get('caddy', 'cfg01', 'log_dir') || '/tmp/caddy/requests.log';
+
+				if (stat(log_dir)) {
+					writefile(log_dir, '');
+					return { success: true };
+				}
+				return { success: false };
+			} catch (e) {
+				return { error: String(e) };
+			}
+		}
+	},
+
+	validate_config: {
+		call: function() {
+			try {
+				let uci_cursor = cursor();
+				uci_cursor.load('caddy');
+				let bin_dir = uci_cursor.get('caddy', 'cfg01', 'bin_dir') || '/usr/bin/caddy';
+
+				let res = exec_sys(bin_dir + ' validate --config /etc/caddy/Caddyfile --adapter caddyfile 2>&1');
+				return { validate: res.stdout };
+			} catch (e) {
+				return { error: String(e) };
+			}
+		}
+	}
+};
+
+return { "luci.caddy": methods };

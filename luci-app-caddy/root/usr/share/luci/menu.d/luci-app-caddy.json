@@ -1,0 +1,29 @@
+{
+	"admin/services/caddy": {
+		"title": "Caddy",
+		"order": 30,
+		"action": {
+			"type": "firstchild"
+		},
+		"depends": {
+			"acl": [ "luci-app-caddy" ],
+			"uci": { "caddy": true }
+		}
+	},
+	"admin/services/caddy/basic": {
+		"title": "Basic Setting",
+		"order": 10,
+		"action": {
+			"type": "view",
+			"path": "caddy/basic"
+		}
+	},
+	"admin/services/caddy/logs": {
+		"title": "Logs",
+		"order": 20,
+		"action": {
+			"type": "view",
+			"path": "caddy/logs"
+		}
+	}
+}

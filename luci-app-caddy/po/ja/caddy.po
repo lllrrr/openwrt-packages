@@ -1,0 +1,226 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-03-20 09:23+0800\n"
+"PO-Revision-Date: 2026-05-19 14:09+0800\n"
+"Last-Translator: eternalwrt-bot <zj18139624826@gmail.com>\n"
+"Language-Team: Japanese\n"
+"Language: ja\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:43
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:57
+msgid "Caddy"
+msgstr "Caddy"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:43
+msgid "RUNNING"
+msgstr "実行中"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:45
+msgid "Version"
+msgstr "バージョン"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:48
+msgid "Uptime"
+msgstr "稼働時間"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:51
+msgid "CPU"
+msgstr "CPU使用率"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:54
+msgid "Memory"
+msgstr "メモリ使用量"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:57
+msgid "NOT RUNNING"
+msgstr "停止中"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:72
+msgid "Service restarted successfully."
+msgstr "サービスが正常に再起動されました。"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:74
+msgid "Failed to restart service: "
+msgstr "サービスの再起動に失敗しました： "
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:99
+msgid "DNS Cache flushed successfully."
+msgstr "DNSキャッシュが正常にフラッシュされました。"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:109
+msgid "Caddy is a scalable server platform with automatic HTTPS, a fast and extensible multi-platform HTTP/1-2-3 web server."
+msgstr "Caddyは自動HTTPS機能を備えた拡張可能なマルチプラットフォームHTTP/1-2-3 Webサーバーです。"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:110
+msgid "Project URL"
+msgstr "プロジェクトURL"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:111
+msgid "Documentation"
+msgstr "ドキュメント"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:129
+msgid "Basic Options"
+msgstr "基本オプション"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:130
+msgid "Advanced Options"
+msgstr "詳細オプション"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:131
+msgid "WebDAV"
+msgstr "WebDAV"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:133
+msgid "Enabled"
+msgstr "有効"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:137
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:139
+msgid "Restart"
+msgstr "再起動"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:141
+msgid "Quickly restart the service without modifying parameters."
+msgstr "パラメータを変更せずにサービスをすばやく再起動します。"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:144
+msgid "Startup Mode"
+msgstr "起動モード"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:145
+msgid "Use custom configuration file. If you do not understand the parameters, do not choose custom."
+msgstr "カスタム設定ファイルを使用します。パラメータがわからない場合はカスタムを選択しないでください。"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:146
+msgid "Default"
+msgstr "デフォルト"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:147
+msgid "Custom"
+msgstr "カスタム"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:150
+msgid "Port"
+msgstr "ポート"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:155
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:222
+msgid "Enable Authentication"
+msgstr "認証を有効にする"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:159
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:226
+msgid "Username"
+msgstr "ユーザー名"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:164
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:231
+msgid "Password"
+msgstr "パスワード"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:170
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:242
+msgid "Enable Compression"
+msgstr "圧縮を有効にする"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:174
+msgid "Enable Log"
+msgstr "ログを有効にする"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:178
+msgid "Log Path"
+msgstr "ログパス"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:179
+msgid "Log storage path. Provide full path with log filename.<br>Recommended: /tmp/ directory, e.g., /tmp/caddy/requests.log"
+msgstr "ログの保存パス。ログファイル名を含む完全なパスを指定してください。<br>推奨: /tmp/ ディレクトリ、例: /tmp/caddy/requests.log"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:184
+msgid "Binary Path"
+msgstr "バイナリパス"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:185
+msgid "Caddy binary storage path. Provide full path with caddy name.<br>Example: /usr/bin/caddy<br>Compile your own architecture binary: <a href=\"https://www.right.com.cn/forum/forum.php?mod=viewthread&tid=6006472&highlight=caddy\" target=\"_blank\">Compile Guide</a>"
+msgstr "Caddyバイナリの保存パス。caddy名を含む完全なパスを指定してください。<br>例: /usr/bin/caddy<br>独自のアーキテクチャ用バイナリのコンパイル: <a href='https://www.right.com.cn/forum/forum.php?mod=viewthread&tid=6006472&highlight=caddy' target='_blank'>コンパイルガイド</a>"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:189
+msgid "Document Root"
+msgstr "ドキュメントルート"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:190
+msgid "Path for web file access. Default: /mnt"
+msgstr "Webファイルアクセス用のパス。デフォルト: /mnt"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:195
+msgid "Enable API"
+msgstr "APIを有効にする"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:199
+msgid "Validate Config"
+msgstr "設定を検証"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:200
+msgid "Verify Caddyfile configuration. It simulates starting caddy but does not actually start it."
+msgstr "Caddyfile設定を検証します。caddyの開始をシミュレートしますが、実際には開始しません。"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:202
+msgid "Validate"
+msgstr "検証"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:206
+msgid "Validation Result"
+msgstr "検証結果"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:214
+msgid "Allow WAN Access"
+msgstr "WANアクセスを許可"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:218
+msgid "Enable WebDAV"
+msgstr "WebDAVを有効にする"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:237
+msgid "WebDAV Port"
+msgstr "WebDAVポート"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:246
+msgid "WebDAV Document Root"
+msgstr "WebDAVドキュメントルート"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:247
+msgid "Path for WebDAV file access. Default: /mnt<br>Connection URL must add /dav suffix, e.g., 192.168.1.1:12311/dav"
+msgstr "WebDAVファイルアクセス用のパス。デフォルト: /mnt<br>接続URLには/davサフィックスを追加する必要があります。例: 192.168.1.1:12311/dav"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:252
+msgid "Caddyfile Configuration"
+msgstr "Caddyfile設定"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:253
+msgid "This is the Caddy startup configuration file at /etc/caddy/Caddyfile.<br>Command used: caddy run --config /etc/caddy/Caddyfile --adapter caddyfile<br>To set password, cannot use plain text, need to convert.<br>Convert command: $(uci -q get caddy.@caddy[0].bin_dir) hash-password --plaintext newpassword"
+msgstr "これは/etc/caddy/CaddyfileにあるCaddy起動設定ファイルです。<br>使用コマンド: caddy run --config /etc/caddy/Caddyfile --adapter caddyfile<br>パスワード設定時、プレーンテキストは使用できず変換が必要です。<br>変換コマンド: $(uci -q get caddy.@caddy[0].bin_dir) hash-password --plaintext 新パスワード"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:265
+msgid "Web Interface"
+msgstr "Webインターフェース"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/basic.js:267
+msgid "Open Web Interface"
+msgstr "Webインターフェースを開く"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/logs.js:39
+msgid "Log Data"
+msgstr "ログデータ"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/logs.js:50
+msgid "No log data."
+msgstr "ログデータがありません。"
+
+#: applications/luci-app-caddy/htdocs/luci-static/resources/view/caddy/logs.js:55
+msgid "Clear Log"
+msgstr "ログをクリア"

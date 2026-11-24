@@ -2,11 +2,10 @@
 
 START=99
 USE_PROCD=1
-PROG="$(uci -q get caddy.@caddy[0].bin_dir)"
 
 get_config() {
 	config_get_bool enabled $1 enabled 0
-	config_get cmd $1 cmd "默认"
+	config_get cmd $1 cmd "default"
 	config_get_bool webdav $1 webdav 0
 	config_get port $1 port 12311
 	config_get webdav_port $1 webdav_port 12322
@@ -26,6 +25,7 @@ get_config() {
         config_get filezip $1 filezip 0
         config_get webzip $1 webzip 0
 	config_get allow_wan $1 allow_wan 0
+	config_get bin_dir $1 bin_dir "/usr/bin/caddy"
 
 
 }
@@ -54,6 +54,7 @@ start_service() {
 	config_load caddy
 	config_foreach get_config caddy
 	[ $enabled -ne 1 ] && return 1
+	PROG="$bin_dir"
         log_path="$(dirname $log_dir)"
 	mkdir -p $log_path
 	if [ ! -f "$PROG" ] ;then
@@ -70,7 +71,7 @@ start_service() {
 	      exit 1
 	   fi
 	fi
-  if [ "$cmd" = "默认" ] ;then
+  if [ "$cmd" = "default" ] ;then
 	mkdir -p $data_dir 
 	if [ "$log" -eq 1 ] ;then
 	   
