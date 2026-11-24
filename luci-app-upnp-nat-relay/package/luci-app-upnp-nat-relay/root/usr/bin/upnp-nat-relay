@@ -200,8 +200,13 @@ log_prune_cycle_keys() {
     return 0
 }
 
-json_escape() {
-    printf '%s' "$1" | awk '
+# Escape a string as a JSON value body.
+#
+# Keep this POSIX sh: the relay runs with `#!/bin/sh`, and the contract suite
+# executes it under dash on CI, where `${var//a/b}` and $'...' are not
+# available.
+json_escape_into() {
+    REPLY=$(printf '%s' "$1" | awk '
         BEGIN {
             ORS = ""
             tab = sprintf("%c", 9)
@@ -218,7 +223,23 @@ json_escape() {
             gsub(/>/, "\\u003e")
             gsub(/&/, "\\u0026")
             printf "%s", $0
-        }'
+        }')
+}
+
+json_escape() {
+    json_escape_into "$1"
+    printf '%s' "${REPLY}"
+}
+
+# Build a JSON object without one command substitution per field.
+# Callers start JSON_ACC with '{"first_key":...' and finish with '}'.
+json_append_str() {
+    json_escape_into "$2"
+    JSON_ACC="${JSON_ACC},\"$1\":\"${REPLY}\""
+}
+
+json_append_num() {
+    JSON_ACC="${JSON_ACC},\"$1\":$2"
 }
 
 summarize_command_output() {
@@ -366,7 +387,8 @@ resolve_interface_device() {
 
 detect_interface_ip() {
     [ -n "$1" ] || return 1
-    _dii_dev="$(resolve_interface_device "$1")"
+    _dii_dev="${2:-}"
+    [ -n "$_dii_dev" ] || _dii_dev="$(resolve_interface_device "$1")"
     [ -n "$_dii_dev" ] || return 1
     ip -4 addr show dev "$_dii_dev" 2>/dev/null | awk '
         /^[[:space:]]*inet[[:space:]]/ {
@@ -380,7 +402,8 @@ detect_interface_ip() {
 
 detect_interface_subnet() {
     [ -n "$1" ] || return 1
-    _dis_dev="$(resolve_interface_device "$1")"
+    _dis_dev="${2:-}"
+    [ -n "$_dis_dev" ] || _dis_dev="$(resolve_interface_device "$1")"
     [ -n "$_dis_dev" ] || return 1
     ip -4 addr show dev "$_dis_dev" 2>/dev/null | awk '
         /^[[:space:]]*inet[[:space:]]/ {
@@ -543,28 +566,84 @@ refresh_openclash_cache() {
 }
 
 load_config() {
-    cfg_enabled="$(uci_get 'main.enabled')"
-    cfg_interval="$(uci_get 'main.interval')"
+    # Every RPC and every daemon tick loads the config, and the per-option
+    # `uci get` loop spawned one process per option (26 of them). Read the
+    # package once and split the `uci show` output with shell builtins.
+    cfg_enabled=""
+    cfg_interval=""
     cfg_backend="upnpc"
-    cfg_bind_ifname="$(uci_get 'main.bind_ifname')"
-    cfg_bind_ip="$(uci_get 'main.bind_ip')"
-    cfg_downstream_lan_gateway="$(uci_get 'main.downstream_lan_gateway')"
-    cfg_downstream_lan_subnet="$(uci_get 'main.downstream_lan_subnet')"
-    cfg_downstream_wan_ip="$(uci_get 'main.downstream_wan_ip')"
-    cfg_upstream_wan_if="$(uci_get 'main.upstream_wan_if')"
-    cfg_firewall_zone_name="$(uci_get 'main.firewall_zone_name')"
-    cfg_allowed_external_ports="$(uci_get 'main.allowed_external_ports')"
-    cfg_protocols="$(uci_get 'main.protocols')"
-    cfg_failure_grace_count="$(uci_get 'main.failure_grace_count')"
-    cfg_clear_on_stop="$(uci_get 'main.clear_on_stop')"
-    cfg_dry_run="$(uci_get 'main.dry_run')"
-    cfg_log_level="$(uci_get 'main.log_level')"
-    cfg_openclash_mode="$(uci_get 'main.openclash_mode')"
-    cfg_openclash_return_strategy="$(uci_get 'main.openclash_return_strategy')"
-    cfg_openclash_backup="$(uci_get 'main.openclash_backup')"
-    cfg_openclash_rule_remark="$(uci_get 'main.openclash_rule_remark')"
-    cfg_openclash_sync_interval="$(uci_get 'main.openclash_sync_interval')"
-    cfg_backend_timeout="$(uci_get 'upnpc.timeout')"
+    cfg_bind_ifname=""
+    cfg_bind_ip=""
+    cfg_downstream_lan_gateway=""
+    cfg_downstream_lan_subnet=""
+    cfg_downstream_wan_ip=""
+    cfg_upstream_wan_if=""
+    cfg_firewall_zone_name=""
+    cfg_allowed_external_ports=""
+    cfg_protocols=""
+    cfg_failure_grace_count=""
+    cfg_clear_on_stop=""
+    cfg_dry_run=""
+    cfg_log_level=""
+    cfg_openclash_mode=""
+    cfg_openclash_return_strategy=""
+    cfg_openclash_backup=""
+    cfg_openclash_rule_remark=""
+    cfg_openclash_sync_interval=""
+    cfg_backend_timeout=""
+    cfg_deny_ports=""
+    cfg_deny_low_ports=""
+    cfg_restrict_to_subnet=""
+    cfg_deny_empty_description=""
+    cfg_log_rejected=""
+
+    _lc_dump="$(uci -q show "${UCI_CONFIG}" 2>/dev/null)"
+    # `uci show` single-quotes values and escapes an embedded quote as '\''.
+    # Undo the escape in one pass, then drop the surrounding quotes per line so
+    # callers see exactly what `uci get` returned.
+    _lc_dump="$(printf '%s\n' "${_lc_dump}" | sed "s/'\\\\''/'/g")"
+    while IFS= read -r _lc_line; do
+        _lc_key="${_lc_line%%=*}"
+        _lc_val="${_lc_line#*=}"
+        _lc_key="${_lc_key#"${UCI_CONFIG}".}"
+        _lc_val="${_lc_val#\'}"
+        _lc_val="${_lc_val%\'}"
+        case "${_lc_key}" in
+            main.enabled) cfg_enabled="${_lc_val}" ;;
+            main.interval) cfg_interval="${_lc_val}" ;;
+            main.bind_ifname) cfg_bind_ifname="${_lc_val}" ;;
+            main.bind_ip) cfg_bind_ip="${_lc_val}" ;;
+            main.downstream_lan_gateway) cfg_downstream_lan_gateway="${_lc_val}" ;;
+            main.downstream_lan_subnet) cfg_downstream_lan_subnet="${_lc_val}" ;;
+            main.downstream_wan_ip) cfg_downstream_wan_ip="${_lc_val}" ;;
+            main.upstream_wan_if) cfg_upstream_wan_if="${_lc_val}" ;;
+            main.firewall_zone_name) cfg_firewall_zone_name="${_lc_val}" ;;
+            main.allowed_external_ports) cfg_allowed_external_ports="${_lc_val}" ;;
+            main.protocols) cfg_protocols="${_lc_val}" ;;
+            main.failure_grace_count) cfg_failure_grace_count="${_lc_val}" ;;
+            main.clear_on_stop) cfg_clear_on_stop="${_lc_val}" ;;
+            main.dry_run) cfg_dry_run="${_lc_val}" ;;
+            main.log_level) cfg_log_level="${_lc_val}" ;;
+            main.openclash_mode) cfg_openclash_mode="${_lc_val}" ;;
+            main.openclash_return_strategy) cfg_openclash_return_strategy="${_lc_val}" ;;
+            main.openclash_backup) cfg_openclash_backup="${_lc_val}" ;;
+            main.openclash_rule_remark) cfg_openclash_rule_remark="${_lc_val}" ;;
+            main.openclash_sync_interval) cfg_openclash_sync_interval="${_lc_val}" ;;
+            main.deny_low_ports) cfg_deny_low_ports="${_lc_val}" ;;
+            main.restrict_to_subnet) cfg_restrict_to_subnet="${_lc_val}" ;;
+            main.deny_empty_description) cfg_deny_empty_description="${_lc_val}" ;;
+            main.log_rejected) cfg_log_rejected="${_lc_val}" ;;
+            upnpc.timeout) cfg_backend_timeout="${_lc_val}" ;;
+            default.port)
+                # libuci returns a list option as one whitespace-separated
+                # value; `uci show` prints all items on one quoted line.
+                _lc_val="$(printf '%s' "${_lc_val}" | tr -d "'")"
+                cfg_deny_ports="${cfg_deny_ports:+${cfg_deny_ports} }${_lc_val}"
+                ;;
+        esac
+    done <<EOF
+${_lc_dump}
+EOF
 
     [ -z "${cfg_interval}" ] && cfg_interval="60"
     [ -z "${cfg_backend_timeout}" ] && cfg_backend_timeout="10"
@@ -591,21 +670,13 @@ load_config() {
         cfg_upstream_wan_if="$(detect_default_route_if)"
     fi
 
-    # libuci returns a list option as one whitespace-separated value. Numeric
-    # list entries are validated by UCI, so do not try section-style `.0`
-    # indexing here (that syntax is not supported for list items).
-    cfg_deny_ports="$(uci_get 'default.port' || true)"
     if [ -z "${cfg_deny_ports}" ]; then
         cfg_deny_ports="22 23 25 53 80 110 143 443 445 465 587 993 995 1433 3306 3389 5432 6379 8080 8443"
     fi
 
-    cfg_deny_low_ports="$(uci_get 'main.deny_low_ports')"
     [ -z "${cfg_deny_low_ports}" ] && cfg_deny_low_ports="1"
-    cfg_restrict_to_subnet="$(uci_get 'main.restrict_to_subnet')"
     [ -z "${cfg_restrict_to_subnet}" ] && cfg_restrict_to_subnet="1"
-    cfg_deny_empty_description="$(uci_get 'main.deny_empty_description')"
     [ -z "${cfg_deny_empty_description}" ] && cfg_deny_empty_description="0"
-    cfg_log_rejected="$(uci_get 'main.log_rejected')"
     [ -z "${cfg_log_rejected}" ] && cfg_log_rejected="1"
 }
 
@@ -1817,13 +1888,27 @@ do_check_network() {
         return 0
     fi
 
-    _cn_detected_bind_ip="$(detect_interface_ip "${cfg_bind_ifname}")"
-    _cn_detected_lan_subnet="$(detect_interface_subnet "${cfg_bind_ifname}")"
-    _cn_detected_lan_gateway="$(detect_interface_gateway "${cfg_bind_ifname}")"
-    _cn_detected_upstream_wan_if="$(detect_default_route_if)"
-    _cn_detected_downstream_wan_ip=""
     _cn_bind_device="$(resolve_interface_device "${cfg_bind_ifname}")"
     _cn_upstream_device="$(resolve_interface_device "${cfg_upstream_wan_if}")"
+    _cn_bind_addr=""
+    if [ -n "$_cn_bind_device" ]; then
+        _cn_bind_addr="$(ip -4 addr show dev "$_cn_bind_device" 2>/dev/null)"
+    fi
+    # Pass the already-resolved device so the probes do not resolve it again.
+    _cn_detected_bind_ip="$(detect_interface_ip "${cfg_bind_ifname}" "$_cn_bind_device")"
+    _cn_detected_lan_subnet="$(detect_interface_subnet "${cfg_bind_ifname}" "$_cn_bind_device")"
+    _cn_detected_lan_gateway="$(detect_interface_gateway "${cfg_bind_ifname}")"
+    _cn_routes="$(ip route show 2>/dev/null)"
+    _cn_detected_upstream_wan_if="$(printf '%s\n' "$_cn_routes" | awk '
+        /^default/ {
+            for (i = 1; i <= NF; i++) {
+                if ($i == "dev" && (i + 1) <= NF) {
+                    print $(i + 1)
+                    exit
+                }
+            }
+        }')"
+    _cn_detected_downstream_wan_ip=""
 
     _cn_iface_exists=0
     if [ -n "$_cn_bind_device" ]; then
@@ -1831,7 +1916,7 @@ do_check_network() {
     fi
 
     _cn_bind_ip_ok=0
-    if [ -n "$_cn_bind_device" ] && ip addr show "$_cn_bind_device" 2>/dev/null | grep -q "inet ${cfg_bind_ip}/"; then
+    if [ -n "${cfg_bind_ip}" ] && printf '%s\n' "$_cn_bind_addr" | grep -q "inet ${cfg_bind_ip}/"; then
         _cn_bind_ip_ok=1
     fi
 
@@ -1869,24 +1954,81 @@ do_check_network() {
     fi
 
     _cn_def_route=0
-    if [ -n "$_cn_bind_device" ] && ip route show 2>/dev/null | grep "^default" | grep -q "$_cn_bind_device"; then
+    if [ -n "$_cn_bind_device" ] && printf '%s\n' "$_cn_routes" | grep "^default" | grep -q "$_cn_bind_device"; then
         _cn_def_route=1
     fi
 
+    # One `uci show` covers both loops. Walking forwarding/zone indexes with
+    # `uci get` spawned ~13 processes; the sections are small, so parse the
+    # dump once. Both named (`firewall.lan`) and anonymous (`@zone[0]`)
+    # sections are handled.
+    #
+    # Options are buffered and reported in END: a zone's `option name` may be
+    # written after input/output/forward/masq, so a single forward pass cannot
+    # know yet whether the section is the zone it is looking for.
+    _cn_fw_facts="$(uci -q show firewall 2>/dev/null | awk -v zone="${cfg_firewall_zone_name}" '
+        {
+            eq = index($0, "=")
+            if (eq == 0)
+                next
+            key = substr($0, 1, eq - 1)
+            val = substr($0, eq + 1)
+            gsub(/\047/, "", val)
+            n = split(key, parts, ".")
+            if (n == 2) {
+                stype[key] = val
+                order[++count] = key
+                next
+            }
+            if (n < 3)
+                next
+            attr = parts[n]
+            sec = substr(key, 1, length(key) - length(attr) - 1)
+            if (stype[sec] == "forwarding" && (attr == "src" || attr == "dest") && val == zone)
+                bad = 1
+            if (stype[sec] != "zone")
+                next
+            if (attr == "name")
+                zname[sec] = val
+            else if (attr == "input" || attr == "output" || attr == "forward" || attr == "masq") {
+                zattr[sec, attr] = val
+                zseen[sec, attr] = 1
+            }
+        }
+        END {
+            if (bad)
+                print "bad_fwd=1"
+            for (i = 1; i <= count; i++) {
+                sec = order[i]
+                if (stype[sec] != "zone" || zname[sec] != zone)
+                    continue
+                print "zone_exists=1"
+                if (zseen[sec, "input"]) print "input=" zattr[sec, "input"]
+                if (zseen[sec, "output"]) print "output=" zattr[sec, "output"]
+                if (zseen[sec, "forward"]) print "forward=" zattr[sec, "forward"]
+                if (zseen[sec, "masq"]) print "masq=" zattr[sec, "masq"]
+                exit
+            }
+        }')"
+
     _cn_bad_fwd=0
-    _cn_fwd_idx=0
-    while true; do
-        _cn_fwd_src="$(uci -q get firewall.@forwarding[${_cn_fwd_idx}].src 2>/dev/null)"
-        if [ -z "$_cn_fwd_src" ]; then
-            break
-        fi
-        _cn_fwd_dst="$(uci -q get firewall.@forwarding[${_cn_fwd_idx}].dest 2>/dev/null)"
-        if [ "$_cn_fwd_src" = "${cfg_firewall_zone_name}" ] || [ "$_cn_fwd_dst" = "${cfg_firewall_zone_name}" ]; then
-            _cn_bad_fwd=1
-            break
-        fi
-        _cn_fwd_idx=$((_cn_fwd_idx + 1))
-    done
+    _cn_zone_exists=0
+    _cn_zone_input=""
+    _cn_zone_output=""
+    _cn_zone_forward=""
+    _cn_zone_masq=""
+    while IFS='=' read -r _cn_fw_key _cn_fw_val; do
+        case "${_cn_fw_key}" in
+            bad_fwd) _cn_bad_fwd=1 ;;
+            zone_exists) _cn_zone_exists=1 ;;
+            input) _cn_zone_input="${_cn_fw_val}" ;;
+            output) _cn_zone_output="${_cn_fw_val}" ;;
+            forward) _cn_zone_forward="${_cn_fw_val}" ;;
+            masq) _cn_zone_masq="${_cn_fw_val}" ;;
+        esac
+    done <<EOF
+${_cn_fw_facts}
+EOF
 
     _cn_gateway_value="$(uci -q get network.upnp_nat_lan.gateway 2>/dev/null)"
     _cn_gateway_set=0
@@ -1896,64 +2038,46 @@ do_check_network() {
     _cn_dns_set=0
     [ -n "$_cn_dns_value" ] && _cn_dns_set=1
 
-    _cn_zone_exists=0
-    _cn_zone_input=""
-    _cn_zone_output=""
-    _cn_zone_forward=""
-    _cn_zone_masq=""
-    _cn_zone_idx=0
-    while true; do
-        _cn_zone_name="$(uci -q get firewall.@zone[${_cn_zone_idx}].name 2>/dev/null)"
-        if [ -z "$_cn_zone_name" ]; then
-            break
-        fi
-        if [ "$_cn_zone_name" = "${cfg_firewall_zone_name}" ]; then
-            _cn_zone_exists=1
-            _cn_zone_input="$(uci -q get firewall.@zone[${_cn_zone_idx}].input 2>/dev/null)"
-            _cn_zone_output="$(uci -q get firewall.@zone[${_cn_zone_idx}].output 2>/dev/null)"
-            _cn_zone_forward="$(uci -q get firewall.@zone[${_cn_zone_idx}].forward 2>/dev/null)"
-            _cn_zone_masq="$(uci -q get firewall.@zone[${_cn_zone_idx}].masq 2>/dev/null)"
-            break
-        fi
-        _cn_zone_idx=$((_cn_zone_idx + 1))
-    done
+    _cn_stamp="$(date '+%Y-%m-%d %H:%M:%S %s')"
+    _cn_updated_at="${_cn_stamp% *}"
+    _cn_updated_at_epoch="${_cn_stamp##* }"
 
-    _cn_updated_at="$(get_timestamp)"
-    _cn_updated_at_epoch="$(date +%s)"
-
-    _cn_json="$(printf '{"cached":1,"updated_at":"%s","updated_at_epoch":%s,"bind_ifname":"%s","bind_ip":"%s","downstream_lan_gateway":"%s","downstream_lan_subnet":"%s","downstream_wan_ip":"%s","upstream_wan_if":"%s","detected_bind_ip":"%s","detected_downstream_lan_subnet":"%s","detected_downstream_lan_gateway":"%s","detected_downstream_wan_ip":"%s","detected_upstream_wan_if":"%s","iface_exists":%d,"bind_ip_configured":%d,"gateway_reachable":%d,"upnpc_readable":%d,"upnpc_mapping_count":%d,"wan_ip_reachable":%d,"upstream_wan_exists":%d,"default_route_on_bind":%d,"bad_forwarding":%d,"gateway_set":%d,"gateway_value":"%s","dns_set":%d,"dns_value":"%s","zone_name":"%s","zone_exists":%d,"zone_input":"%s","zone_output":"%s","zone_forward":"%s","zone_masq":"%s"}\n' \
-        "$(json_escape "$_cn_updated_at")" \
-        "${_cn_updated_at_epoch}" \
-        "$(json_escape "${cfg_bind_ifname}")" \
-        "$(json_escape "${cfg_bind_ip}")" \
-        "$(json_escape "${cfg_downstream_lan_gateway}")" \
-        "$(json_escape "${cfg_downstream_lan_subnet}")" \
-        "$(json_escape "${cfg_downstream_wan_ip}")" \
-        "$(json_escape "${cfg_upstream_wan_if}")" \
-        "$(json_escape "${_cn_detected_bind_ip}")" \
-        "$(json_escape "${_cn_detected_lan_subnet}")" \
-        "$(json_escape "${_cn_detected_lan_gateway}")" \
-        "$(json_escape "${_cn_detected_downstream_wan_ip}")" \
-        "$(json_escape "${_cn_detected_upstream_wan_if}")" \
-        "$_cn_iface_exists" \
-        "$_cn_bind_ip_ok" \
-        "$_cn_gateway_ok" \
-        "$_cn_upnpc_ok" \
-        "$_cn_upnpc_count" \
-        "$_cn_wan_ip_ok" \
-        "$_cn_upstream_wan_ok" \
-        "$_cn_def_route" \
-        "$_cn_bad_fwd" \
-        "$_cn_gateway_set" \
-        "$(json_escape "$_cn_gateway_value")" \
-        "$_cn_dns_set" \
-        "$(json_escape "$_cn_dns_value")" \
-        "$(json_escape "${cfg_firewall_zone_name}")" \
-        "$_cn_zone_exists" \
-        "$(json_escape "$_cn_zone_input")" \
-        "$(json_escape "$_cn_zone_output")" \
-        "$(json_escape "$_cn_zone_forward")" \
-        "$(json_escape "$_cn_zone_masq")")"
+    JSON_ACC='{"cached":1'
+    json_append_str updated_at "${_cn_updated_at}"
+    json_append_num updated_at_epoch "${_cn_updated_at_epoch}"
+    json_append_str bind_ifname "${cfg_bind_ifname}"
+    json_append_str bind_ip "${cfg_bind_ip}"
+    json_append_str downstream_lan_gateway "${cfg_downstream_lan_gateway}"
+    json_append_str downstream_lan_subnet "${cfg_downstream_lan_subnet}"
+    json_append_str downstream_wan_ip "${cfg_downstream_wan_ip}"
+    json_append_str upstream_wan_if "${cfg_upstream_wan_if}"
+    json_append_str detected_bind_ip "${_cn_detected_bind_ip}"
+    json_append_str detected_downstream_lan_subnet "${_cn_detected_lan_subnet}"
+    json_append_str detected_downstream_lan_gateway "${_cn_detected_lan_gateway}"
+    json_append_str detected_downstream_wan_ip "${_cn_detected_downstream_wan_ip}"
+    json_append_str detected_upstream_wan_if "${_cn_detected_upstream_wan_if}"
+    json_append_num iface_exists "${_cn_iface_exists}"
+    json_append_num bind_ip_configured "${_cn_bind_ip_ok}"
+    json_append_num gateway_reachable "${_cn_gateway_ok}"
+    json_append_num upnpc_readable "${_cn_upnpc_ok}"
+    json_append_num upnpc_mapping_count "${_cn_upnpc_count}"
+    json_append_num wan_ip_reachable "${_cn_wan_ip_ok}"
+    json_append_num upstream_wan_exists "${_cn_upstream_wan_ok}"
+    json_append_num default_route_on_bind "${_cn_def_route}"
+    json_append_num bad_forwarding "${_cn_bad_fwd}"
+    json_append_num gateway_set "${_cn_gateway_set}"
+    json_append_str gateway_value "${_cn_gateway_value}"
+    json_append_num dns_set "${_cn_dns_set}"
+    json_append_str dns_value "${_cn_dns_value}"
+    json_append_str zone_name "${cfg_firewall_zone_name}"
+    json_append_num zone_exists "${_cn_zone_exists}"
+    json_append_str zone_input "${_cn_zone_input}"
+    json_append_str zone_output "${_cn_zone_output}"
+    json_append_str zone_forward "${_cn_zone_forward}"
+    json_append_str zone_masq "${_cn_zone_masq}"
+    # No trailing newline: the old `$(printf ...)` capture stripped it, and the
+    # cache file / RPC output were byte-for-byte without one.
+    _cn_json="${JSON_ACC}}"
 
     ensure_dirs
     printf '%s' "$_cn_json" > "${NETWORK_CACHE_FILE}"

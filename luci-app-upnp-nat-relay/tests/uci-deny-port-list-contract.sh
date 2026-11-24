@@ -16,20 +16,38 @@ mkdir -p "$TMP/bin"
 cat >"$TMP/bin/uci" <<'EOF'
 #!/bin/sh
 [ "${1:-}" = "-q" ] && shift
-[ "${1:-}" = "get" ] || exit 2
-case "${2:-}" in
-    upnp_nat_relay.main.bind_ip) printf '11.0.1.1\n' ;;
-    upnp_nat_relay.main.downstream_lan_subnet) printf '11.0.2.0/24\n' ;;
-    upnp_nat_relay.main.upstream_wan_if) printf 'eth0\n' ;;
-    upnp_nat_relay.default.port)
-        [ -n "${MOCK_DENY_PORTS:-}" ] || exit 1
-        printf '%s\n' "$MOCK_DENY_PORTS"
+case "${1:-}" in
+    get)
+        case "${2:-}" in
+            upnp_nat_relay.main.bind_ip) printf '11.0.1.1\n' ;;
+            upnp_nat_relay.main.downstream_lan_subnet) printf '11.0.2.0/24\n' ;;
+            upnp_nat_relay.main.upstream_wan_if) printf 'eth0\n' ;;
+            upnp_nat_relay.default.port)
+                [ -n "${MOCK_DENY_PORTS:-}" ] || exit 1
+                printf '%s\n' "$MOCK_DENY_PORTS"
+                ;;
+            upnp_nat_relay.default.port.*)
+                # Real libuci list options are read as one value; `.0` is not an item.
+                exit 1
+                ;;
+            *) exit 1 ;;
+        esac
         ;;
-    upnp_nat_relay.default.port.*)
-        # Real libuci list options are read as one value; `.0` is not an item.
-        exit 1
+    show)
+        [ "${2:-}" = "upnp_nat_relay" ] || exit 2
+        printf "upnp_nat_relay.main=service\n"
+        printf "upnp_nat_relay.main.bind_ip='11.0.1.1'\n"
+        printf "upnp_nat_relay.main.downstream_lan_subnet='11.0.2.0/24'\n"
+        printf "upnp_nat_relay.main.upstream_wan_if='eth0'\n"
+        [ -n "${MOCK_DENY_PORTS:-}" ] || exit 0
+        # libuci serializes a list option as one line of quoted items.
+        _line=""
+        for _p in $MOCK_DENY_PORTS; do
+            _line="${_line:+${_line} }'${_p}'"
+        done
+        printf "upnp_nat_relay.default.port=%s\n" "$_line"
         ;;
-    *) exit 1 ;;
+    *) exit 2 ;;
 esac
 EOF
 chmod +x "$TMP/bin/uci"
