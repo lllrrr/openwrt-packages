@@ -1,12 +1,11 @@
 {
 	"luci-app-atomdns": {
-		"description": "Grant read/write access to AtomDNS UCI and service status",
+		"description": "Grant read-only status access and write access to AtomDNS UCI/restart",
 		"read": {
 			"uci": ["atomdns"],
 			"ubus": {
 				"atomdns": ["status"]
-			},
-			"cgi-io": ["exec"]
+			}
 		},
 		"write": {
 			"uci": ["atomdns"],

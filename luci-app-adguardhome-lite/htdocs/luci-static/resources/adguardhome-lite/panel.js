@@ -1126,15 +1126,21 @@
 		return filtersAction({ action: 'rules', rules: out.join('\n') });
 	}
 
-	// 订阅来源标签：内置源给简短说明，其它地址回退显示域名
+	// 订阅来源标签：先解析出域名再比较，避免用 substring 判断时被伪造地址绕过
 	function filterSource(url) {
 		var u = String(url || '');
-		if (u.indexOf('cdn.jsdelivr.net') >= 0) return 'jsDelivr';
-		if (u.indexOf('agh.ozero.top') >= 0) return '作者自建';
-		if (u.indexOf('gh-proxy') >= 0 || u.indexOf('ghproxy') >= 0 || u.indexOf('ghfast') >= 0) return 'GitHub 反代';
-		if (u.indexOf('github.com') >= 0 || u.indexOf('githubusercontent.com') >= 0) return 'GitHub 直连';
-		var m = u.match(/^[a-z]+:\/\/([^\/?#]+)/i);
-		return m ? m[1] : '';
+		var m = u.match(/^[a-z][a-z0-9+.-]*:\/\/([^\/?#]*)/i);
+		var host = (m ? m[1] : '').toLowerCase();
+		host = host.replace(/^[^@]*@/, '').replace(/:\d+$/, '');
+		if (!host) return '';
+		var isHost = function (name) {
+			return host === name || host.slice(-(name.length + 1)) === '.' + name;
+		};
+		if (isHost('cdn.jsdelivr.net')) return 'jsDelivr';
+		if (isHost('agh.ozero.top')) return '作者自建';
+		if (/(^|\.)gh-?proxy(\.|$)/.test(host) || /(^|\.)ghfast(\.|$)/.test(host)) return 'GitHub 反代';
+		if (isHost('github.com') || isHost('githubusercontent.com')) return 'GitHub 直连';
+		return host;
 	}
 
 	function renderFilters(d) {

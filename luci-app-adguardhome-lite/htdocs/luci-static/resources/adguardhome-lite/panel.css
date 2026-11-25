@@ -1210,6 +1210,8 @@ code {
 	font-weight: 600;
 }
 
+.agh-footer-title .agh-footer-link { margin-left: 10px; }
+
 .agh-footer-link a:hover {
 	text-decoration: underline;
 }

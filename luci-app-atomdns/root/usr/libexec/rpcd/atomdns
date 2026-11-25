@@ -1,6 +1,20 @@
 #!/bin/sh
 # rpcd 插件：为 LuCI 提供 AtomDNS 状态查询与重启
 # 通过 ubus 调用：ubus call atomdns status / restart
+# status 只读；restart 由 rpcd ACL 的 write 域单独授权。
+
+# UCI 值和可执行文件输出都不可信：转义 JSON 元字符并把控制字符替换为空格，
+# 避免构造无效 JSON 或注入额外字段。
+json_string() {
+	printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | tr '\000-\037\177' ' '
+}
+
+json_bool() {
+	case "$1" in
+		1|true|yes|on) printf 'true' ;;
+		*) printf 'false' ;;
+	esac
+}
 
 case "$1" in
 	list)
@@ -9,35 +23,41 @@ case "$1" in
 	call)
 		case "$2" in
 			status)
-				read -r input
-				enabled=$(uci -q get atomdns.main.enabled)
+				read -r input || :
+
+				enabled="$(uci -q get atomdns.main.enabled 2>/dev/null)"
 				[ -n "$enabled" ] || enabled=0
 
-				dns_port=$(uci -q get atomdns.main.dns_port)
+				dns_port="$(uci -q get atomdns.main.dns_port 2>/dev/null)"
 				[ -n "$dns_port" ] || dns_port=2053
 
-				webui_port=$(uci -q get atomdns.main.webui_port)
+				webui_port="$(uci -q get atomdns.main.webui_port 2>/dev/null)"
 				[ -n "$webui_port" ] || webui_port=9099
 
-				conf_dir=$(uci -q get atomdns.main.config_dir)
+				conf_dir="$(uci -q get atomdns.main.config_dir 2>/dev/null)"
 				[ -n "$conf_dir" ] || conf_dir=/etc/atomdns
 
 				running=0
 				pidof atomdns >/dev/null 2>&1 && running=1
 
-				version=$(/usr/bin/atomdns version 2>/dev/null | head -n1)
-				[ -n "$version" ] || version="unknown"
+				version="$(/usr/bin/atomdns version 2>/dev/null | head -n1)"
+				[ -n "$version" ] || version='unknown'
 
-				json=$(printf '{"enabled":%s,"running":%s,"dns_port":"%s","webui_port":"%s","config_dir":"%s","version":"%s"}' \
-					"$([ "$enabled" = 1 ] && echo true || echo false)" \
-					"$([ "$running" = 1 ] && echo true || echo false)" \
-					"$dns_port" "$webui_port" "$conf_dir" "$version")
-				echo "$json"
+				printf '{"enabled":%s,"running":%s,"dns_port":"%s","webui_port":"%s","config_dir":"%s","version":"%s"}' \
+					"$(json_bool "$enabled")" \
+					"$(json_bool "$running")" \
+					"$(json_string "$dns_port")" \
+					"$(json_string "$webui_port")" \
+					"$(json_string "$conf_dir")" \
+					"$(json_string "$version")"
 				;;
 			restart)
-				read -r input
-				/etc/init.d/atomdns restart >/dev/null 2>&1
-				echo '{ "result": "ok" }'
+				read -r input || :
+				if /etc/init.d/atomdns restart >/dev/null 2>&1; then
+					echo '{ "result": "ok" }'
+				else
+					echo '{ "result": "error", "message": "restart failed" }'
+				fi
 				;;
 		esac
 		;;

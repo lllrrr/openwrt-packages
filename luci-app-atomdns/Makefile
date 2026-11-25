@@ -93,15 +93,23 @@ endef
 # 借此把官方二进制与配置包解压进打包路径，随后由 luci.mk 的 install 统一安装。
 define Build/Prepare/luci-app-atomdns
 	$(if $(filter 1,$(ATOMDNS_ARCH_UNSUPPORTED)),$(error luci-app-atomdns: 不支持的架构 ARCH=$(ARCH) CPU_TYPE=$(CPU_TYPE)，官方仅提供 x86_64 / arm64 / armv7 的 musl 静态二进制),)
-	$(INSTALL_DIR) $(PKG_BUILD_DIR)/root/usr/bin
-	$(INSTALL_DIR) $(PKG_BUILD_DIR)/root/usr/share/atomdns
-	$(TAR) -xzf $(DL_DIR)/$(ATOMDNS_BIN_FILE) -C $(PKG_BUILD_DIR)/root/usr/bin
-	(cd $(PKG_BUILD_DIR)/root/usr/share/atomdns && unzip -oq $(DL_DIR)/$(ATOMDNS_CONF_FILE))
-	chmod 0755 $(PKG_BUILD_DIR)/root/usr/bin/atomdns
+	@bin_entries="$$($(TAR) -tzf $(DL_DIR)/$(ATOMDNS_BIN_FILE))" || exit 1; \
+	if echo "$$bin_entries" | grep -Eq '(^|/)\.\.(/|$$)|^/'; then \
+		echo "luci-app-atomdns: unsafe path in binary archive" >&2; exit 1; \
+	fi
+	@conf_entries="$$(unzip -Z1 $(DL_DIR)/$(ATOMDNS_CONF_FILE))" || exit 1; \
+	if echo "$$conf_entries" | grep -Eq '(^|/)\.\.(/|$$)|^/|[A-Za-z]:[\\/]'; then \
+		echo "luci-app-atomdns: unsafe path in config archive" >&2; exit 1; \
+	fi
+	$(INSTALL_DIR) $(PKG_BUILD_DIR)/root/usr/bin || exit 1
+	$(INSTALL_DIR) $(PKG_BUILD_DIR)/root/usr/share/atomdns || exit 1
+	$(TAR) -xzf $(DL_DIR)/$(ATOMDNS_BIN_FILE) -C $(PKG_BUILD_DIR)/root/usr/bin || exit 1
+	(cd $(PKG_BUILD_DIR)/root/usr/share/atomdns && unzip -oq $(DL_DIR)/$(ATOMDNS_CONF_FILE)) || exit 1
+	chmod 0755 $(PKG_BUILD_DIR)/root/usr/bin/atomdns || exit 1
 	# 脚本可执行位兜底：经 GitHub API 推送的脚本会被压成 644，打包阶段纠正
-	chmod 0755 $(PKG_BUILD_DIR)/root/etc/init.d/atomdns
-	chmod 0755 $(PKG_BUILD_DIR)/root/etc/uci-defaults/99-atomdns
-	chmod 0755 $(PKG_BUILD_DIR)/root/usr/libexec/rpcd/atomdns
+	chmod 0755 $(PKG_BUILD_DIR)/root/etc/init.d/atomdns || exit 1
+	chmod 0755 $(PKG_BUILD_DIR)/root/etc/uci-defaults/99-atomdns || exit 1
+	chmod 0755 $(PKG_BUILD_DIR)/root/usr/libexec/rpcd/atomdns || exit 1
 endef
 
 # luci.mk 会在末尾对 LUCI_BUILD_PACKAGES 执行 BuildPackage，无需再次调用。

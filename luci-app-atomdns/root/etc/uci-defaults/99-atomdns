@@ -4,16 +4,21 @@
 # 而 rpcd 只加载带 owner 可执行位的插件（plugin.c 检查 S_IXUSR），否则 LuCI 的 ubus 方法不可用。
 
 # uci-defaults 由 /etc/init.d/boot 以 source 方式执行，不依赖自身可执行位
-chmod 0755 /usr/libexec/rpcd/atomdns 2>/dev/null
+RC=0
 
-uci -q get atomdns.main >/dev/null 2>&1 || {
-	uci set atomdns.main=atomdns
-	uci set atomdns.main.enabled='0'
-	uci set atomdns.main.dns_port='2053'
-	uci set atomdns.main.webui_port='9099'
-	uci set atomdns.main.config_dir='/etc/atomdns'
-	uci set atomdns.main.log_file='/tmp/atomdns.log'
-	uci commit atomdns
+chmod 0755 /usr/libexec/rpcd/atomdns 2>/dev/null || {
+	echo "99-atomdns: failed to set rpcd plugin executable bit" >&2
+	RC=1
 }
 
-exit 0
+if ! uci -q get atomdns.main >/dev/null 2>&1; then
+	uci set atomdns.main=atomdns || RC=1
+	uci set atomdns.main.enabled='0' || RC=1
+	uci set atomdns.main.dns_port='2053' || RC=1
+	uci set atomdns.main.webui_port='9099' || RC=1
+	uci set atomdns.main.config_dir='/etc/atomdns' || RC=1
+	uci set atomdns.main.log_file='/tmp/atomdns.log' || RC=1
+	uci commit atomdns || RC=1
+fi
+
+exit "$RC"

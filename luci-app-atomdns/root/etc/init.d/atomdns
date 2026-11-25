@@ -9,6 +9,30 @@ USE_PROCD=1
 
 CONFIG=atomdns
 
+valid_port() {
+	case "$1" in
+		''|*[!0-9]*) return 1 ;;
+	esac
+	[ "$1" -ge 1 ] 2>/dev/null && [ "$1" -le 65535 ] 2>/dev/null
+}
+
+# Keep UCI-supplied paths inside the intended tree and free of control chars.
+no_control() {
+	local marker='X'
+	[ "$(printf '%s%s' "$1" "$marker" | LC_ALL=C tr -d '\000-\037\177')" = "$1$marker" ]
+}
+
+valid_abs_path() {
+	case "$1" in
+		/*) ;;
+		*) return 1 ;;
+	esac
+	case "$1" in
+		*/../*|*/..|../*|..) return 1 ;;
+	esac
+	no_control "$1"
+}
+
 load_atomdns_conf() {
 	config_load "$CONFIG"
 	config_get_bool enabled main enabled 0
@@ -16,35 +40,72 @@ load_atomdns_conf() {
 	config_get webui_port main webui_port 9099
 	config_get conf_dir main config_dir /etc/atomdns
 	config_get log_file main log_file /tmp/atomdns.log
+
+	valid_port "$dns_port" || { logger -t atomdns "invalid dns_port: $dns_port"; return 1; }
+	valid_port "$webui_port" || { logger -t atomdns "invalid webui_port: $webui_port"; return 1; }
+	valid_abs_path "$conf_dir" || { logger -t atomdns "invalid config_dir: $conf_dir"; return 1; }
+	valid_abs_path "$log_file" || { logger -t atomdns "invalid log_file: $log_file"; return 1; }
+
+	# sed replacement delimiters and specials must not appear in the path.
+	case "$log_file" in
+		*'|'*|*'&'*|*'\'*) logger -t atomdns "unsupported characters in log_file"; return 1 ;;
+	esac
 }
 
-# 首次初始化配置目录：把官方 config_rust 包内容复制到可写目录
+# 首次初始化配置目录：把官方 config_rust 包内容复制到可写目录。
+# 已存在的文件（可能是用户修改过的规则）绝不覆盖；只补齐缺失项。
 prepare_conf_dir() {
-	local src=/usr/share/atomdns
-	local dst="$conf_dir"
+	local src=/usr/share/atomdns dst="$conf_dir" f base
 
 	[ -f "$dst/config_custom.yaml" ] && return 0
 	mkdir -p "$dst" || return 1
-	cp -a "$src"/. "$dst"/ || return 1
+	[ -d "$dst" ] && [ ! -L "$dst" ] || return 1
+
+	for f in "$src"/* "$src"/.[!.]* "$src"/..?*; do
+		[ -e "$f" ] || continue
+		base="${f##*/}"
+		if [ -e "$dst/$base" ] || [ -L "$dst/$base" ]; then
+			continue
+		fi
+		cp -a "$f" "$dst/$base" || return 1
+	done
+
 	[ -f "$dst/config_custom.yaml" ] || return 1
-	logger -t atomdns "配置目录已初始化: $dst"
+	logger -t atomdns "配置目录已初始化: $dst" 2>/dev/null || :
+	return 0
 }
 
 # 每次启动都幂等应用 UCI 端口与日志路径。
 # config_custom.yaml 中仅 udp_all/tcp_all 两处 listen 与 api 一处 http 需要改写。
+# 先写同目录临时文件再原子替换，失败时保留原文件。
 apply_uci_ports() {
-	local cfg="$conf_dir/config_custom.yaml"
-	[ -f "$cfg" ] || return 1
+	local cfg="$conf_dir/config_custom.yaml" tmp rc
 
-	sed -i \
-		-e "s|listen: \":[0-9][0-9]*\"|listen: \":${dns_port}\"|g" \
+	[ -f "$cfg" ] || return 1
+	[ ! -L "$cfg" ] || return 1
+
+	tmp="$cfg.tmp.$$"
+	[ ! -L "$tmp" ] || return 1
+	rm -f "$tmp" 2>/dev/null || :
+	set -C
+	sed -e "s|listen: \":[0-9][0-9]*\"|listen: \":${dns_port}\"|g" \
 		-e "s|http: \"0\.0\.0\.0:[0-9][0-9]*\"|http: \"0.0.0.0:${webui_port}\"|" \
 		-e "s|file: \"/tmp/mosdns.log\"|file: \"${log_file}\"|" \
-		"$cfg"
+		"$cfg" > "$tmp"
+	rc=$?
+	set +C
+	if [ "$rc" -ne 0 ]; then
+		rm -f "$tmp" 2>/dev/null || :
+		return 1
+	fi
+
+	chmod 0644 "$tmp" || { rm -f "$tmp" 2>/dev/null || :; return 1; }
+	mv -f "$tmp" "$cfg" || { rm -f "$tmp" 2>/dev/null || :; return 1; }
+	return 0
 }
 
 start_service() {
-	load_atomdns_conf
+	load_atomdns_conf || return 1
 	[ "$enabled" = "1" ] || {
 		logger -t atomdns "已禁用（UCI: atomdns.main.enabled=0），未启动"
 		return 0
