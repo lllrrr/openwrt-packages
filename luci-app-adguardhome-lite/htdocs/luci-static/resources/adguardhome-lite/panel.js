@@ -123,8 +123,35 @@
 		return document.getElementById(id);
 	}
 
-	var THEME_KEY = 'agh-theme';
+	// 旧版会把主题自动写进 agh-theme，导致外层主题变了面板也不再跟随，
+	// 这里只把手动选择存到 agh-theme-pin，并清掉旧的自动值
+	var THEME_PIN = 'agh-theme-pin';
 	var CORE_KEY = 'agh-core-version';
+
+	// 外层 LuCI / Argon 主题（wrapper 通过 agh_theme 参数与 postMessage 下发），
+	// 手动切换后切回与外层一致时，自动恢复跟随
+	var parentTheme = '';
+	try {
+		var qm = /[?&]agh_theme=(dark|light)/.exec(window.location.search || '');
+		if (qm) parentTheme = qm[1];
+	} catch (e) { /* 忽略 */ }
+
+	function savedTheme() {
+		try {
+			localStorage.removeItem('agh-theme');
+			var saved = localStorage.getItem(THEME_PIN) || '';
+			return (saved === 'dark' || saved === 'light') ? saved : '';
+		} catch (e) {
+			return '';
+		}
+	}
+
+	function setSavedTheme(theme) {
+		try {
+			if (theme) localStorage.setItem(THEME_PIN, theme);
+			else localStorage.removeItem(THEME_PIN);
+		} catch (e) { /* 隐私模式下忽略 */ }
+	}
 
 	function applyTheme(theme) {
 		var dark = theme === 'dark';
@@ -132,20 +159,49 @@
 		document.documentElement.classList.toggle('agh-dark', dark);
 		var btn = $('agh-theme-toggle');
 		if (btn) btn.textContent = dark ? '切换为浅色' : '切换为暗色';
-		try { localStorage.setItem(THEME_KEY, dark ? 'dark' : 'light'); } catch (e) { /* 隐私模式下忽略 */ }
+		reportSurface();
+	}
+
+	// 面板卡片有圆角，四角会露出 iframe 自身的画布（浏览器默认白色）。
+	// 把卡片实际底色回传给外层，让 iframe 底色同色，四角就不会露白。
+	function reportSurface() {
+		var color = '';
+		var app = document.querySelector('.agh-app');
+		if (app) color = window.getComputedStyle(app).backgroundColor || '';
+		if (!color || color === 'transparent' || color === 'rgba(0, 0, 0, 0)') color = '';
+		try {
+			if (window.parent && window.parent !== window) {
+				window.parent.postMessage({ type: 'agh-surface', color: color }, window.location.origin);
+			}
+		} catch (e) { /* 忽略 */ }
 	}
 
 	function initTheme() {
-		var saved = '';
-		try { saved = localStorage.getItem(THEME_KEY) || ''; } catch (e) { /* 忽略 */ }
-		if (saved !== 'dark' && saved !== 'light') {
-			saved = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+		var theme = savedTheme() || parentTheme;
+		if (theme !== 'dark' && theme !== 'light') {
+			theme = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
 		}
-		applyTheme(saved);
+		applyTheme(theme);
 	}
 
 	function toggleTheme() {
-		applyTheme(document.documentElement.classList.contains('agh-dark') ? 'light' : 'dark');
+		var next = document.documentElement.classList.contains('agh-dark') ? 'light' : 'dark';
+		// 切回与外层主题一致时取消手动覆盖，继续跟随外层主题
+		setSavedTheme(parentTheme && next === parentTheme ? '' : next);
+		applyTheme(next);
+	}
+
+	// 跟随外层 LuCI（明暗）与 Argon 主题
+	function initThemeSync() {
+		window.addEventListener('message', function (e) {
+			if (e.origin !== window.location.origin) return;
+			var data = e.data || {};
+			if (data.type !== 'agh-theme') return;
+			if (data.mode !== 'dark' && data.mode !== 'light') return;
+			parentTheme = data.mode;
+			// 用户手动选过主题就不再被外层覆盖
+			if (!savedTheme()) applyTheme(data.mode);
+		});
 	}
 
 	// 开关旁边的状态文字，可按开关自定义开/关文案
@@ -1318,8 +1374,13 @@
 		};
 	}
 
-	function queryTime(t) {
-		return String(t || '').replace('T', ' ').slice(5, 19);
+	function queryTimeParts(t) {
+		var s = String(t || '').replace('T', ' ').trim();
+		var parts = s.split(' ');
+		if (parts.length > 1) {
+			return { date: parts[0].slice(5), clock: parts[1].slice(0, 8) };
+		}
+		return { date: '', clock: (parts[0] || '').slice(0, 8) };
 	}
 
 	function queryClient(item) {
@@ -1344,9 +1405,10 @@
 			var rule = it.rule || '';
 			if (it.filter_name) rule += (rule ? ' · ' : '') + it.filter_name;
 			var elapsed = it.elapsed_ms ? (Number(it.elapsed_ms).toFixed(0) + 'ms') : '';
+			var tp = queryTimeParts(it.time);
 			return '<tr>' +
-				'<td class="agh-query-time">' + esc(queryTime(it.time)) + '</td>' +
-				'<td class="agh-query-client" title="' + esc(it.client) + '">' + esc(queryClient(it)) + '</td>' +
+				'<td class="agh-query-time"><span class="agh-query-date">' + esc(tp.date) + '</span>' + esc(tp.clock) + '</td>' +
+				'<td class="agh-query-client" title="' + esc(queryClient(it)) + '">' + esc(queryClient(it)) + '</td>' +
 				'<td class="agh-query-domain" title="' + esc(it.domain) + '">' + esc(it.domain) + '</td>' +
 				'<td class="agh-query-rule" title="' + esc(rule) + '">' + esc(rule || '-') + '</td>' +
 				'<td class="agh-query-elapsed">' + esc(elapsed) + '</td>' +
@@ -1901,12 +1963,11 @@
 		var on = !!(src && src.value === 'custom');
 		if (custom) {
 			custom.disabled = !on;
-			var field = custom.closest ? custom.closest('.agh-field') : null;
-			if (field) {
-				// 自动模式下这一栏没有作用，直接隐藏，避免空白大输入框占位
-				field.hidden = !on;
-				field.classList.toggle('is-locked', !on);
-			}
+		}
+		var field = $('agh-upstream-custom-field');
+		if (field) {
+			// 自动模式下这一栏没有作用，直接隐藏，避免空白大输入框占位
+			field.hidden = !on;
 		}
 
 		// 接管 53 模式下 AGH 的上游就是本机 DNSMasq(1745)，
@@ -2779,6 +2840,7 @@
 
 	function init() {
 		initTheme();
+		initThemeSync();
 		initHeroCore();
 		initEvents();
 		updateSwitchStates();

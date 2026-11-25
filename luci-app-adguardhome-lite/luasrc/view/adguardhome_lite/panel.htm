@@ -9,10 +9,17 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>AdGuard Home 管理中心</title>
 	<script>
-		// 首屏前应用主题，避免暗色用户刷新时闪一下浅色背景
+		// 首屏前应用主题，避免暗色用户刷新时闪一下浅色背景。
+		// 主题优先跟随外层 LuCI / Argon 主题（wrapper 通过 agh_theme、agh_bg 传入），
+		// 其次是用户手动选择，最后才回退到系统偏好。
 		(function () {
 			try {
-				var theme = localStorage.getItem('agh-theme');
+				var search = window.location.search || '';
+				// 清掉旧版自动写入的主题值，只认用户手动选择
+				localStorage.removeItem('agh-theme');
+				var saved = localStorage.getItem('agh-theme-pin');
+				var q = /[?&]agh_theme=(dark|light)/.exec(search);
+				var theme = (saved === 'dark' || saved === 'light') ? saved : (q ? q[1] : '');
 				if (theme !== 'dark' && theme !== 'light') {
 					theme = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
 				}
@@ -22,8 +29,8 @@
 	</script>
 	<style>
 		/* 首屏关键样式：CSS 文件加载前先用暗色兜底，避免白闪。
-		   color-scheme 不能放在 html 上：暗色下浏览器会把 iframe 画布涂成不透明黑，
-		   面板两侧的居中留白就会出现两块黑边。 */
+		   面板两侧不铺任何底色（保持透明），由外层主题透出；
+		   color-scheme 不放 html，避免浏览器把画布涂成纯黑。 */
 		html.agh-dark, html.agh-dark body {
 			background: transparent;
 		}
@@ -32,7 +39,7 @@
 			color-scheme: dark;
 		}
 	</style>
-	<link rel="stylesheet" href="<%=resource%>/adguardhome-lite/panel.css?v=20261125i">
+	<link rel="stylesheet" href="<%=resource%>/adguardhome-lite/panel.css?v=20261126e">
 	<script>
 		window.AGH = {
 			token: "<%=_token%>",
@@ -92,7 +99,6 @@
 			</nav>
 
 			<div class="agh-topbar-actions">
-				<span id="agh-hero-core" class="agh-core-badge" title="正在读取内核版本">读取中</span>
 				<span id="agh-header-status" class="agh-pill agh-pill-muted">读取中</span>
 				<button type="button" id="agh-theme-toggle" class="agh-theme-btn" title="切换暗色 / 浅色主题">切换为暗色</button>
 				<a href="#" id="agh-header-console" class="agh-badge agh-badge-link is-disabled" target="_blank" rel="noopener" aria-disabled="true">打开 AGH 面板</a>
@@ -221,7 +227,7 @@
 
 					<div class="agh-card">
 						<div class="agh-card-head">
-							<div class="agh-card-head-left"><h3>DNS 自检</h3><span class="agh-hint agh-head-note">只读检查内核、进程、管理端口与本机 DNS 查询链路，不会修改任何配置。</span></div>
+							<div class="agh-card-head-left"><h3>DNS 自检</h3><span class="agh-hint agh-head-note">检查内核、进程、管理端口与本机DNS链路，不修改任何配置。</span></div>
 							<button type="button" id="agh-selftest-btn" class="agh-ghost-btn agh-small-btn">开始检测</button>
 						</div>
 						<ul class="agh-tips" id="agh-selftest-list">
@@ -367,21 +373,25 @@
 					</div>
 					<span id="agh-upstream-msg" class="agh-hint"></span>
 				</div>
-				<p id="agh-upstream-lan-note" class="agh-hint agh-hint-warn" hidden></p>
+				<p id="agh-upstream-lan-note" class="agh-hint agh-hint-warn agh-notice-warn" hidden></p>
 				<form id="agh-upstream-form" class="agh-form" autocomplete="off">
 					<div class="agh-form-grid agh-rows">
-						<div class="agh-field">
+						<div class="agh-field agh-upstream-row">
 							<label for="agh-set-upstream-source">上游来源</label>
-							<select id="agh-set-upstream-source">
-								<option value="auto">自动（按接管方式）</option>
-								<option value="custom">自定义</option>
-							</select>
-							<p class="agh-hint">当前生效：<span id="agh-upstream-current">读取中...</span></p>
-						</div>
-						<div class="agh-field">
-							<label for="agh-set-upstream-custom">自定义上游列表</label>
-							<textarea id="agh-set-upstream-custom" rows="3" placeholder="1.1.1.1&#10;tls://dns.alidns.com&#10;[/corp.example/]10.0.0.1"></textarea>
-							<p class="agh-hint">一行一个；支持 IP、<code>tls://</code>、<code>https://</code>、<code>quic://</code>，以及 <code>[/域名/]IP</code> 条件转发。</p>
+							<div class="agh-field-row agh-upstream-line">
+								<select id="agh-set-upstream-source">
+									<option value="auto">自动（按接管方式）</option>
+									<option value="custom">自定义</option>
+								</select>
+								<span class="agh-hint">当前生效：<span id="agh-upstream-current">读取中...</span></span>
+								<div class="agh-upstream-custom" id="agh-upstream-custom-field" hidden>
+									<label for="agh-set-upstream-custom">自定义上游列表</label>
+									<div class="agh-upstream-custom-body">
+										<textarea id="agh-set-upstream-custom" rows="4" placeholder="1.1.1.1&#10;tls://dns.alidns.com&#10;[/corp.example/]10.0.0.1"></textarea>
+										<p class="agh-hint">一行一个；支持 IP、<code>tls://</code>、<code>https://</code>、<code>quic://</code>，以及 <code>[/域名/]IP</code> 条件转发。</p>
+									</div>
+								</div>
+							</div>
 						</div>
 					</div>
 					<div class="agh-form-actions">
@@ -643,11 +653,13 @@
 
 				<h4 class="agh-subhead">自定义规则（白名单 / 黑名单）</h4>
 				<form id="agh-filter-rules-form" class="agh-form" autocomplete="off">
+					<div class="agh-label-row agh-rules-label">
+						<label for="agh-filter-rules">规则内容</label>
+						<span class="agh-hint">一行一条，AdGuard 语法；<code>@@</code> 开头为白名单。</span>
+					</div>
 					<div class="agh-rules-layout">
-						<div class="agh-field">
-							<textarea id="agh-filter-rules" rows="4" placeholder="@@||example.com^&#10;||ads.example.com^"></textarea>
-						</div>
-						<div class="agh-field agh-field-switch agh-field-switch-stack">
+						<textarea id="agh-filter-rules" class="agh-rules-textarea" rows="9" spellcheck="false" placeholder="@@||example.com^&#10;||ads.example.com^"></textarea>
+						<div class="agh-field agh-field-switch agh-field-switch-stack agh-rules-aside">
 							<div class="agh-switch-head">
 								<label for="agh-filter-doh">拦截 DoH 服务器</label>
 								<span class="agh-switch-state" data-for="agh-filter-doh">已关闭</span>
@@ -656,7 +668,6 @@
 							<p class="agh-hint">阻止浏览器和应用绕过 AdGuard Home 直连 dns.google、doh.pub 等加密 DNS。开启后这 9 条规则会同步写入左侧自定义规则，可随时手动调整。</p>
 						</div>
 					</div>
-					<p class="agh-hint">一行一条，AdGuard 语法；<code>@@</code> 开头为白名单。</p>
 					<div class="agh-form-actions">
 						<button type="submit" class="agh-btn agh-btn-primary">保存规则</button>
 						<span class="agh-hint">保存后立即生效。</span>
@@ -712,7 +723,7 @@
 			</div>
 
 			<div class="agh-card" data-logpanel="query">
-				<div class="agh-card-head">
+				<div class="agh-card-head agh-head-inline">
 					<div class="agh-card-head-left"><h3>查询日志</h3><span id="agh-querylog-hint" class="agh-hint agh-head-note">来自 AdGuard Home 查询日志；每页 20 条，支持筛选、搜索与翻页。</span></div>
 					<div class="agh-inline">
 						<div class="agh-seg" id="agh-querylog-filter">
@@ -913,7 +924,7 @@
 </div>
 
 <script src="<%=resource%>/adguardhome-lite/twin-bcrypt.min.js?v=20261108b"></script>
-<script src="<%=resource%>/adguardhome-lite/panel.js?v=20261125k"></script>
+<script src="<%=resource%>/adguardhome-lite/panel.js?v=20261126a"></script>
 <script>
 	// 向内嵌它的 LuCI 页面上报真实高度，外层不再轮询 iframe DOM
 	(function () {

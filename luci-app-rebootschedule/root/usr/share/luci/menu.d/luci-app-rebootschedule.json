@@ -1,0 +1,13 @@
+{
+	"admin/services/rebootschedule": {
+		"title": "定时重启",
+		"order": 60,
+		"action": {
+			"type": "view",
+			"path": "rebootschedule/overview"
+		},
+		"depends": {
+			"acl": [ "luci-app-rebootschedule" ]
+		}
+	}
+}

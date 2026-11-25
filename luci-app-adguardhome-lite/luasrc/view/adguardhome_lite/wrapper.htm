@@ -1,16 +1,21 @@
 <%+header%>
 <div class="agh-frame-wrap">
-	<iframe id="agh-frame" src="<%=url([[admin]], [[services]], [[adguardhome_lite]], [[frame]])%>" title="AdGuard Home 管理中心" scrolling="no" loading="eager"></iframe>
+	<iframe id="agh-frame" title="AdGuard Home 管理中心" scrolling="no" loading="eager"></iframe>
 </div>
 <style>
 	.agh-frame-wrap {
 		width: 100%;
 		margin: 0;
-		padding: 0;
+		/* 与 LuCI 顶栏拉开距离，避免面板卡片贴着页面顶部 */
+		padding: 28px 0 0;
 	}
 	#agh-frame {
 		display: block;
+		/* iframe 与面板同宽（1200）并居中：内部不再有空隙，
+		   iframe 的默认白色画布无处可见，两侧露出的是主题自身背景 */
 		width: 100%;
+		max-width: 1200px;
+		margin: 0 auto;
 		height: 600px;
 		min-height: 0;
 		border: 0;
@@ -28,7 +33,34 @@
 	(function () {
 		var frame = document.getElementById('agh-frame');
 		if (!frame) return;
+		var frameUrl = '<%=url([[admin]], [[services]], [[adguardhome_lite]], [[frame]])%>';
 		var lastHeight = 0;
+
+		// 读取外层 LuCI 主题的真实明暗：
+		// Argon 用 data-argon-mode，LuCI 自带主题用 data-darkmode，都没有则跟随系统
+		function readMode() {
+			var root = document.documentElement;
+			var argon = root.getAttribute('data-argon-mode');
+			if (argon === 'dark' || argon === 'light') return argon;
+			var dark = root.getAttribute('data-darkmode');
+			if (dark === 'true' || dark === '1') return 'dark';
+			if (dark === 'false' || dark === '0') return 'light';
+			if (document.body && document.body.classList.contains('dark')) return 'dark';
+			// Argon 暗色会在 :root 上设 color-scheme: dark，作为属性缺失时的兜底
+			try {
+				var scheme = (window.getComputedStyle(root).colorScheme || '').trim();
+				if (scheme === 'dark') return 'dark';
+				if (scheme === 'light') return 'light';
+			} catch (e) {}
+			return (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+		}
+
+		function pushTheme() {
+			if (!frame.contentWindow) return;
+			try {
+				frame.contentWindow.postMessage({ type: 'agh-theme', mode: readMode() }, window.location.origin);
+			} catch (e) {}
+		}
 
 		function setHeight(height) {
 			height = Math.max(Math.ceil(height || 0), 320);
@@ -55,16 +87,53 @@
 			} catch (e) {}
 		}
 
-		// 内页通过 postMessage 上报高度，避免每秒轮询 iframe DOM
+		// 首次加载就把主题参数带上，内页首屏即与外层同色，避免白闪
+		var initialMode = readMode();
+		frame.src = frameUrl + (frameUrl.indexOf('?') >= 0 ? '&' : '?') + 'agh_theme=' + encodeURIComponent(initialMode);
+
 		window.addEventListener('message', function (e) {
 			if (e.origin !== window.location.origin || e.source !== frame.contentWindow) return;
 			var data = e.data || {};
+			// 内页通过 postMessage 上报高度，避免每秒轮询 iframe DOM
 			if (data.type === 'agh-height' && data.height) setHeight(data.height);
+			// 面板卡片圆角处的底色由内页回传，iframe 底部同色，四角不露白
+			if (data.type === 'agh-surface') frame.style.background = data.color || 'transparent';
 		});
 
-		frame.addEventListener('load', fitFrame);
+		// 外层切换主题（Argon 外观面板 / LuCI 明暗切换）时实时同步
+		var scheduled = false;
+		function scheduleTheme() {
+			if (scheduled) return;
+			scheduled = true;
+			(window.requestAnimationFrame || function (fn) { setTimeout(fn, 16); })(function () {
+				scheduled = false;
+				pushTheme();
+			});
+		}
+		if (window.MutationObserver) {
+			var observer = new MutationObserver(scheduleTheme);
+			observer.observe(document.documentElement, {
+				attributes: true,
+				attributeFilter: ['class', 'style', 'data-argon-mode', 'data-darkmode']
+			});
+			if (document.body) {
+				observer.observe(document.body, { attributes: true, attributeFilter: ['class', 'style'] });
+			}
+		}
+		if (window.matchMedia) {
+			var mq = window.matchMedia('(prefers-color-scheme: dark)');
+			if (mq.addEventListener) mq.addEventListener('change', scheduleTheme);
+			else if (mq.addListener) mq.addListener(scheduleTheme);
+		}
+
+		frame.addEventListener('load', function () {
+			fitFrame();
+			pushTheme();
+			// 部分主题在脚本里稍后才设置明暗标记，补推两次
+			setTimeout(pushTheme, 300);
+			setTimeout(pushTheme, 1200);
+		});
 		window.addEventListener('resize', fitFrame);
-		fitFrame();
 	})();
 </script>
 <%+footer%>

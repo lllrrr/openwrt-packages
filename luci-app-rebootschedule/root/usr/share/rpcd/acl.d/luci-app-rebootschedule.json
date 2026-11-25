@@ -1,0 +1,20 @@
+{
+	"luci-app-rebootschedule": {
+		"description": "Grant access to the scheduled reboot configuration",
+		"read": {
+			"uci": [ "rebootschedule" ],
+			"ubus": {
+				"service": [ "list" ]
+			}
+		},
+		"write": {
+			"uci": [ "rebootschedule" ],
+			"ubus": {
+				"system": [ "reboot" ]
+			},
+			"file": {
+				"/sbin/reboot": [ "exec" ]
+			}
+		}
+	}
+}

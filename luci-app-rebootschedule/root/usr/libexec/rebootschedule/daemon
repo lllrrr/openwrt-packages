@@ -1,0 +1,102 @@
+#!/bin/sh
+# Scheduled reboot daemon
+#
+# Re-reads /etc/config/rebootschedule every 20 seconds, so configuration
+# changes apply immediately without restarting the service.
+
+. /lib/functions.sh
+
+STATE_FILE=/var/run/rebootschedule.last
+TAG=rebootschedule
+POLL=20
+
+log() {
+	logger -t "$TAG" "$@"
+}
+
+state_get() {
+	if [ -f "$STATE_FILE" ]; then
+		cat "$STATE_FILE" 2>/dev/null || echo 0
+	else
+		echo 0
+	fi
+}
+
+while :; do
+	sleep "$POLL"
+
+	enabled=0
+	mode=daily
+	time_of_day=03:30
+	weekdays="0 1 2 3 4 5 6"
+	hours=24
+	dry_run=0
+
+	config_load rebootschedule
+	config_get_bool enabled settings enabled 0
+	config_get mode settings mode daily
+	config_get time_of_day settings time 03:30
+	config_get weekdays settings weekdays "0 1 2 3 4 5 6"
+	config_get hours settings hours 24
+	config_get_bool dry_run settings dry_run 0
+
+	[ "$enabled" -eq 1 ] || continue
+
+	case "$hours" in
+		''|*[!0-9]*) hours=24 ;;
+	esac
+
+	now=$(date +%s)
+	last=$(state_get)
+
+	# never fire twice within an hour
+	[ "$((now - last))" -lt 3600 ] && continue
+
+	# ignore the first 5 minutes after boot: the clock is usually not
+	# synchronised yet and a failed reboot would otherwise loop
+	uptime_s=$(cut -d. -f1 /proc/uptime 2>/dev/null)
+	[ -n "$uptime_s" ] && [ "$uptime_s" -lt 300 ] && continue
+
+	hm=$(date +%H:%M)
+	dow=$(date +%w)
+
+	trigger=0
+	case "$mode" in
+		weekly)
+			if [ "$hm" = "$time_of_day" ]; then
+				set -- $weekdays
+				for d in "$@"; do
+					[ "$d" = "$dow" ] && trigger=1
+				done
+			fi
+			;;
+		interval)
+			if [ "$hours" -gt 0 ] && [ -n "$uptime_s" ] && \
+			   [ "$uptime_s" -ge "$((hours * 3600))" ]; then
+				trigger=1
+			fi
+			;;
+		*)
+			[ "$hm" = "$time_of_day" ] && trigger=1
+			;;
+	esac
+
+	[ "$trigger" -eq 1 ] || continue
+
+	echo "$now" > "$STATE_FILE"
+
+	if [ "$dry_run" -eq 1 ]; then
+		log "dry-run: would reboot (mode=$mode time=$hm uptime=${uptime_s}s)"
+		continue
+	fi
+
+	log "scheduled reboot (mode=$mode time=$hm uptime=${uptime_s}s)"
+
+	# give the log message a chance to reach the ring buffer
+	sync
+	sleep 2
+	/sbin/reboot
+
+	# if the reboot did not happen, do not hammer it
+	sleep 3600
+done
