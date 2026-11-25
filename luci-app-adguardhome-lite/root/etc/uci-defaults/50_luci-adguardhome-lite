@@ -1,0 +1,12 @@
+#!/bin/sh
+# AdGuard Home 管理中心 - 首次安装初始化
+# 只准备目录和权限，不自动启动服务，避免安装后立即改变 DNS 设置。
+
+mkdir -p /etc/AdGuardHome /usr/bin/AdGuardHome 2>/dev/null
+chmod 755 /etc/init.d/adguardhome_lite 2>/dev/null
+chmod 755 /usr/share/adguardhome-lite/*.sh 2>/dev/null
+
+# 清理 LuCI 菜单缓存，让插件入口立即出现
+rm -f /tmp/luci-indexcache /tmp/luci-indexcache.* 2>/dev/null
+
+exit 0

@@ -1,0 +1,302 @@
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8"
+
+msgid "Gateway Routing"
+msgstr ""
+
+msgid "Routes each new connection by device group and destination (GeoIP category or IP group): matching traffic is sent to a gateway (along with DNS queries from those devices), and everything else goes direct. When a gateway is unreachable, its fallback setting applies."
+msgstr ""
+
+msgid "Basic Settings"
+msgstr ""
+
+msgid "General"
+msgstr ""
+
+msgid "Advanced"
+msgstr ""
+
+msgid "Update GeoIP now"
+msgstr ""
+
+msgid "Updating..."
+msgstr ""
+
+msgid "GeoIP data updated."
+msgstr ""
+
+msgid "GeoIP update failed: %s"
+msgstr ""
+
+msgid "exit code %s"
+msgstr ""
+
+msgid "Not running"
+msgstr ""
+
+msgid "Running (no gateways configured)"
+msgstr ""
+
+msgid "Normal"
+msgstr ""
+
+msgid "Unreachable"
+msgstr ""
+
+msgid "Checking"
+msgstr ""
+
+msgid "Unreachable, new connections go direct"
+msgstr ""
+
+msgid "Unreachable, falling back to %s"
+msgstr ""
+
+msgid "IPv6 not set"
+msgstr ""
+
+msgid "IPv6 normal"
+msgstr ""
+
+msgid "IPv6 unreachable (fallback to IPv4)"
+msgstr ""
+
+msgid "IPv6 checking"
+msgstr ""
+
+msgid "Normal · v6 down"
+msgstr ""
+
+msgid "%d entries, updated at %s"
+msgstr ""
+
+msgid "Missing GeoIP data:"
+msgstr ""
+
+msgid "GeoIP: no data downloaded yet"
+msgstr ""
+
+msgid "Enable"
+msgstr ""
+
+msgid "LAN interface"
+msgstr ""
+
+msgid "Check interval"
+msgstr ""
+
+msgid "Seconds between gateway health checks (minimum 2)."
+msgstr ""
+
+msgid "GeoIP download URL"
+msgstr ""
+
+msgid "{} will be replaced with the category name."
+msgstr ""
+
+msgid "Only http:// or https:// URLs are allowed"
+msgstr ""
+
+msgid "URL must contain {} as the category placeholder"
+msgstr ""
+
+msgid "Gateways"
+msgstr ""
+
+msgid "Other gateways (e.g. side routers) on the LAN. Traffic routed to a gateway and DNS queries from those devices are sent to it; the gateway's own traffic is never looped back. Click Edit to configure IPv6 address, DNS port and probe URL. Newly added gateways appear in fallback and rule dropdowns after saving."
+msgstr ""
+
+msgid "Edit gateway: %s"
+msgstr ""
+
+msgid "Edit gateway"
+msgstr ""
+
+msgid "Name"
+msgstr ""
+
+msgid "e.g. Side Router"
+msgstr ""
+
+msgid "IPv4 address"
+msgstr ""
+
+msgid "IPv4 address is required"
+msgstr ""
+
+msgid "Enter an IPv4 address without prefix length"
+msgstr ""
+
+msgid "IPv6 address"
+msgstr ""
+
+msgid "If left empty, IPv6 connections routed to this gateway will be rejected so devices automatically fall back to IPv4."
+msgstr ""
+
+msgid "Optional"
+msgstr ""
+
+msgid "Enter an IPv6 address without prefix length"
+msgstr ""
+
+msgid "DNS port"
+msgstr ""
+
+msgid "DNS queries from devices routed to this gateway are forwarded to gateway:port. The gateway must use real-IP mode (do not enable fake-ip)."
+msgstr ""
+
+msgid "Port must be between 1 and 65535"
+msgstr ""
+
+msgid "Probe URL"
+msgstr ""
+
+msgid "Only accepts an IPv4 literal URL, fetched via this gateway to detect proxy process failures; leave empty to only ping the gateway."
+msgstr ""
+
+msgid "Must be an IPv4 literal URL, e.g. http://1.1.1.1/"
+msgstr ""
+
+msgid "Invalid port in probe URL"
+msgstr ""
+
+msgid "When unreachable"
+msgstr ""
+
+msgid "Fallback gateway when this gateway is unreachable (switches once; goes direct if the backup is also unreachable). Newly added gateways appear here after saving."
+msgstr ""
+
+msgid "Direct"
+msgstr ""
+
+msgid "Use %s"
+msgstr ""
+
+msgid "A gateway cannot fall back to itself"
+msgstr ""
+
+msgid "Status"
+msgstr ""
+
+msgid "Device Groups"
+msgstr ""
+
+msgid "Identified by MAC address, which also matches IPv6 privacy addresses; IP addresses or CIDR subnets are also supported."
+msgstr ""
+
+msgid "Edit device group: %s"
+msgstr ""
+
+msgid "Edit device group"
+msgstr ""
+
+msgid "e.g. Kids"
+msgstr ""
+
+msgid "MAC addresses"
+msgstr ""
+
+msgid "Matches both IPv4 and IPv6 traffic of the device by MAC address."
+msgstr ""
+
+msgid "IP / Subnet"
+msgstr ""
+
+msgid "IPv4 or IPv6 addresses or CIDR subnets, e.g. 192.168.99.50 or 192.168.99.64/28."
+msgstr ""
+
+msgid "Destination IP Groups"
+msgstr ""
+
+msgid "Custom destination address lists that can be used alongside GeoIP categories in routing rules, such as corporate subnets, your own VPS, or game servers."
+msgstr ""
+
+msgid "Edit destination IP group: %s"
+msgstr ""
+
+msgid "Edit destination IP group"
+msgstr ""
+
+msgid "e.g. Office"
+msgstr ""
+
+msgid "IPv4 or IPv6 addresses or CIDR subnets (at least one, can mix IPv4 and IPv6), e.g. 10.20.0.0/16 or 2001:db8:abcd::/48."
+msgstr ""
+
+msgid "At least one IP address or subnet is required"
+msgstr ""
+
+msgid "Routing Rules"
+msgstr ""
+
+msgid "Matched from top to bottom; the first matching rule applies, otherwise traffic goes direct. Private, local and multicast traffic always goes direct. Rule changes only affect new connections. Drag rows to reorder. DNS queries from a device are sent to the gateway specified by the first matching gateway rule for that device. Newly added IP groups appear in routing rule dropdowns after saving."
+msgstr ""
+
+msgid "Edit routing rule: %s"
+msgstr ""
+
+msgid "Edit routing rule"
+msgstr ""
+
+msgid "e.g. Route abroad via gateway"
+msgstr ""
+
+msgid "Device groups"
+msgstr ""
+
+msgid "Leave empty to match all devices. Newly added device groups appear here after saving."
+msgstr ""
+
+msgid "All devices"
+msgstr ""
+
+msgid "%s (deleted)"
+msgstr ""
+
+msgid "Destination (GeoIP / IP group)"
+msgstr ""
+
+msgid "GeoIP categories"
+msgstr ""
+
+msgid "Leave empty (with no IP groups selected) to match any destination. Lowercase letters, digits and underscores only."
+msgstr ""
+
+msgid "Any destination"
+msgstr ""
+
+msgid "Mainland China"
+msgstr ""
+
+msgid "Private / LAN"
+msgstr ""
+
+msgid "Use only lowercase letters, digits and underscores (e.g. cn, netflix)"
+msgstr ""
+
+msgid "Destination IP groups"
+msgstr ""
+
+msgid "Combined with GeoIP categories (matches either). Leave both empty to match any destination. Newly added IP groups appear here after saving."
+msgstr ""
+
+msgid "No IP groups selected"
+msgstr ""
+
+msgid "Invert"
+msgstr ""
+
+msgid "Match when the destination is NOT in the selected GeoIP categories and IP groups."
+msgstr ""
+
+msgid "Route to"
+msgstr ""
+
+msgid "Newly added gateways appear here after saving."
+msgstr ""
+
+msgid "No device groups yet; add one above and save first."
+msgstr ""
+
+msgid "No destination IP groups yet; add one above and save first."
+msgstr ""

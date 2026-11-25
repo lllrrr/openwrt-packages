@@ -1,0 +1,18 @@
+{
+	"admin/services/handoff": {
+		"title": "Gateway Routing",
+		"order": 60,
+		"action": {
+			"type": "view",
+			"path": "handoff"
+		},
+		"depends": {
+			"acl": [
+				"luci-app-handoff"
+			],
+			"uci": {
+				"handoff": true
+			}
+		}
+	}
+}

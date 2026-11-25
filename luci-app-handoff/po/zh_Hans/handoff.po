@@ -1,0 +1,304 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: zh_Hans\n"
+
+msgid "Gateway Routing"
+msgstr "网关分流"
+
+msgid "Routes each new connection by device group and destination (GeoIP category or IP group): matching traffic is sent to a gateway (along with DNS queries from those devices), and everything else goes direct. When a gateway is unreachable, its fallback setting applies."
+msgstr "按「设备组 × 目标（GeoIP / IP 组）」决定每条新连接的去向：命中的交给某台网关处理（其 DNS 一并转发），其余直连；网关不可达时按其「不通时」设置处理。"
+
+msgid "Basic Settings"
+msgstr "基本设置"
+
+msgid "General"
+msgstr "基本"
+
+msgid "Advanced"
+msgstr "高级"
+
+msgid "Update GeoIP now"
+msgstr "立即更新 GeoIP"
+
+msgid "Updating..."
+msgstr "更新中…"
+
+msgid "GeoIP data updated."
+msgstr "GeoIP 规则列表已更新。"
+
+msgid "GeoIP update failed: %s"
+msgstr "GeoIP 更新失败：%s"
+
+msgid "exit code %s"
+msgstr "退出码 %s"
+
+msgid "Not running"
+msgstr "未运行"
+
+msgid "Running (no gateways configured)"
+msgstr "运行中（未配置网关）"
+
+msgid "Normal"
+msgstr "正常"
+
+msgid "Unreachable"
+msgstr "不通"
+
+msgid "Checking"
+msgstr "检测中"
+
+msgid "Unreachable, new connections go direct"
+msgstr "不通，新连接改走 直连"
+
+msgid "Unreachable, falling back to %s"
+msgstr "不通，改走 %s"
+
+msgid "IPv6 not set"
+msgstr "IPv6 未设置"
+
+msgid "IPv6 normal"
+msgstr "IPv6 正常"
+
+msgid "IPv6 unreachable (fallback to IPv4)"
+msgstr "IPv6 不通（已回退 IPv4）"
+
+msgid "IPv6 checking"
+msgstr "IPv6 检测中"
+
+msgid "Normal · v6 down"
+msgstr "正常 · v6 不通"
+
+msgid "%d entries, updated at %s"
+msgstr "%d 条，更新于 %s"
+
+msgid "Missing GeoIP data:"
+msgstr "缺少 GeoIP 数据："
+
+msgid "GeoIP: no data downloaded yet"
+msgstr "GeoIP：暂无已下载数据"
+
+msgid "Enable"
+msgstr "启用"
+
+msgid "LAN interface"
+msgstr "局域网接口"
+
+msgid "Check interval"
+msgstr "检测间隔"
+
+msgid "Seconds between gateway health checks (minimum 2)."
+msgstr "网关健康检测间隔（秒，最小 2）。"
+
+msgid "GeoIP download URL"
+msgstr "GeoIP 下载地址"
+
+msgid "{} will be replaced with the category name."
+msgstr "{} 会换成类别名"
+
+msgid "Only http:// or https:// URLs are allowed"
+msgstr "只支持 http:// 或 https:// 地址"
+
+msgid "URL must contain {} as the category placeholder"
+msgstr "地址中必须包含 {} 作为类别名占位符"
+
+msgid "Gateways"
+msgstr "网关"
+
+msgid "Other gateways (e.g. side routers) on the LAN. Traffic routed to a gateway and DNS queries from those devices are sent to it; the gateway's own traffic is never looped back. Click Edit to configure IPv6 address, DNS port and probe URL. Newly added gateways appear in fallback and rule dropdowns after saving."
+msgstr "局域网里的其它网关（旁路由）。交给网关的连接和这些设备的 DNS 都发给它；网关自己的流量不会再被转回去。点击「编辑」可设置 IPv6 地址、DNS 端口和检测地址；新添加的网关需保存后才会出现在「不通时」和规则的下拉列表中。"
+
+msgid "Edit gateway: %s"
+msgstr "编辑网关：%s"
+
+msgid "Edit gateway"
+msgstr "编辑网关"
+
+msgid "Name"
+msgstr "名称"
+
+msgid "e.g. Side Router"
+msgstr "例如：旁路由"
+
+msgid "IPv4 address"
+msgstr "IPv4 地址"
+
+msgid "IPv4 address is required"
+msgstr "请填写 IPv4 地址"
+
+msgid "Enter an IPv4 address without prefix length"
+msgstr "请填写不带前缀长度的 IPv4 地址"
+
+msgid "IPv6 address"
+msgstr "IPv6 地址"
+
+msgid "If left empty, IPv6 connections routed to this gateway will be rejected so devices automatically fall back to IPv4."
+msgstr "留空则交给该网关的 IPv6 连接会被拒绝，设备自动改用 IPv4"
+
+msgid "Optional"
+msgstr "可留空"
+
+msgid "Enter an IPv6 address without prefix length"
+msgstr "请填写不带前缀长度的 IPv6 地址"
+
+msgid "DNS port"
+msgstr "DNS 端口"
+
+msgid "DNS queries from devices routed to this gateway are forwarded to gateway:port. The gateway must use real-IP mode (do not enable fake-ip)."
+msgstr "交给该网关的设备的 DNS 查询都会转到 网关:此端口，网关需用真实 IP 模式、不要开 fake-ip"
+
+msgid "Port must be between 1 and 65535"
+msgstr "端口必须在 1 到 65535 之间"
+
+msgid "Probe URL"
+msgstr "检测地址"
+
+msgid "Only accepts an IPv4 literal URL, fetched via this gateway to detect proxy process failures; leave empty to only ping the gateway."
+msgstr "只接受 IPv4 字面量网址，经该网关访问，用于发现代理进程挂掉；留空只 ping 网关"
+
+msgid "Must be an IPv4 literal URL, e.g. http://1.1.1.1/"
+msgstr "必须是 IPv4 字面量网址，例如 http://1.1.1.1/"
+
+msgid "Invalid port in probe URL"
+msgstr "检测地址中的端口无效"
+
+msgid "When unreachable"
+msgstr "不通时"
+
+msgid "Fallback gateway when this gateway is unreachable (switches once; goes direct if the backup is also unreachable). Newly added gateways appear here after saving."
+msgstr "该网关不通时的去向（只切换一次，备用也不通则直连）。新添加的网关需保存后才会出现在此列表中。"
+
+msgid "Direct"
+msgstr "直连"
+
+msgid "Use %s"
+msgstr "改走 %s"
+
+msgid "A gateway cannot fall back to itself"
+msgstr "网关不能选择自己作为备用"
+
+msgid "Status"
+msgstr "状态"
+
+msgid "Device Groups"
+msgstr "设备组"
+
+msgid "Identified by MAC address, which also matches IPv6 privacy addresses; IP addresses or CIDR subnets are also supported."
+msgstr "按 MAC 识别，IPv6 隐私地址也能认出；也可以填 IP 或网段。"
+
+msgid "Edit device group: %s"
+msgstr "编辑设备组：%s"
+
+msgid "Edit device group"
+msgstr "编辑设备组"
+
+msgid "e.g. Kids"
+msgstr "例如：孩子"
+
+msgid "MAC addresses"
+msgstr "MAC 地址"
+
+msgid "Matches both IPv4 and IPv6 traffic of the device by MAC address."
+msgstr "按 MAC 匹配设备的 IPv4 与 IPv6 流量。"
+
+msgid "IP / Subnet"
+msgstr "IP / 网段"
+
+msgid "IPv4 or IPv6 addresses or CIDR subnets, e.g. 192.168.99.50 or 192.168.99.64/28."
+msgstr "支持 IPv4 / IPv6 地址或网段，例如 192.168.99.50、192.168.99.64/28。"
+
+msgid "Destination IP Groups"
+msgstr "目标 IP 组"
+
+msgid "Custom destination address lists that can be used alongside GeoIP categories in routing rules, such as corporate subnets, your own VPS, or game servers."
+msgstr "自定义的目标地址列表，可在分流规则里和 GeoIP 类别一起用，例如公司网段、自己的 VPS、某个游戏的服务器。"
+
+msgid "Edit destination IP group: %s"
+msgstr "编辑目标 IP 组：%s"
+
+msgid "Edit destination IP group"
+msgstr "编辑目标 IP 组"
+
+msgid "e.g. Office"
+msgstr "例如：公司"
+
+msgid "IPv4 or IPv6 addresses or CIDR subnets (at least one, can mix IPv4 and IPv6), e.g. 10.20.0.0/16 or 2001:db8:abcd::/48."
+msgstr "支持 IPv4 / IPv6 地址或网段（可混填，至少一条），例如 10.20.0.0/16、2001:db8:abcd::/48。"
+
+msgid "At least one IP address or subnet is required"
+msgstr "请至少填写一条 IP 地址或网段"
+
+msgid "Routing Rules"
+msgstr "分流规则"
+
+msgid "Matched from top to bottom; the first matching rule applies, otherwise traffic goes direct. Private, local and multicast traffic always goes direct. Rule changes only affect new connections. Drag rows to reorder. DNS queries from a device are sent to the gateway specified by the first matching gateway rule for that device. Newly added IP groups appear in routing rule dropdowns after saving."
+msgstr "从上到下，第一条命中的生效；都不命中则直连。内网、本机、组播始终直连。改规则只影响新连接。拖动行可调整顺序；同一设备的 DNS 发给它第一条命中的「交给网关」规则所指的网关。新添加的 IP 组需保存后才会出现在规则的下拉列表中。"
+
+msgid "Edit routing rule: %s"
+msgstr "编辑分流规则：%s"
+
+msgid "Edit routing rule"
+msgstr "编辑分流规则"
+
+msgid "e.g. Route abroad via gateway"
+msgstr "例如：国外交给网关"
+
+msgid "Device groups"
+msgstr "设备组"
+
+msgid "Leave empty to match all devices. Newly added device groups appear here after saving."
+msgstr "留空代表全部设备。新添加的设备组需保存后才会出现在此列表中。"
+
+msgid "All devices"
+msgstr "全部设备"
+
+msgid "%s (deleted)"
+msgstr "%s（已删除）"
+
+msgid "Destination (GeoIP / IP group)"
+msgstr "目标（GeoIP / IP 组）"
+
+msgid "GeoIP categories"
+msgstr "GeoIP 类别"
+
+msgid "Leave empty (with no IP groups selected) to match any destination. Lowercase letters, digits and underscores only."
+msgstr "留空且不选 IP 组代表任何目标。仅支持小写字母、数字和下划线。"
+
+msgid "Any destination"
+msgstr "任何目标"
+
+msgid "Mainland China"
+msgstr "中国大陆"
+
+msgid "Private / LAN"
+msgstr "私有 / 内网"
+
+msgid "Use only lowercase letters, digits and underscores (e.g. cn, netflix)"
+msgstr "仅允许小写字母、数字和下划线（例如 cn、netflix）"
+
+msgid "Destination IP groups"
+msgstr "目标 IP 组"
+
+msgid "Combined with GeoIP categories (matches either). Leave both empty to match any destination. Newly added IP groups appear here after saving."
+msgstr "可与 GeoIP 类别组合使用（满足其一即命中），两者都留空代表任何目标。新添加的 IP 组需保存后才会出现在此列表中。"
+
+msgid "No IP groups selected"
+msgstr "未选 IP 组"
+
+msgid "Invert"
+msgstr "取反"
+
+msgid "Match when the destination is NOT in the selected GeoIP categories and IP groups."
+msgstr "目标不在所选 GeoIP 类别和 IP 组里才命中"
+
+msgid "Route to"
+msgstr "去向"
+
+msgid "Newly added gateways appear here after saving."
+msgstr "新添加的网关需保存后才会出现在此列表中。"
+
+msgid "No device groups yet; add one above and save first."
+msgstr "还没有设备组，请先在上面添加并保存。"
+
+msgid "No destination IP groups yet; add one above and save first."
+msgstr "还没有目标 IP 组，请先在上面添加并保存。"

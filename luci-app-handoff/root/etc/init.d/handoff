@@ -1,0 +1,22 @@
+#!/bin/sh /etc/rc.common
+
+START=99
+USE_PROCD=1
+
+start_service() {
+	# 启动失败（未启用、没设置网关、局域网接口还没起来）时不起检测进程；lan 起来后会再 reload
+	/usr/sbin/handoff start || return 0
+	procd_open_instance
+	procd_set_param command /usr/sbin/handoff watch
+	procd_set_param respawn
+	procd_close_instance
+}
+
+stop_service() {
+	/usr/sbin/handoff stop
+}
+
+service_triggers() {
+	procd_add_reload_trigger handoff
+	procd_add_interface_trigger "interface.*.up" "$(uci -q get handoff.main.lan || echo lan)" /etc/init.d/handoff reload
+}

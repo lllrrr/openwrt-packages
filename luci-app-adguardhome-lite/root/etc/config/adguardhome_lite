@@ -1,0 +1,94 @@
+# AdGuard Home 管理中心（luci-app-adguardhome-lite）配置文件
+# 普通用户请通过 LuCI 界面“服务 -> AdGuard Home 管理中心”修改，不建议手动编辑。
+
+config adguardhome_lite 'main'
+	# 是否启用：1=开机自启并立即运行；0=停止服务并恢复系统原始 DNS 设置
+	option enabled '0'
+
+	# DNS 接管方式：
+	#   takeover   = 接管 53 端口（默认，DNSMasq 移到 1745，与默认配置的 53 端口一致）
+	#   passwall   = PassWall 前置（AdGuard Home 占 53，上游指向 PassWall DNS，
+	#                收回链优先级 -102 先于 PassWall 的 -101 生效；需 PassWall 已安装）
+	#   upstream   = DNSMasq 上游（AdGuard Home 监听 5333，零端口冲突）
+	#   openclash  = Clash 串联（已下线：dnsmasq 会优先命中 Clash 的上游，
+	#                AdGuard Home 实际收不到查询；旧配置会自动迁移为 takeover）
+	#   clashfirst = Clash 前置（Clash 7874 → AdGuard Home 5335 → 真实 DNS）
+	#               需开启 Clash 的 DNS 劫持；插件会自动设置 Clash 自定义上游
+	#   none       = 仅面板模式（不改变系统 DNS）
+	option dns_mode 'takeover'
+
+	# 管理面板端口，默认 13800；被占用时可改为 13801 等
+	option webport '13800'
+
+	# 内核安装位置；/tmp 为内存临时位置，重启后会丢失，需要重新安装
+	option binpath '/usr/bin/AdGuardHome/AdGuardHome'
+
+	# AdGuard Home 主配置文件
+	option config '/etc/AdGuardHome.yaml'
+
+	# 工作目录：保存过滤器缓存、查询日志和统计数据
+	option workdir '/etc/AdGuardHome'
+
+	# 内核更新通道：stable=正式版（推荐），beta=预发布版
+	option channel 'stable'
+
+	# GitHub 反代（国内加速）：
+	#   none          = 关闭，官方 CDN 优先
+	#   gh-proxy.org  = 通过 gh-proxy.org 下载 GitHub 内核（推荐国内用户）
+	#   ghproxy.cc    = 备用反代
+	#   ghproxy.com   = 备用反代
+	#   ghfast.top    = 备用反代
+	# 反代不可用时会自动回退到官方 CDN 和 GitHub 直连。
+	option github_proxy 'gh-proxy.org'
+
+	# 初始管理员账号和密码；默认 admin / admin123，建议首次登录后修改
+	option adminuser 'admin'
+	option adminpass 'admin123'
+
+	# 上游来源：auto=按 DNS 接管方式自动写入（默认）；custom=固定使用 upstream_custom
+	option upstream_source 'auto'
+
+	# 自定义上游列表，空格分隔；支持 [/域名/]1.1.1.1、tls://、https://、quic://
+	option upstream_custom ''
+
+	# DNS 缓存：1=启用（默认），0=关闭
+	option cache_enabled '1'
+
+	# 缓存大小（MB）：默认 16；低配路由器建议 8/16，x86 或大内存可设 64/128
+	option cache_size_mb '16'
+
+	# 最小 TTL（秒）：0=不覆盖（默认）
+	option cache_ttl_min '0'
+
+	# 最大 TTL（秒）：0=不限制；默认 0
+	option cache_ttl_max '0'
+
+	# 乐观缓存：1=启用，0=关闭（默认）；Clash fake-IP 环境不建议开启
+	option cache_optimistic '0'
+
+	# 加密上游：off=关闭（默认），alidns=阿里 DoH，dnspod=DNSPod DoH，
+	# cloudflare=Cloudflare DoH，custom=自定义
+	# 仅「Clash 前置」模式生效：其它模式的 AGH 上游是本机 DNSMasq，加密没有意义
+	option dns_crypto 'off'
+
+	# 自定义加密上游地址，dns_crypto=custom 时使用
+	option dns_crypto_custom ''
+
+	# 以下两个排除项仅在「接管 53 端口」模式生效：
+	# 命中的 DNS 查询交给 DNSMasq（1745）直接应答，不进入 AdGuard Home。
+	# 不参与接管的接口（网络设备名，如 br-guest、wg0），多个值写多条 list
+	# list bypass_ifaces 'br-guest'
+	# 不参与接管的客户端 IP 或 CIDR（IPv4 / IPv6 均可），多个值写多条 list
+	# list bypass_clients '192.168.2.0/24'
+
+	# 以下为插件内部状态，请勿手动修改
+	option mode_applied 'none'
+	option cache_applied ''
+	option auto_http_proxy ''
+	option auto_ptr ''
+	option core_version ''
+	option agh_bypassed '0'
+	option oc_agh_sid ''
+	option oc_disabled_sids ''
+	option oc_old_custom_dns ''
+	option oc_old_append_wan_dns ''

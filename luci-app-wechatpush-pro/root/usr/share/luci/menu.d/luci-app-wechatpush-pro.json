@@ -1,0 +1,50 @@
+{
+	"admin/services/wechatpush-pro": {
+		"title": "WeChat push (Pro)",
+		"order": 30,
+		"action": {
+			"type": "view",
+			"path": "wechatpush-pro/status"
+		},
+		"depends": {
+			"acl": [ "luci-app-wechatpush-pro" ],
+			"uci": { "wechatpush-pro": true }
+		}
+	},
+
+	"admin/services/wechatpush-pro/config": {
+		"title": "Basic Settings",
+		"order": 10,
+		"action": {
+			"type": "view",
+			"path": "wechatpush-pro/config"
+		}
+	},
+
+	"admin/services/wechatpush-pro/advanced": {
+		"title": "Advance Setting",
+		"order": 20,
+		"action": {
+			"type": "view",
+			"path": "wechatpush-pro/advanced"
+		}
+	},
+
+	"admin/services/wechatpush-pro/client": {
+		"title": "Online Devices",
+		"order": 30,
+		"action": {
+			"type": "view",
+			"path": "wechatpush-pro/client"
+		}
+	},
+	"admin/services/wechatpush-pro/log": {
+		"title": "Log",
+		"order": 40,
+		"action": {
+			"type": "view",
+			"path": "wechatpush-pro/log"
+		}
+	}
+
+}

@@ -1,0 +1,706 @@
+#!/bin/sh
+# handoff：按「设备组 × 目标（GeoIP 类别 / IP 组）」把新连接交给局域网里的网关，网关不通时按配置改走另一台或直连。
+# 用法：handoff start | stop | update | watch | status [--json]
+# 机制：nft 在新连接的首包上按规则从上到下判断，结果记在 ct mark（之后改规则也不影响已有连接）；
+#      网关编号（1..15，按配置里出现的顺序）存在 ct mark 与 fwmark 的 0x0f000000 这 4 位里；
+#      ip rule 先查 main 里的具体路由（局域网、隧道等），再查该网关专用的路由表（默认路由指向网关）。
+
+. /lib/functions.sh
+. /lib/functions/network.sh
+
+M_DONE=0x40000000  # ct mark：这条连接已经判断过
+M_GW=0x0f000000    # ct mark 与 fwmark：网关编号（i << 24）
+MAXGW=15
+DATA=/etc/handoff/geoip
+RUN=/var/run/handoff
+URL_DEF='https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geoip/{}.list'
+
+log() { logger -t handoff "$*"; echo "$*" >&2; }
+# 个别 ip 命令失败时只记日志：启动不能因此失败，否则 init.d 不会起 watch（就没有故障检测了）
+try() { "$@" || log "执行失败：$*"; }
+# load 在 watch 里每轮都跑，直接写日志会刷屏：先攒着，由真正干活的命令一次性输出
+warn() { WARN="$WARN$*|"; }
+warns() {
+	local m
+	[ -n "$WARN" ] || return 0
+	echo "$WARN" | tr '|' '\n' | while read -r m; do [ -n "$m" ] && log "$m"; done
+	WARN=
+}
+
+# 写进 nft 文件的值都先按字符白名单校验，防止配置里的内容被当成 nft 语句
+valid_mac() { echo "$1" | grep -qiE '^([0-9a-f]{2}:){5}[0-9a-f]{2}$'; }
+# 地址写错一个，整张 nft 表都会加载失败：IPv4 连同每段 0-255、前缀 ≤32 一起查
+valid_ip4() {
+	echo "$1" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}(/[0-9]{1,2})?$' &&
+		echo "$1" | awk -F'[./]' '$1 < 256 && $2 < 256 && $3 < 256 && $4 < 256 && (NF == 4 || $5 <= 32)' | grep -q .
+}
+# shortcut: IPv6 只做字符白名单（如 1:2 能过、nft 会拒），靠 LuCI 输入校验兜住；手改 uci 出错时 start 失败并记日志
+valid_ip6() { echo "$1" | grep -qiE '^[0-9a-f]*:[0-9a-f:.]*(/[0-9]{1,3})?$'; }
+valid_cat() { echo "$1" | grep -qE '^[a-z0-9_]{1,40}$'; }
+valid_sid() { echo "$1" | grep -qE '^[A-Za-z0-9_]{1,64}$'; }
+valid_addr4() { # 网关地址：不带前缀长度，每段 0-255
+	echo "$1" | grep -qE '^[0-9]{1,3}(\.[0-9]{1,3}){3}$' || return 1
+	echo "$1" | awk -F. '$1 < 256 && $2 < 256 && $3 < 256 && $4 < 256' | grep -q .
+}
+
+mk_gw() { printf '0x%08x' $(($1 << 24)); }                 # 网关编号在 mark 里的那 4 位
+mk_done() { printf '0x%08x' $(($1 << 24 | 0x40000000)); } # 同一编号再加上「已判断」
+
+gws() { local i=1; while [ "$i" -le "$GW_N" ]; do echo "$i"; i=$((i + 1)); done; }
+gw_id() { eval "echo \"\$gw_id_$1\""; } # 编号 → 段名
+gw_name() { # 编号 → 显示名（可能含空格等，只进日志和 status，不写进 nft）
+	local id n
+	id=$(gw_id "$1")
+	config_get n "$id" name
+	echo "${n:-$id}"
+}
+
+load() {
+	local s i j v
+	config_load handoff
+	config_get_bool enabled main enabled 0
+	config_get lan main lan lan
+	config_get interval main interval 10
+	config_get url main url "$URL_DEF"
+	case $interval in '' | *[!0-9]*) interval=10 ;; esac
+	[ "$interval" -ge 2 ] || interval=2
+	network_get_device dev "$lan" || dev=
+	echo "$dev" | grep -qE '^[A-Za-z0-9_.@-]{1,15}$' || dev=
+
+	GW_N=0
+	WARN=
+	# 网关段按出现顺序编号 1..15；IPv4 地址不合法、地址重复的跳过
+	config_foreach gw_collect gateway
+	# fallback 解析成网关编号；指向不存在的网关（或自己）→ 当作直连
+	for i in $(gws); do
+		eval "v=\${gw_fb_$i}"
+		j=
+		case $v in
+		'' | direct) ;;
+		*)
+			eval "j=\${GI_$v-}"
+			if [ -z "$j" ]; then
+				warn "网关 $(gw_name "$i")：备用网关 $v 不存在，改为直连"
+			elif [ "$j" = "$i" ]; then
+				warn "网关 $(gw_name "$i")：备用网关不能是自己，改为直连"
+				j=
+			fi
+			;;
+		esac
+		eval "gw_fb_$i=\$j"
+	done
+	# 检测地址的 ip rule 只认一张表：两个网关填了同一个检测 IP 时，后面那个不用（否则检测会经错网关）
+	for i in $(gws); do
+		eval "v=\${gw_probe_ip_$i}"
+		[ -n "$v" ] || continue
+		for j in $(gws); do
+			[ "$j" -lt "$i" ] || break
+			eval "s=\${gw_probe_ip_$j}"
+			[ "$s" = "$v" ] || continue
+			warn "网关 $(gw_name "$i")：检测地址 $v 和网关 $(gw_name "$j") 相同，忽略"
+			eval "gw_probe_ip_$i="
+			break
+		done
+	done
+}
+
+gw_collect() { # 段名
+	local s=$1 ip ip6 dns probe fb i v
+	valid_sid "$s" || { warn "网关段名 $s 不合法，跳过"; return; }
+	config_get ip "$s" ip
+	[ -n "$ip" ] || { warn "网关 $s：没有设置 IPv4 地址，跳过"; return; }
+	valid_addr4 "$ip" || { warn "网关 $s：IPv4 地址 $ip 不合法，跳过"; return; }
+	for i in $(gws); do
+		eval "v=\${gw_ip_$i}"
+		[ "$v" = "$ip" ] && { warn "网关 $s：IPv4 地址 $ip 和网关 $(gw_name "$i") 重复，跳过"; return; }
+	done
+	[ "$GW_N" -lt "$MAXGW" ] || { warn "网关 $s：最多 $MAXGW 个网关，跳过"; return; }
+	config_get ip6 "$s" ip6
+	ip6=${ip6%/*}
+	valid_ip6 "$ip6" || ip6=
+	config_get dns "$s" dns_port 53
+	case $dns in '' | *[!0-9]*) dns=53 ;; esac
+	[ "$dns" -ge 1 ] && [ "$dns" -le 65535 ] || dns=53
+	config_get probe "$s" probe
+	# 检测地址只接受 IPv4 字面量（http://1.1.1.1/...），这样能单独让它经该网关的表出去
+	probe=${probe#*://}
+	probe=${probe%%/*}
+	probe=${probe%%:*}
+	valid_addr4 "$probe" || probe=
+	config_get fb "$s" fallback direct
+	case $fb in
+	'' | direct) fb=direct ;;
+	*) valid_sid "$fb" || { warn "网关 $s：备用网关 $fb 的名字不合法，改为直连"; fb=direct; } ;;
+	esac
+	GW_N=$((GW_N + 1))
+	eval "gw_id_$GW_N=\$s"
+	eval "gw_ip_$GW_N=\$ip"
+	eval "gw_ip6_$GW_N=\$ip6"
+	eval "gw_dns_$GW_N=\$dns"
+	eval "gw_probe_ip_$GW_N=\$probe"
+	eval "gw_fb_$GW_N=\$fb"
+	eval "GI_$s=\$GW_N"
+}
+
+nset() { # 名称 类型 元素（"a, b, "） [interval]
+	printf '\tset %s { type %s;%s' "$1" "$2" "${4:+ flags interval; auto-merge;}"
+	[ -n "$3" ] && printf ' elements = { %s }' "${3%, }"
+	echo ' }'
+}
+
+group_sets() { # 每个设备组三个集合：MAC、IPv4、IPv6；集合名用 UCI 段名
+	local s=$1 v macs ips m= a4= a6=
+	valid_sid "$s" || return
+	GROUPS="$GROUPS $s"
+	config_get macs "$s" mac
+	config_get ips "$s" ip
+	for v in $macs; do valid_mac "$v" && m="$m$v, "; done
+	for v in $ips; do
+		if valid_ip4 "$v"; then a4="$a4$v, "; elif valid_ip6 "$v"; then a6="$a6$v, "; fi
+	done
+	nset "d_${s}_m" ether_addr "$m"
+	nset "d_${s}_4" ipv4_addr "$a4" interval
+	nset "d_${s}_6" ipv6_addr "$a6" interval
+}
+
+ipgroup_sets() { # 每个目标 IP 组两个集合：IPv4、IPv6；集合名用 i_<段名>，元素同样按地址白名单过滤
+	local s=$1 v ips a4= a6=
+	valid_sid "$s" || return
+	IPGROUPS="$IPGROUPS $s"
+	config_get ips "$s" ip
+	for v in $ips; do
+		if valid_ip4 "$v"; then a4="$a4$v, "; elif valid_ip6 "$v"; then a6="$a6$v, "; fi
+	done
+	# 有地址的组才能被规则使用：只有 v4（或只有 v6）不算空，另一族集合为空即可
+	[ -n "$a4$a6" ] && IPGROUPS_OK="$IPGROUPS_OK $s"
+	nset "i_${s}_4" ipv4_addr "$a4" interval
+	nset "i_${s}_6" ipv6_addr "$a6" interval
+}
+
+rule_lines() { # 一条规则展开成若干 nft 规则；第一条命中的生效（goto / return 不再往下走）
+	local s=$1 en grp cats ipg inv target g c d x f dm da act ti neg anytgt
+	config_get_bool en "$s" enabled 1
+	[ "$en" = 1 ] || return
+	config_get grp "$s" group
+	config_get cats "$s" geoip
+	config_get ipg "$s" ipgroup
+	config_get_bool inv "$s" invert 0
+	config_get target "$s" target direct
+	ti=
+	if [ "$target" != direct ]; then
+		valid_sid "$target" && eval "ti=\${GI_$target-}"
+		[ -n "$ti" ] || { warn "规则 $s：去向网关 $target 不存在，跳过这条规则"; return; }
+	fi
+	for c in $cats; do
+		valid_cat "$c" || { warn "规则 $s：GeoIP 类别名 $c 不合法，跳过这条规则"; return; }
+		# 缺数据时跳过整条规则，而不是当成空集合：空集合加“取反”会把所有流量都交给网关
+		[ -s "$DATA/$c.list" ] || { echo "$c" >>"$RUN/missing"; warn "规则 $s：GeoIP 类别 $c 还没有数据，暂时跳过这条规则"; return; }
+	done
+	# IP 组同理：组不存在、段名不合法、组里一条合法地址都没有 → 跳过整条规则（空集合加“取反”会命中所有目标）。
+	# 只有 v4 或只有 v6 的组不算空：另一族的集合是空的，取反时该族全部命中，正是想要的结果
+	for g in $ipg; do
+		valid_sid "$g" || { warn "规则 $s：IP 组名 $g 不合法，跳过这条规则"; return; }
+		case " $IPGROUPS " in *" $g "*) ;; *) warn "规则 $s：IP 组 $g 不存在，跳过这条规则"; return ;; esac
+		case " $IPGROUPS_OK " in *" $g "*) ;; *) warn "规则 $s：IP 组 $g 里没有合法地址，跳过这条规则"; return ;; esac
+	done
+	# 目标条件 = GeoIP 类别 ∪ IP 组；两个都不写 = 任何目标
+	anytgt=
+	[ -z "$cats" ] && [ -z "$ipg" ] && anytgt=1
+	d=
+	for g in $grp; do
+		case " $GROUPS " in *" $g "*) d="$d m:$g 4:$g 6:$g" ;; esac
+	done
+	if [ -n "$grp" ]; then
+		[ -n "$d" ] || { warn "规则 $s：选中的设备组都已删除，跳过这条规则"; return; }
+	else
+		d=-
+	fi
+	for x in $d; do
+		for f in 4 6; do
+			case $x in
+			-) dm= ;;
+			m:*) dm="ether saddr @d_${x#m:}_m " ;;
+			4:*) [ $f = 4 ] || continue; dm="ip saddr @d_${x#4:}_4 " ;;
+			6:*) [ $f = 6 ] || continue; dm="ip6 saddr @d_${x#6:}_6 " ;;
+			esac
+			if [ $f = 4 ]; then da="ip daddr"; else da="ip6 daddr"; fi
+			if [ -z "$ti" ]; then act="ct mark set ct mark | $M_DONE return"; else act="goto g${ti}_$f"; fi
+			# DNS 同样按第一条命中：交给网关的设备查询跟去它的 DNS 状态链；
+			# 先命中「直连、任何目标」的设备留在本机（其余直连规则不影响 DNS）
+			if [ -n "$ti" ]; then
+				echo "${dm}meta nfproto ipv$f goto d${ti}_$f" >>"$RUN/dns.nft"
+			elif [ -n "$anytgt" ]; then
+				echo "${dm}meta nfproto ipv$f return" >>"$RUN/dns.nft"
+			fi
+			if [ -n "$anytgt" ]; then
+				echo "${dm}meta nfproto ipv$f $act"
+			elif [ "$inv" = 1 ]; then
+				# 取反：每个类别、每个 IP 组各一个 != 条件，串在同一行里
+				neg=
+				for c in $cats; do neg="$neg$da != @g_${c}_$f "; done
+				for g in $ipg; do neg="$neg$da != @i_${g}_$f "; done
+				echo "$dm$neg$act"
+			else
+				# 不取反：每个类别、每个 IP 组各一行（彼此是“或”）
+				for c in $cats; do echo "$dm$da @g_${c}_$f $act"; done
+				for g in $ipg; do echo "$dm$da @i_${g}_$f $act"; done
+			fi
+		done
+	done
+	USED="$USED $cats"
+}
+
+geo_sets() {
+	local c
+	for c in $(echo $USED | tr ' ' '\n' | sort -u); do
+		printf '\tset g_%s_4 { type ipv4_addr; flags interval; auto-merge;' "$c"
+		awk '/^[0-9.]+(\/[0-9]+)?$/ { printf "%s %s", (n++ ? "," : " elements = {"), $0 } END { if (n) printf " }" }' "$DATA/$c.list"
+		echo ' }'
+		printf '\tset g_%s_6 { type ipv6_addr; flags interval; auto-merge;' "$c"
+		awk '/:/ && /^[0-9a-fA-F:]+(\/[0-9]+)?$/ { printf "%s %s", (n++ ? "," : " elements = {"), $0 } END { if (n) printf " }" }' "$DATA/$c.list"
+		echo ' }'
+	done
+}
+
+skip_lines() { # 只管局域网接口进来的包；网关自己的流量绝不能再交给网关（否则绕圈）
+	local i a4 a6 mac
+	printf '\t\tiifname != "%s" return\n' "$dev"
+	for i in $(gws); do
+		eval "a4=\$gw_ip_$i; a6=\$gw_ip6_$i; mac=\$gw_mac_$i"
+		printf '\t\tip saddr %s return\n' "$a4"
+		[ -n "$mac" ] && printf '\t\tether saddr %s return\n' "$mac"
+		[ -n "$a6" ] && printf '\t\tip6 saddr %s return\n' "$a6"
+	done
+}
+
+gen() {
+	local i a4 a6 dns mac
+	GROUPS= USED= IPGROUPS= IPGROUPS_OK=
+	: >"$RUN/dns.nft"
+	config_foreach group_sets group >"$RUN/sets.nft"
+	config_foreach ipgroup_sets ipgroup >>"$RUN/sets.nft"
+	config_foreach rule_lines rule >"$RUN/decide.nft"
+	# 网关的 MAC，用来排除网关自己的流量（先 ping 一下并发做，邻居表里才有它）
+	for i in $(gws); do
+		eval "a4=\$gw_ip_$i"
+		ping -c1 -W1 -I "$dev" "$a4" >/dev/null 2>&1 &
+	done
+	wait
+	for i in $(gws); do
+		eval "a4=\$gw_ip_$i"
+		mac=$(ip neigh show "$a4" dev "$dev" 2>/dev/null | awk '{ for (n = 1; n < NF; n++) if ($n == "lladdr") print $(n + 1) }')
+		valid_mac "$mac" || mac=
+		eval "gw_mac_$i=\$mac"
+	done
+	echo 'table inet handoff'
+	echo 'delete table inet handoff'
+	echo 'table inet handoff {'
+	cat "$RUN/sets.nft"
+	geo_sets
+	# 每个网关两条状态链（v4 / v6）和两条 DNS 状态链，内容由 apply_state 按检测结果重写
+	for i in $(gws); do
+		printf '\tchain g%s_4 {\n\t}\n\tchain g%s_6 {\n\t}\n' "$i" "$i"
+		printf '\tchain d%s_4 {\n\t}\n\tchain d%s_6 {\n\t}\n' "$i" "$i"
+	done
+	printf '\tchain decide {\n'
+	printf '\t\tip daddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/3 } return\n'
+	printf '\t\tip6 daddr { ::/127, fc00::/7, fe80::/10, ff00::/8 } return\n'
+	printf '\t\tfib daddr type { local, broadcast, multicast } return\n'
+	sed 's/^/\t\t/' "$RUN/decide.nft"
+	printf '\t\tct mark set ct mark | %s\n\t}\n' $M_DONE
+	printf '\tchain pre {\n\t\ttype filter hook prerouting priority mangle; policy accept;\n'
+	skip_lines
+	printf '\t\tct mark & %s == 0 ct state new jump decide\n' $M_DONE
+	# 交给网关的连接在本机只走单向（回包由网关直接给设备），握手之后的包都会被 conntrack 判为无效、没有 ct mark；
+	# 规则只看源和目标，逐包重新判断结果一样（状态链直接给当前包打 fwmark）
+	printf '\t\tct state invalid jump decide\n'
+	# 其余有 ct mark 的包按记下的网关编号恢复 fwmark：只补自己那 4 位，不抹掉别的位
+	for i in $(gws); do
+		printf '\t\tct mark & %s == %s meta mark set meta mark | %s\n' "$M_GW" "$(mk_gw "$i")" "$(mk_gw "$i")"
+	done
+	printf '\t}\n'
+	# DNS：查询（不论原目标）跳 dnsdev，按规则第一条命中去向的网关；做源地址转换，
+	# 网关的应答才会回到本路由、再按原目标地址回给设备
+	printf '\tchain dnsdev {\n'
+	sed 's/^/\t\t/' "$RUN/dns.nft"
+	# 优先级要早于 ImmortalWrt 的 DNS 劫持（table inet dnsmasq，dstnat + 5）：同一连接做过一次 NAT 后不再进后面的 NAT 链
+	printf '\t}\n\tchain dns_pre {\n\t\ttype nat hook prerouting priority dstnat - 5; policy accept;\n'
+	skip_lines
+	printf '\t\tmeta l4proto { tcp, udp } th dport 53 jump dnsdev\n\t}\n'
+	printf '\tchain dns_post {\n\t\ttype nat hook postrouting priority srcnat - 5; policy accept;\n'
+	for i in $(gws); do
+		eval "a4=\$gw_ip_$i; a6=\$gw_ip6_$i; dns=\$gw_dns_$i"
+		printf '\t\toifname "%s" ct status dnat ip daddr %s meta l4proto { tcp, udp } th dport %s masquerade\n' "$dev" "$a4" "$dns"
+		[ -n "$a6" ] && printf '\t\toifname "%s" ct status dnat ip6 daddr %s meta l4proto { tcp, udp } th dport %s masquerade\n' "$dev" "$a6" "$dns"
+	done
+	printf '\t}\n'
+	# 网关和设备在同一网段：不发 ICMP 重定向，免得设备绕过本路由直接找网关
+	printf '\tchain out {\n\t\ttype filter hook output priority 0; policy accept;\n\t\ticmpv6 type nd-redirect drop\n\t}\n}\n'
+}
+
+down4() { [ -f "$RUN/down.$(gw_id "$1")" ]; }
+down6() { [ -f "$RUN/down6.$(gw_id "$1")" ]; }
+
+eff() { # 编号 → 实际要走的网关编号（空 = 直连）：自己 v4 正常就是自己，
+	# 否则看一次备用网关（它也正常才用），不再顺着备用的备用往下找
+	local j
+	if ! down4 "$1"; then echo "$1"; return; fi
+	eval "j=\${gw_fb_$1}"
+	[ -n "$j" ] && ! down4 "$j" && { echo "$j"; return; }
+	echo
+}
+
+apply_state() { # 只重写状态链和 DNS 链（v4 / v6 各一条），不重载整张表
+	local i j a6 jip jip6 jdns v
+	{
+		for i in $(gws); do
+			j=$(eff "$i")
+			# 正常：打上实际去向网关的编号；直连：只记「已判断」。
+			# meta mark 必须写在 ct mark 前面：没有 ct 的包上 ct mark set 会中断这条规则
+			if [ -n "$j" ]; then
+				v="meta mark set meta mark | $(mk_gw "$j") ct mark set ct mark | $(mk_done "$j")"
+			else
+				v="ct mark set ct mark | $M_DONE"
+			fi
+			echo "flush chain inet handoff g${i}_4"
+			echo "flush chain inet handoff g${i}_6"
+			echo "add rule inet handoff g${i}_4 $v"
+			echo "add rule inet handoff g${i}_6 $v"
+			echo "flush chain inet handoff d${i}_4"
+			echo "flush chain inet handoff d${i}_6"
+			# DNS 跟着实际去向：交给网关 → DNAT 到它的 DNS 端口；直连 → 空链，查询留给本机 dnsmasq
+			[ -n "$j" ] || continue
+			eval "jip=\$gw_ip_$j; jip6=\$gw_ip6_$j; jdns=\$gw_dns_$j"
+			echo "add rule inet handoff d${i}_4 meta nfproto ipv4 meta l4proto { tcp, udp } dnat ip to ${jip}:${jdns}"
+			if [ -n "$jip6" ] && ! down6 "$j"; then
+				echo "add rule inet handoff d${i}_6 meta nfproto ipv6 meta l4proto { tcp, udp } dnat ip6 to [${jip6}]:${jdns}"
+			else
+				# 去向网关没有可用的 IPv6：拒绝，设备立刻改用 IPv4 的 DNS
+				echo "add rule inet handoff d${i}_6 reject"
+			fi
+		done
+	} >"$RUN/state.nft"
+	nft -f "$RUN/state.nft" || log "更新状态链失败，规则在 $RUN/state.nft"
+	# 每张表里的 IPv6 默认路由：这个网关的 v6 通就走它，否则拒绝（设备立刻回退 IPv4）
+	for i in $(gws); do
+		eval "a6=\$gw_ip6_$i"
+		if [ -n "$a6" ] && ! down6 "$i"; then
+			try ip -6 route replace default via "$a6" dev "$dev" table $((3100 + i))
+		else
+			try ip -6 route replace prohibit default table $((3100 + i))
+		fi
+	done
+}
+
+routes_down() {
+	local f i
+	for f in -4 -6; do
+		while ip $f rule del pref 3098 2>/dev/null; do :; done
+		while ip $f rule del pref 3099 2>/dev/null; do :; done
+		while ip $f rule del pref 3100 2>/dev/null; do :; done
+		# 3100 是旧版单网关用的表，一起清掉
+		i=0
+		while [ $i -le $MAXGW ]; do
+			ip $f route flush table $((3100 + i)) 2>/dev/null
+			i=$((i + 1))
+		done
+	done
+}
+
+routes_up() {
+	local f i a4 probe
+	for f in -4 -6; do
+		for i in $(gws); do
+			try ip $f rule add fwmark "$(mk_gw "$i")/$M_GW" lookup main suppress_prefixlength 0 pref 3099
+			try ip $f rule add fwmark "$(mk_gw "$i")/$M_GW" lookup $((3100 + i)) pref 3100
+		done
+	done
+	for i in $(gws); do
+		eval "a4=\$gw_ip_$i; probe=\$gw_probe_ip_$i"
+		try ip -4 route replace default via "$a4" dev "$dev" table $((3100 + i))
+		# 检测地址始终经网关访问，网关恢复后才能发现
+		[ -n "$probe" ] && try ip -4 rule add to "$probe" lookup $((3100 + i)) pref 3098
+	done
+}
+
+redirects_off() {
+	local p
+	[ -f "$RUN/redirects" ] || for p in all "$dev"; do
+		echo "$p $(cat /proc/sys/net/ipv4/conf/$p/send_redirects)"
+	done >"$RUN/redirects"
+	for p in all "$dev"; do echo 0 >/proc/sys/net/ipv4/conf/$p/send_redirects; done
+}
+
+redirects_restore() {
+	local p v
+	[ -f "$RUN/redirects" ] || return 0
+	while read -r p v; do echo "$v" >/proc/sys/net/ipv4/conf/$p/send_redirects 2>/dev/null; done <"$RUN/redirects"
+	rm -f "$RUN/redirects"
+}
+
+stop_rules() {
+	nft delete table inet handoff 2>/dev/null
+	routes_down
+	redirects_restore
+}
+
+start() {
+	load
+	stop_rules
+	[ "$enabled" = 1 ] || return 1
+	warns
+	if [ "$GW_N" -lt 1 ]; then
+		log "没有可用的网关（网关段要有合法的 IPv4 地址），不启动"
+		return 1
+	fi
+	[ -n "$dev" ] || { log "找不到局域网接口 $lan"; return 1; }
+	mkdir -p "$RUN" "$DATA"
+	rm -f "$RUN/missing"
+	gen >"$RUN/rules.nft"
+	warns # 规则段的问题要到 gen 里才会发现
+	nft -f "$RUN/rules.nft" || { log "加载 nft 规则失败，生成的规则在 $RUN/rules.nft"; return 1; }
+	routes_up
+	redirects_off
+	apply_state
+	return 0
+}
+
+rule_cats() { # 启用的规则用到的 GeoIP 类别
+	local s=$1 en cats
+	config_get_bool en "$s" enabled 1
+	[ "$en" = 1 ] || return
+	config_get cats "$s" geoip
+	echo $cats
+}
+
+update() {
+	local c t changed=
+	load
+	mkdir -p "$RUN" "$DATA"
+	for c in $(config_foreach rule_cats rule | tr ' ' '\n' | sort -u); do
+		valid_cat "$c" || continue
+		t=$RUN/$c.tmp
+		# 下载的内容只保留像 IP 网段的行
+		if wget -q -T 20 -O "$t.raw" "${url%%'{}'*}$c${url#*'{}'}" &&
+			awk '/^[0-9.]+(\/[0-9]+)?$/ || (/:/ && /^[0-9a-fA-F:]+(\/[0-9]+)?$/)' "$t.raw" >"$t" && [ -s "$t" ]; then
+			if [ "$(md5sum <"$t")" = "$(md5sum <"$DATA/$c.list" 2>/dev/null)" ]; then
+				touch "$DATA/$c.list"
+			else
+				mv "$t" "$DATA/$c.list"
+				changed=1
+			fi
+			log "GeoIP $c：$(wc -l <"$DATA/$c.list") 条"
+		else
+			log "GeoIP $c 下载失败"
+		fi
+		rm -f "$t" "$t.raw"
+	done
+	[ -n "$changed" ] && [ "$enabled" = 1 ] && start
+	return 0
+}
+
+check4() { # IPv4：ping 通；设了检测地址时再经它访问一次（ip rule 3098 让它走这个网关的表）
+	ping -c1 -W2 -I "$dev" "$1" >/dev/null 2>&1 || return 1
+	[ -z "$2" ] || wget -q -T 5 -O /dev/null "$2" 2>/dev/null
+}
+
+probe_url() { # 编号 → 该网关的检测地址（没设检测地址时为空）
+	local id p v
+	eval "v=\$gw_probe_ip_$1"
+	[ -n "$v" ] || return 0
+	id=$(gw_id "$1")
+	config_get p "$id" probe
+	echo "$p"
+}
+
+detect() { # 一轮检测：所有网关的 v4、v6 并行跑，结果写 $RUN/c4.<编号> / c6.<编号>（0 = 通）
+	local i a4 a6 pr
+	for i in $(gws); do
+		eval "a4=\$gw_ip_$i; a6=\$gw_ip6_$i"
+		pr=$(probe_url "$i")
+		( check4 "$a4" "$pr"; echo $? >"$RUN/c4.$i" ) &
+		if [ -n "$a6" ]; then
+			( ping -c1 -W2 -I "$dev" "$a6" >/dev/null 2>&1; echo $? >"$RUN/c6.$i" ) &
+		fi
+	done
+	wait
+}
+
+track() { # 编号 家族(4|6)：连续 3 次失败判不通，1 次成功就恢复。
+	# 状态变了返回 0，并把 TRACK 设成 up / down
+	local i=$1 f=$2 id n d ok
+	id=$(gw_id "$i")
+	ok=$(cat "$RUN/c$f.$i" 2>/dev/null)
+	n=$(cat "$RUN/fail$f.$id" 2>/dev/null)
+	case $n in '' | *[!0-9]*) n=0 ;; esac
+	if [ "$ok" = 0 ]; then n=0; else n=$((n + 1)); fi
+	echo "$n" >"$RUN/fail$f.$id"
+	if [ "$f" = 4 ]; then d="$RUN/down.$id"; else d="$RUN/down6.$id"; fi
+	if [ -f "$d" ]; then
+		[ "$n" = 0 ] || return 1
+		rm -f "$d"
+		TRACK=up
+		return 0
+	fi
+	[ "$n" -ge 3 ] || return 1
+	: >"$d"
+	TRACK=down
+	return 0
+}
+
+watch() {
+	local i id a6 j changed last=0 now
+	while :; do
+		load
+		[ "$enabled" = 1 ] && [ "$GW_N" -ge 1 ] || exit 0
+		detect
+		changed=
+		for i in $(gws); do
+			eval "a6=\$gw_ip6_$i"
+			if track "$i" 4; then
+				changed=1
+				if [ "$TRACK" = down ]; then
+					log "网关 $(gw_name "$i") 连续 3 次检测失败"
+				else
+					log "网关 $(gw_name "$i") 已恢复"
+				fi
+			fi
+			[ -n "$a6" ] || continue
+			if track "$i" 6; then
+				changed=1
+				if [ "$TRACK" = down ]; then
+					log "网关 $(gw_name "$i") 的 IPv6 连续 3 次检测失败，交给它的 IPv6 连接被拒绝"
+				else
+					log "网关 $(gw_name "$i") 的 IPv6 已恢复"
+				fi
+			fi
+		done
+		if [ -n "$changed" ]; then
+			apply_state
+			for i in $(gws); do
+				down4 "$i" || continue
+				j=$(eff "$i")
+				if [ -n "$j" ]; then
+					log "网关 $(gw_name "$i") 不通：交给它的新连接改走 $(gw_name "$j")"
+				else
+					log "网关 $(gw_name "$i") 不通：交给它的新连接直连"
+				fi
+			done
+		fi
+		# GeoIP：缺数据时每 5 分钟重试；有数据时每天更新一次
+		now=$(date +%s)
+		if [ $((now - last)) -ge 300 ] && { [ -s "$RUN/missing" ] || [ -n "$(find "$DATA" -name '*.list' -mtime +0 2>/dev/null)" ]; }; then
+			last=$now
+			update
+		fi
+		sleep "$interval"
+	done
+}
+
+running() { nft list table inet handoff >/dev/null 2>&1; }
+
+v6_text() { # 编号 → 这个网关自己的 IPv6 状态（只在它就是实际去向时用）
+	local a6
+	eval "a6=\$gw_ip6_$1"
+	if [ -z "$a6" ]; then
+		echo '没有设置 IPv6 地址，交给它的 IPv6 连接会被拒绝（设备自动改用 IPv4）'
+	elif down6 "$1"; then
+		echo "IPv6 $a6 不通，交给它的 IPv6 连接被拒绝"
+	else
+		echo "IPv6 $a6 正常"
+	fi
+}
+
+status_json() { # SPEC.md 里的格式，一行 JSON，用 jshn 生成保证转义正确
+	local f i j a4 a6 via on=
+	[ -r /usr/share/libubox/jshn.sh ] || { log "缺少 /usr/share/libubox/jshn.sh（需要 jshn 包）"; return 1; }
+	. /usr/share/libubox/jshn.sh
+	running && on=1
+	json_init
+	if [ -n "$on" ]; then json_add_boolean running 1; else json_add_boolean running 0; fi
+	json_add_array gateways
+	for i in $(gws); do
+		eval "a4=\$gw_ip_$i; a6=\$gw_ip6_$i"
+		json_add_object
+		json_add_string id "$(gw_id "$i")"
+		json_add_string name "$(gw_name "$i")"
+		json_add_string ip "$a4"
+		json_add_string ip6 "$a6"
+		if [ -z "$on" ]; then
+			# 没在跑时检测结果没有意义
+			json_add_null up
+			json_add_null up6
+			via=direct
+		else
+			if down4 "$i"; then json_add_boolean up 0; else json_add_boolean up 1; fi
+			if [ -z "$a6" ]; then
+				json_add_null up6
+			elif down6 "$i"; then
+				json_add_boolean up6 0
+			else
+				json_add_boolean up6 1
+			fi
+			j=$(eff "$i")
+			if [ -n "$j" ]; then via=$(gw_id "$j"); else via=direct; fi
+		fi
+		json_add_string via "$via"
+		json_close_object
+	done
+	json_close_array
+	json_add_array geoip
+	for f in "$DATA"/*.list; do
+		[ -f "$f" ] || continue
+		json_add_object
+		json_add_string cat "$(basename "$f" .list)"
+		json_add_int count "$(wc -l <"$f")"
+		json_add_int mtime "$(date -r "$f" +%s)"
+		json_close_object
+	done
+	json_close_array
+	json_add_array missing
+	for f in $(sort -u "$RUN/missing" 2>/dev/null); do json_add_string "" "$f"; done
+	json_close_array
+	json_dump
+}
+
+status() {
+	local f i j a4
+	load
+	[ "$1" = --json ] && { status_json; return $?; }
+	warns
+	if ! running; then
+		echo "未运行"
+	else
+		for i in $(gws); do
+			eval "a4=\$gw_ip_$i"
+			j=$(eff "$i")
+			if [ "$j" = "$i" ]; then
+				echo "网关 $(gw_name "$i")（$a4）：正常；$(v6_text "$i")"
+			elif [ -n "$j" ]; then
+				echo "网关 $(gw_name "$i")（$a4）：不通，新连接改走 $(gw_name "$j")"
+			else
+				echo "网关 $(gw_name "$i")（$a4）：不通，新连接直连"
+			fi
+		done
+	fi
+	for f in "$DATA"/*.list; do
+		[ -f "$f" ] && echo "GeoIP $(basename "$f" .list)：$(wc -l <"$f") 条，更新于 $(date -r "$f" '+%F %T')"
+	done
+	[ -s "$RUN/missing" ] && echo "缺少数据：$(sort -u "$RUN/missing" | tr '\n' ' ')"
+	return 0
+}
+
+case "$1" in
+start) start ;;
+stop)
+	stop_rules
+	rm -f "$RUN"/down.* "$RUN"/down6.* "$RUN"/c4.* "$RUN"/c6.* "$RUN"/fail4.* "$RUN"/fail6.*
+	;;
+update) update ;;
+watch) watch ;;
+status) shift; status "$@" ;;
+*)
+	echo "用法：$0 start|stop|update|watch|status [--json]" >&2
+	exit 1
+	;;
+esac

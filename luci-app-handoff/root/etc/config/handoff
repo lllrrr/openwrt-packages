@@ -1,0 +1,20 @@
+
+config handoff 'main'
+	option enabled '0'
+	option lan 'lan'
+	option interval '10'
+	option url 'https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geoip/{}.list'
+
+config gateway 'gw1'
+	option name '旁路由'
+	option ip ''
+	option ip6 ''
+	option dns_port '53'
+	option probe ''
+	option fallback 'direct'
+
+config rule
+	option name '国外交给网关'
+	list geoip 'cn'
+	option invert '1'
+	option target 'gw1'

@@ -1,0 +1,21 @@
+{
+	"luci-app-handoff": {
+		"description": "Grant access to Gateway Routing (handoff)",
+		"read": {
+			"file": {
+				"/usr/sbin/handoff status --json": [ "exec" ]
+			},
+			"ubus": {
+				"luci-rpc": [ "getHostHints", "getNetworkDevices" ],
+				"network.interface": [ "dump" ]
+			},
+			"uci": [ "handoff", "network" ]
+		},
+		"write": {
+			"file": {
+				"/usr/sbin/handoff update": [ "exec" ]
+			},
+			"uci": [ "handoff" ]
+		}
+	}
+}

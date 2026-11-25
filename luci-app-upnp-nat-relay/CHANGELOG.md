@@ -35,6 +35,11 @@
 - `do_check_network` 的接口/路由/时间戳只取一次并复用，防火墙规则改为两遍式 awk（先收集端口与目标，再在 END 处判定），省掉重复的 `ip`/`nft` 读取与每行 fork。本机实测单次 `check-network` 由 0.39 s 降到 0.17 s，输出字段与旧版逐字节一致。
 - JSON 组装改为纯 shell 转义，去掉 `jq`/`sed` 进程与结尾多余换行。
 
+### 1.3.17-r3：恢复 POSIX sh 兼容
+
+- `json_escape` 回退为一次 awk 调用，`load_config` 的 `'\''` 反转义改为对整份 `uci show` 输出做一次 `sed`、列表去引号改用 `tr`。
+- 原因：r2 的性能改写引入了 `${var//a/b}`、`${var%$'\n'}`、`$'...'` 等 ash/bash 专属展开，而脚本声明 `#!/bin/sh`；在 dash 环境下 `load_config` 直接 `Bad substitution`，OpenClash/LuCI 契约门禁因此全红。OpenWrt 的 busybox ash 不受影响，本版仅为兼容性与门禁恢复。
+
 ## 1.3.16-17
 
 修掉两处让概览页“说谎”的运行时问题。其一，OpenClash 状态只在守护进程启动时扫一次，之后永远读那份快照：设备上快照停在 `2026-11-22 14:03:15`（当时 OpenClash 恰好停止），而实际核心已运行 20 多小时，页面就一直显示 `⚠ 已安装（已停止）`。现在 `do_sync` 每轮与 `--status`（页面加载）都会重新探测 OpenClash 三字段并原位修补 `env_cache.json`，`updated_at` 仍只代表完整环境扫描时间。其二，`openclash_mode=auto` 下“入站映射无法用 lan_ac_traffic 绕过”的结论每个同步周期都 `log_warn` 一次，2 分钟一条、约 720 条/天，把 64KB 的 syslog 环形缓冲冲成了满屏相同告警；改为状态变化时才警告，其余降到 debug，OpenClash 重启会重新触发一次。

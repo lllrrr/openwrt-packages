@@ -1,0 +1,21 @@
+
+config wechatpush-pro "config"
+	option enable '0'
+	option sleeptime '60'
+	option debuglevel '1'
+	option up_timeout '2'
+	option down_timeout '10'
+	option timeout_retry_count '2'
+    option thread_num '3'
+	option tg_api_server 'https://api.telegram.org'
+	option tg_chat_id ''
+	# 流量数据源：ctstat（默认，ubus luci.ctstat）/ wrtbwmon（iptables 计数）/ oaf（ubus fwx）
+	option traffic_source 'ctstat'
+	# ctstat RPC 超时（秒），调用失败时保留上一份流量快照
+	option ctstat_timeout '5'
+	# wrtbwmon 兼容模式：auto / modern（1.2+）/ legacy（1.0.x）
+	option wrtbwmon_mode 'auto'
+	# OAF ubus 接口：auto / user_stat（全部设备）/ top_users（仅前 8 台）
+	option oaf_api 'auto'
+	# 跨天累计总流量（仅 OAF 模式有效）：开启后 wechatpush-pro 自行维护累计基线，抵消 OAF 每日零点归零；wrtbwmon/ctstat 自身已累计，无需开启
+	option traffic_accumulate '0'

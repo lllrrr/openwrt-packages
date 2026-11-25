@@ -1,0 +1,12 @@
+#!/bin/sh
+# 全新安装后的初始化，由 default_postinst 在安装时立即执行（opkg / apk 同一路径），
+# 首次开机前 /etc/init.d/boot 还会再执行一次。
+# 构建镜像阶段（IPKG_INSTROOT 非空）跳过一切宿主侧操作。
+
+# 注册开机自启（是否真正启动仍由 config.enable 决定）
+[ -z "$IPKG_INSTROOT" ] && [ -x /etc/init.d/wechatpush-pro ] && /etc/init.d/wechatpush-pro enable >/dev/null 2>&1
+
+# 清理 LuCI 缓存，让新菜单立即生效
+[ -z "$IPKG_INSTROOT" ] && rm -rf /tmp/luci-indexcache.* /tmp/luci-modulecache 2>/dev/null
+
+exit 0

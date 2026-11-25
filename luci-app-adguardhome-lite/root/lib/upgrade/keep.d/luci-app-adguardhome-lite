@@ -1,0 +1,4 @@
+/etc/config/adguardhome_lite
+/etc/adguardhome_lite
+/etc/AdGuardHome.yaml
+/etc/AdGuardHome/data/filters
