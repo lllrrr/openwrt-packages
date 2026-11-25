@@ -1,99 +1,209 @@
-# luci-app-oxidns
+# luci-app-oxidns（NetForgeCN）
 
-语言：中文 | [English](./README.en.md)
+[English](./README.en.md)
 
-`luci-app-oxidns` 是 OxiDNS 的 OpenWrt / LuCI 管理插件。安装后，LuCI 会增加 `服务 -> OxiDNS` 页面，用于安装 OxiDNS 内核、管理 OpenWrt 服务、编辑配置、查看日志，以及按需将局域网 DNS 通过 dnsmasq 转发到 OxiDNS。
+一个面向 OpenWrt 的 OxiDNS 管理插件。安装后，LuCI 的 `Services -> OxiDNS` 提供内核、配置、服务、日志、规则和预热的完整管理界面。
 
-本仓库只包含 LuCI 管理界面和 rpcd 后端；OxiDNS 内核、WebUI 与通用 release 由 [svenshi/oxidns](https://github.com/svenshi/oxidns) 提供。
+它在 [svenshi/luci-app-oxidns](https://github.com/svenshi/luci-app-oxidns) 的框架之上，补齐了“**装好即用、升级不丢、常用域名提前解析**”的能力。基于 GPL-3.0-or-later 发布。
 
-**完整操作说明**：从零配置 DNS、普通模式/高级模式逐项参考、插件参数、常见任务、故障排查以及 OxiDNS WebUI 的使用方法，见 [info/README.md](info/README.md)。其中在 `基本信息` 一键启用 dnsmasq 转发、手动配置以及回滚，见 [4.9 用 dnsmasq 转发（推荐）](info/README.md#49-用-dnsmasq-转发推荐)；普通模式的广告过滤卡片见 [3.8 广告过滤](info/README.md#38-广告过滤ad-filtering)。
+## 相比上游增加了什么
 
-![OxiDNS LuCI 管理界面](screenshot.png)
+| 能力 | 这个版本 | 带来的好处 |
+|---|---|---|
+| 内核随包分发 | `oxidns-core` 子包在编译期内置官方核心、WebUI 和默认配置 | 刷完固件就有 DNS 能力，首次使用无需联网安装内核 |
+| 规则随包分发 | `oxidns-rules-baseline` 子包内置 5 份规则基线 | 首次启动完全离线完成，规则文件缺失时自动补齐 |
+| 规则订阅管理 | `Rules` 页检查 / 更新，带 SHA256 校验、暂存校验和回滚 | 一键完成规则升级，替换前先完成校验与暂存 |
+| 域名预热 | `Prewarm` 页按 A / AAAA 提前查询并写入缓存 | 常用域名首次访问直接使用缓存，减少等待 |
+| 内核在线升级 | `Core` 页 `Check Update` | 不用重新编译固件即可升级内核 |
+| 日志筛选 | 关键词 + `plugin` / `qtype` / `rcode` 过滤，实时行数 | 快速定位某类查询，日志再多也能看 |
+| DNS 劫持 | `DNS Hijack` 页一键把 LAN 53 端口重定向到本机 OxiDNS，IPv4/IPv6 全覆盖 | 局域网设备无需改 DNS 即可走 OxiDNS，能看到真实客户端 IP |
+| CodeMirror 编辑器 | 配置页用 YAML 语法高亮编辑器，带行号、内部滚动 | 编辑长配置不跳屏，改配置更直观 |
+| Geo 数据管理 | `Geo Data` 页在线下载/更新 geoip.dat 与 geosite.dat，地址可改可还原 | 数据更新不用重新编译固件，默认走自建规则源 |
+| API 密码托管 | 密码存 UCI，脚本自动注入 `${OXIDNS_API_PASS}` | 配置里不放明文，服务与网页校验都能正常工作 |
+| 升级自愈 | 内核、WebUI、配置和规则在 sysupgrade 后自动恢复 | 保留配置升级固件后，重装一次插件即可恢复服务 |
 
-## 安装 LuCI 插件
+## 页面一览
 
-从本仓库 Release 下载安装包并上传到设备（例如 `/tmp`），然后安装。
+| 页面 | 用途 |
+|---|---|
+| `Overview` | 内核 / 服务状态、WebUI 入口、配置路径、日志状态 |
+| `Core` | 安装、上传、升级、修复或移除内核 |
+| `DNS Hijack` | LAN 53 端口重定向开关、目标端口来源、防火墙段状态 |
+| `Configuration` | CodeMirror 高亮编辑、校验、保存 `config.yaml` |
+| `Logs` | 过滤和刷新 OxiDNS 日志 |
+| `Settings` | 仓库、bundle、代理、路径、日志与 API 密码 |
+| `Rules` | 规则基线状态、检查更新、一键更新 |
+| `Geo Data` | geoip.dat / geosite.dat 状态、下载地址、目录、在线更新 |
+| `Prewarm` | 预热开关、域名清单、目标地址与周期、手动执行 |
 
-OpenWrt 24.10（`opkg`）：
+> 安全提示：上传内核默认关闭。需要在 `Settings` 页勾选“允许手动上传内核”，并且登录用户具备 `luci-app-oxidns-core-upload` ACL 组权限（默认 root 账号具备）；上传的二进制不会在校验阶段执行，仅作为服务内核运行。`Geo Data` 页可填写可选 SHA-256 校验值，下载内容校验失败会保留现有数据。
+
+## 快速开始
+
+1. 按下面的“构建与安装”把插件装进固件或路由器。
+2. 设置 API 密码，密码只保存在 UCI：
+
+   ```sh
+   uci set oxidns.main.api_pass="$(openssl rand -base64 24)"
+   uci commit oxidns
+   /etc/init.d/rpcd restart
+   ```
+
+3. 打开 `Services -> OxiDNS -> Configuration`，按需编辑 `config.yaml`，点 `Save & Restart`。
+4. 打开 `Overview`，启动服务并启用开机自启。
+5. 打开 `Prewarm`，确认目标地址与 `config.yaml` 中的监听一致，点 `Run now` 立即预热。
+
+## 域名预热（Prewarm）
+
+预热会遍历清单里的每个域名，向指定的 OxiDNS 监听地址发起 A 和 AAAA 查询。查询经过该监听入口的规则链并进入缓存后，客户端首次访问这些域名时就能直接命中。
+
+| 项目 | 默认值 |
+|---|---|
+| 启用 | 开 |
+| 目标 | `udp://127.0.0.1:5333` |
+| 周期 | 3000 秒（约 50 分钟） |
+| 清单 | 包内默认 75 个域名，可在页面增删 |
+| 并发 | 4 |
+| 单次查询超时 / 重试 | 2 秒 / 1 次 |
+
+让预热生效只需要三件事：
+
+- `config.yaml` 里有 `cache` 插件，并且它在预热目标入口实际执行的链路上；
+- 预热页里的 IP、端口、协议与 `udp_server` / `tcp_server` 的 `listen` 一致；
+- 路由器上有 `dig`，或支持 `-port` 的 `nslookup`。
+
+页面上的 `Server IP` 可选 `127.0.0.1` 或 `192.168.1.1`；端口和协议可自由填写。`Run now` 不受总开关影响，可随时手动执行一轮。周期填 `0` 表示服务启动时执行一次。
+
+验证预热：
 
 ```sh
-opkg install /tmp/luci-app-oxidns_*.ipk
-
-# 可选：安装简体中文语言包
-opkg install /tmp/luci-i18n-oxidns-zh-cn_*.ipk
+logread -t oxidns-prewarm              # 查看每轮结果
+/usr/libexec/oxidns-prewarm --once     # 手动执行一轮
+dig @127.0.0.1 -p 5333 youtube.com A   # 验证监听口在应答
 ```
 
-OpenWrt 25.12（`apk`）：
+## 规则基线
+
+基线只包含 OxiDNS 实际加载的 5 份列表，构建时从上游拉取并校验，设备中不需要再做格式转换：
+
+| 文件 | 用途 |
+|---|---|
+| `cn-domains.txt` | 国内域名长尾，配合 geosite 判定国内组 |
+| `anti-ad-domains.txt` | anti-AD 域名表 |
+| `adrules-domains.txt` | AdRules 域名表 |
+| `neodevhost-domains.txt` | neoDevHost 域名表 |
+| `adguard-hostlist.txt` | AdGuard HostlistsRegistry 规则 |
+
+`cn-domains.txt` 由 dnsmasq-china-list 在构建机上转换生成，原始 conf 不随包分发。规则更新由 `Rules` 页统一处理，先校验再替换；校验不通过时自动保留上一版。
+
+## DNS 劫持（DNS Hijack）
+
+开启后会把局域网发往 53 端口的 DNS 请求（TCP + UDP、IPv4 + IPv6）用 fw4 redirect 重定向到本机 OxiDNS 监听地址，局域网设备无需单独改 DNS。目标端口默认从 `config.yaml` 的 `udp_server` / `tcp_server` 自动读取，也可在页面手动指定。
+
+- 状态以 `/etc/config/firewall` 里的 `oxidns_hijack*` 段为准；只改这些带 `oxidns-dns-hijack` 标记的段，不动其它防火墙规则。
+- 显式写入 `family=any`——fw4 对未指定 family 的 redirect 按 IPv4 兜底，不写会漏掉 IPv6 的 53 查询。安装时也会幂等修复旧版留下的段。
+- 关闭时只删除受管段并重载防火墙，不影响其它规则。
+- 劫持后来自局域网设备的查询会带真实客户端 IP，日志与统计不再全是 `127.0.0.1`。
+
+注意：劫持的端口必须和 OxiDNS 的实际监听一致；若 `config.yaml` 用了非标准端口或经过端口映射，请切到手动模式填写真实端口。
+
+## Geo 数据（Geo Data）
+
+`Geo Data` 页管理 OxiDNS 的 `geosite.dat` 与 `geoip.dat`（供配置里的 `geosite_cn` / `geoip_cn` 等 provider 使用，落点 `/usr/share/v2ray`）。
+
+默认下载地址指向自建的 **`NetForgeCN/v2ray-rules-dat`** release 资产：以 Loyalsoldier 全集为基础，额外合并 `netforge-antiad` / `netforge-adrules` / `netforge-neodev` / `netforge-ads` 广告标签（都并入 `category-ads-all`），每 2 小时跟随上游构建。使用稳定的 `releases/latest/download` 路径，始终取最新版本，无需手工改版本号。
+
+| 项目 | 默认值 |
+|---|---|
+| GeoIP 地址 | `https://github.com/NetForgeCN/v2ray-rules-dat/releases/latest/download/geoip.dat` |
+| GeoSite 地址 | `https://github.com/NetForgeCN/v2ray-rules-dat/releases/latest/download/geosite.dat` |
+| 存储目录 | `/usr/share/v2ray` |
+
+下载地址与存储目录都可在页面修改并一键恢复默认；下载先写临时文件再原子替换，失败时保留现有文件，勾选「下载后重启」可在成功后让新数据立即生效。
+
+## 构建与安装
+
+### 方式一：OpenWrt buildroot（推荐，可编进固件）
 
 ```sh
-apk add --allow-untrusted /tmp/luci-app-oxidns-*.apk
-
-# 可选：安装简体中文语言包
-apk add --allow-untrusted /tmp/luci-i18n-oxidns-zh-cn-*.apk
-```
-
-如果安装后菜单没有出现，重启 `rpcd`，然后打开 `服务 -> OxiDNS`：
-
-```sh
-/etc/init.d/rpcd restart
-```
-
-### 从源码编译
-
-要把本包裁剪进固件或自行调整时，把它放进 OpenWrt 构建树编译：
-
-```sh
+git clone https://github.com/openwrt/openwrt.git
 cd openwrt
 ./scripts/feeds update -a
 ./scripts/feeds install -a
-git clone https://github.com/Arthur97172/luci-app-oxidns.git package/luci-app-oxidns
-make menuconfig   # LuCI -> Applications -> luci-app-oxidns
+
+git clone https://github.com/NetForgeCN/luci-app-oxidns.git package/luci-app-oxidns
+make menuconfig
+# LuCI -> Applications -> luci-app-oxidns
 make package/luci-app-oxidns/compile V=s
 ```
 
-产物在 `bin/packages/<架构>/` 下：24.10 构建树生成 `.ipk`，25.12 构建树生成 `.apk`。
+`oxidns-core` 和 `oxidns-rules-baseline` 是硬依赖，选中插件会一起选中。产物在 `bin/packages/<架构>/`。
 
-## 功能
+支持 x86_64、aarch64、i386、ARM hard-float（cortex 映射 armv7，其余映射 armv6）；soft-float ARM 不能直接使用官方 hard-float（eabihf）内核。MIPS 等未发布 musl 内核的架构**无法用 buildroot 打包内置内核**（`oxidns-core` 是硬依赖）；可以走下面的“快速打包”不嵌入内核，再从 `Core` 页上传适配的内核。
 
-- `基本信息`：`状态概览` 展示后端、内核、构建信息、服务状态、开机自启和 WebUI 入口；下方可启动、停止或重启服务。
-- `系统 DNS 接入`：位于 `基本信息` 页面，可一键启用或停用 dnsmasq 转发。启用后 dnsmasq 将通用 DNS 查询转发到 OxiDNS 的监听地址，保留特定域名上游；默认关闭，停用时会恢复原来的通用上游和 `noresolv` 设置。卡片显示的 `dnsmasq 上游` 是实际生效的上游（UCI 的 `list server` 与 WAN 下发的 resolv 文件合并，并注明来源），随状态轮询每 5 秒自动刷新。
-- `安装部署`：安装、更新、上传、修复或删除内核与 WebUI；配置内核仓库、bundle、路径、系统日志输出和下载凭据。
-- `DNS配置`：默认进入高级模式（完整 YAML 编辑器），普通模式提供常用设置表单；两种模式都支持校验、下载/上传配置、保存、保存并应用和改动预览。`forward` 的上游可从下拉框选择常用 DNS 服务器或输入自定义地址，没有 `forward` 插件时可一键创建并接入入口 sequence；server 的 `Entry` 改为下拉选择已有插件。普通模式的 `广告过滤` 卡片可一键创建并管理固定的 `adguard_rule` / `black_hole` 插件组（填写订阅地址后创建 `download` 插件），支持订阅下载、内联规则、本地规则文件和拦截模式，并把拦截规则插入每个入口 sequence 的最前面。普通模式的 `Hosts` 卡片可一键创建固定的 `hosts` 插件（`oxidns_hosts`），把 hosts 步骤插入入口 sequence，并维护本地域名记录。普通模式的 `缓存` 卡片可一键创建固定的 `cache` 插件（`oxidns_cache`），把缓存步骤插入入口 sequence，并在启用后提供全部缓存字段。
-- `运行日志`：查看 OxiDNS 运行日志。
+### 方式二：快速打包
+
+需要 `node` 22、`tar`、`gzip` 以及 `sha256sum`（macOS 用 `shasum -a 256`）：
+
+```sh
+git clone https://github.com/NetForgeCN/luci-app-oxidns.git
+cd luci-app-oxidns
+
+# 只打插件，内核到页面安装；版本号默认读取根目录 Makefile
+./scripts/build-luci-package.sh 0.2.0 dist
+
+# 内置内核 + 规则基线（按路由器架构选 release 资产），先下载再校验
+curl -fL -O https://github.com/svenshi/oxidns/releases/download/v1.7.1/oxidns-x86_64-unknown-linux-musl.tar.gz
+curl -fL -O https://github.com/NetForgeCN/luci-app-oxidns/releases/download/rules-v2026.11.24.0419/oxidns-rules-baseline-2026.11.24.0419.tar.gz
+cat > sha256sums.txt <<'EOF'
+6c82984e477d70d0c9259a6c7997496e248c78a384b2b7585908bba7f4af854c  oxidns-x86_64-unknown-linux-musl.tar.gz
+1084a9aa8a7986c6159fbeba78433ff64c26567bfe0f782822fc3898023b2a6a  oxidns-rules-baseline-2026.11.24.0419.tar.gz
+EOF
+sha256sum -c sha256sums.txt
+./scripts/build-luci-package.sh 0.2.0 dist-embedded \
+	oxidns-x86_64-unknown-linux-musl.tar.gz \
+	oxidns-rules-baseline-2026.11.24.0419.tar.gz \
+	6c82984e477d70d0c9259a6c7997496e248c78a384b2b7585908bba7f4af854c \
+	1084a9aa8a7986c6159fbeba78433ff64c26567bfe0f782822fc3898023b2a6a
+```
+
+脚本强制要求这两个归档的 SHA256，校验失败或归档里含绝对路径、`..`、链接、设备文件时立即退出。升级内核或基线版本时，请同步更新 `oxidns-core/Makefile` / `oxidns-rules-baseline/Makefile` 中的哈希和上面的校验值。
+
+安装（本地包未签名，先校验构建脚本生成的 `sha256sums.txt` 再安装）：
+
+```sh
+sha256sum -c sha256sums.txt
+opkg install luci-app-oxidns_*.ipk
+opkg install luci-i18n-oxidns-zh-cn_*.ipk
+# apk 系统：校验通过后安装
+apk add ./luci-app-oxidns_*.apk ./luci-i18n-oxidns-zh-cn_*.apk
+```
+
+若 apk 因本地包未签名而拒绝安装，请仅在对 `sha256sums.txt` 校验通过之后使用 `--allow-untrusted`。
+
+## 持久化与升级
+
+- 内核和 WebUI 放在持久区 `/etc/oxidns/core/`，`/usr/bin/oxidns`、`/usr/share/oxidns/webui` 只是指向它的符号链接；
+- LuCI 页面、rpcd 后端和 `/etc/init.d/oxidns` 由软件包安装在 `/usr`，刷固件时会被新固件中的版本覆盖；配置、规则和内核留在 `/etc`；
+- `/etc/oxidns`、`/etc/config/oxidns` 加入 `/etc/sysupgrade.conf`，配置跨固件升级保留；
+- 开机时自动补齐缺失的符号链接和规则文件；
+- 升级固件时勾选“保留配置”，刷完需要重新安装一次插件，才能恢复 `/usr` 下的页面、rpcd 与 init 脚本（持久的内核/配置无需再次下载）；
+- 内核升级用 `Core -> Check Update`，规则升级用 `Rules` 页，二者互不影响。
 
 ## 默认路径
 
-| 项目 | 路径 |
-| --- | --- |
-| 内核二进制 | `/usr/bin/oxidns` |
-| WebUI | `/usr/share/oxidns/webui` |
-| 配置文件 | `/etc/oxidns/config.yaml` |
+| 用途 | 路径 |
+|---|---|
+| 内核（运行 / 持久） | `/usr/bin/oxidns` → `/etc/oxidns/core/oxidns` |
+| WebUI（运行 / 持久） | `/usr/share/oxidns/webui` → `/etc/oxidns/core/webui` |
+| 核心配置 | `/etc/oxidns/config.yaml` |
 | 工作目录 | `/var/lib/oxidns` |
-| 日志文件 | `/tmp/oxidns/oxidns.log` |
+| UCI 配置 | `/etc/config/oxidns` |
+| 规则基线（只读） | `/usr/share/oxidns/rules-baseline` |
+| 规则工作副本 | `/etc/oxidns/rules` |
+| 预热清单 | `/etc/oxidns/prewarm.txt` |
 | 服务脚本 | `/etc/init.d/oxidns` |
 
-## 已知限制
+## 许可与致谢
 
-- 只支持 OxiDNS 已发布的 Linux musl release target。
-- `更新内核` 只安装严格更新的正式版本，不会降级已安装的较新或自定义构建。
-- 替换内核或 WebUI 前会暂存并校验新文件；复制失败时恢复旧文件，避免留下内核与 WebUI 不匹配的状态。
-- 普通模式只编辑已存在的插件实例，新增/删除插件和 sequence 规则需在高级模式或 OxiDNS WebUI 中完成；`广告过滤`、`Hosts` 和 `缓存` 卡片是例外，它们可以创建或删除固定的 `adguard_rule` / `black_hole` 插件组（填写订阅地址后创建 `download` 插件）、`oxidns_hosts` 插件和 `oxidns_cache` 插件，并维护入口 sequence 中对应的拦截、hosts 和缓存步骤。上游区域的 `创建 forward 插件` 按钮也可以创建固定的 `forward` 插件并接入入口 sequence。配置使用 YAML anchor、alias 或 merge key 时，普通模式会变为只读。
-- 普通模式保存会重新序列化 YAML：保留注释、字段顺序和表单未管理的字段，只写入实际改动的字段。普通模式、高级模式和 OxiDNS WebUI 编辑同一份文件，建议同时只使用一个入口。
-- `基本信息` 的 WebUI 入口要求 WebUI 文件已安装、服务正在运行且 HTTP 监听地址可访问；只监听 `127.0.0.1` / `::1` 时需要本机访问或 SSH 隧道。
-- `系统 DNS 接入` 要求 OxiDNS 已启动，UDP 与 TCP 监听使用同一个端口并共享可达的 IPv4 地址；只监听 IPv6、端口不一致或没有共同可达的 IPv4 地址时，“启用 dnsmasq 转发”按钮不可用。
-- 启用 `系统 DNS 接入` 后，停止 OxiDNS 会导致局域网 DNS 解析失败（fail-closed），不会自动绕过 OxiDNS；需重新启动 OxiDNS 或停用转发。
-- `系统 DNS 接入` 不接管 53 端口；dnsmasq 继续监听 53 并提供 DHCP、本地域名和租约解析。需要 OxiDNS 直接监听 53 时属于另一种部署方式，代价和步骤见详细文档。
-
-## 私有仓库与下载
-
-路由器需要能访问 GitHub Releases 和 release archive。私有仓库或受限网络可以在 `安装部署` 中配置 GitHub token 或下载代理；Token 和代理值保存后不会在 LuCI 中回显。配置下载代理需要安装 `curl`，也可以使用 `上传内核` 离线安装。
-
-## 许可证
-
-本项目以 GNU General Public License v3.0 或更高版本（`GPL-3.0-or-later`）发布。完整许可证文本见 [LICENSE](LICENSE)。
-
-## 致谢
-
-- [https://oxidns.org/](https://oxidns.org/)：OxiDNS 官方主页，提供文档、配置参考和最新动态。
-- [https://github.com/svenshi/oxidns](https://github.com/svenshi/oxidns)：OxiDNS 内核及其 WebUI 的源代码仓库；本插件安装的内核和 WebUI 均来自该项目的 release。
-- 本仓库克隆自 [svenshi/luci-app-oxidns](https://github.com/svenshi/luci-app-oxidns)，并在此基础上进行了优化。
+GPL-3.0-or-later，详见 [LICENSE](LICENSE)。基于 [svenshi/luci-app-oxidns](https://github.com/svenshi/luci-app-oxidns) 和 [svenshi/oxidns](https://github.com/svenshi/oxidns) 构建，感谢上游作者的贡献。

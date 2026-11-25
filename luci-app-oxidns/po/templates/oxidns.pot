@@ -8,67 +8,88 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-msgid "%d step(s)"
+msgid "%d lines"
+msgstr ""
+
+msgid "%d of %d lines"
+msgstr ""
+
+msgid "%s, %s"
+msgstr ""
+
+msgid "0 = run once at service start."
+msgstr ""
+
+msgid "127.0.0.1 (local listener)"
+msgstr ""
+
+msgid "192.168.1.1 (LAN address)"
+msgstr ""
+
+msgid "5353"
+msgstr ""
+
+msgid "A geo data download is already running."
+msgstr ""
+
+msgid "A new OxiDNS core release is available."
+msgstr ""
+
+msgid "A proxy is currently configured. Enter a new value to replace it."
 msgstr ""
 
 msgid "A token is currently configured. Enter a new value to replace it."
 msgstr ""
 
-msgid "Add upstream DNS"
+msgid "Actions"
 msgstr ""
 
-msgid "Adds a cache plugin and runs it before forwarding in the entry sequence. Cached responses answer repeated queries without contacting upstream servers."
+msgid "Active firewall sections"
 msgstr ""
 
-msgid "API"
+msgid "All"
 msgstr ""
 
-msgid "Adds a forward plugin and runs it at the end of the entry sequence. Add at least one upstream DNS server below."
+msgid "Apply"
 msgstr ""
 
-msgid "Adds a hosts plugin and runs it before forwarding in the entry sequence. Configured names are answered locally and everything else is forwarded."
+msgid "Apply the %s service action?"
+msgstr ""
+
+msgid "Applying DNS hijack..."
 msgstr ""
 
 msgid "Applying service action..."
 msgstr ""
 
-msgid "Arguments"
+msgid "Archive"
 msgstr ""
 
 msgid "Available"
 msgstr ""
 
-msgid "Autostart"
+msgid "Baseline version"
 msgstr ""
 
-msgid "Basic Information"
+msgid "Binary path"
 msgstr ""
 
 msgid "Build"
 msgstr ""
 
-msgid "Boot autostart only affects the next boot."
+msgid "Bundle"
 msgstr ""
 
-msgid "Cache is configured by the %s plugin. Edit it in Advanced Mode."
-msgstr ""
-
-msgid "Cache is configured by the %s plugin. Edit that plugin's settings below."
-msgstr ""
-
-msgid "Cache stores DNS responses locally so repeated queries are answered without contacting upstream servers."
+msgid "Bundled"
 msgstr ""
 
 msgid "Cancel"
 msgstr ""
 
-msgid "Change Preview"
+msgid "Check Update"
 msgstr ""
 
-msgid "Checking for OxiDNS core updates..."
-msgstr ""
-
-msgid "Choose the sequence that handles queries for this server."
+msgid "Check for updates"
 msgstr ""
 
 msgid "Clear"
@@ -92,22 +113,31 @@ msgstr ""
 msgid "Configuration and working directory data are preserved unless selected below."
 msgstr ""
 
-msgid "Configuration downloaded."
+msgid "Configuration changed"
 msgstr ""
 
-msgid "Configuration uploaded. Listen addresses now use %s."
+msgid "Configuration reloaded from the device."
+msgstr ""
+
+msgid "Configure OxiDNS core download sources, runtime paths, and optional download credentials."
 msgstr ""
 
 msgid "Confirm"
 msgstr ""
 
+msgid "Control the OpenWrt init service for OxiDNS."
+msgstr ""
+
 msgid "Core"
+msgstr ""
+
+msgid "Core Status"
 msgstr ""
 
 msgid "Core bundle"
 msgstr ""
 
-msgid "Core installed, but the uploaded file contains no WebUI files. Use Install WebUI to download them from GitHub."
+msgid "Core operation completed."
 msgstr ""
 
 msgid "Core operation failed"
@@ -116,10 +146,67 @@ msgstr ""
 msgid "Core repository"
 msgstr ""
 
-msgid "Create forward plugin"
+msgid "Could not refresh DNS hijack status."
 msgstr ""
 
-msgid "Define which address and entry the UDP, TCP, and QUIC server plugins listen on."
+msgid "Could not refresh DNS hijack status. Retrying..."
+msgstr ""
+
+msgid "Could not refresh DNS hijack status. Use Refresh to try again."
+msgstr ""
+
+msgid "Could not refresh OxiDNS status."
+msgstr ""
+
+msgid "Could not refresh OxiDNS status. Retrying..."
+msgstr ""
+
+msgid "Could not refresh OxiDNS status. Use Refresh to try again."
+msgstr ""
+
+msgid "Could not refresh core status."
+msgstr ""
+
+msgid "Could not refresh core status. Retrying..."
+msgstr ""
+
+msgid "Could not refresh core status. Use Refresh to try again."
+msgstr ""
+
+msgid "Could not refresh geo data status. Retrying..."
+msgstr ""
+
+msgid "Could not refresh geo data status. Use Refresh to try again."
+msgstr ""
+
+msgid "Could not refresh logs."
+msgstr ""
+
+msgid "Could not refresh logs. Retrying..."
+msgstr ""
+
+msgid "Could not refresh logs. Use Refresh to try again."
+msgstr ""
+
+msgid "Could not refresh rule status."
+msgstr ""
+
+msgid "Could not refresh rule status. Retrying..."
+msgstr ""
+
+msgid "Could not refresh rule status. Use Refresh to try again."
+msgstr ""
+
+msgid "Current version"
+msgstr ""
+
+msgid "DNS Hijack"
+msgstr ""
+
+msgid "DNS hijack disabled."
+msgstr ""
+
+msgid "DNS hijack enabled. LAN port 53 requests are redirected to OxiDNS."
 msgstr ""
 
 msgid "Delete configuration file"
@@ -128,43 +215,64 @@ msgstr ""
 msgid "Delete working directory"
 msgstr ""
 
-msgid "Disable on boot"
+msgid "Details"
 msgstr ""
 
-msgid "Discard the unsaved changes and reload the last saved configuration?"
+msgid "Disable"
 msgstr ""
 
-msgid "DoH entry %d of the HTTP server plugin %s must reference the plugin tag without \"$\"."
+msgid "Disabled"
 msgstr ""
 
-msgid "DoH entry %d of the HTTP server plugin %s references the missing plugin %s."
+msgid "Domain lists used for China/ad split and ad blocking. The working copy is seeded from the bundled baseline at boot and can be updated from a published release."
 msgstr ""
 
-msgid "DoH entry %d of the HTTP server plugin %s requires the %s field."
+msgid "Download / Update"
 msgstr ""
 
-msgid "Download proxy"
+msgid "Download and install the latest rule subscription now?"
 msgstr ""
 
-msgid "Download Config"
+msgid "Download and update the geoip.dat / geosite.dat used by OxiDNS. Defaults fetch the self-maintained NetForgeCN rules (Loyalsoldier full set plus extra ad tags); URLs and the storage directory can be customized and restored to defaults."
 msgstr ""
 
 msgid "Download core archive"
 msgstr ""
 
+msgid "Download finished."
+msgstr ""
+
+msgid "Download proxy"
+msgstr ""
+
 msgid "Download release metadata"
 msgstr ""
 
-msgid "Enable cache"
+msgid "Download started."
 msgstr ""
 
-msgid "Enable hosts"
+msgid "Edit, validate, and save the full OxiDNS YAML configuration file."
 msgstr ""
 
-msgid "Enable on boot"
+msgid "Enable"
 msgstr ""
 
-msgid "Enable probe cache"
+msgid "Enable DNS hijack"
+msgstr ""
+
+msgid "Enable prewarming"
+msgstr ""
+
+msgid "Enabled"
+msgstr ""
+
+msgid "Enabled (core not saved yet)"
+msgstr ""
+
+msgid "Enter a number between %d and %d."
+msgstr ""
+
+msgid "Enter a port number between 1 and 65535."
 msgstr ""
 
 msgid "Error"
@@ -176,37 +284,97 @@ msgstr ""
 msgid "Example: http://127.0.0.1:7890"
 msgstr ""
 
-msgid "Failed to save the log path."
+msgid "Failed to apply DNS hijack"
+msgstr ""
+
+msgid "Failed to download the OxiDNS core archive."
+msgstr ""
+
+msgid "Failed to download the rules archive."
+msgstr ""
+
+msgid "Failed to install the OxiDNS core."
+msgstr ""
+
+msgid "Failed to install the downloaded rules."
+msgstr ""
+
+msgid "Failed to install the uploaded core file."
+msgstr ""
+
+msgid "Failed to remove the OxiDNS core."
+msgstr ""
+
+msgid "Failed to restore defaults"
+msgstr ""
+
+msgid "Failed to restore the bundled rules."
+msgstr ""
+
+msgid "Failed to restore the default geo settings."
+msgstr ""
+
+msgid "Failed to save geo settings"
+msgstr ""
+
+msgid "Failed to save prewarm settings"
 msgstr ""
 
 msgid "Failed to save settings"
 msgstr ""
 
-msgid "Failure TTL (seconds)"
+msgid "Failed to save settings."
+msgstr ""
+
+msgid "Failed to save the DNS hijack settings."
+msgstr ""
+
+msgid "Failed to save the geo settings."
+msgstr ""
+
+msgid "Failed to start the download"
+msgstr ""
+
+msgid "Failed to update the OxiDNS core."
+msgstr ""
+
+msgid "Failed to write the firewall redirect."
+msgstr ""
+
+msgid "File"
 msgstr ""
 
 msgid "Format: http://host:port, https://host:port, socks5://host:port, or socks5h://host:port. Use http://user:pass@host:port when authentication is required."
 msgstr ""
 
+msgid "Geo Data"
+msgstr ""
+
+msgid "Geo download progress"
+msgstr ""
+
+msgid "Geo settings restored to defaults."
+msgstr ""
+
+msgid "Geo settings saved."
+msgstr ""
+
+msgid "GeoIP download URL"
+msgstr ""
+
+msgid "GeoSite download URL"
+msgstr ""
+
 msgid "GitHub token"
-msgstr ""
-
-msgid "Hosts answers configured names locally, for example to map a domain to a LAN address."
-msgstr ""
-
-msgid "Hosts is configured by the %s plugin. Edit it in Advanced Mode."
-msgstr ""
-
-msgid "Hosts is configured by the %s plugin. Edit that plugin's settings below."
 msgstr ""
 
 msgid "Install Core"
 msgstr ""
 
-msgid "Install WebUI"
+msgid "Install core files"
 msgstr ""
 
-msgid "Install core files"
+msgid "Install the OxiDNS core before DNS hijack can redirect to a local listener."
 msgstr ""
 
 msgid "Install the OxiDNS core before editing the configuration."
@@ -215,10 +383,13 @@ msgstr ""
 msgid "Install the OxiDNS core before using service controls."
 msgstr ""
 
-msgid "Install the OxiDNS core before using WebUI."
+msgid "Install, repair or update the OxiDNS core binary. With persistent storage enabled the core is kept across firmware upgrades."
 msgstr ""
 
 msgid "Installed"
+msgstr ""
+
+msgid "Installed version"
 msgstr ""
 
 msgid "Installing OxiDNS core..."
@@ -227,58 +398,61 @@ msgstr ""
 msgid "Installing uploaded OxiDNS core..."
 msgstr ""
 
-msgid "Downloading and installing OxiDNS core and WebUI files..."
+msgid "Interval (seconds)"
 msgstr ""
 
-msgid "Log path"
+msgid "Keep popular domains resolved so the first visit is fast. A and AAAA records are queried through the selected OxiDNS listener."
 msgstr ""
 
-msgid "Log path is required."
+msgid "Keyword (qname, domain, text...)"
 msgstr ""
 
-msgid "No cache options are available in the configuration schema."
+msgid "Latest version"
 msgstr ""
 
-msgid "No hosts options are available in the configuration schema."
+msgid "Lines"
 msgstr ""
 
-msgid "Other plugins"
-msgstr ""
-
-msgid "Remove cache"
-msgstr ""
-
-msgid "Remove hosts"
-msgstr ""
-
-msgid "Remove the cache plugin? Cached responses are discarded and the cache step is removed from the entry sequence."
-msgstr ""
-
-msgid "Remove the hosts plugin? Local name mappings are discarded and the hosts step is removed from the entry sequence."
-msgstr ""
-
-msgid "Remove the subscription download plugin? Subscription downloads stop and the plugin with all of its download options is removed. The ad filtering rules and downloaded files on disk stay."
-msgstr ""
-
-msgid "Runtime Logs"
+msgid "Local copy"
 msgstr ""
 
 msgid "LuCI backend"
 msgstr ""
 
-msgid "LuCI can install the latest OxiDNS release, update the installed core, or install an uploaded .tar.gz archive or single oxidns binary. Install WebUI downloads the latest official release and replaces the core binary together with the WebUI files."
+msgid "LuCI can download the official OxiDNS release archive, install an uploaded .tar.gz archive or single oxidns binary, check for new releases and update the core in place."
 msgstr ""
 
-msgid "Maximum rotation files"
+msgid "Manage the OxiDNS runtime, service, configuration, and logs from LuCI."
+msgstr ""
+
+msgid "Missing"
+msgstr ""
+
+msgid "Modified"
 msgstr ""
 
 msgid "No"
 msgstr ""
 
-msgid "No UDP, TCP, or QUIC server plugins were found."
+msgid "No rule update available."
+msgstr ""
+
+msgid "No target port available (source: %s)."
+msgstr ""
+
+msgid "No usable DNS listener port was found."
 msgstr ""
 
 msgid "Not installed"
+msgstr ""
+
+msgid "One domain per line. Blank lines and lines starting with # are ignored. Changes apply on the next pass; use Run now to apply immediately."
+msgstr ""
+
+msgid "Open WebUI"
+msgstr ""
+
+msgid "Operation cancelled locally."
 msgstr ""
 
 msgid "Operation completed."
@@ -290,16 +464,25 @@ msgstr ""
 msgid "Optional. The token is never shown after saving."
 msgstr ""
 
-msgid "Open WebUI"
+msgid "Overview"
 msgstr ""
 
 msgid "OxiDNS"
 msgstr ""
 
-msgid "OxiDNS core and WebUI installed: %s (%s)."
+msgid "OxiDNS Configuration"
 msgstr ""
 
-msgid "OxiDNS core is already up to date."
+msgid "OxiDNS Core"
+msgstr ""
+
+msgid "OxiDNS Core Update"
+msgstr ""
+
+msgid "OxiDNS Logs"
+msgstr ""
+
+msgid "OxiDNS Settings"
 msgstr ""
 
 msgid "OxiDNS is already disabled on boot."
@@ -314,25 +497,70 @@ msgstr ""
 msgid "OxiDNS is already stopped."
 msgstr ""
 
-msgid "OxiDNS writes oxidns.log in this directory. Default: /tmp/oxidns. Save and Apply restarts OxiDNS so the new log path takes effect."
+msgid "OxiDNS log output"
+msgstr ""
+
+msgid "Path"
 msgstr ""
 
 msgid "Pause"
 msgstr ""
 
+msgid "Persist core across upgrades"
+msgstr ""
+
+msgid "Persistent storage"
+msgstr ""
+
+msgid "Plugin"
+msgstr ""
+
+msgid "Port"
+msgstr ""
+
 msgid "Prepare download"
 msgstr ""
 
-msgid "Probe cache size"
+msgid "Prewarm"
 msgstr ""
 
-msgid "QUIC Server"
+msgid "Prewarm completed."
 msgstr ""
 
-msgid "Reason"
+msgid "Prewarm failed"
+msgstr ""
+
+msgid "Prewarm list"
+msgstr ""
+
+msgid "Prewarm settings saved."
+msgstr ""
+
+msgid "Protocol"
+msgstr ""
+
+msgid "QType"
+msgstr ""
+
+msgid "RCode"
+msgstr ""
+
+msgid "Read the port from config.yaml automatically"
+msgstr ""
+
+msgid "Redirect LAN DNS requests on port 53 (TCP and UDP, IPv4 and IPv6) to the local OxiDNS DNS listener."
 msgstr ""
 
 msgid "Refresh"
+msgstr ""
+
+msgid "Release asset"
+msgstr ""
+
+msgid "Reload and retry"
+msgstr ""
+
+msgid "Reload from device"
 msgstr ""
 
 msgid "Remove Core"
@@ -353,46 +581,103 @@ msgstr ""
 msgid "Repair reinstalling OxiDNS core..."
 msgstr ""
 
+msgid "Repository"
+msgstr ""
+
 msgid "Reset"
 msgstr ""
 
 msgid "Restart"
 msgstr ""
 
+msgid "Restart OxiDNS after saving"
+msgstr ""
+
+msgid "Restart OxiDNS after the download"
+msgstr ""
+
 msgid "Restart service"
+msgstr ""
+
+msgid "Restore baseline"
+msgstr ""
+
+msgid "Restore defaults"
+msgstr ""
+
+msgid "Restore the default GeoIP and GeoSite URLs and storage directory?"
+msgstr ""
+
+msgid "Restoring defaults..."
+msgstr ""
+
+msgid "Restoring rules from the bundled baseline..."
 msgstr ""
 
 msgid "Resume"
 msgstr ""
 
-msgid "Rotation"
+msgid "Rule Subscriptions"
+msgstr ""
+
+msgid "Rule files"
+msgstr ""
+
+msgid "Rule operation completed."
+msgstr ""
+
+msgid "Rule operation failed"
+msgstr ""
+
+msgid "Rule update available."
+msgstr ""
+
+msgid "Rules were written, but the firewall reload failed. The rules take effect on the next firewall reload or reboot."
+msgstr ""
+
+msgid "Run now"
 msgstr ""
 
 msgid "Running"
 msgstr ""
 
+msgid "SHA-256"
+msgstr ""
+
 msgid "Save"
 msgstr ""
 
-msgid "Save and Apply"
+msgid "Save & Restart"
 msgstr ""
 
-msgid "Saving and applying configuration..."
+msgid "Save Settings"
 msgstr ""
 
-msgid "Saving and applying settings..."
+msgid "Saving and restarting service..."
 msgstr ""
 
 msgid "Saving configuration..."
 msgstr ""
 
+msgid "Saving geo settings..."
+msgstr ""
+
+msgid "Saving prewarm settings..."
+msgstr ""
+
 msgid "Saving settings..."
 msgstr ""
 
-msgid "Select an entry plugin"
+msgid "Select release archive"
 msgstr ""
 
-msgid "Service control"
+msgid "Server IP"
+msgstr ""
+
+msgid "Service"
+msgstr ""
+
+msgid "Service action completed."
 msgstr ""
 
 msgid "Service action failed"
@@ -401,25 +686,10 @@ msgstr ""
 msgid "Service status"
 msgstr ""
 
-msgid "Leave empty or set to 0 to keep all historical rotation files."
-msgstr ""
-
-msgid "Installation and Deployment"
-msgstr ""
-
-msgid "Settings saved, but the log path could not be checked."
-msgstr ""
-
 msgid "Settings saved."
 msgstr ""
 
-msgid "Settings saved, but OxiDNS could not be restarted."
-msgstr ""
-
-msgid "Settings saved and OxiDNS restarted."
-msgstr ""
-
-msgid "Select release archive"
+msgid "Size"
 msgstr ""
 
 msgid "Stage"
@@ -431,166 +701,172 @@ msgstr ""
 msgid "Start on boot"
 msgstr ""
 
-msgid "Start, stop, and restart control the running process."
-msgstr ""
-
 msgid "Start the OxiDNS service before opening WebUI."
 msgstr ""
 
-msgid "Status Overview"
+msgid "Start the geo data download now?"
 msgstr ""
 
-msgid "Step %d of the sequence plugin %s references the missing plugin %s."
+msgid "Starting download..."
 msgstr ""
 
-msgid "The matches of step %d of the sequence plugin %s reference the missing plugin %s."
+msgid "State"
+msgstr ""
+
+msgid "Status"
 msgstr ""
 
 msgid "Stop"
 msgstr ""
 
-msgid "Stop OxiDNS"
-msgstr ""
-
 msgid "Stopped"
 msgstr ""
 
-msgid "Success TTL (seconds)"
+msgid "Storage directory"
 msgstr ""
 
-msgid "The cache step could not be inserted into the entry sequence. Check the sequence configuration in Advanced Mode."
+msgid "Store the core binary and webui under /etc/oxidns/core, which is kept during firmware upgrades. Requires enough free space on the overlay partition."
 msgstr ""
 
-msgid "The configuration is too large to preview here. Review the changes in Advanced Mode before saving."
+msgid "TCP"
 msgstr ""
 
-msgid "The entry %s of the %s server plugin %s does not reference an existing plugin."
+msgid "Target"
 msgstr ""
 
-msgid "The entry %s of the %s server plugin %s must use the plugin tag without \"$\"."
+msgid "Target ports"
 msgstr ""
 
-msgid "The file must be named config.yaml."
+msgid "The LuCI backend is unavailable."
 msgstr ""
 
-msgid "The full and standard bundles include OxiDNS WebUI files; the minimal bundle does not."
+msgid "The OxiDNS core is already up to date."
 msgstr ""
 
-msgid "Details"
+msgid "The UCI command is not available."
 msgstr ""
 
-msgid "Entry"
+msgid "The configuration could not be written."
 msgstr ""
 
-msgid "HTTP listen"
+msgid "The configuration file changed on the device since it was loaded."
 msgstr ""
 
-msgid "Leave empty to stop writing to a log file."
+msgid "The configuration file changed on the device since it was loaded. Reloading discards local edits; reloading and retrying refreshes the base version and then saves the current editor content, overwriting the device changes."
 msgstr ""
 
-msgid "Listen"
+msgid "The configuration file is too large to read."
 msgstr ""
 
-msgid "Listen Addresses"
+msgid "The configuration file was not found or is a symlink."
 msgstr ""
 
-msgid "Log"
+msgid "The configuration is not valid."
 msgstr ""
 
-msgid "Log file"
+msgid "The configuration path is invalid."
 msgstr ""
 
-msgid "Log level"
+msgid "The configured GeoIP URL, GeoSite URL, directory or SHA-256 checksum is invalid."
 msgstr ""
 
-msgid "No changes."
+msgid "The core bundle must be full, standard or minimal."
 msgstr ""
 
-msgid "No plugins are configured."
+msgid "The core repository must use the owner/repository format."
 msgstr ""
 
-msgid "No upstream servers configured."
+msgid "The geo data directory could not be created."
 msgstr ""
 
-msgid "Plugin"
+msgid "The hijack port must be a number between 1 and 65535."
 msgstr ""
 
-msgid "Plugins"
+msgid "The init script is not available."
 msgstr ""
 
-msgid "Queries are forwarded to these upstream servers."
+msgid "The operation was cancelled in the browser. The device may still be working; check the status before retrying."
 msgstr ""
 
-msgid "Remove"
+msgid "The persistent storage setting is invalid."
 msgstr ""
 
-msgid "Show change preview"
+msgid "The port is read from config.yaml automatically."
 msgstr ""
 
-msgid "Tag"
+msgid "The port mode must be automatic or manual."
 msgstr ""
 
-msgid "The configuration file is empty."
+msgid "The prewarm operation failed."
 msgstr ""
 
-msgid "The hosts step could not be inserted into the entry sequence. Check the sequence configuration in Advanced Mode."
+msgid "The prewarm port or interval is invalid."
 msgstr ""
 
-msgid "The plugin tag %s is used by more than one plugin. Choose a unique tag in Advanced Mode."
+msgid "The selected server must be an OxiDNS listener with cache enabled."
 msgstr ""
 
-msgid "The tag %s is already used by a %s plugin. Rename it in Advanced Mode before enabling cache."
+msgid "The service action failed."
 msgstr ""
 
-msgid "The YAML is invalid: %s"
+msgid "The system log could not be read."
 msgstr ""
 
-msgid "The tag %s is already used by a %s plugin. Rename it in Advanced Mode before enabling hosts."
+msgid "The system log setting is invalid."
 msgstr ""
 
-msgid "The tag %s is already used by a %s plugin. Rename it in Advanced Mode to create a forward plugin."
+msgid "The working directory is invalid."
 msgstr ""
 
-msgid "Type"
+msgid "This overwrites every rule file in the working copy with the bundled baseline."
 msgstr ""
 
-msgid "Unable to query OxiDNS status"
+msgid "UDP"
+msgstr ""
+
+msgid "UDP port %s, TCP port %s"
 msgstr ""
 
 msgid "Unable to load configuration."
 msgstr ""
 
-msgid "Unable to reload the saved configuration."
-msgstr ""
-
-msgid "Unable to read the selected file."
+msgid "Unable to query OxiDNS status"
 msgstr ""
 
 msgid "Unavailable"
 msgstr ""
 
-msgid "Upload Config"
+msgid "Unpack core archive"
 msgstr ""
 
-msgid "Upload has been cancelled"
+msgid "Unsaved DNS hijack changes discarded."
 msgstr ""
 
-msgid "Unsaved changes were discarded."
+msgid "Update now"
 msgstr ""
 
-msgid "Unsaved changes were discarded and the saved configuration was reloaded."
+msgid "Update rules now"
 msgstr ""
 
-msgid "Update Core"
+msgid "Update to %s"
+msgstr ""
+
+msgid "Updates are downloaded from the repository release, verified with SHA256 and validated with oxidns check before they replace the working copy. Restoring the baseline works offline."
+msgstr ""
+
+msgid "Updating OxiDNS core..."
+msgstr ""
+
+msgid "Updating rule subscriptions..."
 msgstr ""
 
 msgid "Upload Core"
 msgstr ""
 
-msgid "Uploading config.yaml replaces the saved configuration immediately and discards unsaved changes. Continue?"
+msgid "Upload has been cancelled"
 msgstr ""
 
-msgid "Uploading configuration..."
+msgid "Use a manual port"
 msgstr ""
 
 msgid "Validate"
@@ -605,34 +881,40 @@ msgstr ""
 msgid "Validating configuration..."
 msgstr ""
 
-msgid "Unpack core archive"
-msgstr ""
-
-msgid "Upstream address"
-msgstr ""
-
-msgid "Upstream DNS"
-msgstr ""
-
 msgid "Verify checksum"
 msgstr ""
 
 msgid "Verify release digest"
 msgstr ""
 
-msgid "WebUI"
+msgid "Version"
 msgstr ""
 
-msgid "WebUI index"
+msgid "Versions"
 msgstr ""
 
-msgid "WebUI listens on loopback only. Configure the HTTP listen address to a LAN-reachable address, or use an SSH tunnel."
+msgid "View recent OxiDNS entries from OpenWrt logread. Use the filters to narrow down entries by keyword, plugin, query type or response code."
 msgstr ""
 
 msgid "Waiting for command output..."
 msgstr ""
 
-msgid "WebUI root"
+msgid "Warming up..."
+msgstr ""
+
+msgid "WebUI"
+msgstr ""
+
+msgid "WebUI files are not installed."
+msgstr ""
+
+msgid "WebUI listens on loopback only. Configure the HTTP listen address to a LAN-reachable address, or use an SSH tunnel."
+msgstr ""
+
+msgid "When disabled, the LuCI log page no longer shows new runtime logs. Restart OxiDNS after changing this setting."
+msgstr ""
+
+msgid "Working copy"
 msgstr ""
 
 msgid "Working directory"
@@ -641,1439 +923,57 @@ msgstr ""
 msgid "Write to system log"
 msgstr ""
 
-msgid "When disabled, OxiDNS no longer writes runtime output to the system log. Use Save and Apply to restart OxiDNS so the change takes effect."
-msgstr ""
-
 msgid "YAML"
 msgstr ""
 
 msgid "Yes"
 msgstr ""
 
-msgid "Core Actions"
+msgid "You have local edits in the editor. Reloading from the device will discard them."
 msgstr ""
 
-msgid "DNS Configuration"
+msgid "You have unsaved changes. Remote updates are paused until you Apply or Cancel."
 msgstr ""
 
-msgid "Install it from Services → OxiDNS → Installation and Deployment, then return to this page."
+msgid "from config.yaml"
 msgstr ""
 
-msgid "The installed minimal core bundle does not include WebUI files. Install WebUI on the Installation and Deployment page to replace it with a bundle that includes WebUI."
+msgid "full"
 msgstr ""
 
-msgid "WebUI files are not installed. Install them from the Installation and Deployment page using Install WebUI."
+msgid "logread"
 msgstr ""
 
-msgid "A download proxy is configured, but curl is not installed. Install curl or clear the download proxy."
+msgid "manual"
 msgstr ""
 
-msgid "Another OxiDNS core operation is already running."
+msgid "minimal"
 msgstr ""
 
-msgid "Configuration content is required."
+msgid "not present"
 msgstr ""
 
-msgid "Configuration file not found."
+msgid "port %s (TCP/UDP)"
 msgstr ""
 
-msgid "Configuration is valid."
+msgid "standard"
 msgstr ""
 
-msgid "Configuration saved, but service restart failed: %s"
+msgid "Allow manually uploaded cores"
 msgstr ""
 
-msgid "Configuration saved, but the init script was not found."
+msgid "Disabled by default. Enabling it permits installing an uploaded core archive; the upload permission is also controlled by the separate luci-app-oxidns-core-upload ACL group. Only enable it for trusted administrators."
 msgstr ""
 
-msgid "Configuration saved."
+msgid "GeoIP SHA-256 pin"
 msgstr ""
 
-msgid "Configuration saved. OxiDNS was restarted."
+msgid "GeoSite SHA-256 pin"
 msgstr ""
 
-msgid "Failed to download the OxiDNS core archive."
+msgid "Optional 64-hex SHA-256 pins. When set, downloads are verified before they are published; a mismatch aborts the update and keeps the current data."
 msgstr ""
 
-msgid "Failed to fetch OxiDNS release metadata."
-msgstr ""
-
-msgid "Failed to install the OxiDNS core files; the existing installation was left unchanged."
-msgstr ""
-
-msgid "Failed to install the uploaded core files; the existing installation was left unchanged."
-msgstr ""
-
-msgid "Failed to prepare the core operation lock directory."
-msgstr ""
-
-msgid "Failed to preserve the configuration before removing the working directory."
-msgstr ""
-
-msgid "Failed to save the OxiDNS settings."
-msgstr ""
-
-msgid "Failed to stage the OxiDNS WebUI files."
-msgstr ""
-
-msgid "Failed to unpack the OxiDNS core archive."
-msgstr ""
-
-msgid "Failed to unpack the uploaded OxiDNS archive."
-msgstr ""
-
-msgid "Init script not found: %s"
-msgstr ""
-
-msgid "Log directory is required."
-msgstr ""
-
-msgid "Log path saved, but service restart failed: %s"
-msgstr ""
-
-msgid "Log path saved, but the init script was not found."
-msgstr ""
-
-msgid "Log path saved."
-msgstr ""
-
-msgid "Log path saved. OxiDNS was restarted."
-msgstr ""
-
-msgid "No configuration content or file is available."
-msgstr ""
-
-msgid "Refusing to delete an unsafe configuration path."
-msgstr ""
-
-msgid "Refusing to delete an unsafe working directory."
-msgstr ""
-
-msgid "Remove configuration"
-msgstr ""
-
-msgid "Remove working directory"
-msgstr ""
-
-msgid "Service action failed."
-msgstr ""
-
-msgid "Service restart failed."
-msgstr ""
-
-msgid "Service stop failed."
-msgstr ""
-
-msgid "Settings values must be single-line strings."
-msgstr ""
-
-msgid "Stop service"
-msgstr ""
-
-msgid "Tar extraction failed."
-msgstr ""
-
-msgid "The GitHub token must be a single-line value."
-msgstr ""
-
-msgid "The OxiDNS configuration file was not found."
-msgstr ""
-
-msgid "The OxiDNS core archive SHA256 does not match the release digest."
-msgstr ""
-
-msgid "The OxiDNS core archive contains unsafe paths or links."
-msgstr ""
-
-msgid "The OxiDNS core archive does not contain an oxidns binary."
-msgstr ""
-
-msgid "The OxiDNS core archive does not contain config.yaml."
-msgstr ""
-
-msgid "The OxiDNS core is already installed. Use Repair Reinstall instead."
-msgstr ""
-
-msgid "The OxiDNS core is not installed or cannot report its version."
-msgstr ""
-
-msgid "The OxiDNS release archive does not contain WebUI files."
-msgstr ""
-
-msgid "The config path must be an absolute OxiDNS-related file path."
-msgstr ""
-
-msgid "The configuration file changed since it was loaded. Reload it and try again."
-msgstr ""
-
-msgid "The core bundle must be one of full, standard, or minimal."
-msgstr ""
-
-msgid "The core repository contains unsupported characters."
-msgstr ""
-
-msgid "The core repository must use the owner/repo format."
-msgstr ""
-
-msgid "The core was installed, but the service restart failed."
-msgstr ""
-
-msgid "The core was not replaced because the service could not be stopped."
-msgstr ""
-
-msgid "The current CPU architecture does not match a published OxiDNS Linux musl release."
-msgstr ""
-
-msgid "The log directory is not writable."
-msgstr ""
-
-msgid "The log directory must be an absolute OxiDNS-related directory path."
-msgstr ""
-
-msgid "The release config.yaml cannot be adapted for OpenWrt defaults."
-msgstr ""
-
-msgid "The selected OxiDNS release asset does not include a valid SHA256 digest."
-msgstr ""
-
-msgid "The selected OxiDNS release does not contain the required archive."
-msgstr ""
-
-msgid "The system log setting must be 0 or 1."
-msgstr ""
-
-msgid "The uci command was not found."
-msgstr ""
-
-msgid "The uploaded archive contains unsafe paths or links."
-msgstr ""
-
-msgid "The uploaded archive does not contain an oxidns binary."
-msgstr ""
-
-msgid "The uploaded config.yaml cannot be adapted for OpenWrt defaults."
-msgstr ""
-
-msgid "The uploaded core does not contain WebUI files."
-msgstr ""
-
-msgid "The uploaded file must be a readable /tmp/oxidns-core-upload-* file."
-msgstr ""
-
-msgid "The uploaded oxidns binary cannot report build information."
-msgstr ""
-
-msgid "The working directory must be an absolute OxiDNS-related directory path."
-msgstr ""
-
-msgid "Unable to create the log directory."
-msgstr ""
-
-msgid "Unable to update the configuration file."
-msgstr ""
-
-msgid "Unknown"
-msgstr ""
-
-msgid "%s exited with code %s"
-msgstr ""
-
-msgid "%s exited with code %s: %s"
-msgstr ""
-
-msgid "Failed to fetch release assets from github.com."
-msgstr ""
-
-msgid "Failed to resolve the latest release tag from github.com."
-msgstr ""
-
-msgid "None of curl, uclient-fetch, or wget is installed."
-msgstr ""
-
-msgid "The github.com release page does not contain a SHA256 digest for %s."
-msgstr ""
-
-msgid "The release tag cannot be used in a github.com URL: %s."
-msgstr ""
-
-msgid "Unknown download error."
-msgstr ""
-
-msgid "jsonfilter is not installed or unavailable; wanted asset=%s repository=%s release=%s."
-msgstr ""
-
-msgid "The archive must contain a file named oxidns."
-msgstr ""
-
-msgid "The uploaded binary is not executable for this target, or build-info failed."
-msgstr ""
-
-msgid "A download proxy only works with curl on OpenWrt."
-msgstr ""
-
-msgid "Failed to create the install directory."
-msgstr ""
-
-msgid "Failed to write the oxidns binary."
-msgstr ""
-
-msgid "Failed to replace the oxidns binary."
-msgstr ""
-
-msgid "Failed to replace the WebUI files."
-msgstr ""
-
-msgid "Cannot wait for OxiDNS to stop: ubus and jsonfilter are required."
-msgstr ""
-
-msgid "Failed to query the OxiDNS service state while stopping."
-msgstr ""
-
-msgid "The OxiDNS service state is invalid while stopping."
-msgstr ""
-
-msgid "The OxiDNS service instance state is invalid while stopping."
-msgstr ""
-
-msgid "Timed out waiting for the old OxiDNS service instance to be removed."
-msgstr ""
-
-msgid "error"
-msgstr ""
-
-msgid "connection refused"
-msgstr ""
-
-msgid "network is unreachable"
-msgstr ""
-
-msgid "no route to host"
-msgstr ""
-
-msgid "connection timed out"
-msgstr ""
-
-msgid "could not connect to %s after %s ms: %s"
-msgstr ""
-
-msgid "could not resolve host %s"
-msgstr ""
-
-msgid "connection timed out after %s ms"
-msgstr ""
-
-msgid "operation timed out after %s ms with %s bytes received"
-msgstr ""
-
-msgid "the requested URL returned error %s"
-msgstr ""
-
-msgid "SSL connection error"
-msgstr ""
-
-msgid "Required asset %s from repository %s, release %s."
-msgstr ""
-
-msgid "Asset: %s; digest: %s"
-msgstr ""
-
-msgid "Asset: %s; URL: %s; %s"
-msgstr ""
-
-msgid "Asset: %s; expected: %s; actual: %s"
-msgstr ""
-
-msgid "Asset: %s; bundle: %s"
-msgstr ""
-
-msgid "Asset: %s"
-msgstr ""
-
-msgid "Bundle: %s. Upload an official full or standard .tar.gz archive to install the WebUI."
-msgstr ""
-
-msgid "Config: %s; working directory: %s"
-msgstr ""
-
-msgid "Config: %s"
-msgstr ""
-
-msgid "Source: %s"
-msgstr ""
-
-msgid "Archive: %s"
-msgstr ""
-
-msgid "Path: %s"
-msgstr ""
-
-msgid "Working directory: %s"
-msgstr ""
-
-msgid "missing"
-msgstr ""
-
-msgid "API: %s; website: %s; repository: %s release: %s"
-msgstr ""
-
-msgid "Advanced Mode"
-msgstr ""
-
-msgid "Normal Mode"
-msgstr ""
-
-msgid "Advanced mode saves the text exactly as written. Normal mode rewrites only the fields it manages."
-msgstr ""
-
-msgid "Edit the OxiDNS configuration with form-based editing, or use the full YAML editor."
-msgstr ""
-
-msgid "Normal mode covers common settings only. Use Advanced Mode to edit plugins and options not listed here."
-msgstr ""
-
-msgid "Normal mode edits common settings and keeps the remaining YAML, including comments, unchanged."
-msgstr ""
-
-msgid "Normal mode is unavailable: %s"
-msgstr ""
-
-msgid "Normal mode needs valid YAML. Fix the YAML in advanced mode first."
-msgstr ""
-
-msgid "the top level must be a mapping of keys to values."
-msgstr ""
-
-msgid "This configuration uses YAML anchors, aliases, or merge keys. Normal mode is read-only for this file; edit it in advanced mode."
-msgstr ""
-
-msgid "360 Public DNS (DNS over HTTPS)"
-msgstr ""
-
-msgid "Aliyun Public DNS (223.5.5.5)"
-msgstr ""
-
-msgid "Aliyun Public DNS (223.6.6.6)"
-msgstr ""
-
-msgid "Aliyun Public DNS (DNS over HTTPS)"
-msgstr ""
-
-msgid "Aliyun Public DNS (DNS over QUIC)"
-msgstr ""
-
-msgid "Baidu Public DNS (180.76.76.76)"
-msgstr ""
-
-msgid "Cisco Public DNS (208.67.220.220)"
-msgstr ""
-
-msgid "Cisco Public DNS (208.67.222.222)"
-msgstr ""
-
-msgid "Cloudflare Public DNS (1.0.0.1)"
-msgstr ""
-
-msgid "Cloudflare Public DNS (1.1.1.1)"
-msgstr ""
-
-msgid "Cloudflare Public DNS (DNS over HTTPS)"
-msgstr ""
-
-msgid "Enter a custom upstream address"
-msgstr ""
-
-msgid "Google Public DNS (8.8.4.4)"
-msgstr ""
-
-msgid "Google Public DNS (8.8.8.8)"
-msgstr ""
-
-msgid "Google Public DNS (DNS over HTTPS)"
-msgstr ""
-
-msgid "Quad9 Public DNS (149.112.112.112)"
-msgstr ""
-
-msgid "Quad9 Public DNS (9.9.9.9)"
-msgstr ""
-
-msgid "Quad9 Public DNS (DNS over HTTPS)"
-msgstr ""
-
-msgid "Select an upstream DNS server"
-msgstr ""
-
-msgid "Tencent Public DNS (119.28.28.28)"
-msgstr ""
-
-msgid "Tencent Public DNS (119.29.29.29)"
-msgstr ""
-
-msgid "Tencent Public DNS (DNS over HTTPS)"
-msgstr ""
-
-msgid "Xinfeng Public DNS (114.114.114.114)"
-msgstr ""
-
-msgid "Addresses returned in custom or null mode. One address per line."
-msgstr ""
-
-msgid "AdGuard Rule"
-msgstr ""
-
-msgid "AdGuard rules"
-msgstr ""
-
-msgid "Always run standby"
-msgstr ""
-
-msgid "Answer addresses"
-msgstr ""
-
-msgid "Asynchronous"
-msgstr ""
-
-msgid "Batch size"
-msgstr ""
-
-msgid "Black Hole"
-msgstr ""
-
-msgid "Blocking mode"
-msgstr ""
-
-msgid "Bootstrap rules"
-msgstr ""
-
-msgid "Cache"
-msgstr ""
-
-msgid "Cache negative responses"
-msgstr ""
-
-msgid "Cache size (entries)"
-msgstr ""
-
-msgid "Cleanup interval (hours)"
-msgstr ""
-
-msgid "Client IP header"
-msgstr ""
-
-msgid "Concurrent upstreams"
-msgstr ""
-
-msgid "Database path"
-msgstr ""
-
-msgid "Default"
-msgstr ""
-
-msgid "Disables certificate verification for these downloads."
-msgstr ""
-
-msgid "DNSSEC policy"
-msgstr ""
-
-msgid "Domain Set"
-msgstr ""
-
-msgid "Download"
-msgstr ""
-
-msgid "Download at startup when missing"
-msgstr ""
-
-msgid "Dump file"
-msgstr ""
-
-msgid "Dump interval (seconds)"
-msgstr ""
-
-msgid "Dynamic Domain Set"
-msgstr ""
-
-msgid "Enable HTTP/3"
-msgstr ""
-
-msgid "Error handling"
-msgstr ""
-
-msgid "Fallback"
-msgstr ""
-
-msgid "Flush interval (ms)"
-msgstr ""
-
-msgid "Forward"
-msgstr ""
-
-msgid "GeoIP"
-msgstr ""
-
-msgid "GeoIP data file"
-msgstr ""
-
-msgid "GeoSite"
-msgstr ""
-
-msgid "GeoSite data file"
-msgstr ""
-
-msgid "Hosts"
-msgstr ""
-
-msgid "Hosts entries"
-msgstr ""
-
-msgid "Hosts files"
-msgstr ""
-
-msgid "HTTP Server"
-msgstr ""
-
-msgid "Idle timeout"
-msgstr ""
-
-msgid "In-memory tail size"
-msgstr ""
-
-msgid "Include ECS in cache key"
-msgstr ""
-
-msgid "Inline domain expressions"
-msgstr ""
-
-msgid "Inline IP/CIDR rules"
-msgstr ""
-
-msgid "IP Selector"
-msgstr ""
-
-msgid "IP Set"
-msgstr ""
-
-msgid "Learn Domain"
-msgstr ""
-
-msgid "Learning phase"
-msgstr ""
-
-msgid "Max negative TTL (seconds)"
-msgstr ""
-
-msgid "Max parallel probes"
-msgstr ""
-
-msgid "Max positive TTL (seconds)"
-msgstr ""
-
-msgid "Max wait (ms)"
-msgstr ""
-
-msgid "Min positive TTL (seconds)"
-msgstr ""
-
-msgid "Negative TTL without SOA (seconds)"
-msgstr ""
-
-msgid "One AdGuard rule per line, for example ||example.com^."
-msgstr ""
-
-msgid "One path per line. Each file contains AdGuard rules."
-msgstr ""
-
-msgid "One path per line. Each file contains domain rules."
-msgstr ""
-
-msgid "One path per line. Each file contains IP or CIDR rules."
-msgstr ""
-
-msgid "One selector per line. Selectors must exist in the data file."
-msgstr ""
-
-msgid "Outbound profile"
-msgstr ""
-
-msgid "Override TTL (seconds)"
-msgstr ""
-
-msgid "Primary executor"
-msgstr ""
-
-msgid "Probe methods"
-msgstr ""
-
-msgid "Probe stagger (ms)"
-msgstr ""
-
-msgid "Probe timeout (ms)"
-msgstr ""
-
-msgid "Query Recorder"
-msgstr ""
-
-msgid "Query types"
-msgstr ""
-
-msgid "Questions"
-msgstr ""
-
-msgid "Queue size"
-msgstr ""
-
-msgid "Reader concurrency"
-msgstr ""
-
-msgid "Referenced domain sets"
-msgstr ""
-
-msgid "Referenced IP sets"
-msgstr ""
-
-msgid "Require an answer"
-msgstr ""
-
-msgid "Require success (NOERROR)"
-msgstr ""
-
-msgid "Response selection"
-msgstr ""
-
-msgid "Retention days"
-msgstr ""
-
-msgid "Rule files"
-msgstr ""
-
-msgid "Rule kind"
-msgstr ""
-
-msgid "Rules file"
-msgstr ""
-
-msgid "Selection mode"
-msgstr ""
-
-msgid "Selectors"
-msgstr ""
-
-msgid "Short circuit"
-msgstr ""
-
-msgid "Skip TLS verification"
-msgstr ""
-
-msgid "Slow threshold (ms)"
-msgstr ""
-
-msgid "SOCKS5 proxy"
-msgstr ""
-
-msgid "Standby executor"
-msgstr ""
-
-msgid "Target dynamic domain set"
-msgstr ""
-
-msgid "TCP Server"
-msgstr ""
-
-msgid "Timeout"
-msgstr ""
-
-msgid "TLS certificate"
-msgstr ""
-
-msgid "TLS private key"
-msgstr ""
-
-msgid "Top N addresses"
-msgstr ""
-
-msgid "Not supported by this core"
-msgstr ""
-
-msgid "Plugin types are read from the installed OxiDNS core."
-msgstr ""
-
-msgid "Status"
-msgstr ""
-
-msgid "Supported"
-msgstr ""
-
-msgid "The OxiDNS core is not installed, so plugin types come from the built-in catalog."
-msgstr ""
-
-msgid "Unknown plugin type"
-msgstr ""
-
-msgid "Bind to device"
-msgstr ""
-
-msgid "Bootstrap IP version"
-msgstr ""
-
-msgid "Bootstrap server"
-msgstr ""
-
-msgid "Dial address"
-msgstr ""
-
-msgid "Disables certificate verification for this upstream."
-msgstr ""
-
-msgid "Enable pipeline"
-msgstr ""
-
-msgid "Hide options"
-msgstr ""
-
-msgid "IPv4"
-msgstr ""
-
-msgid "IPv6"
-msgstr ""
-
-msgid "Leave fields empty to use the protocol defaults."
-msgstr ""
-
-msgid "Max connections"
-msgstr ""
-
-msgid "Min connections"
-msgstr ""
-
-msgid "Options"
-msgstr ""
-
-msgid "Port override"
-msgstr ""
-
-msgid "Query timeout"
-msgstr ""
-
-msgid "SO_MARK"
-msgstr ""
-
-msgid "Use Options to set per-upstream connection details."
-msgstr ""
-
-msgid "Add entry"
-msgstr ""
-
-msgid "Automatic"
-msgstr ""
-
-msgid "Basic auth password"
-msgstr ""
-
-msgid "Basic auth username"
-msgstr ""
-
-msgid "Basic authentication requires both a username and a password."
-msgstr ""
-
-msgid "CORS allowed origins"
-msgstr ""
-
-msgid "Client CA certificate"
-msgstr ""
-
-msgid "Configured; leave empty to keep the current password"
-msgstr ""
-
-msgid "DoH entries"
-msgstr ""
-
-msgid "DoH entry"
-msgstr ""
-
-msgid "Downloads"
-msgstr ""
-
-msgid "Enable JSON DNS API"
-msgstr ""
-
-msgid "Enter a password"
-msgstr ""
-
-msgid "Entry executor"
-msgstr ""
-
-msgid "File name"
-msgstr ""
-
-msgid "Item"
-msgstr ""
-
-msgid "Leave empty to derive the allowed origins from the listen address. Use \"*\" to allow any origin."
-msgstr ""
-
-msgid "Leave the worker thread count empty to use the system parallelism."
-msgstr ""
-
-msgid "Must be at least 1."
-msgstr ""
-
-msgid "No entries configured."
-msgstr ""
-
-msgid "Remove Basic authentication"
-msgstr ""
-
-msgid "Request path"
-msgstr ""
-
-msgid "Require a client certificate"
-msgstr ""
-
-msgid "Required when client certificate verification is enabled."
-msgstr ""
-
-msgid "Runtime"
-msgstr ""
-
-msgid "Target directory"
-msgstr ""
-
-msgid "The %s plugin %s has an invalid value for %s."
-msgstr ""
-
-msgid "The %s plugin %s requires the %s field."
-msgstr ""
-
-msgid "The %s field must be a list. Fix it in Advanced Mode."
-msgstr ""
-
-msgid "The args of the %s plugin must be a mapping. Fix it in Advanced Mode."
-msgstr ""
-
-msgid "The %s field of the fallback plugin %s references the missing plugin %s."
-msgstr ""
-
-msgid "The API certificate and private key must be configured together."
-msgstr ""
-
-msgid "The API listen address cannot be empty."
-msgstr ""
-
-msgid "The API requires a client CA when client certificate verification is enabled."
-msgstr ""
-
-msgid "The TLS certificate and private key of the %s plugin %s must be configured together."
-msgstr ""
-
-msgid "The saved password is never shown again. Fill both username and password to enable Basic authentication."
-msgstr ""
-
-msgid "The worker thread count must be at least 1."
-msgstr ""
-
-msgid "URL"
-msgstr ""
-
-msgid "Worker threads"
-msgstr ""
-
-msgid "The API WebUI root cannot be empty."
-msgstr ""
-
-msgid "The API WebUI index cannot be empty."
-msgstr ""
-
-msgid "Included Files"
-msgstr ""
-
-msgid "Only plugins are loaded from these files; other settings in them are ignored. Relative paths are resolved against the directory of this configuration file."
-msgstr ""
-
-msgid "Included configuration files"
-msgstr ""
-
-msgid "One path per line. Plugins from included files are not listed on this page."
-msgstr ""
-
-msgid "Convert to expanded form"
-msgstr ""
-
-msgid "The shorthand form only sets the listen address. Convert it to configure the WebUI, TLS, authentication, and CORS."
-msgstr ""
-
-
-msgid "The include field must be a list of configuration file paths."
-msgstr ""
-
-msgid "Include entry %d cannot be empty."
-msgstr ""
-
-msgid "Include entry %d duplicates another include entry."
-msgstr ""
-
-msgid "Prefer IPv4"
-msgstr ""
-
-msgid "Prefer IPv6"
-msgstr ""
-
-msgid "Probe executor"
-msgstr ""
-
-msgid "Executor tag used for the internal preferred-address probe."
-msgstr ""
-
-msgid "Cache preferred state"
-msgstr ""
-
-msgid "Preferred state TTL (seconds)"
-msgstr ""
-
-msgid "Reverse Lookup"
-msgstr ""
-
-msgid "Mapping TTL (seconds)"
-msgstr ""
-
-msgid "Answer PTR from cache"
-msgstr ""
-
-msgid "TTL"
-msgstr ""
-
-msgid "Fixed TTL (seconds)"
-msgstr ""
-
-msgid "Minimum TTL (seconds)"
-msgstr ""
-
-msgid "Maximum TTL (seconds)"
-msgstr ""
-
-msgid "Outbound Network"
-msgstr ""
-
-msgid "Profiles are defined under network.outbound.profiles."
-msgstr ""
-
-msgid "No outbound profiles are defined. Add them under network.outbound.profiles in Advanced Mode or the WebUI."
-msgstr ""
-
-msgid "Default outbound profile"
-msgstr ""
-
-msgid "None (system DNS and direct connections)"
-msgstr ""
-
-msgid "%s (not defined)"
-msgstr ""
-
-msgid "Used by HTTP clients and upstreams that do not set an outbound profile."
-msgstr ""
-
-msgid "The default outbound profile %s is not defined under network.outbound.profiles."
-msgstr ""
-
-msgid "Query Summary"
-msgstr ""
-
-msgid "Summary label"
-msgstr ""
-
-msgid "Extra label for the periodic summary."
-msgstr ""
-
-msgid "Metrics Collector"
-msgstr ""
-
-msgid "Metrics namespace"
-msgstr ""
-
-msgid "Metrics are exposed through GET /api/metrics."
-msgstr ""
-
-msgid "Debug Print"
-msgstr ""
-
-msgid "Message"
-msgstr ""
-
-msgid "Sleep"
-msgstr ""
-
-msgid "Sleep duration (ms)"
-msgstr ""
-
-msgid "IPSet"
-msgstr ""
-
-msgid "IPv4 set name"
-msgstr ""
-
-msgid "IPv6 set name"
-msgstr ""
-
-msgid "IPv4 prefix length"
-msgstr ""
-
-msgid "IPv6 prefix length"
-msgstr ""
-
-msgid "NftSet"
-msgstr ""
-
-msgid "Edits the structured ipv4 and ipv6 targets. Compatibility-form fields remain in Advanced Mode."
-msgstr ""
-
-msgid "IPv4 table family"
-msgstr ""
-
-msgid "IPv4 table name"
-msgstr ""
-
-msgid "IPv6 table family"
-msgstr ""
-
-msgid "IPv6 table name"
-msgstr ""
-
-msgid "%s (not listening)"
-msgstr ""
-
-msgid "Add forwarding server %s."
-msgstr ""
-
-msgid "Another system DNS integration operation is already running."
-msgstr ""
-
-msgid "Applying DNS integration..."
-msgstr ""
-
-msgid "Applying..."
-msgstr ""
-
-msgid "Cannot determine the OxiDNS DNS listen address."
-msgstr ""
-
-msgid "DNS integration"
-msgstr ""
-
-msgid "DNS integration action failed."
-msgstr ""
-
-msgid "DNS integration was disabled, but the saved state could not be cleared. Try disabling again."
-msgstr ""
-
-msgid "Disable"
-msgstr ""
-
-msgid "Disable dnsmasq forwarding"
-msgstr ""
-
-msgid "Disable system DNS integration"
-msgstr ""
-
-msgid "Domain-specific upstreams"
-msgstr ""
-
-msgid "Enable"
-msgstr ""
-
-msgid "Enable dnsmasq forwarding"
-msgstr ""
-
-msgid "Enable system DNS integration"
-msgstr ""
-
-msgid "Enabled"
-msgstr ""
-
-msgid "Failed to prepare the DNS integration lock directory."
-msgstr ""
-
-msgid "Failed to save the DNS integration state."
-msgstr ""
-
-msgid "Failed to update the dnsmasq configuration."
-msgstr ""
-
-msgid "Keep domain-specific upstream servers unchanged: %s."
-msgstr ""
-
-msgid "LAN DNS queries are forwarded to OxiDNS. Stopping OxiDNS will break DNS resolution for LAN clients."
-msgstr ""
-
-msgid "LAN DNS queries will use the restored upstream servers again."
-msgstr ""
-
-msgid "None"
-msgstr ""
-
-msgid "Not enabled"
-msgstr ""
-
-msgid "Optional feature: forward LAN DNS queries through OxiDNS. This is disabled by default and can be reverted here at any time."
-msgstr ""
-
-msgid "OxiDNS DNS listener"
-msgstr ""
-
-msgid "OxiDNS UDP and TCP DNS listeners do not share a reachable IPv4 address."
-msgstr ""
-
-msgid "OxiDNS UDP and TCP DNS listeners must use the same port."
-msgstr ""
-
-msgid "OxiDNS has multiple TCP DNS listen addresses."
-msgstr ""
-
-msgid "OxiDNS has multiple UDP DNS listen addresses."
-msgstr ""
-
-msgid "OxiDNS is not listening on the configured DNS port. Restart OxiDNS and try again."
-msgstr ""
-
-msgid "OxiDNS must expose an IPv4 DNS listen address."
-msgstr ""
-
-msgid "OxiDNS must listen for both UDP and TCP DNS."
-msgstr ""
-
-msgid "Remove forwarding server %s."
-msgstr ""
-
-msgid "Remove generic upstream servers: %s."
-msgstr ""
-
-msgid "Restore previous upstream servers: %s."
-msgstr ""
-
-msgid "Restore the previous dnsmasq noresolv setting."
-msgstr ""
-
-msgid "Set dnsmasq noresolv to 1."
-msgstr ""
-
-msgid "Start OxiDNS before enabling system DNS integration."
-msgstr ""
-
-msgid "System DNS integration"
-msgstr ""
-
-msgid "System DNS integration disabled."
-msgstr ""
-
-msgid "System DNS integration enabled."
-msgstr ""
-
-msgid "System DNS integration is already enabled."
-msgstr ""
-
-msgid "System DNS integration is enabled. Stopping OxiDNS will make LAN DNS resolution fail until OxiDNS is started again or system DNS integration is disabled."
-msgstr ""
-
-msgid "System DNS integration is not enabled."
-msgstr ""
-
-msgid "The OxiDNS DNS listen address changed. Disable and enable system DNS integration again."
-msgstr ""
-
-msgid "The saved DNS integration state is invalid."
-msgstr ""
-
-msgid "The saved dnsmasq forwarding entry is missing."
-msgstr ""
-
-msgid "Unable to query system DNS integration status."
-msgstr ""
-
-msgid "When enabled, dnsmasq forwards generic DNS queries to OxiDNS. Domain-specific upstreams are kept."
-msgstr ""
-
-msgid "While OxiDNS is stopped, LAN DNS resolution will fail. Disable system DNS integration to restore the previous dnsmasq settings."
-msgstr ""
-
-msgid "dnsmasq"
-msgstr ""
-
-msgid "dnsmasq could not be reloaded. The settings will apply the next time dnsmasq starts."
-msgstr ""
-
-msgid "dnsmasq is not available"
-msgstr ""
-
-msgid "dnsmasq is not running."
-msgstr ""
-
-msgid "dnsmasq is not running. The settings will apply when dnsmasq starts."
-msgstr ""
-
-msgid "dnsmasq noresolv"
-msgstr ""
-
-msgid "dnsmasq noresolv is no longer set."
-msgstr ""
-
-msgid "dnsmasq upstream"
-msgstr ""
-
-msgid "dnsmasq will forward generic DNS queries to %s."
-msgstr ""
-
-msgid "dnsmasq will stop forwarding DNS queries to OxiDNS."
-msgstr ""
-
-msgid "dnsmasq is not available."
-msgstr ""
-
-msgid "OxiDNS is stopped. LAN DNS resolution is failing until OxiDNS is started or system DNS integration is disabled."
-msgstr ""
-
-msgid "Add ad filtering"
-msgstr ""
-
-msgid "Adds AdGuard rules and blocking plugins, then inserts the blocking rule at the start of the entry sequence. The subscription download plugin is added when you enter subscription URLs."
-msgstr ""
-
-msgid "Ad filtering"
-msgstr ""
-
-msgid "Ad filtering downloads subscription rules at startup, matches them with AdGuard rules, and answers matching queries locally."
-msgstr ""
-
-msgid "Ad filtering needs at least one subscription URL, inline rule, or local rule file."
-msgstr ""
-
-msgid "Blocking addresses"
-msgstr ""
-
-msgid "Custom blocking mode requires at least one valid IPv4 or IPv6 address."
-msgstr ""
-
-msgid "Downloaded subscription files are stored in this directory."
-msgstr ""
-
-msgid "Inline rules"
-msgstr ""
-
-msgid "Local rule files"
-msgstr ""
-
-msgid "No entry sequence was found. Configure a server entry in Advanced Mode first."
-msgstr ""
-
-msgid "One absolute path per line. Files are read directly by OxiDNS."
-msgstr ""
-
-msgid "One AdGuard rule per line."
-msgstr ""
-
-msgid "One http:// or https:// URL per line. Missing files are downloaded when OxiDNS starts; a failed download prevents startup."
-msgstr ""
-
-msgid "Remove ad filtering"
-msgstr ""
-
-msgid "Remove subscription downloads"
-msgstr ""
-
-msgid "Remove the ad filtering configuration?"
-msgstr ""
-
-msgid "Rules directory"
-msgstr ""
-
-msgid "Subscription URLs"
-msgstr ""
-
-msgid "The ad filtering blocking mode is invalid."
-msgstr ""
-
-msgid "The ad filtering download plugin needs at least one subscription URL. Add one, or use Remove subscription downloads."
-msgstr ""
-
-msgid "The ad filtering rule could not be inserted into the entry sequence. Check the sequence configuration in Advanced Mode."
-msgstr ""
-
-msgid "The local rule file %s must be an absolute path."
-msgstr ""
-
-msgid "The rules directory must be an absolute path."
-msgstr ""
-
-msgid "The subscription URL %s is duplicated."
-msgstr ""
-
-msgid "The subscription URL %s is invalid. Use an http:// or https:// URL."
-msgstr ""
-
-msgid "The tag %s is already used by a %s plugin. Rename it in Advanced Mode before using ad filtering."
-msgstr ""
-
-msgid "unknown"
-msgstr ""
-
-msgid "Used by custom mode. Separate IPv4 and IPv6 addresses with commas or spaces."
-msgstr ""
-
-
-msgid "Adds the missing plugins without changing existing ones, and wires the servers to the sequence."
-msgstr ""
-
-msgid "Both the UDP and TCP server plugins will listen on this address."
-msgstr ""
-
-msgid "Choose an existing sequence, or leave this empty to create %s."
-msgstr ""
-
-msgid "Create a new sequence"
-msgstr ""
-
-msgid "Create entry sequence and servers"
-msgstr ""
-
-msgid "Entry sequence"
-msgstr ""
-
-msgid "Getting Started"
-msgstr ""
-
-msgid "Listen address"
-msgstr ""
-
-msgid "No server entry points at an entry sequence yet. Create the minimal sequence and server setup below, then add upstream DNS."
-msgstr ""
-
-msgid "Select an entry executor"
-msgstr ""
-
-msgid "This configuration has no server plugin that references a sequence, so it cannot answer queries yet."
-msgstr ""
-
-msgid "This configuration loads plugins from included files, so they cannot be created here. Add the entry sequence and server plugins in those files or in Advanced Mode."
-msgstr ""
-
-msgid "A new sequence named %s will be created."
-msgstr ""
-
-msgid "Updated at %s"
-msgstr ""
-
-msgid "%s (all queries are forwarded to OxiDNS; before enabling: %s)"
-msgstr ""
-
-msgid "%s (all queries are forwarded to OxiDNS)"
-msgstr ""
-
-msgid "%s (from %s, added by the WAN connection, not stored in UCI)"
-msgstr ""
-
-msgid "%s (resolv file ignored because noresolv is set)"
-msgstr ""
-
-msgid "Stop using the WAN-provided servers in %s."
-msgstr ""
-
-msgid "None (all domains use the upstreams above)"
+msgid "The core upload setting is invalid."
 msgstr ""
 

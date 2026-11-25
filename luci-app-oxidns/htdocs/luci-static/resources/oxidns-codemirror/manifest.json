@@ -1,0 +1,17 @@
+{
+  "version": "20261125a",
+  "library": "CodeMirror 5",
+  "notes": [
+    "Asset version must match ASSET_VERSION in view/oxidns/cmeditor.js.",
+    "Hashes are sha384 values computed from the files shipped in this directory and are also embedded in cmeditor.js as integrity attributes.",
+    "active-line.js is intentionally not vendored; styleActiveLine stays disabled so the editor never requests a missing asset.",
+    "If an asset fails to load (missing file or SRI mismatch), cmeditor.js falls back to the original textarea."
+  ],
+  "files": {
+    "codemirror.min.css": "sha384-6VWUkFlGT2mt2I7XhCqUho+vO2BKFrbXlB7IUw6icpZVOVYK7l2Uh369qZC4XWBJ",
+    "cmtheme.css": "sha384-ZoPwXPhXLEXwqIma0+wEIz6wCFssKfHxK/NfHNmlxcTH27Dusm9Fx6oHn+rshLkT",
+    "codemirror.min.js": "sha384-NWch1Syf1vprGF9U8eVPYsii8hcHqUbiN0DiKeQxtJInX81CD9tvSVN2aPNmm42+",
+    "yaml.min.js": "sha384-9q49Jm3hZMwxEMLImsxPxLiaptHpFz1PVa26Dg6SVIO+rj5kx0cgOM2+4ikKJFH9",
+    "autorefresh.min.js": "sha384-pn83o6MtS8kicn/sV6AhRaBqXQ5tau8NzA2ovcobkcc1uRFP7D8CMhRx231QwKST"
+  }
+}

@@ -1,0 +1,32 @@
+#!/bin/sh
+#
+# First-boot seed of the OxiDNS rule working copy.
+#
+# /etc/init.d/oxidns does the same before it starts the service, but that only
+# helps when the service actually starts: on a freshly flashed image the init
+# script is not enabled yet, and a user (or an upgrade script) may want to see
+# /etc/oxidns/rules populated before anything is started. uci-defaults runs
+# once on the first boot after install and then removes itself, so this is the
+# cheapest place to materialise the files.
+#
+# Never overwrites an existing file: a working copy updated from the Rules page
+# is newer than the bundled baseline.
+
+[ -d /usr/share/oxidns/rules-baseline ] || exit 0
+
+mkdir -p /etc/oxidns/rules 2>/dev/null || exit 0
+
+for rule_file in adguard-hostlist.txt anti-ad-domains.txt \
+	adrules-domains.txt neodevhost-domains.txt cn-domains.txt; do
+	if [ ! -s "/etc/oxidns/rules/$rule_file" ] && \
+	   [ -s "/usr/share/oxidns/rules-baseline/$rule_file" ]; then
+		cp "/usr/share/oxidns/rules-baseline/$rule_file" "/etc/oxidns/rules/$rule_file"
+	fi
+done
+
+if [ ! -s /etc/oxidns/rules/.installed-version ] && \
+   [ -s /usr/share/oxidns/rules-baseline/VERSION ]; then
+	cp /usr/share/oxidns/rules-baseline/VERSION /etc/oxidns/rules/.installed-version
+fi
+
+exit 0

@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-atomdns
 PKG_VERSION:=0.6.6
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 PKG_LICENSE:=GPL-3.0-only
 PKG_MAINTAINER:=NetForgeCN <lonelysoul@users.noreply.github.com>
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
@@ -11,6 +11,8 @@ PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
 # AtomDNS 主程序打包（原独立 atomdns 包已并入本包，装一个 ipk 即全部功能）
 # 官方发布包：https://github.com/jasonxtt/atomdns/releases/tag/v$(PKG_VERSION)
 # 直接用 musl 静态二进制，避免在 OpenWrt 上自建 Rust 工具链。
+# 版本与各 HASH 由 scripts/bump.py 每日检测上游 release 后自动更新；
+# 构建时仍由 OpenWrt 下载框架强制校验 SHA256，并在 Build/Prepare 检查归档路径。
 # ---------------------------------------------------------------------------
 ATOMDNS_RELEASE_URL:=https://github.com/jasonxtt/atomdns/releases/download/v$(PKG_VERSION)
 ATOMDNS_CONF_FILE:=config_rust.zip

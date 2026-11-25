@@ -7,22 +7,173 @@ STOP=10
 PROG="/usr/bin/oxidns"
 DEFAULT_CONFIG_PATH="/etc/oxidns/config.yaml"
 DEFAULT_WORKING_DIR="/var/lib/oxidns"
+PERSIST_DIR="/etc/oxidns/core"
+PERSIST_BIN="$PERSIST_DIR/oxidns"
+PERSIST_WEBUI="$PERSIST_DIR/webui"
+WEBUI_DIR="/usr/share/oxidns/webui"
+RULES_DIR="${RULES_DIR:-/etc/oxidns/rules}"
+RULES_BASELINE_DIR="${RULES_BASELINE_DIR:-/usr/share/oxidns/rules-baseline}"
+PREWARM_BIN="${PREWARM_BIN:-/usr/libexec/oxidns-prewarm}"
+PREWARM_DIR="${PREWARM_DIR:-/etc/oxidns}"
+PREWARM_FILE="$PREWARM_DIR/prewarm.txt"
+PREWARM_DEFAULT_FILE="${PREWARM_DEFAULT_FILE:-/usr/share/oxidns/prewarm.default.txt}"
+# All rule files come from the baseline package / Rules page subscription
+# archive; there are no hand-maintained local policy lists.
+RULE_FILES="adguard-hostlist.txt anti-ad-domains.txt adrules-domains.txt neodevhost-domains.txt cn-domains.txt"
+
+# S3: ONE locked, service-start-only migration for the shipped bad config
+# (fde42f8): `config prewarm 'main'` collided with `config settings 'main'`,
+# hiding api_pass. Read paths (rpcd status/prewarm_read) must never rewrite
+# configuration. uci cannot repair a shadowed section safely (a commit drops
+# the hidden options), so a text-level rewrite is unavoidable here; it is done
+# through a temp file plus atomic rename, with symlink and lock checks.
+HEAL_LOCK_DIR="/var/lock/oxidns-config-heal.lock"
+
+heal_prewarm_section_id() {
+	local cfg="${UCI_CONFIG_FILE:-/etc/config/oxidns}"
+	local tmp="" lock_pid=""
+	[ -f "$cfg" ] && [ ! -L "$cfg" ] || return 0
+	grep -q "^config prewarm 'main'" "$cfg" 2>/dev/null || return 0
+
+	if ! mkdir "$HEAL_LOCK_DIR" 2>/dev/null; then
+		lock_pid="$(sed -n '1p' "$HEAL_LOCK_DIR/pid" 2>/dev/null || true)"
+		case "$lock_pid" in
+			''|*[!0-9]*) return 0 ;;
+		esac
+		kill -0 "$lock_pid" 2>/dev/null && return 0
+		rm -f "$HEAL_LOCK_DIR/pid" 2>/dev/null || true
+		rmdir "$HEAL_LOCK_DIR" 2>/dev/null || return 0
+		mkdir "$HEAL_LOCK_DIR" 2>/dev/null || return 0
+	fi
+	printf '%s\n' "$$" > "$HEAL_LOCK_DIR/pid" 2>/dev/null || {
+		rmdir "$HEAL_LOCK_DIR" 2>/dev/null || true
+		return 0
+	}
+
+	tmp="$(mktemp "${cfg}.oxidns-heal.XXXXXX" 2>/dev/null || true)"
+	if [ -z "$tmp" ]; then
+		tmp="${cfg}.oxidns-heal.$$"
+		[ ! -e "$tmp" ] || tmp=""
+	fi
+	[ -n "$tmp" ] && [ "$tmp" != "$cfg" ] || {
+		rm -f "$HEAL_LOCK_DIR/pid" 2>/dev/null || true
+		rmdir "$HEAL_LOCK_DIR" 2>/dev/null || true
+		return 0
+	}
+	if grep -q "^config prewarm 'prewarm'" "$cfg" 2>/dev/null; then
+		# Drop the bad block, keep the user's proper prewarm section.
+		awk -v bad="config prewarm 'main'" '
+			$0 == bad { drop = 1; next }
+			/^config / { drop = 0 }
+			!drop { print }
+		' "$cfg" > "$tmp" 2>/dev/null
+	else
+		sed "s/^config prewarm 'main'/config prewarm 'prewarm'/" "$cfg" > "$tmp" 2>/dev/null
+	fi
+	if [ -s "$tmp" ] && mv -f "$tmp" "$cfg" 2>/dev/null; then
+		logger -t oxidns "migrated legacy prewarm section id"
+	else
+		rm -f "$tmp" 2>/dev/null || true
+	fi
+	rm -f "$HEAL_LOCK_DIR/pid" 2>/dev/null || true
+	rmdir "$HEAL_LOCK_DIR" 2>/dev/null || true
+	return 0
+}
 
 load_oxidns_settings() {
+	API_PASS=""
 	config_load oxidns
 	config_get CONFIG_PATH main config_path "$DEFAULT_CONFIG_PATH"
 	config_get WORKING_DIR main working_dir "$DEFAULT_WORKING_DIR"
 	config_get_bool LOG_SYSLOG main log_syslog 1
+	config_get API_PASS main api_pass ""
+}
+
+load_prewarm_settings() {
+	PREWARM_ENABLED=1
+	config_load oxidns
+	config_get PREWARM_ENABLED prewarm enabled 1
+}
+
+# Boot self-heal: the persistent copy of the core survives firmware upgrades
+# (via /etc/sysupgrade.conf). Recreate the runtime symlinks when they are
+# missing or dangling, so a reinstall of the LuCI package after an upgrade is
+# enough to bring the DNS service back without re-downloading anything.
+restore_core_links() {
+	if [ -x "$PERSIST_BIN" ]; then
+		if [ ! -x "$PROG" ]; then
+			mkdir -p "$(dirname "$PROG")"
+			ln -sf "$PERSIST_BIN" "$PROG"
+		fi
+	fi
+	if [ -d "$PERSIST_WEBUI" ]; then
+		if [ ! -d "$WEBUI_DIR" ]; then
+			mkdir -p "$(dirname "$WEBUI_DIR")"
+			ln -sfn "$PERSIST_WEBUI" "$WEBUI_DIR"
+		fi
+	fi
+}
+
+# Boot self-heal for rule subscriptions. File-backed providers (domain_set,
+# adguard_rule) abort the whole process when a rule file is missing, and every
+# download/convert path runs *after* plugin initialisation, so OxiDNS can never
+# repair this itself. Seed missing files from the bundled baseline package
+# instead: local copy, no network, no boot delay.
+seed_rule_files() {
+	mkdir -p "$RULES_DIR" 2>/dev/null || true
+	if [ -d "$RULES_BASELINE_DIR" ]; then
+		for rule_file in $RULE_FILES; do
+			[ -s "$RULES_DIR/$rule_file" ] && continue
+			[ -s "$RULES_BASELINE_DIR/$rule_file" ] || continue
+			if cp "$RULES_BASELINE_DIR/$rule_file" "$RULES_DIR/$rule_file"; then
+				logger -t oxidns "seeded $rule_file from rules baseline"
+			fi
+		done
+		if [ ! -s "$RULES_DIR/.installed-version" ] && [ -s "$RULES_BASELINE_DIR/VERSION" ]; then
+			cp "$RULES_BASELINE_DIR/VERSION" "$RULES_DIR/.installed-version" 2>/dev/null
+		fi
+	else
+		logger -t oxidns -p daemon.warn \
+			"rules baseline not installed ($RULES_BASELINE_DIR); cannot seed rule files"
+	fi
+
+	# Report the files that are still missing instead of letting OxiDNS die with
+	# a bare "failed to open text source" line that says nothing about the cause.
+	missing_rules=""
+	for rule_file in $RULE_FILES; do
+		[ -s "$RULES_DIR/$rule_file" ] || missing_rules="$missing_rules $rule_file"
+	done
+	if [ -n "$missing_rules" ]; then
+		logger -t oxidns -p daemon.err "missing rule files:$missing_rules"
+		echo "oxidns: missing rule files:$missing_rules (install oxidns-rules-baseline)" >&2
+	fi
+	return 0
+}
+
+# The prewarm list lives in /etc so it survives sysupgrade. Seed it from the
+# read-only package template only when missing; never overwrite user edits.
+seed_prewarm_file() {
+	[ -s "$PREWARM_FILE" ] && return 0
+	mkdir -p "$PREWARM_DIR" 2>/dev/null || return 1
+	[ -s "$PREWARM_DEFAULT_FILE" ] || return 1
+	if cp "$PREWARM_DEFAULT_FILE" "$PREWARM_FILE" 2>/dev/null; then
+		logger -t oxidns "seeded $PREWARM_FILE from package template"
+	fi
+	return 0
 }
 
 start_service() {
+	# S3: the only place allowed to rewrite /etc/config/oxidns.
+	heal_prewarm_section_id
 	load_oxidns_settings
+	load_prewarm_settings
+	restore_core_links
+	seed_rule_files
+	seed_prewarm_file
 
-	# The core is installed at runtime from the LuCI page, so a missing binary
-	# is a normal state: the service stays inactive and the rpcd status reports
-	# the core as not installed. Reporting it as a boot error only adds noise.
 	if [ ! -x "$PROG" ]; then
-		return 0
+		echo "oxidns binary not found or not executable: $PROG" >&2
+		return 1
 	fi
 	if [ ! -r "$CONFIG_PATH" ]; then
 		echo "oxidns config not found: $CONFIG_PATH" >&2
@@ -33,14 +184,53 @@ start_service() {
 
 	procd_open_instance
 	procd_set_param command "$PROG" start -c "$CONFIG_PATH" -d "$WORKING_DIR"
+	# [API password] The config uses ${OXIDNS_API_PASS}. procd only passes env
+	# vars explicitly declared here; inject the UCI value so the service
+	# process can expand it. Empty value is left unset on purpose (fail closed).
+	if [ -n "$API_PASS" ]; then
+		procd_set_param env OXIDNS_API_PASS="$API_PASS"
+	fi
 	procd_set_param respawn 3600 5 5
 	procd_set_param stdout "$LOG_SYSLOG"
 	procd_set_param stderr "$LOG_SYSLOG"
 	procd_close_instance
+
+	# Prewarmer is a separate procd instance so stopping OxiDNS also stops it.
+	# It re-reads UCI and the list every few seconds, so LuCI edits take effect
+	# without restarting the DNS service.
+	if [ "$PREWARM_ENABLED" = "1" ] && [ -x "$PREWARM_BIN" ]; then
+		procd_open_instance
+		procd_set_param command "$PREWARM_BIN"
+		procd_set_param respawn 3600 5 5
+		procd_set_param stdout "$LOG_SYSLOG"
+		procd_set_param stderr "$LOG_SYSLOG"
+		procd_close_instance
+	fi
 }
 
+# C5: procd_send_signal succeeds even when the daemon ignores SIGHUP. Detect
+# that case (process did not restart) and fall back to a full restart so a
+# config change cannot be silently left inactive.
 reload_service() {
-	procd_send_signal oxidns
+	local old_pid="" new_pid="" try=""
+	old_pid="$(pidof oxidns 2>/dev/null | awk '{ print $1 }')"
+	if ! procd_send_signal oxidns; then
+		logger -t oxidns -p daemon.warn "reload signal failed; restarting service"
+		/etc/init.d/oxidns restart
+		return $?
+	fi
+	[ -n "$old_pid" ] || return 0
+	try=0
+	while [ "$try" -lt 5 ]; do
+		try=$((try + 1))
+		sleep 1
+		new_pid="$(pidof oxidns 2>/dev/null | awk '{ print $1 }')"
+		if [ -n "$new_pid" ] && [ "$new_pid" != "$old_pid" ]; then
+			return 0
+		fi
+	done
+	logger -t oxidns -p daemon.warn "reload signal appears to be ignored; restarting service"
+	/etc/init.d/oxidns restart
 }
 
 service_triggers() {

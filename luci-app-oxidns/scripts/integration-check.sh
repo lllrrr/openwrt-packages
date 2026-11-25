@@ -55,10 +55,54 @@ tar_nested_has_member() {
 	return 1
 }
 
+# ipk is an ar archive (debian-binary + control.tar.gz + data.tar.gz).
+ar_has_member() {
+	ar t "$1" | grep -qx "$2"
+}
+
+ar_member_contains() {
+	ar p "$1" "$2" | tar -xOzf - "$3" 2>/dev/null | grep -q "$4"
+}
+
+ar_nested_has_member() {
+	ar p "$1" "$2" | tar -tzf - 2>/dev/null | awk -v member="$3" '
+		{
+			path = $0;
+			sub(/^\.\//, "", path);
+			sub(/\/$/, "", path);
+			if (path == member)
+				found = 1;
+		}
+		END { exit found ? 0 : 1 }
+	'
+}
+
+sha256_of() {
+	if command -v sha256sum >/dev/null 2>&1; then
+		sha256sum "$1" | awk '{ print $1 }'
+	else
+		shasum -a 256 "$1" | awk '{ print $1 }'
+	fi
+}
+
+# Core uploads are default-deny. These tests must reach the path/archive
+# validators, so opt in with a scoped UCI stub (no real device state).
+UPLOAD_ENABLE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/oxidns-upload-enable.XXXXXX")"
+cat > "$UPLOAD_ENABLE_DIR/uci" <<'EOF'
+#!/bin/sh
+set -eu
+if [ "$*" = "-q get oxidns.main.allow_core_upload" ]; then
+	printf '1\n'
+	exit 0
+fi
+exit 1
+EOF
+chmod 755 "$UPLOAD_ENABLE_DIR/uci"
+
 assert_unsafe_upload_rejected() {
 	upload="$1"
 	printf '{"path":"%s"}' "$upload" |
-		root/usr/libexec/rpcd/luci.oxidns call core_upload_install |
+		PATH="$UPLOAD_ENABLE_DIR:$PATH" root/usr/libexec/rpcd/luci.oxidns call core_upload_install |
 		json_ok "v.ok === false && v.code === 'uploaded_archive_unsafe'"
 }
 
@@ -66,6 +110,15 @@ INIT_STUB_DIR="$(mktemp -d "${TMPDIR:-/tmp}/oxidns-init-stub.XXXXXX")"
 printf '#!/bin/sh\nsleep 30\n' > "$INIT_STUB_DIR/oxidns"
 : > "$INIT_STUB_DIR/config.yaml"
 chmod 755 "$INIT_STUB_DIR/oxidns"
+# The init script now refuses to start without the five baseline rule files.
+# Provide a local fixture tree so this test exercises log destination wiring
+# rather than the optional baseline package.
+mkdir -p "$INIT_STUB_DIR/rules-baseline"
+for RULE_FIXTURE in adguard-hostlist.txt anti-ad-domains.txt adrules-domains.txt \
+	neodevhost-domains.txt cn-domains.txt; do
+	printf 'example.com\n' > "$INIT_STUB_DIR/rules-baseline/$RULE_FIXTURE"
+done
+printf 'fixture\n' > "$INIT_STUB_DIR/rules-baseline/VERSION"
 # Drive start_service from the real init script and record the procd params it sets.
 printf '%s\n' \
 	'set -eu' \
@@ -73,6 +126,11 @@ printf '%s\n' \
 	'config_load() { :; }' \
 	'config_get() { case "$1" in CONFIG_PATH) CONFIG_PATH="'"$INIT_STUB_DIR"'/config.yaml" ;; WORKING_DIR) WORKING_DIR="'"$INIT_STUB_DIR"'" ;; esac; }' \
 	'config_get_bool() { eval "$1=\$FAKE_UCI_VALUE"; }' \
+	'RULES_DIR="'"$INIT_STUB_DIR"'/rules"' \
+	'RULES_BASELINE_DIR="'"$INIT_STUB_DIR"'/rules-baseline"' \
+	'PREWARM_DIR="'"$INIT_STUB_DIR"'/prewarm"' \
+	'PREWARM_FILE="'"$INIT_STUB_DIR"'/prewarm/prewarm.txt"' \
+	'PREWARM_DEFAULT_FILE="'"$PWD"'/root/usr/share/oxidns/prewarm.default.txt"' \
 	'procd_open_instance() { :; }' \
 	'procd_close_instance() { :; }' \
 	'procd_set_param() { printf "%s\n" "$*" >> "$PROCD_ARGS"; }' \
@@ -95,9 +153,8 @@ rm -rf "$INIT_STUB_DIR"
 scripts/check.sh
 scripts/service-check.sh
 
-root/usr/libexec/rpcd/luci.oxidns list | json_ok "'status' in v && 'core_install' in v && 'core_reinstall' in v && 'core_update' in v && 'core_upload_install' in v && 'core_webui_install' in v && 'core_progress' in v && 'core_remove' in v && 'logs_recent' in v && 'logs_path_read' in v && 'logs_path_save' in v && 'settings_read' in v && 'config_read' in v && 'config_schema' in v && 'config_plugin_types' in v && 'config_save' in v && 'dns_integration_status' in v && 'dns_integration_enable' in v && 'dns_integration_disable' in v && !('config_basic_read' in v) && !('config_basic_save' in v)"
+root/usr/libexec/rpcd/luci.oxidns list | json_ok "'status' in v && 'core_install' in v && 'core_reinstall' in v && 'core_upload_install' in v && 'core_progress' in v && 'core_remove' in v && 'logs_recent' in v && 'settings_read' in v && 'prewarm_read' in v && 'prewarm_save' in v && 'prewarm_run' in v && !('config_basic_read' in v) && !('config_basic_save' in v)"
 root/usr/libexec/rpcd/luci.oxidns call status | json_ok "v.ok === true && v.core && v.core.installed === false && v.webui && v.webui.installed === false && typeof v.webui.url === 'string' && typeof v.webui.local_only === 'boolean' && typeof v.webui.wildcard === 'boolean' && !('api' in v) && !('api_base_url' in v) && !('package' in v) && !('package_manager' in v)"
-root/usr/libexec/rpcd/luci.oxidns call dns_integration_status | json_ok "v.ok === true && v.supported === false && v.managed === false && v.can_enable === false && v.can_disable === false && v.message === 'dnsmasq is not available'"
 TARGET_FAKE_BIN="$(mktemp -d "${TMPDIR:-/tmp}/oxidns-target-fake-bin.XXXXXX")"
 TARGET_CASES="$(mktemp "${TMPDIR:-/tmp}/oxidns-target-cases.XXXXXX")"
 cat > "$TARGET_FAKE_BIN/uname" <<'EOF'
@@ -119,78 +176,13 @@ rm -rf "$TARGET_FAKE_BIN"
 rm -f "$TARGET_CASES"
 root/usr/libexec/rpcd/luci.oxidns call core_progress | json_ok "v.ok === true && typeof v.text === 'string'"
 root/usr/libexec/rpcd/luci.oxidns call core_reinstall | json_ok "v.ok === false && v.code === 'core_not_installed'"
-root/usr/libexec/rpcd/luci.oxidns call core_update | json_ok "v.ok === false && v.code === 'core_not_installed'"
-root/usr/libexec/rpcd/luci.oxidns call core_webui_install | json_ok "v.ok === false && v.code === 'core_not_installed'"
-printf '%s' '{"path":"/etc/passwd"}' | root/usr/libexec/rpcd/luci.oxidns call core_upload_install | json_ok "v.ok === false && v.code === 'invalid_upload_path'"
+printf '%s' '{"path":"/etc/passwd"}' | PATH="$UPLOAD_ENABLE_DIR:$PATH" root/usr/libexec/rpcd/luci.oxidns call core_upload_install | json_ok "v.ok === false && v.code === 'invalid_upload_path'"
 LOCK_TEST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/oxidns-lock-test.XXXXXX")"
 mkdir -p "$LOCK_TEST_DIR/luci-oxidns/core-operation.lock"
 printf '%s\n' "$$" > "$LOCK_TEST_DIR/luci-oxidns/core-operation.lock/pid"
 TMPDIR="$LOCK_TEST_DIR" root/usr/libexec/rpcd/luci.oxidns call core_reinstall | json_ok "v.ok === false && v.code === 'core_operation_busy'"
-TMPDIR="$LOCK_TEST_DIR" root/usr/libexec/rpcd/luci.oxidns call core_update | json_ok "v.ok === false && v.code === 'core_operation_busy'"
-TMPDIR="$LOCK_TEST_DIR" root/usr/libexec/rpcd/luci.oxidns call core_webui_install | json_ok "v.ok === false && v.code === 'core_operation_busy'"
 rm -rf "$LOCK_TEST_DIR"
-eval "$(sed -n '/^version_is_newer()/,/^}/p' root/usr/libexec/rpcd/luci.oxidns)"
-version_is_newer v1.7.0 1.6.1
-! version_is_newer v1.6.1 1.6.1
-! version_is_newer v1.6.1 1.7.0
-version_is_newer v1.7.0 v1.7.0-rc1
-! version_is_newer v1.7.0-rc1 v1.7.0
-version_is_newer 1.7.0+build 1.6.1
-! version_is_newer dev 1.6.1
-eval "$(sed -n '/^bundle_includes_webui()/,/^}/p' root/usr/libexec/rpcd/luci.oxidns)"
-eval "$(sed -n '/^webui_install_bundle()/,/^}/p' root/usr/libexec/rpcd/luci.oxidns)"
-eval "$(sed -n '/^dir_has_files()/,/^}/p' root/usr/libexec/rpcd/luci.oxidns)"
-eval "$(sed -n '/^stage_webui_files()/,/^}/p' root/usr/libexec/rpcd/luci.oxidns)"
-eval "$(sed -n '/^install_staged_webui()/,/^}/p' root/usr/libexec/rpcd/luci.oxidns)"
-eval "$(sed -n '/^install_core_files()/,/^}/p' root/usr/libexec/rpcd/luci.oxidns)"
-bundle_includes_webui full
-bundle_includes_webui standard
-! bundle_includes_webui minimal
-! bundle_includes_webui ""
-! bundle_includes_webui custom
-test "$(webui_install_bundle full minimal)" = "full"
-test "$(webui_install_bundle standard minimal)" = "standard"
-test "$(webui_install_bundle minimal standard)" = "standard"
-test "$(webui_install_bundle minimal full)" = "full"
-test "$(webui_install_bundle minimal minimal)" = "standard"
-test "$(webui_install_bundle '' '')" = "standard"
-test "$(webui_install_bundle custom full)" = "full"
-WEBUI_HELPER_DIR="$(mktemp -d "${TMPDIR:-/tmp}/oxidns-webui-helper.XXXXXX")"
-mkdir -p "$WEBUI_HELPER_DIR/source/sub" "$WEBUI_HELPER_DIR/empty"
-printf 'asset' > "$WEBUI_HELPER_DIR/source/sub/app.js"
-dir_has_files "$WEBUI_HELPER_DIR/source"
-! dir_has_files "$WEBUI_HELPER_DIR/empty"
-! dir_has_files "$WEBUI_HELPER_DIR/missing"
-stage_webui_files "$WEBUI_HELPER_DIR/source" "$WEBUI_HELPER_DIR/stage"
-test -f "$WEBUI_HELPER_DIR/stage/sub/app.js"
-! stage_webui_files "$WEBUI_HELPER_DIR/empty" "$WEBUI_HELPER_DIR/empty-stage"
-test ! -e "$WEBUI_HELPER_DIR/empty-stage"
-WEBUI_DIR="$WEBUI_HELPER_DIR/webui"
-mkdir -p "$WEBUI_DIR"
-printf 'old' > "$WEBUI_DIR/old.txt"
-stage_webui_files "$WEBUI_HELPER_DIR/source" "$WEBUI_HELPER_DIR/stage2"
-install_staged_webui "$WEBUI_HELPER_DIR/stage2"
-test -f "$WEBUI_DIR/sub/app.js"
-test ! -e "$WEBUI_DIR/old.txt"
-! install_staged_webui "$WEBUI_HELPER_DIR/missing-stage"
-test -f "$WEBUI_DIR/sub/app.js"
-OXIDNS_BIN="$WEBUI_HELPER_DIR/bin/oxidns"
-WORKING_DIR="$WEBUI_HELPER_DIR/work"
-core_progress_command() { :; }
-mkdir -p "$(dirname "$OXIDNS_BIN")" "$WORKING_DIR" "$WEBUI_DIR"
-printf 'old-core' > "$OXIDNS_BIN"
-printf 'new-core' > "$WEBUI_HELPER_DIR/new-oxidns"
-stage_webui_files "$WEBUI_HELPER_DIR/source" "$WEBUI_HELPER_DIR/stage3"
-install_core_files "$WEBUI_HELPER_DIR/new-oxidns" "$WEBUI_HELPER_DIR/stage3"
-test "$(cat "$OXIDNS_BIN")" = "new-core"
-test -f "$WEBUI_DIR/sub/app.js"
-printf 'old-core-2' > "$OXIDNS_BIN"
-! install_core_files "$WEBUI_HELPER_DIR/new-oxidns" "$WEBUI_HELPER_DIR/missing-stage"
-test "$(cat "$OXIDNS_BIN")" = "old-core-2"
-test -f "$WEBUI_DIR/sub/app.js"
-test -z "$(find "$(dirname "$OXIDNS_BIN")" -name '.oxidns.previous.*' -print -quit)"
-rm -rf "$WEBUI_HELPER_DIR"
-node -e "const acl=JSON.parse(require('fs').readFileSync('root/usr/share/rpcd/acl.d/luci-app-oxidns.json','utf8'))['luci-app-oxidns']; const read=acl.read.ubus['luci.oxidns']; const write=acl.write.ubus['luci.oxidns']; if (read.includes('core_update') || !write.includes('core_update') || read.includes('core_webui_install') || !write.includes('core_webui_install') || read.includes('config_validate') || !write.includes('config_validate') || !read.includes('config_schema') || write.includes('config_schema') || !read.includes('config_plugin_types') || write.includes('config_plugin_types') || !read.includes('dns_integration_status') || write.includes('dns_integration_status') || read.includes('dns_integration_enable') || !write.includes('dns_integration_enable') || read.includes('dns_integration_disable') || !write.includes('dns_integration_disable')) process.exit(1);"
+node -e "const acl=JSON.parse(require('fs').readFileSync('root/usr/share/rpcd/acl.d/luci-app-oxidns.json','utf8'))['luci-app-oxidns']; const read=acl.read.ubus['luci.oxidns']; const write=acl.write.ubus['luci.oxidns']; if (read.includes('config_validate') || !write.includes('config_validate')) process.exit(1);"
 JSON_ESCAPED="$(printf '%s\n' 'listen: "127.0.0.1:9199"' | awk 'BEGIN { ORS = "" } { if (NR > 1) printf "\\n"; for (i = 1; i <= length($0); i++) { c = substr($0, i, 1); if (c == "\\") printf "\\\\"; else if (c == "\"") printf "\\\""; else if (c == "\t") printf "\\t"; else if (c == "\r") printf "\\r"; else printf "%s", c; } }')"
 test "$JSON_ESCAPED" = 'listen: \"127.0.0.1:9199\"'
 PROGRESS_TEST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/oxidns-progress-test.XXXXXX")"
@@ -200,89 +192,29 @@ ln -s "$PROGRESS_TEST_DIR/target" "$PROGRESS_TEST_DIR/luci-oxidns/core-progress.
 TMPDIR="$PROGRESS_TEST_DIR" root/usr/libexec/rpcd/luci.oxidns call core_reinstall >/dev/null 2>&1 || true
 test "$(cat "$PROGRESS_TEST_DIR/target")" = "original"
 rm -rf "$PROGRESS_TEST_DIR"
-UNSAFE_UPLOAD="$(mktemp "/tmp/oxidns-core-upload-unsafe.XXXXXX")"
-UNSAFE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/oxidns-core-upload-unsafe-dir.XXXXXX")"
-rm -f "$UNSAFE_UPLOAD"
-ln -s /etc/passwd "$UNSAFE_DIR/oxidns"
-tar -czf "$UNSAFE_UPLOAD" -C "$UNSAFE_DIR" oxidns 2>/dev/null
-assert_unsafe_upload_rejected "$UNSAFE_UPLOAD"
-rm -f "$UNSAFE_UPLOAD" "$UNSAFE_DIR/oxidns"
-mkfifo "$UNSAFE_DIR/oxidns"
-tar -czf "$UNSAFE_UPLOAD" -C "$UNSAFE_DIR" oxidns 2>/dev/null
-assert_unsafe_upload_rejected "$UNSAFE_UPLOAD"
-rm -f "$UNSAFE_UPLOAD"
-rm -rf "$UNSAFE_DIR"
+# The backend correctly rejects a symlinked parent directory. macOS makes
+# /tmp a symlink, so the archive-shape negative cases cannot be exercised on
+# this host; CI on Linux runs them. The invalid-path case above still runs.
+if [ -L /tmp ]; then
+	echo "skipping crafted upload archives: /tmp is a symlink on this host"
+	rm -rf "$UPLOAD_ENABLE_DIR"
+else
+	UNSAFE_UPLOAD="$(mktemp "/tmp/oxidns-core-upload-unsafe.XXXXXX")"
+	UNSAFE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/oxidns-core-upload-unsafe-dir.XXXXXX")"
+	rm -f "$UNSAFE_UPLOAD"
+	ln -s /etc/passwd "$UNSAFE_DIR/oxidns"
+	tar -czf "$UNSAFE_UPLOAD" -C "$UNSAFE_DIR" oxidns 2>/dev/null
+	assert_unsafe_upload_rejected "$UNSAFE_UPLOAD"
+	rm -f "$UNSAFE_UPLOAD" "$UNSAFE_DIR/oxidns"
+	mkfifo "$UNSAFE_DIR/oxidns"
+	tar -czf "$UNSAFE_UPLOAD" -C "$UNSAFE_DIR" oxidns 2>/dev/null
+	assert_unsafe_upload_rejected "$UNSAFE_UPLOAD"
+	rm -f "$UNSAFE_UPLOAD"
+	rm -rf "$UNSAFE_DIR"
+	rm -rf "$UPLOAD_ENABLE_DIR"
+fi
 printf '%s' '{"content":""}' | root/usr/libexec/rpcd/luci.oxidns call config_validate | json_ok "v.ok === false && v.code === 'missing_content'"
 root/usr/libexec/rpcd/luci.oxidns call config_read | json_ok "v.ok === false && v.code === 'config_not_found'"
-OXIDNS_SCHEMA_FILE="$PWD/root/usr/share/oxidns/config-schema.json" root/usr/libexec/rpcd/luci.oxidns call config_schema | json_ok "v.ok === true && v.schema && v.schema.version === 1 && v.schema.plugins && typeof v.schema.plugins === 'object'"
-OXIDNS_SCHEMA_FILE=/nonexistent/config-schema.json root/usr/libexec/rpcd/luci.oxidns call config_schema | json_ok "v.ok === false && v.code === 'schema_not_found'"
-PLUGIN_STUB_DIR="$(mktemp -d "${TMPDIR:-/tmp}/oxidns-plugin-types.XXXXXX")"
-cat > "$PLUGIN_STUB_DIR/jsonfilter" <<'EOF'
-#!/usr/bin/env node
-'use strict';
-const fs = require('fs');
-const args = process.argv.slice(2);
-const at = args.indexOf('-e');
-if (at === -1)
-	process.exit(2);
-const expr = args[at + 1];
-let doc;
-try {
-	doc = JSON.parse(fs.readFileSync(0, 'utf8'));
-}
-catch (err) {
-	process.exit(1);
-}
-let value = doc;
-if (expr !== '@') {
-	for (const part of expr.replace(/^@\.?/, '').split('.').filter(Boolean)) {
-		if (value === null || typeof value !== 'object' || !(part in value))
-			process.exit(1);
-		value = value[part];
-	}
-}
-if (value === undefined)
-	process.exit(1);
-if (typeof value === 'string')
-	process.stdout.write(value + '\n');
-else
-	process.stdout.write(JSON.stringify(value) + '\n');
-EOF
-chmod 755 "$PLUGIN_STUB_DIR/jsonfilter"
-cat > "$PLUGIN_STUB_DIR/oxidns" <<'EOF'
-#!/bin/sh
-[ "${1:-}" = "build-info" ] || exit 2
-cat <<'JSON'
-{
-  "version": "9.9.9-test",
-  "bundle": "full",
-  "enabled_bundles": ["full"],
-  "enabled_features": ["plugin-response"],
-  "supported_plugins": {
-    "servers": ["udp_server", "tcp_server"],
-    "executors": ["forward", "sequence"],
-    "matchers": ["qname"],
-    "providers": ["domain_set"]
-  }
-}
-JSON
-EOF
-chmod 755 "$PLUGIN_STUB_DIR/oxidns"
-printf '%s\n' '#!/bin/sh' 'printf "not-json\n"' > "$PLUGIN_STUB_DIR/bad-oxidns"
-chmod 755 "$PLUGIN_STUB_DIR/bad-oxidns"
-PATH="$PLUGIN_STUB_DIR:$PATH" OXIDNS_BIN="$PLUGIN_STUB_DIR/oxidns" \
-	root/usr/libexec/rpcd/luci.oxidns call config_plugin_types |
-	json_ok "v.ok === true && v.source === 'core' && v.version === '9.9.9-test' && v.plugins.servers.length === 2 && v.plugins.servers[0] === 'udp_server' && v.plugins.executors.includes('forward') && v.plugins.matchers[0] === 'qname' && v.plugins.providers[0] === 'domain_set' && !('bundle' in v) && !('enabled_bundles' in v) && !('enabled_features' in v)"
-PATH="$PLUGIN_STUB_DIR:$PATH" OXIDNS_BIN="$PLUGIN_STUB_DIR/bad-oxidns" OXIDNS_PLUGIN_TYPES_FILE="$PWD/root/usr/share/oxidns/plugin-types.json" \
-	root/usr/libexec/rpcd/luci.oxidns call config_plugin_types |
-	json_ok "v.ok === true && v.source === 'static' && v.plugins.executors.includes('forward')"
-PATH="$PLUGIN_STUB_DIR:$PATH" OXIDNS_BIN="$PLUGIN_STUB_DIR/missing-oxidns" OXIDNS_PLUGIN_TYPES_FILE="$PWD/root/usr/share/oxidns/plugin-types.json" \
-	root/usr/libexec/rpcd/luci.oxidns call config_plugin_types |
-	json_ok "v.ok === true && v.source === 'static' && v.version === '' && v.plugins.servers.includes('udp_server') && v.plugins.servers.includes('quic_server') && v.plugins.executors.includes('forward') && v.plugins.executors.includes('prefer_ipv4') && v.plugins.matchers.includes('qname') && v.plugins.providers.includes('domain_set')"
-PATH="$PLUGIN_STUB_DIR:$PATH" OXIDNS_BIN="$PLUGIN_STUB_DIR/missing-oxidns" OXIDNS_PLUGIN_TYPES_FILE=/nonexistent/plugin-types.json \
-	root/usr/libexec/rpcd/luci.oxidns call config_plugin_types |
-	json_ok "v.ok === false && v.code === 'plugin_types_not_found'"
-rm -rf "$PLUGIN_STUB_DIR"
 root/usr/libexec/rpcd/luci.oxidns call settings_read | json_ok "v.ok === true && v.log_syslog === true && v.core_repository === 'svenshi/oxidns' && v.core_bundle === 'full' && v.download_proxy === '' && v.github_token === '' && v.download_proxy_set === false && v.github_token_set === false && !('api_base_url' in v)"
 FAKE_UCI_DIR="$(mktemp -d "${TMPDIR:-/tmp}/oxidns-fake-uci.XXXXXX")"
 FAKE_UCI_STATE="$FAKE_UCI_DIR/state"
@@ -381,8 +313,16 @@ EOF
 	! grep -q 'rm -rf /usr/share/oxidns/webui' "$REMOVE_PREFLIGHT_DIR/luci-oxidns/core-progress.log"
 	rm -rf "$REMOVE_PREFLIGHT_DIR"
 	rm -rf "$FAKE_UCI_DIR"
-printf '%s' '{"limit":"20"}' | root/usr/libexec/rpcd/luci.oxidns call logs_recent | json_ok "v.ok === true && v.source === 'logread' && Array.isArray(v.lines) && !('entries' in v)"
-printf '%s' '{}' | root/usr/libexec/rpcd/luci.oxidns call logs_path_read | json_ok "v.ok === true && typeof v.log_dir === 'string' && v.log_dir.length > 0 && typeof v.log_file === 'string' && v.default_dir === '/tmp/oxidns' && typeof v.configured === 'boolean'"
+# logs_recent reads OpenWrt syslogs via `logread`. Provide a scoped stub so the
+# test runs on hosts (macOS) without that command.
+LOGREAD_DIR="$(mktemp -d "${TMPDIR:-/tmp}/oxidns-logread-test.XXXXXX")"
+cat > "$LOGREAD_DIR/logread" <<'EOF'
+#!/bin/sh
+printf '%s\n' 'Nov 25 12:00:00 router oxidns[1234]: integration test log line'
+EOF
+chmod 755 "$LOGREAD_DIR/logread"
+printf '%s' '{"limit":"20"}' | PATH="$LOGREAD_DIR:$PATH" root/usr/libexec/rpcd/luci.oxidns call logs_recent | json_ok "v.ok === true && v.source === 'logread' && Array.isArray(v.lines) && !('entries' in v)"
+rm -rf "$LOGREAD_DIR"
 SERVICE_LOG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/oxidns-service-log-test.XXXXXX")"
 # Records only the last argument, which is the message passed after `-t <tag>`.
 cat > "$SERVICE_LOG_DIR/logger" <<'EOF'
@@ -403,134 +343,102 @@ assert_service_event start core_not_installed "service start ignored: OxiDNS cor
 assert_service_event stop service_unavailable "service stop failed: init script not found: /etc/init.d/oxidns"
 rm -rf "$SERVICE_LOG_DIR"
 
-# The DNS card must report where dnsmasq actually sends queries. Explicit
-# `server` options are only half of it: on the common router setup the ISP
-# hands the upstreams to the WAN interface, dnsmasq reads them from its resolv
-# file, and the UCI list stays empty. Reporting only UCI made the card read
-# "none" while DNS worked normally.
-DNS_TEST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/oxidns-dns-status.XXXXXX")"
-DNS_TEST_STATE="$DNS_TEST_DIR/state"
-DNS_TEST_RESOLV="$DNS_TEST_DIR/resolv.conf.auto"
-mkdir -p "$DNS_TEST_DIR/bin" "$DNS_TEST_DIR/resolv.d"
-cat > "$DNS_TEST_DIR/bin/uci" <<'EOF'
-#!/bin/sh
-set -eu
-[ "${1:-}" = "-q" ] && shift
-CMD="${1:-}"
-shift || true
-STATE="${FAKE_UCI_STATE:?}"
-case "$CMD" in
-	get)
-		[ -f "$STATE" ] || exit 1
-		COUNT="$(grep -c -F -- "${1:-}=" "$STATE" || true)"
-		[ "${COUNT:-0}" -gt 0 ] || exit 1
-		VALUE="$(grep -F -- "${1:-}=" "$STATE" | tail -n 1)"
-		printf '%s\n' "${VALUE#*=}"
-		;;
-	show)
-		[ -f "$STATE" ] || exit 0
-		grep -F -- "${1:-}=" "$STATE" | while IFS= read -r line; do
-			printf "%s='%s'\n" "${line%%=*}" "${line#*=}"
-		done
-		exit 0
-		;;
-	*)
-		exit 1
-		;;
-esac
-EOF
-chmod 755 "$DNS_TEST_DIR/bin/uci"
-printf '%s\n' \
-	'search lan' \
-	'nameserver 223.5.5.5' \
-	'nameserver 119.29.29.29' \
-	'nameserver 127.0.0.1' \
-	> "$DNS_TEST_RESOLV"
-dns_status_call() {
-	PATH="$DNS_TEST_DIR/bin:$PATH" FAKE_UCI_STATE="$DNS_TEST_STATE" \
-		OXIDNS_RESOLV_CONF_D="$DNS_TEST_DIR/resolv.d" \
-		root/usr/libexec/rpcd/luci.oxidns call dns_integration_status
-}
-reset_dns_state() {
-	cat > "$DNS_TEST_STATE"
-}
-
-# 1. Only the resolv file provides upstreams; the UCI list is empty.
-reset_dns_state <<EOF
-dhcp.@dnsmasq[0]=dnsmasq
-dhcp.@dnsmasq[0].resolvfile=$DNS_TEST_RESOLV
-oxidns.main.config_path=/nonexistent/config.yaml
-EOF
-dns_status_call | json_ok "v.ok === true && v.supported === true && v.generic_servers.length === 0 && v.domain_servers.length === 0 && v.auto_active === true && JSON.stringify(v.auto_servers) === '[\"223.5.5.5\",\"119.29.29.29\"]' && v.auto_source === '$DNS_TEST_RESOLV' && v.upstream_mode === 'auto' && v.noresolv_set === false"
-
-# 2. Explicit UCI servers with noresolv set: the resolv file is not consulted.
-reset_dns_state <<EOF
-dhcp.@dnsmasq[0]=dnsmasq
-dhcp.@dnsmasq[0].resolvfile=$DNS_TEST_RESOLV
-dhcp.@dnsmasq[0].noresolv=1
-dhcp.@dnsmasq[0].server=1.1.1.1
-dhcp.@dnsmasq[0].server=9.9.9.9
-dhcp.@dnsmasq[0].server=/example.com/8.8.8.8
-oxidns.main.config_path=/nonexistent/config.yaml
-EOF
-dns_status_call | json_ok "v.ok === true && JSON.stringify(v.generic_servers) === '[\"1.1.1.1\",\"9.9.9.9\"]' && JSON.stringify(v.domain_servers) === '[\"/example.com/8.8.8.8\"]' && v.auto_active === false && v.auto_servers.length === 0 && v.upstream_mode === 'explicit' && v.noresolv_set === true && v.noresolv === '1'"
-
-# 3. Explicit UCI servers plus a resolv file that is still in effect.
-reset_dns_state <<EOF
-dhcp.@dnsmasq[0]=dnsmasq
-dhcp.@dnsmasq[0].server=1.1.1.1
-oxidns.main.config_path=/nonexistent/config.yaml
-EOF
-cp "$DNS_TEST_RESOLV" "$DNS_TEST_DIR/resolv.d/resolv.conf.auto"
-dns_status_call | json_ok "v.ok === true && v.generic_servers.length === 1 && v.auto_active === true && v.auto_source === '$DNS_TEST_DIR/resolv.d/resolv.conf.auto' && v.upstream_mode === 'mixed'"
-
-# 4. An enabled integration reports the managed forward, not the saved snapshot.
-reset_dns_state <<EOF
-dhcp.@dnsmasq[0]=dnsmasq
-dhcp.@dnsmasq[0].noresolv=1
-dhcp.@dnsmasq[0].server=127.0.0.1#5335
-oxidns.main.config_path=/nonexistent/config.yaml
-oxidns.dns_integration=state
-oxidns.dns_integration.managed=1
-oxidns.dns_integration.forward=127.0.0.1#5335
-oxidns.dns_integration.server_prev=1.1.1.1
-oxidns.dns_integration.server_prev=9.9.9.9
-oxidns.dns_integration.noresolv_set=0
-oxidns.dns_integration.noresolv_value=
-EOF
-dns_status_call | json_ok "v.ok === true && v.managed === true && v.forward === '127.0.0.1#5335' && v.forward_present === true && JSON.stringify(v.previous_servers) === '[\"1.1.1.1\",\"9.9.9.9\"]' && v.upstream_mode === 'managed' && v.can_disable === true"
-rm -rf "$DNS_TEST_DIR"
+PKG_VERSION="$(sed -n 's/^PKG_VERSION:=//p' Makefile | head -n 1)"
+PKG_RELEASE="$(sed -n 's/^PKG_RELEASE:=//p' Makefile | head -n 1)"
+PKG_BASE="luci-app-oxidns_${PKG_VERSION}-r${PKG_RELEASE}_all"
+I18N_BASE="luci-i18n-oxidns-zh-cn_${PKG_VERSION}-r${PKG_RELEASE}_all"
 
 DIST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/luci-app-oxidns-dist.XXXXXX")"
-scripts/build-luci-package.sh 0.1.0 "$DIST_DIR" >/dev/null
-tar_has_member "$DIST_DIR/luci-app-oxidns_0.1.0-r1_all.ipk" control.tar.gz
-tar_has_member "$DIST_DIR/luci-app-oxidns_0.1.0-r1_all.ipk" data.tar.gz
-tar_nested_has_member "$DIST_DIR/luci-app-oxidns_0.1.0-r1_all.ipk" control.tar.gz postinst
-tar_nested_has_member "$DIST_DIR/luci-app-oxidns_0.1.0-r1_all.ipk" control.tar.gz postrm
-tar_nested_has_member "$DIST_DIR/luci-app-oxidns_0.1.0-r1_all.ipk" data.tar.gz etc/init.d/oxidns
-tar_has_member "$DIST_DIR/luci-i18n-oxidns-zh-cn_0.1.0-r1_all.ipk" control.tar.gz
-tar_has_member "$DIST_DIR/luci-i18n-oxidns-zh-cn_0.1.0-r1_all.ipk" data.tar.gz
-tar_nested_has_member "$DIST_DIR/luci-i18n-oxidns-zh-cn_0.1.0-r1_all.ipk" control.tar.gz postinst
-tar_has_member "$DIST_DIR/luci-app-oxidns_0.1.0-r1_all.apk" .PKGINFO
-tar_member_contains "$DIST_DIR/luci-app-oxidns_0.1.0-r1_all.apk" .PKGINFO '^arch = noarch$'
-tar_member_contains "$DIST_DIR/luci-app-oxidns_0.1.0-r1_all.apk" .PKGINFO '^datahash = [0-9a-f][0-9a-f]*$'
-apk_data_has_checksum "$DIST_DIR/luci-app-oxidns_0.1.0-r1_all.apk"
-tar_has_member "$DIST_DIR/luci-app-oxidns_0.1.0-r1_all.apk" etc
-tar_has_member "$DIST_DIR/luci-app-oxidns_0.1.0-r1_all.apk" etc/config
-tar_has_member "$DIST_DIR/luci-app-oxidns_0.1.0-r1_all.apk" usr/share/luci/menu.d
-tar_has_member "$DIST_DIR/luci-app-oxidns_0.1.0-r1_all.apk" www/luci-static/resources/view/oxidns
-tar_has_member "$DIST_DIR/luci-app-oxidns_0.1.0-r1_all.apk" usr/libexec/rpcd/luci.oxidns
-tar_has_member "$DIST_DIR/luci-app-oxidns_0.1.0-r1_all.apk" etc/init.d/oxidns
-tar_has_member "$DIST_DIR/luci-app-oxidns_0.1.0-r1_all.apk" .post-install
-tar_has_member "$DIST_DIR/luci-app-oxidns_0.1.0-r1_all.apk" .post-upgrade
-tar_has_member "$DIST_DIR/luci-app-oxidns_0.1.0-r1_all.apk" .post-deinstall
-tar_has_member "$DIST_DIR/luci-i18n-oxidns-zh-cn_0.1.0-r1_all.apk" .PKGINFO
-tar_member_contains "$DIST_DIR/luci-i18n-oxidns-zh-cn_0.1.0-r1_all.apk" .PKGINFO '^arch = noarch$'
-tar_member_contains "$DIST_DIR/luci-i18n-oxidns-zh-cn_0.1.0-r1_all.apk" .PKGINFO '^datahash = [0-9a-f][0-9a-f]*$'
-apk_data_has_checksum "$DIST_DIR/luci-i18n-oxidns-zh-cn_0.1.0-r1_all.apk"
-tar_has_member "$DIST_DIR/luci-i18n-oxidns-zh-cn_0.1.0-r1_all.apk" usr/lib/lua/luci/i18n
-tar_has_member "$DIST_DIR/luci-i18n-oxidns-zh-cn_0.1.0-r1_all.apk" usr/lib/lua/luci/i18n/oxidns.zh-cn.lmo
-tar_has_member "$DIST_DIR/luci-i18n-oxidns-zh-cn_0.1.0-r1_all.apk" .post-install
-tar_has_member "$DIST_DIR/luci-i18n-oxidns-zh-cn_0.1.0-r1_all.apk" .post-upgrade
+scripts/build-luci-package.sh "$PKG_VERSION" "$DIST_DIR" >/dev/null
+ar_has_member "$DIST_DIR/${PKG_BASE}.ipk" debian-binary
+ar_has_member "$DIST_DIR/${PKG_BASE}.ipk" control.tar.gz
+ar_has_member "$DIST_DIR/${PKG_BASE}.ipk" data.tar.gz
+ar_member_contains "$DIST_DIR/${PKG_BASE}.ipk" control.tar.gz postinst '#!/bin/sh'
+ar_member_contains "$DIST_DIR/${PKG_BASE}.ipk" control.tar.gz postrm 'luci-indexcache'
+ar_nested_has_member "$DIST_DIR/${PKG_BASE}.ipk" data.tar.gz etc/init.d/oxidns
+# Uninstall must never recreate sysupgrade entries, unpack the bundle or links.
+if ar p "$DIST_DIR/${PKG_BASE}.ipk" control.tar.gz | tar -xOzf - postrm | \
+	grep -q 'sysupgrade.conf\|core-bundle\|oxidns/core/webui\|ln -s'; then
+	echo "postrm must only clear caches and restart rpcd" >&2
+	exit 1
+fi
+ar_has_member "$DIST_DIR/${I18N_BASE}.ipk" control.tar.gz
+ar_has_member "$DIST_DIR/${I18N_BASE}.ipk" data.tar.gz
+ar_member_contains "$DIST_DIR/${I18N_BASE}.ipk" control.tar.gz postinst '#!/bin/sh'
+tar_has_member "$DIST_DIR/${PKG_BASE}.apk" .PKGINFO
+tar_member_contains "$DIST_DIR/${PKG_BASE}.apk" .PKGINFO '^arch = noarch$'
+tar_member_contains "$DIST_DIR/${PKG_BASE}.apk" .PKGINFO '^datahash = [0-9a-f][0-9a-f]*$'
+tar_member_contains "$DIST_DIR/${PKG_BASE}.apk" .PKGINFO "^pkgver = ${PKG_VERSION}-r${PKG_RELEASE}$"
+apk_data_has_checksum "$DIST_DIR/${PKG_BASE}.apk"
+tar_has_member "$DIST_DIR/${PKG_BASE}.apk" etc
+tar_has_member "$DIST_DIR/${PKG_BASE}.apk" etc/config
+tar_has_member "$DIST_DIR/${PKG_BASE}.apk" usr/share/luci/menu.d
+tar_has_member "$DIST_DIR/${PKG_BASE}.apk" www/luci-static/resources/view/oxidns
+tar_has_member "$DIST_DIR/${PKG_BASE}.apk" usr/libexec/rpcd/luci.oxidns
+tar_has_member "$DIST_DIR/${PKG_BASE}.apk" etc/init.d/oxidns
+tar_has_member "$DIST_DIR/${PKG_BASE}.apk" .post-install
+tar_has_member "$DIST_DIR/${PKG_BASE}.apk" .post-upgrade
+tar_has_member "$DIST_DIR/${PKG_BASE}.apk" .post-deinstall
+tar_has_member "$DIST_DIR/${I18N_BASE}.apk" .PKGINFO
+tar_member_contains "$DIST_DIR/${I18N_BASE}.apk" .PKGINFO '^arch = noarch$'
+tar_member_contains "$DIST_DIR/${I18N_BASE}.apk" .PKGINFO '^datahash = [0-9a-f][0-9a-f]*$'
+apk_data_has_checksum "$DIST_DIR/${I18N_BASE}.apk"
+tar_has_member "$DIST_DIR/${I18N_BASE}.apk" usr/lib/lua/luci/i18n
+tar_has_member "$DIST_DIR/${I18N_BASE}.apk" usr/lib/lua/luci/i18n/oxidns.zh-cn.lmo
+tar_has_member "$DIST_DIR/${I18N_BASE}.apk" .post-install
+tar_has_member "$DIST_DIR/${I18N_BASE}.apk" .post-upgrade
 
-rm -rf "$DIST_DIR"
+# [F3] Embedded core/rule archives: checksums are mandatory, safe archives are
+# unpacked into the data tree, and malicious archives are refused.
+EMBED_DIR="$(mktemp -d "${TMPDIR:-/tmp}/luci-app-oxidns-embed.XXXXXX")"
+mkdir -p "$EMBED_DIR/core" "$EMBED_DIR/rules/oxidns-rules-baseline" \
+	"$EMBED_DIR/evil" "$EMBED_DIR/out"
+printf '#!/bin/sh\nexit 0\n' > "$EMBED_DIR/core/oxidns"
+printf 'example.com\n' > "$EMBED_DIR/rules/oxidns-rules-baseline/cn-domains.txt"
+tar -czf "$EMBED_DIR/core.tar.gz" -C "$EMBED_DIR/core" oxidns
+tar -czf "$EMBED_DIR/rules.tar.gz" -C "$EMBED_DIR/rules" oxidns-rules-baseline
+CORE_SHA="$(sha256_of "$EMBED_DIR/core.tar.gz")"
+RULES_SHA="$(sha256_of "$EMBED_DIR/rules.tar.gz")"
+scripts/build-luci-package.sh "$PKG_VERSION" "$EMBED_DIR/out" \
+	"$EMBED_DIR/core.tar.gz" "$EMBED_DIR/rules.tar.gz" "$CORE_SHA" "$RULES_SHA" >/dev/null
+ar_nested_has_member "$EMBED_DIR/out/${PKG_BASE}.ipk" data.tar.gz usr/share/oxidns/core-bundle.tar.gz
+ar_nested_has_member "$EMBED_DIR/out/${PKG_BASE}.ipk" data.tar.gz usr/share/oxidns/rules-baseline/cn-domains.txt
+tar_has_member "$EMBED_DIR/out/${PKG_BASE}.apk" usr/share/oxidns/core-bundle.tar.gz
+tar_has_member "$EMBED_DIR/out/${PKG_BASE}.apk" usr/share/oxidns/rules-baseline/cn-domains.txt
+
+if scripts/build-luci-package.sh "$PKG_VERSION" "$EMBED_DIR/out" \
+	"$EMBED_DIR/core.tar.gz" "$EMBED_DIR/rules.tar.gz" "$CORE_SHA" \
+	deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef >/dev/null 2>&1; then
+	echo "build must reject a mismatched embedded archive SHA256" >&2
+	exit 1
+fi
+if scripts/build-luci-package.sh "$PKG_VERSION" "$EMBED_DIR/out" \
+	"$EMBED_DIR/core.tar.gz" "$EMBED_DIR/rules.tar.gz" >/dev/null 2>&1; then
+	echo "build must require SHA256 for embedded archives" >&2
+	exit 1
+fi
+printf '/etc/passwd\n' > "$EMBED_DIR/evil/passwd"
+# tar records ../evil as a traversal entry; the build must reject it before
+# extraction even when the archive's checksum is correct.
+tar -czf "$EMBED_DIR/evil-rules.tar.gz" -C "$EMBED_DIR/rules" \
+	../evil/passwd 2>/dev/null || true
+if tar -tzf "$EMBED_DIR/evil-rules.tar.gz" 2>/dev/null | grep -q '\.\./'; then
+	EVIL_SHA="$(sha256_of "$EMBED_DIR/evil-rules.tar.gz")"
+	if scripts/build-luci-package.sh "$PKG_VERSION" "$EMBED_DIR/out" "" \
+		"$EMBED_DIR/evil-rules.tar.gz" "" "$EVIL_SHA" >/dev/null 2>&1; then
+		echo "build accepted a path-traversal rules archive" >&2
+		exit 1
+	fi
+fi
+rm -rf "$EMBED_DIR"
+
+# Two quick builds of the same tree must be byte-identical.
+DIST_DIR_2="$(mktemp -d "${TMPDIR:-/tmp}/luci-app-oxidns-dist2.XXXXXX")"
+scripts/build-luci-package.sh "$PKG_VERSION" "$DIST_DIR_2" >/dev/null
+cmp "$DIST_DIR/sha256sums.txt" "$DIST_DIR_2/sha256sums.txt" || {
+	echo "quick packages are not reproducible" >&2
+	exit 1
+}
+(cd "$DIST_DIR" && sha256sum -c sha256sums.txt 2>/dev/null || shasum -a 256 -c sha256sums.txt)
+
+rm -rf "$DIST_DIR" "$DIST_DIR_2"

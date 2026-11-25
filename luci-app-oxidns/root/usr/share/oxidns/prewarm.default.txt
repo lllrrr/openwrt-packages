@@ -1,0 +1,119 @@
+# OxiDNS 预热列表 / Prewarm list
+# 每行一个域名；空行和以 # 开头的行会被忽略。
+# One domain per line. Blank lines and lines starting with # are ignored.
+# A 和 AAAA 记录都会预热；修改后下一轮生效，也可在 LuCI 点击“立即预热”。
+# Both A and AAAA records are warmed. Changes apply on the next pass; use "Run now" to apply immediately.
+
+# ---- GitHub ----
+github.com
+www.github.com
+api.github.com
+gist.github.com
+codeload.github.com
+ssh.github.com
+docs.github.com
+help.github.com
+github.io
+github.blog
+raw.githubusercontent.com
+githubusercontent.com
+avatars.githubusercontent.com
+media.githubusercontent.com
+objects.githubusercontent.com
+camo.githubusercontent.com
+github.githubassets.com
+release-assets.githubusercontent.com
+
+# ---- Google ----
+google.com
+www.google.com
+accounts.google.com
+apis.google.com
+clients1.google.com
+clients2.google.com
+clients4.google.com
+play.google.com
+drive.google.com
+docs.google.com
+sheets.google.com
+mail.google.com
+googleapis.com
+ajax.googleapis.com
+translate.googleapis.com
+fonts.googleapis.com
+gstatic.com
+fonts.gstatic.com
+www.gstatic.com
+ssl.gstatic.com
+googleusercontent.com
+lh3.googleusercontent.com
+lh4.googleusercontent.com
+safebrowsing.googleapis.com
+update.googleapis.com
+
+# ---- YouTube ----
+youtube.com
+www.youtube.com
+m.youtube.com
+music.youtube.com
+youtube-nocookie.com
+www.youtube-nocookie.com
+ytimg.com
+i.ytimg.com
+i9.ytimg.com
+s.ytimg.com
+ggpht.com
+yt3.ggpht.com
+yt4.ggpht.com
+googlevideo.com
+i.googlevideo.com
+manifest.googlevideo.com
+redirector.googlevideo.com
+youtubei.googleapis.com
+jnn-pa.googleapis.com
+video.google.com
+
+# ---- ChatGPT / OpenAI ----
+chatgpt.com
+www.chatgpt.com
+chat.openai.com
+openai.com
+www.openai.com
+api.openai.com
+platform.openai.com
+cdn.openai.com
+oaistatic.com
+persistent.oaistatic.com
+oaiusercontent.com
+files.oaiusercontent.com
+
+# =============================================================================
+# 排除清单 / Excluded domains （以下均为注释，不会被预热）
+#
+# 这些域名默认列表曾收录，实测会被广告规则（anti-AD / AdRules / neodevhost /
+# AdGuard / geosite:ads）命中而进入 black_hole，无法写入缓存，预热无意义。
+# 另注：权威 DNS 把这些域名解析到 0.0.0.0（A）、无 AAAA，属于 Google 主动黑洞。
+# 保留在此作为样本，新增域名前请先对照，避免把广告/统计域名加入预热。
+#
+# 格式: 域名 [A 记录 / AAAA 记录]，采样自 8.8.8.8 / 1.1.1.1 / 223.5.5.5
+#
+# ---- Google Analytics 统计 ----
+# www.google-analytics.com           [A 0.0.0.0 / AAAA none]
+# ssl.google-analytics.com           [A 0.0.0.0 / AAAA none]
+# ---- Google Tag Manager 统计 ----
+# googletagmanager.com               [A 0.0.0.0 / AAAA none]
+# www.googletagmanager.com           [A 0.0.0.0 / AAAA none]
+# ---- Google AdServices 广告 ----
+# googleadservices.com               [A 0.0.0.0 / AAAA none]
+# www.googleadservices.com           [A 0.0.0.0 / AAAA none]
+# ---- DoubleClick 广告 ----
+# doubleclick.net                    [A 0.0.0.0 / AAAA none]
+# googleads.g.doubleclick.net        [A 0.0.0.0 / AAAA none]
+# static.doubleclick.net             [A 0.0.0.0 / AAAA none]
+# pubads.g.doubleclick.net           [A 0.0.0.0 / AAAA none]
+# securepubads.g.doubleclick.net     [A 0.0.0.0 / AAAA none]
+# ---- Google AdSense 广告 ----
+# googlesyndication.com              [A 0.0.0.0 / AAAA none]
+# pagead2.googlesyndication.com      [A 0.0.0.0 / AAAA none]
+# tpc.googlesyndication.com          [A 0.0.0.0 / AAAA none]
+# =============================================================================

@@ -1,0 +1,303 @@
+#!/bin/sh
+# Warm the OxiDNS cache by querying a local/listener address for every
+# configured domain (A and AAAA). Kept outside the OxiDNS core so this works
+# with release-installed binaries; all rules of the selected listener apply.
+set -u
+
+PREWARM_DIR="${PREWARM_DIR:-/etc/oxidns}"
+PREWARM_FILE="${PREWARM_FILE:-$PREWARM_DIR/prewarm.txt}"
+PREWARM_DEFAULT_FILE="${PREWARM_DEFAULT_FILE:-/usr/share/oxidns/prewarm.default.txt}"
+PREWARM_CONCURRENCY="${PREWARM_CONCURRENCY:-4}"
+PREWARM_QUERY_TIMEOUT="${PREWARM_QUERY_TIMEOUT:-2}"
+PREWARM_RETRIES="${PREWARM_RETRIES:-1}"
+TMP_ROOT="${TMPDIR:-/tmp}"
+
+case "$PREWARM_QUERY_TIMEOUT" in
+	''|*[!0-9]*) PREWARM_QUERY_TIMEOUT=2 ;;
+	*)
+		if [ "$PREWARM_QUERY_TIMEOUT" -lt 1 ] || [ "$PREWARM_QUERY_TIMEOUT" -gt 60 ]; then
+			PREWARM_QUERY_TIMEOUT=2
+		fi
+		;;
+esac
+case "$PREWARM_RETRIES" in
+	''|*[!0-9]*) PREWARM_RETRIES=1 ;;
+	*)
+		if [ "$PREWARM_RETRIES" -lt 0 ] || [ "$PREWARM_RETRIES" -gt 5 ]; then
+			PREWARM_RETRIES=1
+		fi
+		;;
+esac
+
+ENABLED=1
+PROTOCOL=udp
+SERVER=127.0.0.1
+PORT=5333
+INTERVAL=3000
+WORK_DIR=""
+
+log() {
+	logger -t oxidns-prewarm "$*" 2>/dev/null || true
+}
+
+fail() {
+	MESSAGE="$1"
+	FAIL_CODE="${2:-1}"
+	log "$MESSAGE"
+	printf '%s\n' "$MESSAGE" >&2
+	exit "$FAIL_CODE"
+}
+
+cleanup() {
+	[ -n "$WORK_DIR" ] || return 0
+	rm -rf "$WORK_DIR" 2>/dev/null || true
+	WORK_DIR=""
+}
+
+trap cleanup EXIT HUP INT TERM
+
+load_settings() {
+	ENABLED=1
+	PROTOCOL=udp
+	SERVER=127.0.0.1
+	PORT=5333
+	INTERVAL=3000
+
+	command -v uci >/dev/null 2>&1 || return 0
+	ENABLED="$(uci -q get oxidns.prewarm.enabled 2>/dev/null || printf '1')"
+	PROTOCOL="$(uci -q get oxidns.prewarm.protocol 2>/dev/null || printf 'udp')"
+	SERVER="$(uci -q get oxidns.prewarm.server 2>/dev/null || printf '127.0.0.1')"
+	PORT="$(uci -q get oxidns.prewarm.port 2>/dev/null || printf '5333')"
+	INTERVAL="$(uci -q get oxidns.prewarm.interval 2>/dev/null || printf '3000')"
+
+	case "$ENABLED" in
+		0|1) ;;
+		*) ENABLED=1 ;;
+	esac
+	case "$PROTOCOL" in
+		udp|tcp) ;;
+		*) PROTOCOL=udp ;;
+	esac
+	case "$SERVER" in
+		127.0.0.1|192.168.1.1) ;;
+		*) SERVER=127.0.0.1 ;;
+	esac
+	case "$PORT" in
+		''|*[!0-9]*) PORT=5333 ;;
+		*)
+			if [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
+				PORT=5333
+			fi
+			;;
+	esac
+	case "$INTERVAL" in
+		''|*[!0-9]*) INTERVAL=3000 ;;
+		*)
+			# Mirror rpcd prewarm_save: 0 = run once, otherwise 60..86400.
+			if [ "$INTERVAL" -ne 0 ] && [ "$INTERVAL" -lt 60 ]; then
+				INTERVAL=3000
+			elif [ "$INTERVAL" -gt 86400 ]; then
+				INTERVAL=86400
+			fi
+			;;
+	esac
+}
+
+seed_file() {
+	[ -s "$PREWARM_FILE" ] && [ ! -L "$PREWARM_FILE" ] && return 0
+	[ ! -L "$PREWARM_DIR" ] || return 1
+	mkdir -p "$PREWARM_DIR" 2>/dev/null || return 1
+	[ -s "$PREWARM_DEFAULT_FILE" ] || return 1
+	if cp "$PREWARM_DEFAULT_FILE" "$PREWARM_FILE" 2>/dev/null; then
+		log "seeded default domain list"
+		return 0
+	fi
+	return 1
+}
+
+build_jobs() {
+	awk '
+		{
+			sub(/\r$/, "")
+			gsub(/^[[:space:]]+/, "")
+			gsub(/[[:space:]]+$/, "")
+			if ($0 == "" || substr($0, 1, 1) == "#")
+				next
+			if ($0 ~ /[^A-Za-z0-9._-]/)
+				next
+			print tolower($0)
+		}
+	' "$PREWARM_FILE" 2>/dev/null | sort -u | awk '{ print "A " $0; print "AAAA " $0 }'
+}
+
+# C2: BusyBox builds differ on the custom-port option. Prefer nslookup on
+# stock OpenWrt, detect -port/-p from its usage text, and fall back to dig if
+# nslookup cannot set the port. Probe stderr is kept for diagnostics.
+detect_query_tool() {
+	QUERY_TOOL=""
+	NSLOOKUP_PORT_FLAG=""
+	if command -v nslookup >/dev/null 2>&1; then
+		QUERY_TOOL=nslookup
+		USAGE_TEXT="$(nslookup --help 2>&1 || true)"
+		[ -n "$USAGE_TEXT" ] || USAGE_TEXT="$(nslookup -help 2>&1 || true)"
+		case "$USAGE_TEXT" in
+			*'-port'*) NSLOOKUP_PORT_FLAG='-port' ;;
+			*'-p '* | *'-p='*) NSLOOKUP_PORT_FLAG='-p' ;;
+			*)
+				if command -v dig >/dev/null 2>&1; then
+					QUERY_TOOL=dig
+				else
+					PROBE_ERR="$WORK_DIR/nslookup-probe.err"
+					nslookup -type=A -port="$PORT" "$SERVER" "$SERVER" >/dev/null 2>"$PROBE_ERR" || true
+					PROBE_TEXT="$(sed -n '1,2p' "$PROBE_ERR" 2>/dev/null | tr '\n' ' ')"
+					fail "dependency_missing: nslookup does not support a custom DNS port: ${PROBE_TEXT:-unknown}" 2
+				fi
+				;;
+		esac
+	elif command -v dig >/dev/null 2>&1; then
+		QUERY_TOOL=dig
+	else
+		fail "dependency_missing: neither dig nor nslookup is installed" 2
+	fi
+}
+
+run_query_job() {
+	qtype="$1"
+	name="$2"
+	err_file="$3"
+	if [ "$QUERY_TOOL" = "dig" ]; then
+		tcp_flag=""
+		[ "$PROTOCOL" = "tcp" ] && tcp_flag="+tcp"
+		dig +time="$PREWARM_QUERY_TIMEOUT" +tries="$PREWARM_RETRIES" \
+			@"$SERVER" -p "$PORT" $tcp_flag "$qtype" "$name" \
+			>/dev/null 2>"$err_file"
+	elif [ "$NSLOOKUP_PORT_FLAG" = "-p" ]; then
+		nslookup -type="$qtype" -p "$PORT" "$name" "$SERVER" \
+			>/dev/null 2>"$err_file"
+	else
+		nslookup -type="$qtype" "-port=$PORT" "$name" "$SERVER" \
+			>/dev/null 2>"$err_file"
+	fi
+}
+
+# P3/P4: one worker per bounded queue. A slow domain only blocks its own
+# worker instead of holding up the whole batch, and only one aggregate line is
+# logged per pass.
+run_worker() {
+	queue_file="$1"
+	while read -r job_id qtype name; do
+		[ -n "$job_id" ] && [ -n "$qtype" ] && [ -n "$name" ] || continue
+		ERR_FILE="$WORK_DIR/err.$job_id"
+		if run_query_job "$qtype" "$name" "$ERR_FILE"; then
+			: > "$WORK_DIR/results/ok.$job_id"
+		else
+			: > "$WORK_DIR/results/failed.$job_id"
+		fi
+	done < "$queue_file"
+}
+
+run_pass() {
+	if ! seed_file; then
+		fail "domain list unavailable: $PREWARM_FILE" 1
+	fi
+
+	if ! command -v mktemp >/dev/null 2>&1; then
+		fail "dependency_missing: mktemp is not installed" 2
+	fi
+	for REQUIRED_CMD in awk sort wc find rm sed tr chmod date sleep mkdir logger; do
+		if ! command -v "$REQUIRED_CMD" >/dev/null 2>&1; then
+			fail "dependency_missing: $REQUIRED_CMD is not installed" 2
+		fi
+	done
+	WORK_DIR="$(mktemp -d "$TMP_ROOT/oxidns-prewarm.XXXXXX" 2>/dev/null || true)"
+	[ -n "$WORK_DIR" ] || fail "cannot create a private temporary directory" 1
+	chmod 700 "$WORK_DIR" 2>/dev/null || true
+	mkdir -p "$WORK_DIR/results" 2>/dev/null || fail "cannot create the result directory" 1
+
+	JOBS_FILE="$WORK_DIR/jobs"
+	if ! build_jobs > "$JOBS_FILE"; then
+		fail "cannot build the prewarm job list" 1
+	fi
+	JOB_COUNT="$(wc -l < "$JOBS_FILE" 2>/dev/null || printf '0')"
+	case "$JOB_COUNT" in
+		''|*[!0-9]*) JOB_COUNT=0 ;;
+	esac
+	if [ "$JOB_COUNT" -eq 0 ]; then
+		log "domain list is empty"
+		return 0
+	fi
+
+	case "$PREWARM_CONCURRENCY" in
+		''|*[!0-9]*) WORKERS=4 ;;
+		*)
+			WORKERS="$PREWARM_CONCURRENCY"
+			if [ "$WORKERS" -lt 1 ] || [ "$WORKERS" -gt 32 ]; then
+				WORKERS=4
+			fi
+			;;
+	esac
+	[ "$WORKERS" -le "$JOB_COUNT" ] || WORKERS="$JOB_COUNT"
+
+	detect_query_tool
+
+	if ! awk -v workers="$WORKERS" -v dir="$WORK_DIR" '
+		{
+			idx = (NR - 1) % workers + 1;
+			print NR, $1, $2 > (dir "/queue." idx);
+		}
+	' "$JOBS_FILE"; then
+		fail "cannot split the prewarm job list" 1
+	fi
+
+	worker_idx=1
+	while [ "$worker_idx" -le "$WORKERS" ]; do
+		run_worker "$WORK_DIR/queue.$worker_idx" &
+		worker_idx=$((worker_idx + 1))
+	done
+	wait
+
+	FAILED_COUNT="$(find "$WORK_DIR/results" -type f -name 'failed.*' 2>/dev/null | wc -l | tr -d ' ')"
+	OK_COUNT="$(find "$WORK_DIR/results" -type f -name 'ok.*' 2>/dev/null | wc -l | tr -d ' ')"
+	case "$FAILED_COUNT" in ''|*[!0-9]*) FAILED_COUNT=0 ;; esac
+	case "$OK_COUNT" in ''|*[!0-9]*) OK_COUNT=0 ;; esac
+
+	# Keep diagnostics bounded: at most three distinct first lines.
+	ERROR_SAMPLE="$(for ERR_FILE in "$WORK_DIR"/err.*; do
+		[ -s "$ERR_FILE" ] || continue
+		sed -n '1,2p' "$ERR_FILE"
+	done 2>/dev/null | awk '{ print substr($0, 1, 160) }' | sort -u | sed -n '1,3p' | tr '\n' ';')"
+	log "refreshed $OK_COUNT/$JOB_COUNT queries via $PROTOCOL $SERVER:$PORT (failed=$FAILED_COUNT, tool=$QUERY_TOOL)${ERROR_SAMPLE:+} errors=$ERROR_SAMPLE"
+	rm -rf "$WORK_DIR" 2>/dev/null || true
+	WORK_DIR=""
+	return 0
+}
+
+if [ "${1:-}" = "--once" ]; then
+	load_settings
+	run_pass
+	exit $?
+fi
+
+LAST_INTERVAL=""
+NEXT_RUN=0
+while :; do
+	load_settings
+	NOW="$(date +%s 2>/dev/null || printf '0')"
+	DUE=0
+	if [ "$INTERVAL" != "$LAST_INTERVAL" ]; then
+		DUE=1
+		LAST_INTERVAL="$INTERVAL"
+	fi
+	if [ "$ENABLED" = "1" ] && { [ "$DUE" = "1" ] || [ "$NOW" -ge "$NEXT_RUN" ]; }; then
+		run_pass || true
+		if [ "$INTERVAL" -gt 0 ]; then
+			NEXT_RUN=$((NOW + INTERVAL))
+		else
+			# 0 = run once (at start / on config change), matching the UI text
+			# "0 = run once at service start". No periodic re-run; a future
+			# interval change still fires immediately via the DUE=1 path.
+			NEXT_RUN=$((NOW + 31536000))
+		fi
+	fi
+	sleep 5
+done

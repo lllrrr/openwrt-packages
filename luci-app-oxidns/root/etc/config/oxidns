@@ -4,5 +4,30 @@ config settings 'main'
 	option config_path '/etc/oxidns/config.yaml'
 	option working_dir '/var/lib/oxidns'
 	option log_syslog '1'
+	option persist_core '1'
 	option github_token ''
 	option download_proxy ''
+	# API 密码：配置里写 ${OXIDNS_API_PASS} 时，两处脚本从这里取值注入环境。
+	# 留空 = 不注入，oxidns 会因变量未定义而启动/检查失败（fail closed）。
+	option api_pass ''
+	# S2: core_upload_install is disabled by default. Installing an arbitrary
+	# uploaded executable as root is only permitted after an administrator
+	# explicitly sets this to '1' and grants the separate ACL group
+	# luci-app-oxidns-core-upload. Restart remains the only intended execution
+	# path; uploaded binaries are never executed during validation/reporting.
+	option allow_core_upload '0'
+	# S4: optional SHA256 pins for geoip.dat / geosite.dat downloads.
+	# Empty means "no pin"; a non-empty value must be a 64-hex digest.
+	option geoip_sha256 ''
+	option geosite_sha256 ''
+
+# Section ID must be 'prewarm', not 'main': rpcd/init.d read these via
+# `uci get oxidns.prewarm.*`. Reusing the 'main' ID collides with the
+# settings section above and makes `uci get oxidns.main.api_pass` return
+# empty, which breaks ${OXIDNS_API_PASS} expansion in the UI check.
+config prewarm 'prewarm'
+	option enabled '1'
+	option protocol 'udp'
+	option server '127.0.0.1'
+	option port '5333'
+	option interval '3000'

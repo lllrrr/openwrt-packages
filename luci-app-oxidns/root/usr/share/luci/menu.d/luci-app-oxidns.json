@@ -10,7 +10,7 @@
 		}
 	},
 	"admin/services/oxidns/overview": {
-		"title": "Basic Information",
+		"title": "Overview",
 		"order": 10,
 		"action": {
 			"type": "view",
@@ -20,8 +20,63 @@
 			"acl": [ "luci-app-oxidns" ]
 		}
 	},
+	"admin/services/oxidns/core": {
+		"title": "Core",
+		"order": 20,
+		"action": {
+			"type": "view",
+			"path": "oxidns/core"
+		},
+		"depends": {
+			"acl": [ "luci-app-oxidns" ]
+		}
+	},
+	"admin/services/oxidns/hijack": {
+		"title": "DNS Hijack",
+		"order": 22,
+		"action": {
+			"type": "view",
+			"path": "oxidns/hijack"
+		},
+		"depends": {
+			"acl": [ "luci-app-oxidns" ]
+		}
+	},
+	"admin/services/oxidns/rules": {
+		"title": "Rules",
+		"order": 25,
+		"action": {
+			"type": "view",
+			"path": "oxidns/rules"
+		},
+		"depends": {
+			"acl": [ "luci-app-oxidns" ]
+		}
+	},
+	"admin/services/oxidns/geo": {
+		"title": "Geo Data",
+		"order": 26,
+		"action": {
+			"type": "view",
+			"path": "oxidns/geo"
+		},
+		"depends": {
+			"acl": [ "luci-app-oxidns" ]
+		}
+	},
+	"admin/services/oxidns/prewarm": {
+		"title": "Prewarm",
+		"order": 27,
+		"action": {
+			"type": "view",
+			"path": "oxidns/prewarm"
+		},
+		"depends": {
+			"acl": [ "luci-app-oxidns" ]
+		}
+	},
 	"admin/services/oxidns/config": {
-		"title": "DNS Configuration",
+		"title": "Configuration",
 		"order": 30,
 		"action": {
 			"type": "view",
@@ -32,8 +87,8 @@
 		}
 	},
 	"admin/services/oxidns/logs": {
-		"title": "Runtime Logs",
-		"order": 50,
+		"title": "Logs",
+		"order": 40,
 		"action": {
 			"type": "view",
 			"path": "oxidns/logs"
@@ -43,8 +98,8 @@
 		}
 	},
 	"admin/services/oxidns/settings": {
-		"title": "Installation and Deployment",
-		"order": 20,
+		"title": "Settings",
+		"order": 50,
 		"action": {
 			"type": "view",
 			"path": "oxidns/settings"

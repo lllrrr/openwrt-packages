@@ -107,7 +107,6 @@
 		pluginChecking: false,
 		pluginTimer: null,
 		pluginMiss: 0,
-		stepsCollapsed: null,
 		busy: false,
 		passShown: false,
 		openclash: false,
@@ -711,31 +710,11 @@
 		attachPasswordActions(pass);
 		attachCoreUpdateAction();
 		updateSteps(d);
-		applyStepsVisibility(d);
 
 		if (d.update_running && !state.updateTimer) {
 			showProgress();
 			startProgressPoll();
 		}
-	}
-
-	// 初始化配置：收起时只保留「打开 AdGuard Home 面板」；
-	// 未安装内核或服务未运行时强制展开，正常运行默认收起
-	function applyStepsVisibility(d) {
-		var steps = document.querySelectorAll('#agh-steps .agh-step-init');
-		var btn = $('agh-steps-toggle');
-		if (!steps.length) return;
-		if (d) {
-			if (!d.core || !d.running) {
-				state.stepsCollapsed = false;
-			} else if (state.stepsCollapsed === null) {
-				state.stepsCollapsed = true;
-			}
-		}
-		for (var i = 0; i < steps.length; i++) {
-			steps[i].hidden = !!state.stepsCollapsed;
-		}
-		if (btn) btn.textContent = state.stepsCollapsed ? '展开步骤' : '收起';
 	}
 
 	function updateSteps(d) {
@@ -2457,7 +2436,7 @@
 	}
 
 	function switchSettingsTab(name) {
-		var valid = ['svc', 'upstream', 'filters'];
+		var valid = ['svc', 'upstream'];
 		if (valid.indexOf(name) < 0) name = 'svc';
 		var tabs = document.querySelectorAll('#agh-settings-tabs .agh-subtab');
 		for (var i = 0; i < tabs.length; i++) {
@@ -2468,7 +2447,6 @@
 			cards[j].classList.toggle('is-active', cards[j].getAttribute('data-subpanel') === name);
 		}
 		state.settingsSubtab = name;
-		if (name === 'filters') loadFilters();
 	}
 
 	function switchLogTab(name) {
@@ -2488,7 +2466,7 @@
 	}
 
 	function switchTab(name, updateHash) {
-		var valid = ['overview', 'settings', 'advanced', 'logs', 'guide'];
+		var valid = ['overview', 'settings', 'filters', 'advanced', 'logs', 'guide'];
 		if (valid.indexOf(name) < 0) name = 'overview';
 
 		var tabs = document.querySelectorAll('.agh-tab');
@@ -2502,6 +2480,7 @@
 
 		if (name === 'settings' && !state.settings) loadSettings();
 		if (name === 'settings') switchSettingsTab(state.settingsSubtab || 'svc');
+		if (name === 'filters') loadFilters(true);
 		if (name === 'advanced' && !state.yamlLoaded) loadYaml();
 		if (name === 'logs') switchLogTab(state.logSubtab || 'sys');
 
@@ -2552,11 +2531,6 @@
 		if ($('agh-restart-btn')) $('agh-restart-btn').onclick = function () {
 			postService('restart', '将重启 AdGuard Home 服务。确定继续？');
 		};
-		if ($('agh-steps-toggle')) $('agh-steps-toggle').onclick = function () {
-			state.stepsCollapsed = !state.stepsCollapsed;
-			applyStepsVisibility(state.status);
-		};
-
 		if ($('agh-settings-form')) $('agh-settings-form').onsubmit = saveSettings;
 		if ($('agh-cache-form')) $('agh-cache-form').onsubmit = saveSettings;
 		if ($('agh-upstream-form')) $('agh-upstream-form').onsubmit = saveSettings;

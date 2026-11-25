@@ -25,6 +25,21 @@
 			"rust_target": "armv7-unknown-linux-musleabihf",
 			"uname_arches": [ "armv7l", "armv7" ],
 			"aliases": [ "armv7", "armv7l" ]
+		},
+		{
+			"rust_target": "arm-unknown-linux-musleabi",
+			"uname_arches": [ "armv5l", "armv5te", "armv5tejl", "armv5" ],
+			"aliases": [ "armv5", "armel" ]
+		},
+		{
+			"rust_target": "mips-unknown-linux-musl",
+			"uname_arches": [ "mips" ],
+			"aliases": [ "mips" ]
+		},
+		{
+			"rust_target": "mipsel-unknown-linux-musl",
+			"uname_arches": [ "mipsel", "mipsle" ],
+			"aliases": [ "mipsel", "mipsle" ]
 		}
 	]
 }

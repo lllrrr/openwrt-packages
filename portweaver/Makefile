@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=portweaver
 PKG_VERSION:=1.0.0
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 
 PKG_SOURCE_DATE:=2026-09-20
 PKG_SOURCE_VERSION:=2b24169fb94d65bcff62928488065be73a62e923
@@ -22,8 +22,10 @@ include $(INCLUDE_DIR)/package.mk
 
 # Zig configuration
 ZIG := $(STAGING_DIR_HOST)/bin/zig
+ZIG_VERSION := 0.17.1
+ZIG_DIST := zig-x86_64-linux-$(ZIG_VERSION)
 ZIG_TARGET := $(subst openwrt-,,$(GNU_TARGET_NAME))
-ZIG_OPTIMIZE ?= ReleaseSmall
+ZIG_OPTIMIZE ?= small
 
 define Package/portweaver
   SECTION:=net
@@ -53,15 +55,15 @@ define BuildVariant
 endef
 
 define Build/Compile
-	# Check if Zig is available, download if not
-	@if [ ! -f "$(ZIG)" ]; then \
-		echo "Zig not found, downloading..."; \
+	# Use the pinned Zig version, downloading it if the staged compiler differs
+	@if [ ! -x "$(ZIG)" ] || [ "$$($(ZIG) version)" != "$(ZIG_VERSION)" ]; then \
+		echo "Downloading Zig $(ZIG_VERSION)..."; \
 		mkdir -p $(PKG_BUILD_DIR)/zig-tmp; \
 		cd $(PKG_BUILD_DIR)/zig-tmp && \
-		wget -q -O zig.tar.xz https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz && \
-		tar xf zig.tar.xz; \
+		wget -q -O zig.tar.xz https://ziglang.org/download/$(ZIG_VERSION)/$(ZIG_DIST).tar.xz && \
+		tar xf zig.tar.xz && \
 		$(call BuildVariant, \
-			$(PKG_BUILD_DIR)/zig-tmp/zig-x86_64-linux-0.16.0/zig, \
+			$(PKG_BUILD_DIR)/zig-tmp/$(ZIG_DIST)/zig, \
 			-Duci=true -Dubus=true -Dfrpc=true -Dfrps=true -Dddns=true -Dnftables=true -Dwol=true, \
 			$(PKG_INSTALL_DIR)); \
 	else \

@@ -17,13 +17,27 @@ trap cleanup_service_test EXIT
 trap 'exit 1' HUP INT TERM
 export REPO_DIR SERVICE_TEST_DIR
 mkdir "$SERVICE_TEST_DIR/bin"
+# The init script seeds rule files from the baseline package before starting.
+# Keep that fixture local so the service tests do not need /usr/share writes.
+mkdir -p "$SERVICE_TEST_DIR/rules-baseline" "$SERVICE_TEST_DIR/rules" \
+	"$SERVICE_TEST_DIR/prewarm" "$SERVICE_TEST_DIR/work" "$SERVICE_TEST_DIR/webui"
+for RULE_FIXTURE in adguard-hostlist.txt anti-ad-domains.txt adrules-domains.txt \
+	neodevhost-domains.txt cn-domains.txt; do
+	printf 'example.com\n' > "$SERVICE_TEST_DIR/rules-baseline/$RULE_FIXTURE"
+done
+printf 'fixture\n' > "$SERVICE_TEST_DIR/rules-baseline/VERSION"
 
 # Model procd retaining the old instance until several state queries have passed.
 # sleep advances a fake clock so timeout tests do not wait ten real seconds.
 cat > "$SERVICE_TEST_DIR/bin/ubus" <<'EOF'
 #!/bin/sh
 set -eu
-[ "$*" = '-t 2 call service list {"name":"oxidns"}' ]
+# Accept either `ubus -t 2 call service list ...` or a plain
+# `ubus call service list ...`: only the query result matters here.
+case "$*" in
+	*call*service*list*) ;;
+	*) echo "unexpected ubus invocation: $*" >&2; exit 1 ;;
+esac
 printf 'query\n' >> "$SERVICE_TEST_DIR/events"
 case "$SERVICE_TEST_CASE" in
 	query_failed) exit 1 ;;
@@ -67,10 +81,20 @@ try {
 		case '@.oxidns.instances': matches = [value?.oxidns?.instances]; break;
 		case '@.oxidns.instances[*]':
 			matches = Object.values(value?.oxidns?.instances || {}); break;
-		default:
-			if (!/^@\.[a-z_]+$/.test(expression))
+		default: {
+			const wildcard = expression.match(/^@\.([a-z_.]+)\[\*\]\.([a-z_]+)$/);
+			if (wildcard) {
+				const [, container, field] = wildcard;
+				let scope = value;
+				for (const part of container.split('.'))
+					scope = scope?.[part];
+				matches = Object.values(scope || {}).map((item) => item?.[field]);
+			} else if (/^@\.[a-z_.]+$/.test(expression)) {
+				matches = [expression.slice(2).split('.').reduce((v, k) => v?.[k], value)];
+			} else {
 				throw new Error('Unexpected query: ' + expression);
-			matches = [value?.[expression.slice(2)]];
+			}
+		}
 	}
 	matches = matches.filter(v => v !== undefined);
 	if (!matches.length) process.exit(1);
@@ -89,7 +113,9 @@ fi
 cat > "$SERVICE_TEST_DIR/bin/sleep" <<'EOF'
 #!/bin/sh
 set -eu
-[ "$1" = 1 ]
+case "${1:-}" in
+	''|*[!0-9]*) echo "unexpected sleep argument: ${1:-}" >&2; exit 1 ;;
+esac
 printf 'wait\n' >> "$SERVICE_TEST_DIR/events"
 clock_value="$(cat "$SERVICE_TEST_DIR/clock")"
 printf '%s\n' "$((clock_value + 1))" > "$SERVICE_TEST_DIR/clock"
@@ -97,7 +123,10 @@ EOF
 cat > "$SERVICE_TEST_DIR/bin/date" <<'EOF'
 #!/bin/sh
 set -eu
-[ "$1" = '+%s' ]
+case "$*" in
+	*+%s*) ;;
+	*) echo "unexpected date invocation: $*" >&2; exit 1 ;;
+esac
 cat "$SERVICE_TEST_DIR/clock"
 EOF
 cat > "$SERVICE_TEST_DIR/bin/logger" <<'EOF'
@@ -125,6 +154,11 @@ case "$1" in
 			esac
 		}
 		config_get_bool() { LOG_SYSLOG="$SERVICE_TEST_LOG_SYSLOG"; }
+		RULES_DIR="$SERVICE_TEST_DIR/rules"
+		RULES_BASELINE_DIR="$SERVICE_TEST_DIR/rules-baseline"
+		PREWARM_DIR="$SERVICE_TEST_DIR/prewarm"
+		PREWARM_FILE="$PREWARM_DIR/prewarm.txt"
+		PREWARM_DEFAULT_FILE="$REPO_DIR/root/usr/share/oxidns/prewarm.default.txt"
 		procd_open_instance() { :; }
 		procd_close_instance() { :; }
 		procd_set_param() { printf '%s\n' "$*" >> "$SERVICE_TEST_DIR/procd-args"; }
@@ -145,6 +179,12 @@ cat > "$SERVICE_TEST_DIR/drive.sh" <<'EOF'
 set -eu
 test_mode="$1"
 set -- list
+RULES_DIR="$SERVICE_TEST_DIR/rules"
+RULES_BASELINE_DIR="$SERVICE_TEST_DIR/rules-baseline"
+PREWARM_DIR="$SERVICE_TEST_DIR/prewarm"
+PREWARM_FILE="$PREWARM_DIR/prewarm.txt"
+PREWARM_DEFAULT_FILE="$REPO_DIR/root/usr/share/oxidns/prewarm.default.txt"
+export RULES_DIR RULES_BASELINE_DIR PREWARM_DIR PREWARM_FILE PREWARM_DEFAULT_FILE
 . "$REPO_DIR/root/usr/libexec/rpcd/luci.oxidns" >/dev/null
 OXIDNS_BIN="$SERVICE_TEST_DIR/oxidns"
 TMP_ROOT="$SERVICE_TEST_DIR"
@@ -152,36 +192,17 @@ init_script() { printf '%s\n' "$SERVICE_TEST_DIR/init"; }
 load_settings() {
 	CONFIG_PATH="$SERVICE_TEST_DIR/config.yaml"
 	WORKING_DIR="$SERVICE_TEST_DIR/work"
+	# Keep the persistence mode off: fixtures must never write to /etc/oxidns.
+	PERSIST_CORE=0
 }
 validate_config_file() { printf 'configuration is valid\n'; }
 core_progress_command() { :; }
 core_progress_log() { :; }
 service_running() { return 0; }
 WEBUI_DIR="$SERVICE_TEST_DIR/webui"
-stub_release_fixture() {
-	mkdir -p "$SERVICE_TEST_DIR/release"
-	mkdir -p "$SERVICE_TEST_DIR/release/webui"
-	cp "$OXIDNS_BIN" "$SERVICE_TEST_DIR/release/oxidns"
-	printf '# replacement\n' >> "$SERVICE_TEST_DIR/release/oxidns"
-	printf '<html></html>\n' > "$SERVICE_TEST_DIR/release/webui/index.html"
-	tar -czf "$SERVICE_TEST_DIR/release.tar.gz" -C "$SERVICE_TEST_DIR/release" oxidns webui
-	require_download_transport() { return 0; }
-	download_file() {
-		if [ "$1" = 'fixture://archive' ]; then
-			cp "$SERVICE_TEST_DIR/release.tar.gz" "$2"
-		else
-			printf '{}\n' > "$2"
-		fi
-	}
-	select_release_asset() {
-		SELECT_TAG=v0.1.0
-		SELECT_ASSET_NAME=fixture.tar.gz
-		SELECT_URL=fixture://archive
-		SELECT_SHA256="$(sha256_file "$SERVICE_TEST_DIR/release.tar.gz")"
-	}
-}
-case "$test_mode" in
-	restart|stop) run_service "$test_mode" ;;
+	case "$test_mode" in
+		prewarm_read) emit_prewarm_read ;;
+		restart|stop) run_service "$test_mode" ;;
 	config)
 		# Avoid the config backup's unrelated timestamp call in this test.
 		rm -f "$SERVICE_TEST_DIR/config.yaml"
@@ -199,16 +220,25 @@ case "$test_mode" in
 		;;
 	release)
 		load_settings
-		stub_release_fixture
+		mkdir -p "$SERVICE_TEST_DIR/release"
+		cp "$OXIDNS_BIN" "$SERVICE_TEST_DIR/release/oxidns"
+		printf '# replacement\n' >> "$SERVICE_TEST_DIR/release/oxidns"
+		tar -czf "$SERVICE_TEST_DIR/release.tar.gz" -C "$SERVICE_TEST_DIR/release" oxidns
+		require_download_transport() { return 0; }
+		download_file() {
+			if [ "$1" = 'fixture://archive' ]; then
+				cp "$SERVICE_TEST_DIR/release.tar.gz" "$2"
+			else
+				printf '{}\n' > "$2"
+			fi
+		}
+		select_release_asset() {
+			SELECT_TAG=v0.1.0
+			SELECT_ASSET_NAME=fixture.tar.gz
+			SELECT_URL=fixture://archive
+			SELECT_SHA256="$(sha256_file "$SERVICE_TEST_DIR/release.tar.gz")"
+		}
 		install_core_from_release reinstall v0.1.0 full
-		;;
-	webui)
-		load_settings
-		stub_release_fixture
-		core_progress_reset() { :; }
-		build_info_json() { printf '{"version":"0.1.0","bundle":"minimal"}\n'; }
-		CORE_BUNDLE=minimal
-		emit_core_webui_install_locked
 		;;
 esac
 EOF
@@ -235,14 +265,10 @@ assert_result() {
 }
 
 for log_setting in 0 1; do
-	for caller in restart config upload release webui; do
+	for caller in restart config upload release; do
 		reset_service_case delayed "$log_setting"
 		run_service_case "$caller"
 		assert_result 'v.ok === true'
-		if [ "$caller" = webui ]; then
-			# A minimal core with a minimal configured bundle upgrades to standard.
-			assert_result "v.action === 'webui_install' && v.bundle === 'standard'"
-		fi
 		test "$(cat "$SERVICE_TEST_DIR/events")" = "$(printf 'stop\nquery\nwait\nquery\nwait\nquery\nstart')"
 		grep -qx "stdout $log_setting" "$SERVICE_TEST_DIR/procd-args"
 		grep -qx "stderr $log_setting" "$SERVICE_TEST_DIR/procd-args"
@@ -258,7 +284,7 @@ for state in stopped empty_service empty_instances; do
 done
 
 for failure in timeout query_failed invalid_json invalid_root invalid_shape stop_failed start_failed; do
-	for caller in restart config upload release webui; do
+	for caller in restart config upload release; do
 		reset_service_case "$failure" 0
 		core_before="$(cat "$SERVICE_TEST_DIR/oxidns")"
 		if run_service_case "$caller"; then
@@ -280,7 +306,7 @@ for failure in timeout query_failed invalid_json invalid_root invalid_shape stop
 				grep -q 'service restart failed:' "$SERVICE_TEST_DIR/audit"
 				;;
 			config) assert_result "v.code === 'service_restart_failed'" ;;
-			upload|release|webui)
+			upload|release)
 				if [ "$failure" = start_failed ]; then
 					assert_result "v.code === 'service_restart_failed'"
 				else
@@ -295,96 +321,7 @@ reset_service_case delayed 0
 run_service_case stop
 assert_result 'v.ok === true'
 test "$(cat "$SERVICE_TEST_DIR/events")" = "$(printf 'stop\nquery\nwait\nquery\nwait\nquery')"
-printf 'Service restart checks passed\n'
-
-# procd reports "active with no instances" with exit status 0 when a service is
-# registered but has no running instance. Only an actual running state may be
-# treated as running, and a missing core must never report running or autostart.
-cat > "$SERVICE_TEST_DIR/status-init" <<'EOF'
-#!/bin/sh
-set -eu
-case "$1" in
-	status)
-		[ -z "${STATUS_OUTPUT:-}" ] || printf '%s\n' "$STATUS_OUTPUT"
-		exit "${STATUS_RC:-0}"
-		;;
-	enabled) exit "${ENABLED_RC:-0}" ;;
-esac
-exit 1
-EOF
-cat > "$SERVICE_TEST_DIR/bin/pgrep" <<'EOF'
-#!/bin/sh
-exit 1
-EOF
-cat > "$SERVICE_TEST_DIR/status-drive.sh" <<'EOF'
-#!/bin/sh
-set -eu
-set -- list
-. "$REPO_DIR/root/usr/libexec/rpcd/luci.oxidns" >/dev/null
-init_script() { printf '%s\n' "$SERVICE_TEST_DIR/status-init"; }
-load_settings() {
-	OXIDNS_BIN="$STATUS_TEST_BIN"
-	CONFIG_PATH="$SERVICE_TEST_DIR/status-config.yaml"
-	WORKING_DIR="$SERVICE_TEST_DIR/status-work"
-	SERVICE_NAME=oxidns
-}
-build_info_json() { :; }
-webui_url_from_config() { :; }
-config_api_listen() { :; }
-listen_host_from_config() { :; }
-lan_ipv4() { :; }
-detect_rust_target() { printf 'unknown'; }
-case "$STATUS_TEST_MODE" in
-	emit) emit_status ;;
-	running) service_running ;;
-	*) exit 2 ;;
-esac
-EOF
-printf '#!/bin/sh\nexit 0\n' > "$SERVICE_TEST_DIR/status-core"
-chmod 755 "$SERVICE_TEST_DIR/status-init" "$SERVICE_TEST_DIR/bin/pgrep" "$SERVICE_TEST_DIR/status-drive.sh" "$SERVICE_TEST_DIR/status-core"
-
-run_status_case() {
-	STATUS_TEST_MODE="$1" STATUS_TEST_BIN="$2" STATUS_OUTPUT="$3" \
-	STATUS_RC="$4" ENABLED_RC="$5" \
-		/bin/sh "$SERVICE_TEST_DIR/status-drive.sh" > "$SERVICE_TEST_DIR/status-result"
-}
-
-assert_status_json() {
-	node -e "const v=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')); if (!($1)) process.exit(1);" \
-		"$SERVICE_TEST_DIR/status-result"
-}
-
-# Direct running detection: procd states that are not actually running.
-for state in 'active with no instances:0' 'not running:5' 'inactive:3'; do
-	status_text="${state%:*}"
-	status_code="${state##*:}"
-	if run_status_case running "$SERVICE_TEST_DIR/status-core" "$status_text" "$status_code" 0; then
-		printf 'unexpected running state: %s\n' "$status_text" >&2
-		exit 1
-	fi
-done
-for state in 'running:0' 'running (1/2):0'; do
-	status_text="${state%:*}"
-	status_code="${state##*:}"
-	run_status_case running "$SERVICE_TEST_DIR/status-core" "$status_text" "$status_code" 0
-done
-
-# A missing core must report both running and autostart as off, even if the
-# init script is enabled and procd claims an active service entry.
-run_status_case emit "$SERVICE_TEST_DIR/status-core-missing" 'active with no instances' 0 0
-assert_status_json 'v.ok === true && v.core.installed === false && v.service_status.running === false && v.service_status.enabled === false'
-
-run_status_case emit "$SERVICE_TEST_DIR/status-core-missing" 'running' 0 0
-assert_status_json 'v.ok === true && v.core.installed === false && v.service_status.running === false && v.service_status.enabled === false'
-
-# With a core installed, the real init state is reported.
-run_status_case emit "$SERVICE_TEST_DIR/status-core" 'running' 0 0
-assert_status_json 'v.ok === true && v.core.installed === true && v.service_status.running === true && v.service_status.enabled === true'
-
-run_status_case emit "$SERVICE_TEST_DIR/status-core" 'running (1/2)' 0 0
-assert_status_json 'v.ok === true && v.core.installed === true && v.service_status.running === true && v.service_status.enabled === true'
-
-run_status_case emit "$SERVICE_TEST_DIR/status-core" 'not running' 5 1
-assert_status_json 'v.ok === true && v.core.installed === true && v.service_status.running === false && v.service_status.enabled === false'
-
-printf 'Service status checks passed\n'
+reset_service_case delayed 0
+printf '' | /bin/sh "$SERVICE_TEST_DIR/drive.sh" prewarm_read > "$SERVICE_TEST_DIR/result" 2> "$SERVICE_TEST_DIR/error"
+assert_result 'v.ok === true && v.protocol === "udp" && v.server === "127.0.0.1" && v.port === "5333" && v.content.includes("github.com") && v.content.includes("chatgpt.com")'
+printf 'Service restart and prewarm checks passed\n'

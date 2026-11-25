@@ -5,42 +5,56 @@
 			"ubus": {
 				"luci.oxidns": [
 					"status",
-					"dns_integration_status",
 					"core_progress",
+					"core_update_check",
 					"config_read",
-					"config_schema",
-					"config_plugin_types",
 					"settings_read",
 					"logs_recent",
-					"logs_path_read"
+					"rules_status",
+					"rules_check",
+					"prewarm_read",
+					"hijack_get",
+					"geo_get",
+					"geo_progress"
 				]
 			}
 		},
 		"write": {
-			"cgi-io": [ "upload" ],
-			"file": {
-				"/tmp/oxidns-core-upload-*": [ "write" ]
-			},
 			"ubus": {
 				"luci.oxidns": [
 					"core_install",
 					"core_reinstall",
 					"core_update",
-					"core_upload_install",
-					"core_webui_install",
 					"core_remove",
 					"service_start",
 					"service_stop",
 					"service_restart",
 					"service_enable",
 					"service_disable",
-					"dns_integration_enable",
-					"dns_integration_disable",
 					"config_validate",
 					"config_save",
 					"settings_save",
-					"logs_path_save"
+					"rules_update",
+					"rules_restore",
+					"prewarm_save",
+					"prewarm_run",
+					"hijack_save",
+					"geo_save",
+					"geo_reset",
+					"geo_download"
 				]
+			}
+		}
+	},
+	"luci-app-oxidns-core-upload": {
+		"description": "Allow installing an explicitly uploaded OxiDNS core (requires allow_core_upload=1)",
+		"write": {
+			"cgi-io": [ "upload" ],
+			"file": {
+				"/tmp/oxidns-core-upload-*": [ "write" ]
+			},
+			"ubus": {
+				"luci.oxidns": [ "core_upload_install" ]
 			}
 		}
 	}

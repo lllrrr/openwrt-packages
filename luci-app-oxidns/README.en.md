@@ -1,99 +1,190 @@
-# luci-app-oxidns
+# luci-app-oxidns (NetForgeCN)
 
-Language: [中文](./README.md) | English
+[中文](./README.md)
 
-`luci-app-oxidns` is the LuCI management app for OxiDNS on OpenWrt. After installation, LuCI adds `Services -> OxiDNS` pages for installing the OxiDNS core, managing the OpenWrt service, editing configuration, viewing logs, and optionally forwarding LAN DNS through dnsmasq to OxiDNS.
+A LuCI management app for OxiDNS on OpenWrt. Once installed, `Services -> OxiDNS` gives you a complete UI for the core binary, configuration, service, logs, rule subscriptions and DNS prewarming.
 
-This repository contains only the LuCI management UI and the rpcd backend; the OxiDNS core, WebUI, and general releases come from [svenshi/oxidns](https://github.com/svenshi/oxidns).
+Built on the [svenshi/luci-app-oxidns](https://github.com/svenshi/luci-app-oxidns) framework, with one extra goal: **installed and ready, resilient across upgrades, and popular domains already resolved**. Licensed under GPL-3.0-or-later.
 
-**Full guide**: configuring DNS from scratch, the Normal/Advanced mode field reference, plugin fields, common tasks, troubleshooting, and OxiDNS WebUI instructions are in [info/README.en.md](info/README.en.md). For enabling dnsmasq forwarding with one click on `Basic Information`, manual configuration, and rollback, see [4.9 Forward Through dnsmasq (Recommended)](info/README.en.md#49-forward-through-dnsmasq-recommended); for the Normal mode ad filtering card, see [3.8 Ad Filtering](info/README.en.md#38-ad-filtering).
+## What this fork adds
 
-![OxiDNS LuCI interface](screenshot.png)
+| Capability | What you get | Why it matters |
+|---|---|---|
+| Bundled core | `oxidns-core` packages the official binary, WebUI and default config at build time | DNS works right after flashing; no first-run core download |
+| Bundled rule baseline | `oxidns-rules-baseline` ships five rule lists | First boot works offline; missing rule files are restored automatically |
+| Rule subscriptions | `Rules` page checks and applies updates with SHA256 verification, staging and rollback | One-click rule updates, validated and staged before replacement |
+| DNS prewarming | `Prewarm` page queries A / AAAA records ahead of time and fills the cache | First visit to common domains is served from cache |
+| Core upgrades | `Core -> Check Update` | Upgrade the core without rebuilding firmware |
+| Log filtering | Keyword plus `plugin` / `qtype` / `rcode` filters and a live line count | Find the queries you care about, even in large logs |
+| DNS hijack | `DNS Hijack` page redirects LAN port 53 to the local OxiDNS listener, IPv4 and IPv6 | LAN clients use OxiDNS without changing their DNS setting, with real client IPs visible |
+| CodeMirror editor | Configuration page uses a YAML syntax-highlighting editor with line numbers and an internal scroll viewport | Editing long configs no longer jumps the page |
+| Geo data management | `Geo Data` page downloads/updates geoip.dat and geosite.dat; URLs are editable and restorable | Refresh geo data without rebuilding firmware; defaults use the self-maintained rule source |
+| API password handling | Password lives in UCI and is injected into both the service and rpcd | No plaintext password in YAML; config validation and service stay in sync |
+| Upgrade self-healing | Core, WebUI, config and rules recover after sysupgrade | Keep settings, reinstall the app once, and the service is back |
 
-## Install The LuCI App
+## Pages
 
-Download the package from this repository's Releases, upload it to the device (for example `/tmp`), then install it.
+| Page | Purpose |
+|---|---|
+| `Overview` | Core / service status, WebUI entry, config path, log status |
+| `Core` | Install, upload, upgrade, repair or remove the core |
+| `DNS Hijack` | LAN port 53 redirect switch, target port source, firewall section status |
+| `Configuration` | CodeMirror highlighting, validate and save `config.yaml` |
+| `Logs` | Filter and refresh OxiDNS logs |
+| `Settings` | Repository, bundle, proxy, paths, logging and API password |
+| `Rules` | Baseline status, check for updates, apply updates |
+| `Geo Data` | geoip.dat / geosite.dat status, download URLs, directory, online update |
+| `Prewarm` | Enable switch, domain list, target endpoint, interval and manual run |
 
-OpenWrt 24.10 (`opkg`):
+> Security note: core uploads are disabled by default. Enable "Allow manually uploaded cores" on the `Settings` page and make sure the logged-in user belongs to the `luci-app-oxidns-core-upload` ACL group (the default root account does). Uploaded binaries are never executed during validation; they are only run as the service core. Optional SHA-256 pins on the `Geo Data` page abort an update on mismatch and keep the current data.
+
+## Quick start
+
+1. Install the package as described in “Build and install”.
+2. Set the API password; it is stored only in UCI:
+
+   ```sh
+   uci set oxidns.main.api_pass="$(openssl rand -base64 24)"
+   uci commit oxidns
+   /etc/init.d/rpcd restart
+   ```
+
+3. Open `Services -> OxiDNS -> Configuration`, adjust `config.yaml`, then click `Save & Restart`.
+4. Open `Overview`, start the service and enable it at boot.
+5. Open `Prewarm`, make sure the target matches the listener in `config.yaml`, then click `Run now`.
+
+## DNS prewarming
+
+Prewarming walks the domain list and sends A and AAAA queries to the selected OxiDNS listener. The queries pass through that listener's rule chain, fill the cache, and later client requests hit the cache directly.
+
+| Item | Default |
+|---|---|
+| Enabled | yes |
+| Target | `udp://127.0.0.1:5333` |
+| Interval | 3000 seconds (~50 minutes) |
+| List | 75 bundled domains, editable in the page |
+| Concurrency | 4 |
+| Query timeout / retries | 2 seconds / 1 |
+
+Three things make prewarming effective:
+
+- `config.yaml` contains a `cache` plugin on the chain used by the target listener;
+- the IP, port and protocol in the page match the listener's `listen` value;
+- the router has `dig`, or an `nslookup` that supports `-port`.
+
+`Server IP` accepts `127.0.0.1` or `192.168.1.1`; port and protocol are free-form. `Run now` ignores the enable switch and always runs one pass. An interval of `0` runs once at service start.
+
+Verify it:
 
 ```sh
-opkg install /tmp/luci-app-oxidns_*.ipk
-
-# Optional: install the Simplified Chinese language pack
-opkg install /tmp/luci-i18n-oxidns-zh-cn_*.ipk
+logread -t oxidns-prewarm              # per-pass results
+/usr/libexec/oxidns-prewarm --once     # run one pass manually
+dig @127.0.0.1 -p 5333 youtube.com A   # confirm the listener responds
 ```
 
-OpenWrt 25.12 (`apk`):
+## Rule baseline
+
+The baseline ships only the five lists OxiDNS actually loads. Lists are fetched and validated at build time, so the device never converts formats:
+
+| File | Purpose |
+|---|---|
+| `cn-domains.txt` | Long-tail China domains, used with geosite |
+| `anti-ad-domains.txt` | anti-AD domain list |
+| `adrules-domains.txt` | AdRules domain list |
+| `neodevhost-domains.txt` | neoDevHost domain list |
+| `adguard-hostlist.txt` | AdGuard HostlistsRegistry rules |
+
+`cn-domains.txt` is converted from dnsmasq-china-list on the build machine; the original conf is not shipped. Updates go through the `Rules` page: staged, validated, then swapped in. If validation does not pass, the previous set is kept.
+
+## Build and install
+
+### Option 1: OpenWrt buildroot (recommended, can be baked into firmware)
 
 ```sh
-apk add --allow-untrusted /tmp/luci-app-oxidns-*.apk
-
-# Optional: install the Simplified Chinese language pack
-apk add --allow-untrusted /tmp/luci-i18n-oxidns-zh-cn-*.apk
-```
-
-If the menu does not appear after installation, restart `rpcd`, then open `Services -> OxiDNS`:
-
-```sh
-/etc/init.d/rpcd restart
-```
-
-### Build From Source
-
-To include the package in firmware or customize it, place it in an OpenWrt build tree and compile it together with the other packages:
-
-```sh
+git clone https://github.com/openwrt/openwrt.git
 cd openwrt
 ./scripts/feeds update -a
 ./scripts/feeds install -a
-git clone https://github.com/Arthur97172/luci-app-oxidns.git package/luci-app-oxidns
-make menuconfig   # LuCI -> Applications -> luci-app-oxidns
+
+git clone https://github.com/NetForgeCN/luci-app-oxidns.git package/luci-app-oxidns
+make menuconfig
+# LuCI -> Applications -> luci-app-oxidns
 make package/luci-app-oxidns/compile V=s
 ```
 
-The artifacts appear under `bin/packages/<arch>/`: a 24.10 build tree produces `.ipk`, and a 25.12 build tree produces `.apk`.
+`oxidns-core` and `oxidns-rules-baseline` are hard dependencies and are selected with the app. Artifacts appear in `bin/packages/<arch>/`.
 
-## Features
+Supported targets: x86_64, aarch64, i386 and ARM hard-float (cortex maps to armv7, others to armv6). Soft-float ARM cannot use the published hard-float (eabihf) core. Architectures without a published musl core (for example MIPS) cannot bake in a core through buildroot because `oxidns-core` is a hard dependency; use the quick-packaging path below without an embedded core and upload a suitable core from the `Core` page.
 
-- `Basic Information`: `Status Overview` shows the backend, core, build, service status, boot autostart, and WebUI entry, with start, stop, and restart controls below.
-- `System DNS integration`: on the `Basic Information` page, enable or disable dnsmasq forwarding in one click. When enabled, dnsmasq forwards generic DNS queries to OxiDNS's listen address while keeping domain-specific upstreams; it is disabled by default, and disabling restores the previous generic upstreams and `noresolv` setting. The `dnsmasq upstream` row shows the upstreams that are actually in effect (the UCI `list server` entries merged with the WAN-provided resolv file, labelled with their source), refreshes every 5 seconds with the status poll.
-- `Installation and Deployment`: install, update, upload, repair, or remove the core and WebUI; configure the core repository, bundle, paths, system log output, and download credentials.
-- `DNS Configuration`: Advanced mode (a full YAML editor) is the default; Normal mode provides forms for common settings. Both support validation, config download/upload, save, save and apply, and a change preview. `forward` upstreams can be picked from a preset combobox or entered as a custom address, and when no `forward` plugin exists Normal mode creates one and wires it into the entry sequences; a server's `Entry` is chosen from a dropdown of known plugins. The Normal mode `Ad filtering` card creates and manages a fixed `adguard_rule` / `black_hole` plugin group (plus a `download` plugin once subscription URLs are entered) with inline rules, local rule files, and a blocking mode, and inserts the blocking rule at the front of every entry sequence. The Normal mode `Hosts` card creates the fixed `hosts` plugin (`oxidns_hosts`), inserts the hosts step into the entry sequences, and maintains the local name records. The Normal mode `Cache` card creates the fixed `cache` plugin (`oxidns_cache`), inserts the cache step into the entry sequences, and exposes every cache field once enabled.
-- `Runtime Logs`: view OxiDNS runtime logs.
+### Option 2: Quick packaging
 
-## Default Paths
+Requires Node.js 22, `tar`, `gzip` and `sha256sum` (`shasum -a 256` on macOS):
 
-| Item | Path |
-| --- | --- |
-| Core binary | `/usr/bin/oxidns` |
-| WebUI | `/usr/share/oxidns/webui` |
-| Configuration | `/etc/oxidns/config.yaml` |
+```sh
+git clone https://github.com/NetForgeCN/luci-app-oxidns.git
+cd luci-app-oxidns
+
+# App only; install the core later from LuCI. The version defaults to the
+# PKG_VERSION in the root Makefile.
+./scripts/build-luci-package.sh 0.2.0 dist
+
+# App with embedded core and rule baseline (pick the asset for your CPU)
+curl -fL -O https://github.com/svenshi/oxidns/releases/download/v1.7.1/oxidns-x86_64-unknown-linux-musl.tar.gz
+curl -fL -O https://github.com/NetForgeCN/luci-app-oxidns/releases/download/rules-v2026.11.24.0419/oxidns-rules-baseline-2026.11.24.0419.tar.gz
+cat > sha256sums.txt <<'EOF'
+6c82984e477d70d0c9259a6c7997496e248c78a384b2b7585908bba7f4af854c  oxidns-x86_64-unknown-linux-musl.tar.gz
+1084a9aa8a7986c6159fbeba78433ff64c26567bfe0f782822fc3898023b2a6a  oxidns-rules-baseline-2026.11.24.0419.tar.gz
+EOF
+sha256sum -c sha256sums.txt
+./scripts/build-luci-package.sh 0.2.0 dist-embedded \
+	oxidns-x86_64-unknown-linux-musl.tar.gz \
+	oxidns-rules-baseline-2026.11.24.0419.tar.gz \
+	6c82984e477d70d0c9259a6c7997496e248c78a384b2b7585908bba7f4af854c \
+	1084a9aa8a7986c6159fbeba78433ff64c26567bfe0f782822fc3898023b2a6a
+```
+
+The script requires a SHA256 for each embedded archive and refuses archives
+containing absolute paths, `..`, links or device entries. When bumping the
+core or baseline version, update the hashes in `oxidns-core/Makefile` /
+`oxidns-rules-baseline/Makefile` and the checksums above together.
+
+Install (local packages are unsigned, so verify the generated
+`sha256sums.txt` first):
+
+```sh
+sha256sum -c sha256sums.txt
+opkg install luci-app-oxidns_*.ipk
+opkg install luci-i18n-oxidns-zh-cn_*.ipk
+# apk systems, after checksum verification:
+apk add ./luci-app-oxidns_*.apk ./luci-i18n-oxidns-zh-cn_*.apk
+```
+
+If apk refuses an unsigned local package, use `--allow-untrusted` only after
+the `sha256sum -c` verification has succeeded.
+
+## Persistence and upgrades
+
+- Core and WebUI live in the persistent area `/etc/oxidns/core/`; `/usr/bin/oxidns` and `/usr/share/oxidns/webui` are only symlinks to them.
+- The LuCI views, rpcd backend and `/etc/init.d/oxidns` are installed by the package under `/usr` and are replaced by the firmware on sysupgrade; the core, configuration and rule working copy stay in `/etc`.
+- `/etc/oxidns` and `/etc/config/oxidns` are added to `/etc/sysupgrade.conf`, so configuration survives a keep-settings upgrade.
+- At boot, missing symlinks and rule files are restored from persistent storage.
+- For a firmware upgrade, keep settings, flash, then reinstall the app once to restore the `/usr` views, rpcd backend and init script; the persistent core/config do not need to be downloaded again.
+- Upgrade the core with `Core -> Check Update` and the lists with `Rules`; they are independent.
+
+## Default paths
+
+| Purpose | Path |
+|---|---|
+| Core (runtime / persistent) | `/usr/bin/oxidns` → `/etc/oxidns/core/oxidns` |
+| WebUI (runtime / persistent) | `/usr/share/oxidns/webui` → `/etc/oxidns/core/webui` |
+| Core config | `/etc/oxidns/config.yaml` |
 | Working directory | `/var/lib/oxidns` |
-| Log file | `/tmp/oxidns/oxidns.log` |
+| UCI config | `/etc/config/oxidns` |
+| Rule baseline (read-only) | `/usr/share/oxidns/rules-baseline` |
+| Rule working copy | `/etc/oxidns/rules` |
+| Prewarm list | `/etc/oxidns/prewarm.txt` |
 | Init script | `/etc/init.d/oxidns` |
-
-## Known Limitations
-
-- Only published OxiDNS Linux musl release targets are supported.
-- `Update Core` installs only strictly newer stable releases and never downgrades a newer or custom build.
-- Before replacing the core or WebUI, LuCI stages and verifies the new files; if a copy fails, the old files are restored so the core and WebUI cannot be left mismatched.
-- Normal mode only edits plugin instances that already exist. Adding or removing plugins and changing sequence rules require Advanced mode or the OxiDNS WebUI; the `Ad filtering`, `Hosts`, and `Cache` cards are the exceptions: they create or remove a fixed `adguard_rule` / `black_hole` group (plus a `download` plugin once subscription URLs are entered), the fixed `oxidns_hosts` plugin, and the fixed `oxidns_cache` plugin, and maintain the matching blocking, hosts, and cache steps in the entry sequences. The `Create forward plugin` button in the upstream section can also create the fixed `forward` plugin and wire it into the entry sequences. With YAML anchors, aliases, or merge keys, Normal mode becomes read-only.
-- Saving from Normal mode re-serializes the YAML: comments, field order, and fields the form does not manage are preserved, and only edited fields are written. Normal mode, Advanced mode, and the OxiDNS WebUI edit the same file, so use only one entry point at a time.
-- The WebUI entry on `Basic Information` requires installed WebUI files, a running service, and a reachable HTTP listen address; with `127.0.0.1` / `::1`, use local access or an SSH tunnel.
-- `System DNS integration` requires OxiDNS to be running, with UDP and TCP listeners on the same port that share a reachable IPv4 address; the `Enable dnsmasq forwarding` button stays unavailable with IPv6-only listeners, mismatched ports, or no shared reachable IPv4 address.
-- Once `System DNS integration` is enabled, stopping OxiDNS makes LAN DNS resolution fail (fail-closed) instead of bypassing OxiDNS automatically; start OxiDNS again or disable the integration.
-- `System DNS integration` does not take over port 53; dnsmasq keeps listening on 53 and continues to provide DHCP, local names, and lease resolution. Having OxiDNS bind port 53 directly is a different deployment, and the detailed guide covers its trade-offs and steps.
-
-## Private Repositories And Downloads
-
-The router must be able to reach GitHub Releases and release archives. For private repositories or restricted networks, configure a GitHub token or download proxy in `Installation and Deployment`; saved values are never shown again in LuCI. A download proxy requires `curl`; alternatively use `Upload Core` for offline installs.
 
 ## License
 
-This project is licensed under the GNU General Public License v3.0 or later (`GPL-3.0-or-later`). See [LICENSE](LICENSE) for the full license text.
-
-## Acknowledgements
-
-- [https://oxidns.org/](https://oxidns.org/): the official OxiDNS homepage, with documentation, configuration references, and project news.
-- [https://github.com/svenshi/oxidns](https://github.com/svenshi/oxidns): the source repository for the OxiDNS core and its WebUI; the core and WebUI files installed by this plugin come from that project's releases.
-- This repository is cloned from [svenshi/luci-app-oxidns](https://github.com/svenshi/luci-app-oxidns) and optimized on top of it.
+GPL-3.0-or-later, see [LICENSE](LICENSE). Built on [svenshi/luci-app-oxidns](https://github.com/svenshi/luci-app-oxidns) and [svenshi/oxidns](https://github.com/svenshi/oxidns); thanks to the original authors.

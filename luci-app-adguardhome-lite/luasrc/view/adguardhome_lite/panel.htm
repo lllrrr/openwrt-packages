@@ -21,16 +21,18 @@
 		})();
 	</script>
 	<style>
-		/* 首屏关键样式：CSS 文件加载前先用暗色兜底，避免白闪 */
+		/* 首屏关键样式：CSS 文件加载前先用暗色兜底，避免白闪。
+		   color-scheme 不能放在 html 上：暗色下浏览器会把 iframe 画布涂成不透明黑，
+		   面板两侧的居中留白就会出现两块黑边。 */
 		html.agh-dark, html.agh-dark body {
 			background: transparent;
-			color-scheme: dark;
 		}
 		html.agh-dark .agh-app {
-			background: #141517;
+			background: #0e1116;
+			color-scheme: dark;
 		}
 	</style>
-	<link rel="stylesheet" href="<%=resource%>/adguardhome-lite/panel.css?v=20261126l">
+	<link rel="stylesheet" href="<%=resource%>/adguardhome-lite/panel.css?v=20261125i">
 	<script>
 		window.AGH = {
 			token: "<%=_token%>",
@@ -63,24 +65,42 @@
 </head>
 <body>
 <div class="agh-app">
-	<div class="agh-hero">
-		<div class="agh-hero-main">
-			<div class="agh-hero-heading">
-				<h2>AdGuard Home 管理中心</h2>
-				<span id="agh-plugin-version" class="agh-hero-version-badge" role="button" tabindex="0" title="点击检测插件更新">读取中</span>
+	<header class="agh-topbar">
+		<div class="agh-topbar-in">
+			<div class="agh-brand">
+				<span class="agh-brand-mark" aria-hidden="true">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.6-2.9 8.4-7 10-4.1-1.6-7-5.4-7-10V6z"/></svg>
+				</span>
+				<span class="agh-brand-txt">
+					<span class="agh-brand-name">AdGuard Home</span>
+					<span class="agh-brand-sub">管理中心</span>
+				</span>
+				<span id="agh-plugin-version" class="agh-version" role="button" tabindex="0" title="点击检测插件更新">读取中</span>
 				<button type="button" id="agh-plugin-update" class="agh-update-tip" hidden>发现新版本</button>
 			</div>
-			<p>安装、接管、过滤、看护一体化；常用参数都在插件内配置，更细的高级项仍可在 AdGuard Home 面板完成。</p>
-		</div>
-		<div class="agh-hero-actions">
-			<button type="button" id="agh-theme-toggle" class="agh-theme-btn" title="切换暗色 / 浅色主题">切换为暗色</button>
-			<span id="agh-header-status" class="agh-pill agh-pill-muted">读取中</span>
-			<a href="#" id="agh-header-console" class="agh-badge agh-badge-link is-disabled" target="_blank" rel="noopener" aria-disabled="true">打开 AGH 面板</a>
-			<span id="agh-hero-core" class="agh-hero-badge" title="正在读取内核版本">读取中</span>
-		</div>
-	</div>
 
-	<div class="agh-card" id="agh-plugin-update-progress" hidden>
+			<nav class="agh-tabs" id="agh-tabs">
+				<div class="agh-tabs-scroll">
+					<button type="button" class="agh-tab is-active" data-tab="overview">概览</button>
+					<button type="button" class="agh-tab" data-tab="settings">基础设置</button>
+					<button type="button" class="agh-tab" data-tab="filters">过滤规则</button>
+					<button type="button" class="agh-tab" data-tab="advanced">高级配置</button>
+					<button type="button" class="agh-tab" data-tab="logs">运行日志</button>
+					<button type="button" class="agh-tab" data-tab="guide">使用说明</button>
+				</div>
+				<span id="agh-toast" class="agh-toast" role="status" aria-live="polite"></span>
+			</nav>
+
+			<div class="agh-topbar-actions">
+				<span id="agh-hero-core" class="agh-core-badge" title="正在读取内核版本">读取中</span>
+				<span id="agh-header-status" class="agh-pill agh-pill-muted">读取中</span>
+				<button type="button" id="agh-theme-toggle" class="agh-theme-btn" title="切换暗色 / 浅色主题">切换为暗色</button>
+				<a href="#" id="agh-header-console" class="agh-badge agh-badge-link is-disabled" target="_blank" rel="noopener" aria-disabled="true">打开 AGH 面板</a>
+			</div>
+		</div>
+	</header>
+
+	<div class="agh-card agh-progress-card" id="agh-plugin-update-progress" hidden>
 		<div class="agh-card-head">
 			<h3>插件更新</h3>
 			<span class="agh-inline">
@@ -89,127 +109,138 @@
 			</span>
 		</div>
 		<div class="agh-progress-bar is-indeterminate" id="agh-plugin-update-bar"><i></i></div>
-		<pre class="agh-log" id="agh-plugin-update-log"></pre>
+		<pre class="agh-log agh-mt-8" id="agh-plugin-update-log"></pre>
 	</div>
-
-	<nav class="agh-tabs" id="agh-tabs">
-		<div class="agh-tabs-scroll">
-			<button type="button" class="agh-tab is-active" data-tab="overview">概览</button>
-			<button type="button" class="agh-tab" data-tab="settings">基础设置</button>
-			<button type="button" class="agh-tab" data-tab="advanced">高级配置</button>
-			<button type="button" class="agh-tab" data-tab="logs">运行日志</button>
-			<button type="button" class="agh-tab" data-tab="guide">使用说明</button>
-		</div>
-		<span id="agh-toast" class="agh-toast" role="status" aria-live="polite"></span>
-	</nav>
 
 	<main class="agh-main">
 		<section class="agh-tab-panel is-active" id="agh-tab-overview">
-			<div class="agh-card">
+			<div class="agh-card agh-band">
 				<div class="agh-card-head">
-					<h3>过滤统计</h3>
-					<span class="agh-hint agh-stats-notice">如发现无拦截数据，重启路由器后再启动 AGH。</span>
-					<span id="agh-stats-updated" class="agh-hint">读取中...</span>
-					<button type="button" id="agh-stats-clear" class="agh-ghost-btn agh-small-btn">清空统计</button>
-				</div>
-				<div class="agh-metrics">
-					<div class="agh-metric">
-						<div class="agh-metric-num" id="agh-stat-queries">-</div>
-						<div class="agh-metric-label">DNS 查询</div>
+					<div class="agh-card-head-left"><h3>运行状态</h3><span class="agh-hint agh-head-note">关注四项：服务是否运行、DNS 是否接管、面板能否打开、内核是否最新。</span></div>
+					<div class="agh-inline">
+						<span class="agh-hint">自动更新</span>
+						<button type="button" id="agh-refresh-status" class="agh-ghost-btn agh-small-btn">刷新</button>
 					</div>
-					<div class="agh-metric">
-						<div class="agh-metric-num" id="agh-stat-blocked">-</div>
-						<div class="agh-metric-label">已拦截（广告/跟踪）</div>
-					</div>
-					<div class="agh-metric">
-						<div class="agh-metric-num" id="agh-stat-malware">-</div>
-						<div class="agh-metric-label">恶意/钓鱼</div>
-					</div>
-					<div class="agh-metric">
-						<div class="agh-metric-num" id="agh-stat-adult">-</div>
-						<div class="agh-metric-label">成人内容（家长控制）</div>
-					</div>
-				</div>
-				<p id="agh-stats-alert" class="agh-hint agh-hint-warn agh-stats-alert" hidden></p>
-			</div>
-
-			<div class="agh-card">
-				<div class="agh-card-head">
-					<h3>运行状态</h3>
-					<button type="button" id="agh-refresh-status" class="agh-ghost-btn agh-small-btn">刷新</button>
 				</div>
 				<div id="agh-status-grid" class="agh-status-grid">
 					<div class="agh-empty">正在读取状态...</div>
 				</div>
 			</div>
 
-			<div class="agh-card">
-				<div class="agh-card-head">
-					<h3>服务控制</h3>
-				</div>
-				<div class="agh-actions">
-					<button type="button" id="agh-start-btn" class="agh-btn agh-btn-secondary">启动服务</button>
-					<button type="button" id="agh-stop-btn" class="agh-btn agh-btn-danger">停止并关闭自启</button>
-					<button type="button" id="agh-restart-btn" class="agh-btn agh-btn-secondary">重启服务</button>
-				</div>
-			</div>
-
-			<div class="agh-card">
-				<div class="agh-card-head">
-					<h3>初始化配置</h3>
-					<button type="button" id="agh-steps-toggle" class="agh-ghost-btn agh-small-btn">收起</button>
-				</div>
-				<div class="agh-steps" id="agh-steps">
-					<div class="agh-step agh-step-init">
-						<div class="agh-step-no">1</div>
-						<div class="agh-step-body">
-							<div class="agh-step-title-row"><div class="agh-step-title">安装 AdGuard Home 内核</div><span class="agh-hint agh-head-note">自动识别设备架构，从官方源或 GitHub 反代下载最新内核。内核约 10-40MB，请确保路由器空间充足。</span></div>
+			<div class="agh-cols">
+				<div class="agh-col">
+					<div class="agh-card">
+						<div class="agh-card-head">
+							<div class="agh-card-head-left"><h3>过滤统计</h3><span class="agh-hint agh-head-note">如发现无拦截数据，重启路由器后再启动 AGH。</span></div>
 							<div class="agh-inline">
-								<button type="button" id="agh-install-btn" class="agh-btn agh-btn-primary">安装/更新内核</button>
-								<span id="agh-core-hint" class="agh-hint"></span>
+								<span id="agh-stats-updated" class="agh-hint">读取中...</span>
+								<button type="button" id="agh-stats-clear" class="agh-ghost-btn agh-small-btn">清空统计</button>
 							</div>
 						</div>
-					</div>
-					<div class="agh-step agh-step-init">
-						<div class="agh-step-no">2</div>
-						<div class="agh-step-body">
-							<div class="agh-step-title-row"><div class="agh-step-title">一键启用并接管 DNS</div><span class="agh-hint agh-head-note">首次启用从内置模板生成配置，默认账号 admin、密码 admin123，并采用“接管 53 端口”方式接管 DNS。</span></div>
-							<div class="agh-inline">
-								<button type="button" id="agh-enable-btn" class="agh-btn agh-btn-primary">一键启用</button>
-								<span id="agh-enable-hint" class="agh-hint"></span>
+						<div class="agh-metrics">
+							<div class="agh-metric">
+								<div class="agh-metric-num" id="agh-stat-queries">-</div>
+								<div class="agh-metric-label">DNS 查询</div>
+							</div>
+							<div class="agh-metric">
+								<div class="agh-metric-num" id="agh-stat-blocked">-</div>
+								<div class="agh-metric-label">已拦截（广告/跟踪）</div>
+							</div>
+							<div class="agh-metric">
+								<div class="agh-metric-num" id="agh-stat-malware">-</div>
+								<div class="agh-metric-label">恶意/钓鱼</div>
+							</div>
+							<div class="agh-metric">
+								<div class="agh-metric-num" id="agh-stat-adult">-</div>
+								<div class="agh-metric-label">成人内容（家长控制）</div>
 							</div>
 						</div>
+						<p id="agh-stats-alert" class="agh-hint agh-hint-warn agh-stats-alert" hidden></p>
 					</div>
-					<div class="agh-step">
-						<div class="agh-step-no">3</div>
-						<div class="agh-step-body">
-							<div class="agh-step-title-row"><div class="agh-step-title">打开 AdGuard Home 面板</div><span class="agh-hint agh-head-note">首次登录可使用状态卡片中的默认密码。登录后可添加过滤规则、查看拦截统计。</span></div>
-							<div class="agh-inline">
-								<a href="#" id="agh-panel-link" class="agh-btn agh-btn-secondary" target="_blank" rel="noopener">打开 AGH 面板</a>
-								<span id="agh-console-hint" class="agh-hint"></span>
+
+					<div class="agh-card">
+						<div class="agh-card-head">
+							<div class="agh-card-head-left"><h3>初始化配置</h3><span class="agh-hint agh-head-note">首次使用按 1 → 2 → 3 完成；已启用可跳过。</span></div>
+						</div>
+						<div class="agh-steps" id="agh-steps">
+							<div class="agh-step">
+								<div class="agh-step-no">1</div>
+								<div class="agh-step-body">
+									<div class="agh-step-title-row"><div class="agh-step-title">安装 AdGuard Home 内核</div><span class="agh-hint agh-head-note">自动识别架构，从官方源或GitHub 下载最新内核。内核约10-40MB，请确保空间充足。</span></div>
+									<div class="agh-inline">
+										<button type="button" id="agh-install-btn" class="agh-btn agh-btn-primary">安装/更新内核</button>
+										<span id="agh-core-hint" class="agh-hint"></span>
+									</div>
+								</div>
 							</div>
+							<div class="agh-step">
+								<div class="agh-step-no">2</div>
+								<div class="agh-step-body">
+									<div class="agh-step-title-row"><div class="agh-step-title">一键启用并接管 DNS</div><span class="agh-hint agh-head-note">首次启用从内置模板生成配置，账号 admin、密码 admin123，采用“接管53端口”方式接管DNS。</span></div>
+									<div class="agh-inline">
+										<button type="button" id="agh-enable-btn" class="agh-btn agh-btn-primary">一键启用</button>
+										<span id="agh-enable-hint" class="agh-hint"></span>
+									</div>
+								</div>
+							</div>
+							<div class="agh-step">
+								<div class="agh-step-no">3</div>
+								<div class="agh-step-body">
+									<div class="agh-step-title-row"><div class="agh-step-title">打开 AdGuard Home 面板</div><span class="agh-hint agh-head-note">首次登录可使用状态卡片中的默认密码。登录后可添加过滤规则、查看拦截统计。</span></div>
+									<div class="agh-inline">
+										<a href="#" id="agh-panel-link" class="agh-btn agh-btn-secondary" target="_blank" rel="noopener">打开 AGH 面板</a>
+										<span id="agh-console-hint" class="agh-hint"></span>
+									</div>
+								</div>
+							</div>
+						</div>
+
+						<div id="agh-progress-wrap" class="agh-progress-wrap" hidden>
+							<div class="agh-progress-head">
+								<span>安装进度</span>
+								<span id="agh-progress-state" class="agh-hint"></span>
+							</div>
+							<div class="agh-progress-bar is-indeterminate" id="agh-progress-bar"><i></i></div>
+							<pre id="agh-progress-log" class="agh-log agh-mt-8"></pre>
 						</div>
 					</div>
 				</div>
 
-				<div id="agh-progress-wrap" class="agh-progress-wrap" hidden>
-					<div class="agh-progress-head">
-						<span>安装进度</span>
-						<span id="agh-progress-state" class="agh-hint"></span>
+				<div class="agh-col">
+					<div class="agh-card">
+						<div class="agh-card-head">
+							<h3>服务控制</h3>
+						</div>
+						<div class="agh-actions">
+							<button type="button" id="agh-start-btn" class="agh-btn agh-btn-secondary">启动服务</button>
+							<button type="button" id="agh-stop-btn" class="agh-btn agh-btn-danger">停止并关闭自启</button>
+							<button type="button" id="agh-restart-btn" class="agh-btn agh-btn-secondary">重启服务</button>
+						</div>
+						<p class="agh-hint agh-mt-8">停止会同时恢复 DNSMasq 原始设置，网络随即恢复。</p>
 					</div>
-					<div class="agh-progress-bar is-indeterminate" id="agh-progress-bar"><i></i></div>
-					<pre id="agh-progress-log" class="agh-log"></pre>
-				</div>
-			</div>
 
-			<div class="agh-card">
-				<div class="agh-card-head">
-					<div class="agh-card-head-left"><h3>DNS 自检</h3><span class="agh-hint agh-head-note">只读检查内核、进程、管理端口与本机 DNS 查询链路，不会修改任何配置。</span></div>
-					<button type="button" id="agh-selftest-btn" class="agh-ghost-btn agh-small-btn">开始检测</button>
+					<div class="agh-card">
+						<div class="agh-card-head">
+							<div class="agh-card-head-left"><h3>DNS 自检</h3><span class="agh-hint agh-head-note">只读检查内核、进程、管理端口与本机 DNS 查询链路，不会修改任何配置。</span></div>
+							<button type="button" id="agh-selftest-btn" class="agh-ghost-btn agh-small-btn">开始检测</button>
+						</div>
+						<ul class="agh-tips" id="agh-selftest-list">
+							<li class="agh-hint">尚未检测。</li>
+						</ul>
+					</div>
+
+					<div class="agh-card">
+						<div class="agh-card-head">
+							<h3>新手提示</h3>
+						</div>
+						<ul class="agh-tips">
+							<li><b>只要普通过滤：</b>安装内核 → 一键启用 → 打开 AGH 面板添加过滤器。</li>
+							<li><b>停止后上网异常：</b>点击“停止并关闭自启”，插件会自动恢复 DNSMasq 原始设置。</li>
+							<li><b>忘记面板密码：</b>到“基础设置 → 插件配置”重新设置。</li>
+							<li><b>磁盘空间不足：</b>到“基础设置”把内核安装位置改为“内存临时”，或清理路由器空间。</li>
+						</ul>
+					</div>
 				</div>
-				<ul class="agh-tips" id="agh-selftest-list">
-					<li class="agh-hint">尚未检测。</li>
-				</ul>
 			</div>
 
 			<div class="agh-card" id="agh-legacy-card" style="display:none">
@@ -224,25 +255,12 @@
 				</div>
 				<p class="agh-hint agh-mt-8">清理会先停止并禁用旧服务，文件备份到 <code>/etc/adguardhome_lite/legacy-backup-时间戳/</code>；<code>/etc/AdGuardHome.yaml</code> 与统计数据会保留。</p>
 			</div>
-
-			<div class="agh-card">
-				<div class="agh-card-head">
-					<h3>新手提示</h3>
-				</div>
-				<ul class="agh-tips">
-					<li><b>只要普通过滤：</b>安装内核 → 一键启用 → 打开 AGH 面板添加过滤器。</li>
-					<li><b>停止后上网异常：</b>点击“停止并关闭自启”，插件会自动恢复 DNSMasq 原始设置。</li>
-					<li><b>忘记面板密码：</b>到“基础设置 → 插件配置”重新设置。</li>
-					<li><b>磁盘空间不足：</b>到“基础设置”把内核安装位置改为“内存临时”，或清理路由器空间。</li>
-				</ul>
-			</div>
 		</section>
 
 		<section class="agh-tab-panel" id="agh-tab-settings">
 			<div class="agh-subtabs" id="agh-settings-tabs">
 				<button type="button" class="agh-subtab is-active" data-subtab="svc">插件配置</button>
 				<button type="button" class="agh-subtab" data-subtab="upstream">DNS 解析</button>
-				<button type="button" class="agh-subtab" data-subtab="filters">过滤规则</button>
 			</div>
 
 			<div class="agh-card is-active" data-subpanel="svc">
@@ -261,7 +279,7 @@
 						</label>
 					</div>
 
-				<div class="agh-form-grid agh-form-grid-3 agh-form-grid-tight">
+				<div class="agh-form-grid agh-rows">
 						<div class="agh-field">
 							<label for="agh-set-dns-mode">DNS 接管方式</label>
 							<select id="agh-set-dns-mode">
@@ -316,7 +334,7 @@
 						</div>
 					</div>
 
-					<div class="agh-form-grid agh-form-grid-tight" id="agh-bypass-group">
+					<div class="agh-form-grid agh-rows" id="agh-bypass-group">
 						<div class="agh-field">
 							<label>不参与接管的接口</label>
 							<div class="agh-select" id="agh-bypass-iface-dd">
@@ -351,7 +369,7 @@
 				</div>
 				<p id="agh-upstream-lan-note" class="agh-hint agh-hint-warn" hidden></p>
 				<form id="agh-upstream-form" class="agh-form" autocomplete="off">
-					<div class="agh-form-grid">
+					<div class="agh-form-grid agh-rows">
 						<div class="agh-field">
 							<label for="agh-set-upstream-source">上游来源</label>
 							<select id="agh-set-upstream-source">
@@ -470,7 +488,68 @@
 				</form>
 			</div>
 
-			<div class="agh-card" data-subpanel="filters">
+			<div class="agh-cols-2">
+				<div class="agh-card" data-subpanel="svc">
+					<div class="agh-card-head">
+						<h3>修改面板密码</h3>
+					</div>
+					<form id="agh-password-form" class="agh-form" autocomplete="off">
+						<div class="agh-form-grid agh-rows">
+							<div class="agh-field">
+								<label for="agh-newpass">新密码（至少 8 个字符）</label>
+								<input type="password" id="agh-newpass" autocomplete="new-password">
+							</div>
+							<div class="agh-field">
+								<label for="agh-newpass2">再次输入新密码</label>
+								<input type="password" id="agh-newpass2" autocomplete="new-password">
+							</div>
+						</div>
+						<div class="agh-form-actions">
+							<button type="submit" id="agh-savepass-btn" class="agh-btn agh-btn-primary">保存新密码</button>
+							<span id="agh-pass-msg" class="agh-hint"></span>
+						</div>
+					</form>
+				</div>
+
+				<div class="agh-card" data-subpanel="svc">
+					<div class="agh-card-head">
+						<div class="agh-card-head-left"><h3>统计与日志保留</h3><span class="agh-hint agh-head-note">控制 AdGuard Home 的统计和查询日志保留时长；保存后会重启服务。</span></div>
+						<span id="agh-retention-msg" class="agh-hint"></span>
+					</div>
+					<form id="agh-retention-form" class="agh-form" autocomplete="off">
+						<div class="agh-form-grid agh-rows">
+							<div class="agh-field">
+								<label for="agh-set-stats-days">统计保留</label>
+								<select id="agh-set-stats-days">
+									<option value="7">7 天</option>
+									<option value="30">30 天（默认）</option>
+									<option value="90">90 天</option>
+									<option value="180">180 天</option>
+									<option value="365">365 天</option>
+								</select>
+							</div>
+							<div class="agh-field">
+								<label for="agh-set-querylog-days">查询日志保留</label>
+								<select id="agh-set-querylog-days">
+									<option value="1">1 天</option>
+									<option value="7">7 天</option>
+									<option value="30">30 天（默认）</option>
+									<option value="90">90 天</option>
+									<option value="180">180 天</option>
+								</select>
+							</div>
+						</div>
+						<div class="agh-form-actions">
+							<button type="submit" id="agh-save-retention-btn" class="agh-btn agh-btn-primary">保存并应用</button>
+							<span class="agh-hint">保存后重启 AGH，约 5-10 秒生效。</span>
+						</div>
+					</form>
+				</div>
+			</div>
+		</section>
+
+		<section class="agh-tab-panel" id="agh-tab-filters">
+			<div class="agh-card">
 				<div class="agh-card-head">
 					<div class="agh-card-head-left"><h3>过滤规则</h3><span class="agh-hint agh-head-note">直接管理过滤开关、订阅列表和自定义规则，修改后立即生效，不需要重启。</span></div>
 					<span id="agh-filters-msg" class="agh-hint"></span>
@@ -553,7 +632,7 @@
 								<option value="0">黑名单（拦截）</option>
 								<option value="1">白名单（放行）</option>
 							</select>
-							<p class="agh-hint agh-mt-8">白名单列表用于放行指定域名，默认按黑名单拦截。</p>
+							<p class="agh-hint">白名单列表用于放行指定域名，默认按黑名单拦截。</p>
 						</div>
 					</div>
 					<div class="agh-form-actions">
@@ -585,63 +664,6 @@
 				</form>
 			</div>
 
-			<div class="agh-card" data-subpanel="svc">
-				<div class="agh-card-head">
-					<h3>修改面板密码</h3>
-				</div>
-				<form id="agh-password-form" class="agh-form" autocomplete="off">
-					<div class="agh-form-grid">
-						<div class="agh-field">
-							<label for="agh-newpass">新密码（至少 8 个字符）</label>
-							<input type="password" id="agh-newpass" autocomplete="new-password">
-						</div>
-						<div class="agh-field">
-							<label for="agh-newpass2">再次输入新密码</label>
-							<input type="password" id="agh-newpass2" autocomplete="new-password">
-						</div>
-					</div>
-					<div class="agh-form-actions">
-						<button type="submit" id="agh-savepass-btn" class="agh-btn agh-btn-primary">保存新密码</button>
-						<span id="agh-pass-msg" class="agh-hint"></span>
-					</div>
-				</form>
-			</div>
-
-			<div class="agh-card" data-subpanel="svc">
-				<div class="agh-card-head">
-					<div class="agh-card-head-left"><h3>统计与日志保留</h3><span class="agh-hint agh-head-note">控制 AdGuard Home 的统计和查询日志保留时长；保存后会重启服务。</span></div>
-					<span id="agh-retention-msg" class="agh-hint"></span>
-				</div>
-				
-				<form id="agh-retention-form" class="agh-form" autocomplete="off">
-					<div class="agh-form-grid">
-						<div class="agh-field">
-							<label for="agh-set-stats-days">统计保留</label>
-							<select id="agh-set-stats-days">
-								<option value="7">7 天</option>
-								<option value="30">30 天（默认）</option>
-								<option value="90">90 天</option>
-								<option value="180">180 天</option>
-								<option value="365">365 天</option>
-							</select>
-						</div>
-						<div class="agh-field">
-							<label for="agh-set-querylog-days">查询日志保留</label>
-							<select id="agh-set-querylog-days">
-								<option value="1">1 天</option>
-								<option value="7">7 天</option>
-								<option value="30">30 天（默认）</option>
-								<option value="90">90 天</option>
-								<option value="180">180 天</option>
-							</select>
-						</div>
-					</div>
-					<div class="agh-form-actions">
-						<button type="submit" id="agh-save-retention-btn" class="agh-btn agh-btn-primary">保存并应用</button>
-						<span class="agh-hint">保存后重启 AGH，约 5-10 秒生效。</span>
-					</div>
-				</form>
-			</div>
 		</section>
 
 		<section class="agh-tab-panel" id="agh-tab-advanced">
@@ -669,7 +691,7 @@
 			</div>
 
 			<div class="agh-card is-active" data-logpanel="sys">
-				<div class="agh-card-head">
+				<div class="agh-card-head agh-head-inline">
 					<div class="agh-card-head-left"><h3>运行日志</h3><span class="agh-hint agh-head-note">按类型分区显示：持久化状态、服务操作、订阅更新、系统日志、内核安装/更新；系统日志最新在最前，默认每 5 秒自动刷新。</span></div>
 					<div class="agh-inline">
 						<select id="agh-log-level" class="agh-select">
@@ -828,15 +850,16 @@
 				<p class="agh-hint">插件和 AGH 面板修改的是同一份配置，两边都能改，以最后一次保存为准。</p>
 			</div>
 		</section>
-		</main>
+	</main>
 
-		<footer class="agh-footer">
-			<span class="agh-footer-title">AdGuard Home 管理中心<span class="agh-footer-link"><a href="https://adblock.turtlecute.org/" target="_blank" rel="noopener">过滤效果测试</a></span></span>
-			<span class="agh-footer-links">
-				<span class="agh-footer-link"><a href="https://agh.ozero.asia" target="_blank" rel="noopener">云盘下载</a></span>
-				<span class="agh-footer-link"><a href="https://github.com/Ozero-top/luci-app-adguardhome-lite" target="_blank" rel="noopener">GitHub 项目地址</a></span>
-			</span>
-		</footer>
+	<footer class="agh-footer">
+		<span class="agh-footer-summary">安装、接管、过滤、看护一体化；常用参数都在插件内配置，更细的高级项仍可在 AdGuard Home 面板完成。</span>
+		<span class="agh-footer-title">AdGuard Home 管理中心<span class="agh-footer-link"><a href="https://adblock.turtlecute.org/" target="_blank" rel="noopener">过滤效果测试</a></span></span>
+		<span class="agh-footer-links">
+			<span class="agh-footer-link"><a href="https://agh.ozero.asia" target="_blank" rel="noopener">云盘下载</a></span>
+			<span class="agh-footer-link"><a href="https://github.com/Ozero-top/luci-app-adguardhome-lite" target="_blank" rel="noopener">GitHub 项目地址</a></span>
+		</span>
+	</footer>
 </div>
 
 <div class="agh-modal" id="agh-plugin-update-modal" hidden>
@@ -890,7 +913,7 @@
 </div>
 
 <script src="<%=resource%>/adguardhome-lite/twin-bcrypt.min.js?v=20261108b"></script>
-<script src="<%=resource%>/adguardhome-lite/panel.js?v=20261126s"></script>
+<script src="<%=resource%>/adguardhome-lite/panel.js?v=20261125k"></script>
 <script>
 	// 向内嵌它的 LuCI 页面上报真实高度，外层不再轮询 iframe DOM
 	(function () {
