@@ -98,7 +98,7 @@ return view.extend({
 			m, s, o,
 			programPath = '/usr/share/wechatpush-pro/wechatpush-pro';
 
-		m = new form.Map('wechatpush-pro', _('WeChat push'), _('A tool that can push device messages from OpenWrt to a mobile phone via WeChat or Telegram.<br /><br />If you encounter any issues while using it, please submit them here:') + '<a href="https://github.com/tty228/luci-app-wechatpush-pro" target="_blank">' + _('GitHub Project Address') + '</a>');
+		m = new form.Map('wechatpush-pro', _('WeChat push'), _('A tool that can push device messages from OpenWrt to a mobile phone via WeChat or Telegram.'));
 
 		s = m.section(form.TypedSection);
 		s.anonymous = true;

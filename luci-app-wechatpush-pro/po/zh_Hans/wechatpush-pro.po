@@ -29,8 +29,8 @@ msgid "Log"
 msgstr "日志"
 
 #: applications/luci-app-wechatpush-pro/htdocs/luci-static/resources/view/wechatpush-pro/config.js:101
-msgid "A tool that can push device messages from OpenWrt to a mobile phone via WeChat or Telegram.<br /><br />If you encounter any issues while using it, please submit them here:"
-msgstr "一个通过微信或 Telegram，从 OpenWrt 上推送设备消息到手机的工具<br /><br />如果你在使用中遇到问题，请到这里提交："
+msgid "A tool that can push device messages from OpenWrt to a mobile phone via WeChat or Telegram."
+msgstr "一个通过微信或 Telegram，从设备上推送设备消息到手机的工具"
 
 #: applications/luci-app-wechatpush-pro/htdocs/luci-static/resources/view/wechatpush-pro/config.js:101
 msgid "GitHub Project Address"
