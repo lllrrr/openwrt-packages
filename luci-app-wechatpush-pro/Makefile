@@ -4,7 +4,7 @@ PKG_NAME:=luci-app-wechatpush-pro
 # pro 分支：包名与 LuCI 应用名统一为 luci-app-wechatpush-pro。
 # apk (OpenWrt 25.12+) 的版本号只接受 数字[.数字]*[-r数字]，故实际包版本为 1.2-r2。
 PKG_VERSION:=1.2
-PKG_RELEASE:=5
+PKG_RELEASE:=6
 # 翻译包沿用应用版本号；不设置时 luci.mk 会退化成日期版本（如 0.261124.27507），
 # 与 README 中 luci-i18n-wechatpush-pro-zh-cn_1.2-r2_all.ipk 的命名不一致。
 PKG_PO_VERSION:=$(PKG_VERSION)-r$(PKG_RELEASE)

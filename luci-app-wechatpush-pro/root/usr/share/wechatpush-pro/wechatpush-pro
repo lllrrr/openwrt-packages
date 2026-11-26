@@ -224,13 +224,13 @@ init() {
 	# 配置检查
 	# 流量数据源健康检查：按实际后端提示，避免选 OAF/ctstat 时误报 wrtbwmon 缺失
 	if [ "$traffic_backend" = "ctstat" ]; then
-		log_change "[INFO] Traffic source: ctstat (ubus luci.ctstat)"
+		log_change "[INFO] $(translate "Traffic source"): ctstat (ubus luci.ctstat)"
 		[ "$ctstat_startup_missing" = "1" ] && log_change "[WARN] ctstat (ubus luci.ctstat) not ready yet, traffic update will retry every cycle"
 	elif [ "$traffic_backend" = "oaf" ]; then
-		log_change "[INFO] Traffic source: OAF (ubus fwx)"
+		log_change "[INFO] $(translate "Traffic source"): OAF (ubus fwx)"
 		[ "$oaf_startup_missing" = "1" ] && log_change "[WARN] OAF (ubus fwx) not ready yet, traffic update will retry every cycle"
 	else
-		[ ! -f "/usr/sbin/wrtbwmon" ] && log_change "[WARN] $(translate "wrtbwmon not installed, traffic statistics unavailable") (traffic source: wrtbwmon)"
+		[ ! -f "/usr/sbin/wrtbwmon" ] && log_change "[WARN] $(translate "wrtbwmon not installed, traffic statistics unavailable") ($(translate "Traffic source"): wrtbwmon)"
 	fi
 	[ -z "$ip_version" ] && log_change "[ERROR] $(translate "Cannot get iputils-arping version, please confirm if plugin is running properly")"
 	[ -z "$cu_version" ] && log_change "[ERROR] $(translate "Cannot get curl version, please confirm if plugin is running properly")"
@@ -2930,11 +2930,11 @@ set_ip_black() {
 	done <<<"$(cat "$ip_blacklist_path")"
 	# 当 ip_blacklist 文件清除 IP 时，从集合中清除 IP
 	if [ -n "$nftables_version" ] && [ "$login_ip_black_timeout" -eq 0 ]; then
-		fw_info_blacklist=$(nft list set inet fw4 wechatpush_blacklist | tr -d '\n' | grep -oE 'elements = \{[^}]*\}' | sed -e 's/.*{//' -e 's/}//' | tr ',' '\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-		fw_info_blacklistv6=$(nft list set inet fw4 wechatpush_blacklistv6 | tr -d '\n' | grep -oE 'elements = \{[^}]*\}' | sed -e 's/.*{//' -e 's/}//' | tr ',' '\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+		fw_info_blacklist=$(nft list set inet fw4 wechatpush_blacklist 2>/dev/null | tr -d '\n' | grep -oE 'elements = \{[^}]*\}' | sed -e 's/.*{//' -e 's/}//' | tr ',' '\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+		fw_info_blacklistv6=$(nft list set inet fw4 wechatpush_blacklistv6 2>/dev/null | tr -d '\n' | grep -oE 'elements = \{[^}]*\}' | sed -e 's/.*{//' -e 's/}//' | tr ',' '\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
 	elif [ -n "$nftables_version" ]; then
-		fw_info_blacklist=$(nft list set inet fw4 wechatpush_blacklist | tr -d '\n' | grep -oE 'elements = \{[^}]*\}' | grep -oE '[^{}]+ expires [^,}]+[,\}]' | tr ',}' '\n' | tr -s ' ' | sed -e 's/^[[:space:]]*//')
-		fw_info_blacklistv6=$(nft list set inet fw4 wechatpush_blacklistv6 | tr -d '\n' | grep -oE 'elements = \{[^}]*\}' | grep -oE '[^{}]+ expires [^,}]+[,\}]' | tr ',}' '\n' | tr -s ' ' | sed -e 's/^[[:space:]]*//')
+		fw_info_blacklist=$(nft list set inet fw4 wechatpush_blacklist 2>/dev/null | tr -d '\n' | grep -oE 'elements = \{[^}]*\}' | grep -oE '[^{}]+ expires [^,}]+[,\}]' | tr ',}' '\n' | tr -s ' ' | sed -e 's/^[[:space:]]*//')
+		fw_info_blacklistv6=$(nft list set inet fw4 wechatpush_blacklistv6 2>/dev/null | tr -d '\n' | grep -oE 'elements = \{[^}]*\}' | grep -oE '[^{}]+ expires [^,}]+[,\}]' | tr ',}' '\n' | tr -s ' ' | sed -e 's/^[[:space:]]*//')
 	fi
 	[ -z "$nftables_version" ] && fw_info_blacklist=$(ipset list wechatpush_blacklist | grep "timeout" 2>/dev/null)
 	[ -z "$nftables_version" ] && fw_info_blacklistv6=$(ipset list wechatpush_blacklistv6 | grep "timeout" 2>/dev/null)

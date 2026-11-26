@@ -52,13 +52,34 @@ msgstr ""
 msgid "Unreachable, falling back to %s"
 msgstr ""
 
-msgid "IPv6 not set"
+msgid "direct"
 msgstr ""
 
-msgid "IPv6 normal"
+msgid "blackhole"
 msgstr ""
 
-msgid "IPv6 unreachable (fallback to IPv4)"
+msgid "fallback to IPv4"
+msgstr ""
+
+msgid "auto"
+msgstr ""
+
+msgid "manual"
+msgstr ""
+
+msgid "IPv6 disabled (%s)"
+msgstr ""
+
+msgid "IPv6 not discovered (%s)"
+msgstr ""
+
+msgid "IPv6 not set (%s)"
+msgstr ""
+
+msgid "IPv6 normal (%s)"
+msgstr ""
+
+msgid "IPv6 unreachable (%s)"
 msgstr ""
 
 msgid "IPv6 checking"
@@ -103,7 +124,7 @@ msgstr ""
 msgid "Gateways"
 msgstr ""
 
-msgid "Other gateways (e.g. side routers) on the LAN. Traffic routed to a gateway and DNS queries from those devices are sent to it; the gateway's own traffic is never looped back. Click Edit to configure IPv6 address, DNS port and probe URL. Newly added gateways appear in fallback and rule dropdowns after saving."
+msgid "Other gateways (e.g. side routers) on the LAN. Traffic routed to a gateway and DNS queries from those devices are sent to it; the gateway's own traffic is never looped back. IPv6 is auto-discovered by MAC by default; click Edit to customize IPv6 mode, fallback behavior, DNS port, and probe URL."
 msgstr ""
 
 msgid "Edit gateway: %s"
@@ -127,16 +148,58 @@ msgstr ""
 msgid "Enter an IPv4 address without prefix length"
 msgstr ""
 
+msgid "IPv6 mode"
+msgstr ""
+
+msgid "Auto-discover matches the gateway's IPv6 address by its MAC and tracks prefix changes automatically (only on-link ULA/GUA matching the LAN /64 prefix are accepted)."
+msgstr ""
+
+msgid "Auto-discover (by MAC)"
+msgstr ""
+
+msgid "Manual"
+msgstr ""
+
+msgid "Disabled"
+msgstr ""
+
+msgid "IPv6 priority"
+msgstr ""
+
+msgid "Address preference when auto-discovering: ULA and link-local (fe80::) stay stable across ISP prefix changes; when fe80:: is used, IPv6 DNS falls back to gateway IPv4 DNS."
+msgstr ""
+
+msgid "ULA > Link-local (fe80::) > GUA (Recommended)"
+msgstr ""
+
+msgid "Link-local (fe80::) > ULA > GUA"
+msgstr ""
+
+msgid "GUA > ULA > Link-local (fe80::)"
+msgstr ""
+
 msgid "IPv6 address"
 msgstr ""
 
-msgid "If left empty, IPv6 connections routed to this gateway will be rejected so devices automatically fall back to IPv4."
-msgstr ""
-
-msgid "Optional"
+msgid "Static IPv6 address of this gateway (without prefix length)."
 msgstr ""
 
 msgid "Enter an IPv6 address without prefix length"
+msgstr ""
+
+msgid "When IPv6 is unavailable"
+msgstr ""
+
+msgid "Action for routed IPv6 connections when IPv6 is disabled, not discovered, or unreachable. DNS queries still go to this gateway via IPv4."
+msgstr ""
+
+msgid "Reject (fall back to IPv4)"
+msgstr ""
+
+msgid "Direct"
+msgstr ""
+
+msgid "Blackhole (drop silently)"
 msgstr ""
 
 msgid "DNS port"
@@ -163,10 +226,7 @@ msgstr ""
 msgid "When unreachable"
 msgstr ""
 
-msgid "Fallback gateway when this gateway is unreachable (switches once; goes direct if the backup is also unreachable). Newly added gateways appear here after saving."
-msgstr ""
-
-msgid "Direct"
+msgid "Fallback gateway when this gateway is unreachable (switches once; goes direct if the backup is also unreachable)."
 msgstr ""
 
 msgid "Use %s"
@@ -181,7 +241,7 @@ msgstr ""
 msgid "Device Groups"
 msgstr ""
 
-msgid "Identified by MAC address, which also matches IPv6 privacy addresses; IP addresses or CIDR subnets are also supported."
+msgid "Identified by MAC address, which also matches IPv6 privacy addresses; click Edit to batch-select multiple LAN devices at once. IP addresses or CIDR subnets are also supported."
 msgstr ""
 
 msgid "Edit device group: %s"
@@ -193,22 +253,58 @@ msgstr ""
 msgid "e.g. Kids"
 msgstr ""
 
-msgid "MAC addresses"
+msgid "Devices (MAC)"
 msgstr ""
 
-msgid "Matches both IPv4 and IPv6 traffic of the device by MAC address."
+msgid "Check multiple LAN devices at once, or paste MAC addresses for offline devices below."
+msgstr ""
+
+msgid "Filter by hostname, IP or MAC..."
+msgstr ""
+
+msgid "%d selected"
+msgstr ""
+
+msgid "No matching devices"
+msgstr ""
+
+msgid "No LAN devices discovered yet; paste MAC addresses below."
+msgstr ""
+
+msgid "Unnamed device"
+msgstr ""
+
+msgid "Offline / Manual"
+msgstr ""
+
+msgid "In: %s"
+msgstr ""
+
+msgid "Batch add offline MACs (separated by space, comma or newline)"
+msgstr ""
+
+msgid "Invalid MAC address: %s"
+msgstr ""
+
+msgid "Select all"
+msgstr ""
+
+msgid "Clear"
+msgstr ""
+
+msgid "Add"
 msgstr ""
 
 msgid "IP / Subnet"
 msgstr ""
 
-msgid "IPv4 or IPv6 addresses or CIDR subnets, e.g. 192.168.99.50 or 192.168.99.64/28."
+msgid "Optional: IPv4 or IPv6 addresses or CIDR subnets, e.g. 192.168.99.50 or 192.168.99.64/28."
 msgstr ""
 
 msgid "Destination IP Groups"
 msgstr ""
 
-msgid "Custom destination address lists that can be used alongside GeoIP categories in routing rules, such as corporate subnets, your own VPS, or game servers."
+msgid "Custom destination address lists that can be used alongside GeoIP categories in routing rules, such as corporate subnets (e.g. 10.20.0.0/16), your own VPS, or game servers."
 msgstr ""
 
 msgid "Edit destination IP group: %s"
@@ -229,7 +325,7 @@ msgstr ""
 msgid "Routing Rules"
 msgstr ""
 
-msgid "Matched from top to bottom; the first matching rule applies, otherwise traffic goes direct. Private, local and multicast traffic always goes direct. Rule changes only affect new connections. Drag rows to reorder. DNS queries from a device are sent to the gateway specified by the first matching gateway rule for that device. Newly added IP groups appear in routing rule dropdowns after saving."
+msgid "Matched from top to bottom; the first matching rule applies, otherwise traffic goes direct. Local, loopback, multicast, and unreferenced private traffic goes direct (explicit Destination IP Groups may match private subnets such as corporate VPN ranges). Rule changes only affect new connections. Drag rows to reorder."
 msgstr ""
 
 msgid "Edit routing rule: %s"
@@ -244,13 +340,16 @@ msgstr ""
 msgid "Device groups"
 msgstr ""
 
-msgid "Leave empty to match all devices. Newly added device groups appear here after saving."
+msgid "Leave empty to match all devices."
 msgstr ""
 
 msgid "All devices"
 msgstr ""
 
 msgid "%s (deleted)"
+msgstr ""
+
+msgid "No device groups yet; add one above first."
 msgstr ""
 
 msgid "Destination (GeoIP / IP group)"
@@ -277,10 +376,13 @@ msgstr ""
 msgid "Destination IP groups"
 msgstr ""
 
-msgid "Combined with GeoIP categories (matches either). Leave both empty to match any destination. Newly added IP groups appear here after saving."
+msgid "Combined with GeoIP categories (matches either). Leave both empty to match any destination."
 msgstr ""
 
 msgid "No IP groups selected"
+msgstr ""
+
+msgid "No destination IP groups yet; add one above first."
 msgstr ""
 
 msgid "Invert"
@@ -290,13 +392,4 @@ msgid "Match when the destination is NOT in the selected GeoIP categories and IP
 msgstr ""
 
 msgid "Route to"
-msgstr ""
-
-msgid "Newly added gateways appear here after saving."
-msgstr ""
-
-msgid "No device groups yet; add one above and save first."
-msgstr ""
-
-msgid "No destination IP groups yet; add one above and save first."
 msgstr ""

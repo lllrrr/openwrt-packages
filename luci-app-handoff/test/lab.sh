@@ -18,9 +18,17 @@ via() {
 	src=$($S lab-hosts "doas ip netns exec $1 curl -s -m 4 $2" 2>/dev/null | awk '{ print $1 }')
 	case $src in '') echo FAIL ;; $GW | $GW6) echo SIDE ;; *) echo direct ;; esac
 }
-# side.test 只有网关的 DNS 认识：查到 = DNS 被转给了网关
+# side.test 只有网关的 DNS 认识：GW = 转给网关，FAIL = 被拒绝/超时，LOCAL = 本机 dnsmasq 应答
 dns() {
-	$S lab-hosts "doas ip netns exec $1 nslookup -type=a side.test $2" 2>/dev/null | grep -q 10.9.9.9 && echo GW || echo LOCAL
+	local out
+	out=$($S lab-hosts "doas ip netns exec $1 nslookup -type=a side.test $2" 2>&1)
+	if echo "$out" | grep -q '10\.9\.9\.9'; then
+		echo GW
+	elif echo "$out" | grep -qiE 'timed out|connection refused|unreachable|no servers could be reached'; then
+		echo FAIL
+	else
+		echo LOCAL
+	fi
 }
 expect() { # 名称 实际 期望
 	if [ "$2" = "$3" ]; then echo "ok   $1：$2"; else echo "FAIL $1：$2（期望 $3）"; fail=1; fi
@@ -37,10 +45,13 @@ matrix() { # 客户端 国内v4 国外v4 国内v6 国外v6 DNS@v4 DNS@v6 DNS@写
 # 连续 3 次失败才切换。多网关版每轮把各网关的 v4、v6 一起并行检测：最坏 ping 2 秒 + 间隔 2 秒 ≈ 4 秒，
 # 3 轮 ≈ 12 秒，20 秒留足余量（比以前串行检测时短）
 settle() { sleep 20; }
-# 网关段：段名 显示名 ip ip6 fallback
+# 网关段：段名 显示名 ip ip6 fallback [ip6_mode] [v6_fallback]
 gw() {
+	local mode="${6:-manual}" v6fb="${7:-reject}"
+	[ -z "$4" ] && [ -z "$6" ] && mode="off"
 	r "uci set handoff.$1=gateway
-		uci set handoff.$1.name='$2'; uci set handoff.$1.ip='$3'; uci set handoff.$1.ip6='$4'
+		uci set handoff.$1.name='$2'; uci set handoff.$1.ip='$3'
+		uci set handoff.$1.ip6_mode='$mode'; uci set handoff.$1.ip6='$4'; uci set handoff.$1.v6_fallback='$v6fb'
 		uci set handoff.$1.dns_port='53'; uci set handoff.$1.probe=''; uci set handoff.$1.fallback='$5'
 		uci commit handoff"
 }
@@ -64,13 +75,26 @@ r "while uci -q delete handoff.@rule[0]; do :; done
 	while uci -q delete handoff.@ipgroup[0]; do :; done
 	uci set handoff.main.enabled=1; uci set handoff.main.lan=lan; uci set handoff.main.interval=2
 	uci commit handoff"
-gw side side $GW $GW6 direct
+gw side side $GW '' direct auto reject
+r "uci set handoff.side.ip6_prefer='ula_lla_gua'; uci commit handoff"
 rule rside side
 r "/etc/init.d/handoff enable; /etc/init.d/handoff restart
 	for i in \$(seq 30); do handoff status | grep -q '^GeoIP cn' && nft list chain inet handoff decide | grep -q g_cn && break; sleep 2; done
 	handoff status"
 
-echo "== 正常：国外交给网关，DNS 都给网关"
+echo "== IPv6 自动发现（ip6_prefer=ula_lla_gua，环境无 ULA）：优先选 fe80:: 走 v6 路由，v6 DNS 拒绝促走 v4 DNS"
+expect "JSON ip6_mode=auto" "$(J '@.gateways[0].ip6_mode')" auto
+expect "JSON ip6_prefer=ula_lla_gua" "$(J '@.gateways[0].ip6_prefer')" ula_lla_gua
+expect "JSON 自动发现 fe80" "$(J '@.gateways[0].ip6')" "fe80::5a:ff:fe00:400"
+expect "JSON up6=true" "$(J '@.gateways[0].up6')" true
+matrix client-a direct SIDE direct SIDE GW FAIL GW
+
+echo "== IPv6 自动发现（ip6_prefer=gua_ula_lla）：自动带出 side 的公网 GUA，v6 流量与 v6 DNS 都走网关"
+r "uci set handoff.side.ip6_prefer='gua_ula_lla'; uci commit handoff"
+reload
+expect "JSON ip6_prefer=gua_ula_lla" "$(J '@.gateways[0].ip6_prefer')" gua_ula_lla
+expect "JSON 自动发现 GUA" "$(J '@.gateways[0].ip6')" "$GW6"
+expect "JSON up6=true" "$(J '@.gateways[0].up6')" true
 for c in client-a client-b; do matrix $c direct SIDE direct SIDE GW GW GW; done
 
 echo "== 改规则不影响已有连接（流量卸载开启，限速下载 40MB 中途加规则）"
@@ -85,7 +109,13 @@ expect "下载完整" "$($S lab-hosts 'cat /dev/shm/gwr-big; rm -f /dev/shm/gwr-
 echo "== 设备组：client-b 先命中「直连、任何目标」，DNS 也留在本机"
 matrix client-a direct SIDE direct SIDE GW GW GW
 matrix client-b direct direct direct direct LOCAL LOCAL LOCAL
-r "uci delete handoff.kids; uci delete handoff.rkids; uci commit handoff"
+
+echo "== probe 路由隔离（iif lo）：给 side 配 probe=http://223.5.5.5/cgi-bin/ip，client-b 访问 223.5.5.5 不应被劫持"
+r "uci set handoff.side.probe='http://223.5.5.5/cgi-bin/ip'; uci commit handoff"
+reload
+expect "pref 3098 含 iif lo" "$(r "ip -4 rule show pref 3098 | grep -c 'iif lo'")" 1
+expect "client-b 223.5.5.5 仍直连" "$(via client-b http://223.5.5.5/cgi-bin/ip)" direct
+r "uci set handoff.side.probe=''; uci delete handoff.kids; uci delete handoff.rkids; uci commit handoff"
 reload
 
 echo "== 目标 IP 组：8.8.8.8 直连，v4 的组不影响 v6（2001:4860::8888 仍 SIDE），DNS 仍全给网关"
@@ -104,8 +134,15 @@ r "uci add_list handoff.gdns.ip='2001:4860::8888'; uci commit handoff"
 reload
 matrix client-a direct direct direct direct GW GW GW
 
-echo "== 删掉 IP 组和规则：回到只按 GeoIP"
-r "uci delete handoff.rgdns; uci delete handoff.gdns; uci commit handoff"
+echo "== 目标 IP 组私有网段（如 10.20.0.0/16）：规则中不被 decide 开头硬拦截，且 !cn 仍排除 _priv4"
+r "uci set handoff.corp=ipgroup; uci set handoff.corp.name='corp'; uci add_list handoff.corp.ip='10.20.0.0/16'
+	uci set handoff.rcorp=rule; uci set handoff.rcorp.name='rcorp'; uci add_list handoff.rcorp.ipgroup='corp'; uci set handoff.rcorp.target='side'
+	uci reorder handoff.rcorp=1; uci commit handoff"
+reload
+expect "decide 开头未硬拦截 10.0.0.0/8" "$(r "nft list chain inet handoff decide | grep -c '10\.0\.0\.0/8'")" 0
+expect "corp 规则进 decide" "$(r "nft list chain inet handoff decide | grep -c '@i_corp_4'")" 1
+expect "!cn 规则自动排除 @_priv4" "$(r "nft list chain inet handoff decide | grep -c '!= @_priv4.*!= @g_cn_4'")" 1
+r "uci delete handoff.rcorp; uci delete handoff.corp; uci delete handoff.rgdns; uci delete handoff.gdns; uci commit handoff"
 reload
 matrix client-a direct SIDE direct SIDE GW GW GW
 
@@ -122,14 +159,14 @@ r "uci delete handoff.rbad; uci commit handoff"
 reload
 
 echo "== 备用网关：规则交给不通的 b（b 的 fallback=side）→ 国外改走 side，DNS 也到 side"
-gw b b $B '' side
+gw b b $B '' side off reject
 rule rside b
 reload
 settle
 matrix client-a direct SIDE direct SIDE GW GW GW
 r "handoff status"
 
-echo "== status --json：一行 JSON，b 的 up=false、via=side（b 没设 ip6，up6 应为 null，肉眼看输出）"
+echo "== status --json：一行 JSON，b 的 up=false、via=side、up6=null"
 r "handoff status --json"
 expect "JSON 是一行" "$(r "handoff status --json" | wc -l)" 1
 expect "JSON running" "$(J @.running)" true
@@ -143,13 +180,13 @@ reload
 settle
 matrix client-a direct direct direct direct LOCAL LOCAL LOCAL
 
-echo "== 回到只给 side"
-r "uci set handoff.rside.target=side; uci delete handoff.b; uci commit handoff"
+echo "== 回到只给 side（手动指定 IPv6 测试断网与恢复）"
+r "uci set handoff.side.ip6_mode=manual; uci set handoff.side.ip6=$GW6; uci set handoff.rside.target=side; uci delete handoff.b; uci commit handoff"
 reload
 settle
 matrix client-a direct SIDE direct SIDE GW GW GW
 
-echo "== 网关 IPv6 不通：交给网关的 v6 拒绝（设备回退 v4），v6 DNS 拒绝"
+echo "== 网关 IPv6 不通（v6_fallback=reject）：交给网关的 v6 拒绝，v6 DNS 拒绝（促走 v4 DNS）"
 side "nft -f - <<-'EOF'
 	table inet labdown {
 		chain i { type filter hook input priority -10; policy accept; icmpv6 type echo-request drop; }
@@ -157,8 +194,23 @@ side "nft -f - <<-'EOF'
 	}
 	EOF"
 settle
-matrix client-a direct SIDE direct FAIL GW LOCAL GW
+matrix client-a direct SIDE direct FAIL GW FAIL GW
 r "handoff status"
+
+echo "== 网关 IPv6 不通（v6_fallback=direct）：国外 v6 直连，v6 DNS 仍拒绝（避免泄露给本机 dnsmasq）"
+r "uci set handoff.side.v6_fallback=direct; uci commit handoff"
+reload
+settle
+matrix client-a direct SIDE direct direct GW FAIL GW
+
+echo "== 网关 IPv6 不通（v6_fallback=blackhole）：国外 v6 黑洞丢弃，路由表有 blackhole default"
+r "uci set handoff.side.v6_fallback=blackhole; uci commit handoff"
+reload
+settle
+expect "table 3101 含 blackhole" "$(r "ip -6 route show table 3101 | grep -c '^blackhole default'")" 1
+matrix client-a direct SIDE direct FAIL GW FAIL GW
+r "uci set handoff.side.v6_fallback=reject; uci commit handoff"
+reload
 
 echo "== 网关整体不通：全部直连，DNS 回到本机"
 side "nft delete table inet labdown; nft -f - <<-'EOF'
@@ -176,12 +228,12 @@ side "nft delete table inet labdown"
 settle
 matrix client-a direct SIDE direct SIDE GW GW GW
 
-echo "== 没设置网关 IPv6：同 IPv6 不通"
-r "uci delete handoff.side.ip6; uci commit handoff"
+echo "== 关闭网关 IPv6（ip6_mode=off）：按 v6_fallback=reject 拒绝 v6 和 v6 DNS"
+r "uci set handoff.side.ip6_mode=off; uci commit handoff"
 reload
 settle
-matrix client-a direct SIDE direct FAIL GW LOCAL GW
-r "uci set handoff.side.ip6=$GW6; uci commit handoff"
+matrix client-a direct SIDE direct FAIL GW FAIL GW
+r "uci set handoff.side.ip6_mode=auto; uci delete handoff.side.ip6; uci commit handoff"
 reload
 
 [ $fail = 0 ] && echo "全部通过" || echo "有失败项"

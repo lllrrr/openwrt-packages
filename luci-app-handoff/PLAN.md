@@ -1,6 +1,6 @@
 # handoff 计划（smartroute 简化版）
 
-状态：2026-11-24 多网关版 + 目标 IP 组完成：后端（root/usr/sbin/handoff）与 LuCI 页面都已在 PVE 实验环境实测通过（`test/lab.sh` 113 项全过；页面用 Playwright 实测渲染、弹窗、保存写 UCI、自动 reload、ACL）。前后端约定见 SPEC.md（本文件下面的单网关描述已过时，以 SPEC.md 和代码为准）。未提交，未建 GitHub 仓库，未打包发布。
+状态：已发布 v0.1.0，并在继续演进中（新增网关 IPv6 自动发现与三档不可用策略、设备组可视化批量多选、`ipgroup` 私网段支持、并发锁与探测路由隔离等）。前后端最新约定见 [SPEC.md](SPEC.md)，以下为最初设计思路存档。
 
 ## 思路
 

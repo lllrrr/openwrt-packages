@@ -1,8 +1,8 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-atomdns
-PKG_VERSION:=0.6.6
-PKG_RELEASE:=2
+PKG_VERSION:=0.7.1
+PKG_RELEASE:=1
 PKG_LICENSE:=GPL-3.0-only
 PKG_MAINTAINER:=NetForgeCN <lonelysoul@users.noreply.github.com>
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
@@ -16,7 +16,7 @@ PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
 # ---------------------------------------------------------------------------
 ATOMDNS_RELEASE_URL:=https://github.com/jasonxtt/atomdns/releases/download/v$(PKG_VERSION)
 ATOMDNS_CONF_FILE:=config_rust.zip
-ATOMDNS_CONF_HASH:=88a6332d83ebbe81d01ffcbd622b4afc3901689913a4dca327665ab1e0b0f84b
+ATOMDNS_CONF_HASH:=4a610c1477571f11dd0136ac9738cdbcc33050d125a9ad20d0a2ac8adc9a4868
 
 # 按架构选择二进制变体：x86_64 / arm64 / armv7（官方仅提供这三个 musl 静态版）
 # 注：官方 amd64-v3 是 glibc 动态链接，与 OpenWrt 的 musl 环境不兼容，故不用。
@@ -25,13 +25,13 @@ ATOMDNS_ARCH_UNSUPPORTED:=0
 
 ifeq ($(ARCH),x86_64)
   ATOMDNS_BIN_VARIANT:=amd64-musl
-  ATOMDNS_BIN_HASH:=5ec815c111a934712061a438e0f6b35e520bcdba4ea6b1ab44b479989843d395
+  ATOMDNS_BIN_HASH:=d61b4dcccc55e8292044ba22d912a592f380866ca7df1147693af948f6a2afe5
 else ifneq ($(filter aarch64%,$(ARCH)),)
   ATOMDNS_BIN_VARIANT:=arm64
-  ATOMDNS_BIN_HASH:=6be933694e98b40249853b74e8954f1f35e178d4073e9768329ce82cadcc328b
+  ATOMDNS_BIN_HASH:=22e7b8f3ee7d3568b5c0da832ff00c454ec1102a37b6e70194366d2a6ef1dc8e
 else ifneq ($(filter arm%,$(ARCH)),)
   ATOMDNS_BIN_VARIANT:=armv7
-  ATOMDNS_BIN_HASH:=a1e0208ff4516712d9b01ad71b2369a266a6a6acabb5140583de5a542e025859
+  ATOMDNS_BIN_HASH:=cfa33def5aeedfc064e306320ecf5ce48fb9b773dc3a19dcf8cfbe647c13a239
   # 官方 armv7 包要求 ARMv7 指令集，armv5/armv6 目标（如 BCM2835、ARM926）跑不了
   ifneq ($(filter arm_arm1176jzf-s_vfp arm_arm1136jf-s arm_arm926ej-s arm_xscale arm_fa526,$(CPU_TYPE)),)
     ATOMDNS_ARCH_UNSUPPORTED:=1
@@ -40,7 +40,7 @@ else
   # 占位值仅用于让 download 阶段可解析；实际编译会在 Build/Prepare 中止
   ATOMDNS_ARCH_UNSUPPORTED:=1
   ATOMDNS_BIN_VARIANT:=amd64-musl
-  ATOMDNS_BIN_HASH:=5ec815c111a934712061a438e0f6b35e520bcdba4ea6b1ab44b479989843d395
+  ATOMDNS_BIN_HASH:=d61b4dcccc55e8292044ba22d912a592f380866ca7df1147693af948f6a2afe5
 endif
 
 ATOMDNS_BIN_FILE:=atomdns-linux-$(ATOMDNS_BIN_VARIANT).tar.gz

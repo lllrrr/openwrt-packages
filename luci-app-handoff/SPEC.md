@@ -14,9 +14,13 @@ config handoff 'main'              # 固定段名 main
 config gateway                     # 可多个；段名（匿名段的 cfgXXXX 也行）就是网关 ID，规则的 target / 网关的 fallback 引用它
 	option name '旁路由'           # 显示名
 	option ip '192.168.99.3'       # 必填，IPv4 地址
-	option ip6 ''                  # 可空，IPv6 地址（不带前缀长度）
+	option ip6_mode 'auto'         # 'auto'（默认，按 MAC 自动发现同网段 IPv6）| 'manual'（手动填 ip6）| 'off'（不使用 IPv6）
+	                               # 兼容旧配置：未设 ip6_mode 但填了 ip6 时按 'manual' 处理
+	option ip6_prefer 'ula_lla_gua' # auto 模式地址优先级：'ula_lla_gua'（ULA > fe80:: > GUA，默认）| 'lla_ula_gua'（fe80:: > ULA > GUA）| 'gua_ula_lla'（GUA > ULA > fe80::）
+	option ip6 ''                  # ip6_mode='manual' 时使用的 IPv6 地址（不带前缀长度）
+	option v6_fallback 'reject'    # IPv6 关闭、未发现或不通时：'reject'（拒绝并回退 v4）| 'direct'（直连）| 'blackhole'（黑洞丢弃）
 	option dns_port '53'           # 1–65535，默认 53
-	option probe ''                # 可空，IPv4 字面量网址，如 http://1.1.1.1/ ，经该网关访问
+	option probe ''                # 可空，IPv4 字面量网址，如 http://1.1.1.1/ ，仅本机（iif lo）经该网关访问
 	option fallback 'direct'       # 该网关不通时：'direct' 或另一个网关的段名（只换一次，备用也不通就直连）
 
 config group                       # 设备组，可多个；段名是组 ID
@@ -26,7 +30,7 @@ config group                       # 设备组，可多个；段名是组 ID
 
 config ipgroup                     # 目标 IP 组（自定义），可多个；段名是组 ID
 	option name '公司'
-	list ip '10.20.0.0/16'         # IPv4 / IPv6 地址或网段，可混填
+	list ip '10.20.0.0/16'         # IPv4 / IPv6 地址或网段，可混填；正向匹配允许命中私有网段（如公司 VPN 网段）
 	list ip '2001:db8:abcd::/48'
 
 config rule                        # 分流规则，按段的先后顺序，第一条命中的生效
@@ -36,7 +40,7 @@ config rule                        # 分流规则，按段的先后顺序，第�
 	list geoip 'cn'                # GeoIP 类别名（小写字母数字下划线）
 	list ipgroup 'office'          # 目标 IP 组段名
 	                               # geoip 和 ipgroup 是「或」：目标在任一类别或任一 IP 组里就算在内；两个都不写 = 任何目标
-	option invert '0'              # 1 = 目标不在上面这些类别和 IP 组里才命中
+	option invert '0'              # 1 = 目标不在上面这些类别和 IP 组里才命中（自动排除私网段）
 	option target 'direct'         # 'direct' 或网关段名
 ```
 
@@ -51,6 +55,7 @@ config rule                        # 分流规则，按段的先后顺序，第�
   "running": true,
   "gateways": [
     { "id": "side", "name": "旁路由", "ip": "192.168.99.3", "ip6": "2001:db8::3",
+      "ip6_mode": "auto", "ip6_prefer": "ula_lla_gua", "v6_fallback": "reject",
       "up": true, "up6": true, "via": "side" }
   ],
   "geoip": [ { "cat": "cn", "count": 9665, "mtime": 1764000000 } ],
@@ -59,7 +64,10 @@ config rule                        # 分流规则，按段的先后顺序，第�
 ```
 
   - `running`：nft 表 `inet handoff` 是否存在。没在运行时 `gateways` 仍按配置列出，`up`/`up6` 为 null。
-  - `up`：IPv4 检测是否正常；`up6`：IPv6 检测是否正常（没设 ip6 时为 null）。
+  - `ip6`：当前实际生效的 IPv6 地址（`auto` 模式下为自动发现结果，`manual` 模式下为配置值，`off` 或未发现为空字符串）。
+  - `ip6_mode`：`"auto"` / `"manual"` / `"off"`。
+  - `v6_fallback`：`"reject"` / `"direct"` / `"blackhole"`。
+  - `up`：IPv4 检测是否正常；`up6`：IPv6 检测是否正常（关闭或无 IPv6 地址时为 null）。
   - `via`：交给该网关的新连接实际去向：自己的 id、备用网关的 id，或 `"direct"`。
   - `geoip`：已下载的类别（mtime 为 Unix 秒）；`missing`：规则用到但还没有数据的类别。
 - `handoff update`：立即下载规则用到的 GeoIP 类别，有变化时重新加载规则。退出码 0 = 完成。

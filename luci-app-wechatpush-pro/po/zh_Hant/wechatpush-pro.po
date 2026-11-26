@@ -380,6 +380,10 @@ msgstr "瀏覽器超時強制退出或未知錯誤，若日誌顯示已建立更
 msgid "Reset Traffic Data Every Day at Midnight"
 msgstr "每天零點重置流量數據"
 
+#: log message: traffic source
+msgid "Traffic source"
+msgstr "流量來源"
+
 #: traffic source option (OAF support)
 msgid "Traffic Data Source"
 msgstr "流量數據來源"

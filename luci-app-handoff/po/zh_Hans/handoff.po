@@ -54,14 +54,35 @@ msgstr "不通，新连接改走 直连"
 msgid "Unreachable, falling back to %s"
 msgstr "不通，改走 %s"
 
-msgid "IPv6 not set"
-msgstr "IPv6 未设置"
+msgid "direct"
+msgstr "直连"
 
-msgid "IPv6 normal"
-msgstr "IPv6 正常"
+msgid "blackhole"
+msgstr "黑洞丢弃"
 
-msgid "IPv6 unreachable (fallback to IPv4)"
-msgstr "IPv6 不通（已回退 IPv4）"
+msgid "fallback to IPv4"
+msgstr "回退 IPv4"
+
+msgid "auto"
+msgstr "自动"
+
+msgid "manual"
+msgstr "手动"
+
+msgid "IPv6 disabled (%s)"
+msgstr "IPv6 已关闭（%s）"
+
+msgid "IPv6 not discovered (%s)"
+msgstr "未发现 IPv6（%s）"
+
+msgid "IPv6 not set (%s)"
+msgstr "IPv6 未设置（%s）"
+
+msgid "IPv6 normal (%s)"
+msgstr "IPv6 正常（%s）"
+
+msgid "IPv6 unreachable (%s)"
+msgstr "IPv6 不通（%s）"
 
 msgid "IPv6 checking"
 msgstr "IPv6 检测中"
@@ -105,8 +126,8 @@ msgstr "地址中必须包含 {} 作为类别名占位符"
 msgid "Gateways"
 msgstr "网关"
 
-msgid "Other gateways (e.g. side routers) on the LAN. Traffic routed to a gateway and DNS queries from those devices are sent to it; the gateway's own traffic is never looped back. Click Edit to configure IPv6 address, DNS port and probe URL. Newly added gateways appear in fallback and rule dropdowns after saving."
-msgstr "局域网里的其它网关（旁路由）。交给网关的连接和这些设备的 DNS 都发给它；网关自己的流量不会再被转回去。点击「编辑」可设置 IPv6 地址、DNS 端口和检测地址；新添加的网关需保存后才会出现在「不通时」和规则的下拉列表中。"
+msgid "Other gateways (e.g. side routers) on the LAN. Traffic routed to a gateway and DNS queries from those devices are sent to it; the gateway's own traffic is never looped back. IPv6 is auto-discovered by MAC by default; click Edit to customize IPv6 mode, fallback behavior, DNS port, and probe URL."
+msgstr "局域网里的其它网关（旁路由）。交给网关的连接和这些设备的 DNS 都发给它；网关自己的流量不会再被转回去。IPv6 默认按 MAC 自动发现；点击「编辑」可设置 IPv6 模式、不可用策略、DNS 端口和检测地址。"
 
 msgid "Edit gateway: %s"
 msgstr "编辑网关：%s"
@@ -129,17 +150,59 @@ msgstr "请填写 IPv4 地址"
 msgid "Enter an IPv4 address without prefix length"
 msgstr "请填写不带前缀长度的 IPv4 地址"
 
+msgid "IPv6 mode"
+msgstr "IPv6 模式"
+
+msgid "Auto-discover matches the gateway's IPv6 address by its MAC and tracks prefix changes automatically (only on-link ULA/GUA matching the LAN /64 prefix are accepted)."
+msgstr "自动发现会按网关 MAC 匹配其 IPv6 地址并自动跟踪前缀变化（仅采纳与主路由 LAN 同 /64 网段的 ULA/GUA，自动忽略不同网段的 ULA）。"
+
+msgid "Auto-discover (by MAC)"
+msgstr "自动发现（按 MAC）"
+
+msgid "Manual"
+msgstr "手动指定"
+
+msgid "Disabled"
+msgstr "不使用 IPv6"
+
+msgid "IPv6 priority"
+msgstr "IPv6 优先级"
+
+msgid "Address preference when auto-discovering: ULA and link-local (fe80::) stay stable across ISP prefix changes; when fe80:: is used, IPv6 DNS falls back to gateway IPv4 DNS."
+msgstr "自动发现时的地址选择顺序：ULA 和链路本地（fe80::）不受运营商重拨换前缀影响；使用 fe80:: 时 IPv6 DNS 自动回退走网关 IPv4 DNS。"
+
+msgid "ULA > Link-local (fe80::) > GUA (Recommended)"
+msgstr "ULA > 链路本地 (fe80::) > 公网 GUA（推荐）"
+
+msgid "Link-local (fe80::) > ULA > GUA"
+msgstr "链路本地 (fe80::) > ULA > 公网 GUA"
+
+msgid "GUA > ULA > Link-local (fe80::)"
+msgstr "公网 GUA > ULA > 链路本地 (fe80::)"
+
 msgid "IPv6 address"
 msgstr "IPv6 地址"
 
-msgid "If left empty, IPv6 connections routed to this gateway will be rejected so devices automatically fall back to IPv4."
-msgstr "留空则交给该网关的 IPv6 连接会被拒绝，设备自动改用 IPv4"
-
-msgid "Optional"
-msgstr "可留空"
+msgid "Static IPv6 address of this gateway (without prefix length)."
+msgstr "手动指定该网关的 IPv6 地址（不带前缀长度）。"
 
 msgid "Enter an IPv6 address without prefix length"
 msgstr "请填写不带前缀长度的 IPv6 地址"
+
+msgid "When IPv6 is unavailable"
+msgstr "IPv6 不可用时"
+
+msgid "Action for routed IPv6 connections when IPv6 is disabled, not discovered, or unreachable. DNS queries still go to this gateway via IPv4."
+msgstr "当该网关未启用、未发现或无法连通 IPv6 时，交给它的 IPv6 连接如何处理。设备 DNS 仍经 IPv4 发往该网关。"
+
+msgid "Reject (fall back to IPv4)"
+msgstr "拒绝（回退 IPv4）"
+
+msgid "Direct"
+msgstr "直连"
+
+msgid "Blackhole (drop silently)"
+msgstr "黑洞（静默丢弃）"
 
 msgid "DNS port"
 msgstr "DNS 端口"
@@ -165,11 +228,8 @@ msgstr "检测地址中的端口无效"
 msgid "When unreachable"
 msgstr "不通时"
 
-msgid "Fallback gateway when this gateway is unreachable (switches once; goes direct if the backup is also unreachable). Newly added gateways appear here after saving."
-msgstr "该网关不通时的去向（只切换一次，备用也不通则直连）。新添加的网关需保存后才会出现在此列表中。"
-
-msgid "Direct"
-msgstr "直连"
+msgid "Fallback gateway when this gateway is unreachable (switches once; goes direct if the backup is also unreachable)."
+msgstr "该网关不通时的去向（只切换一次，备用也不通则直连）。"
 
 msgid "Use %s"
 msgstr "改走 %s"
@@ -183,8 +243,8 @@ msgstr "状态"
 msgid "Device Groups"
 msgstr "设备组"
 
-msgid "Identified by MAC address, which also matches IPv6 privacy addresses; IP addresses or CIDR subnets are also supported."
-msgstr "按 MAC 识别，IPv6 隐私地址也能认出；也可以填 IP 或网段。"
+msgid "Identified by MAC address, which also matches IPv6 privacy addresses; click Edit to batch-select multiple LAN devices at once. IP addresses or CIDR subnets are also supported."
+msgstr "按 MAC 识别，IPv6 隐私地址也能认出；点击「编辑」可一次性批量勾选多台局域网设备。也支持填写 IP 或网段。"
 
 msgid "Edit device group: %s"
 msgstr "编辑设备组：%s"
@@ -195,23 +255,59 @@ msgstr "编辑设备组"
 msgid "e.g. Kids"
 msgstr "例如：孩子"
 
-msgid "MAC addresses"
-msgstr "MAC 地址"
+msgid "Devices (MAC)"
+msgstr "设备（MAC）"
 
-msgid "Matches both IPv4 and IPv6 traffic of the device by MAC address."
-msgstr "按 MAC 匹配设备的 IPv4 与 IPv6 流量。"
+msgid "Check multiple LAN devices at once, or paste MAC addresses for offline devices below."
+msgstr "可一次勾选多台局域网设备，或在下方批量粘贴离线设备的 MAC 地址。"
+
+msgid "Filter by hostname, IP or MAC..."
+msgstr "按主机名、IP 或 MAC 筛选…"
+
+msgid "%d selected"
+msgstr "已选 %d 台"
+
+msgid "No matching devices"
+msgstr "没有匹配的设备"
+
+msgid "No LAN devices discovered yet; paste MAC addresses below."
+msgstr "暂未发现局域网设备，可在下方粘贴 MAC 地址。"
+
+msgid "Unnamed device"
+msgstr "未命名设备"
+
+msgid "Offline / Manual"
+msgstr "离线 / 手动"
+
+msgid "In: %s"
+msgstr "已在：%s"
+
+msgid "Batch add offline MACs (separated by space, comma or newline)"
+msgstr "批量添加离线设备 MAC（支持空格、逗号或换行分隔）"
+
+msgid "Invalid MAC address: %s"
+msgstr "无效的 MAC 地址：%s"
+
+msgid "Select all"
+msgstr "全选"
+
+msgid "Clear"
+msgstr "清空"
+
+msgid "Add"
+msgstr "添加"
 
 msgid "IP / Subnet"
 msgstr "IP / 网段"
 
-msgid "IPv4 or IPv6 addresses or CIDR subnets, e.g. 192.168.99.50 or 192.168.99.64/28."
-msgstr "支持 IPv4 / IPv6 地址或网段，例如 192.168.99.50、192.168.99.64/28。"
+msgid "Optional: IPv4 or IPv6 addresses or CIDR subnets, e.g. 192.168.99.50 or 192.168.99.64/28."
+msgstr "可选：支持 IPv4 / IPv6 地址或网段，例如 192.168.99.50、192.168.99.64/28。"
 
 msgid "Destination IP Groups"
 msgstr "目标 IP 组"
 
-msgid "Custom destination address lists that can be used alongside GeoIP categories in routing rules, such as corporate subnets, your own VPS, or game servers."
-msgstr "自定义的目标地址列表，可在分流规则里和 GeoIP 类别一起用，例如公司网段、自己的 VPS、某个游戏的服务器。"
+msgid "Custom destination address lists that can be used alongside GeoIP categories in routing rules, such as corporate subnets (e.g. 10.20.0.0/16), your own VPS, or game servers."
+msgstr "自定义的目标地址列表，可在分流规则里和 GeoIP 类别一起用，例如公司网段（如 10.20.0.0/16）、自己的 VPS、某个游戏的服务器。"
 
 msgid "Edit destination IP group: %s"
 msgstr "编辑目标 IP 组：%s"
@@ -231,8 +327,8 @@ msgstr "请至少填写一条 IP 地址或网段"
 msgid "Routing Rules"
 msgstr "分流规则"
 
-msgid "Matched from top to bottom; the first matching rule applies, otherwise traffic goes direct. Private, local and multicast traffic always goes direct. Rule changes only affect new connections. Drag rows to reorder. DNS queries from a device are sent to the gateway specified by the first matching gateway rule for that device. Newly added IP groups appear in routing rule dropdowns after saving."
-msgstr "从上到下，第一条命中的生效；都不命中则直连。内网、本机、组播始终直连。改规则只影响新连接。拖动行可调整顺序；同一设备的 DNS 发给它第一条命中的「交给网关」规则所指的网关。新添加的 IP 组需保存后才会出现在规则的下拉列表中。"
+msgid "Matched from top to bottom; the first matching rule applies, otherwise traffic goes direct. Local, loopback, multicast, and unreferenced private traffic goes direct (explicit Destination IP Groups may match private subnets such as corporate VPN ranges). Rule changes only affect new connections. Drag rows to reorder."
+msgstr "从上到下，第一条命中的生效；都不命中则直连。本机、环回、组播以及未显式指定的私网默认直连（在目标 IP 组里明确填写的公司内网等私网段可被正向命中）。改规则只影响新连接，拖动行可调整顺序。"
 
 msgid "Edit routing rule: %s"
 msgstr "编辑分流规则：%s"
@@ -246,14 +342,17 @@ msgstr "例如：国外交给网关"
 msgid "Device groups"
 msgstr "设备组"
 
-msgid "Leave empty to match all devices. Newly added device groups appear here after saving."
-msgstr "留空代表全部设备。新添加的设备组需保存后才会出现在此列表中。"
+msgid "Leave empty to match all devices."
+msgstr "留空代表全部设备。"
 
 msgid "All devices"
 msgstr "全部设备"
 
 msgid "%s (deleted)"
 msgstr "%s（已删除）"
+
+msgid "No device groups yet; add one above first."
+msgstr "还没有设备组，请先在上面添加。"
 
 msgid "Destination (GeoIP / IP group)"
 msgstr "目标（GeoIP / IP 组）"
@@ -279,11 +378,14 @@ msgstr "仅允许小写字母、数字和下划线（例如 cn、netflix）"
 msgid "Destination IP groups"
 msgstr "目标 IP 组"
 
-msgid "Combined with GeoIP categories (matches either). Leave both empty to match any destination. Newly added IP groups appear here after saving."
-msgstr "可与 GeoIP 类别组合使用（满足其一即命中），两者都留空代表任何目标。新添加的 IP 组需保存后才会出现在此列表中。"
+msgid "Combined with GeoIP categories (matches either). Leave both empty to match any destination."
+msgstr "可与 GeoIP 类别组合使用（满足其一即命中），两者都留空代表任何目标。"
 
 msgid "No IP groups selected"
 msgstr "未选 IP 组"
+
+msgid "No destination IP groups yet; add one above first."
+msgstr "还没有目标 IP 组，请先在上面添加。"
 
 msgid "Invert"
 msgstr "取反"
@@ -293,12 +395,3 @@ msgstr "目标不在所选 GeoIP 类别和 IP 组里才命中"
 
 msgid "Route to"
 msgstr "去向"
-
-msgid "Newly added gateways appear here after saving."
-msgstr "新添加的网关需保存后才会出现在此列表中。"
-
-msgid "No device groups yet; add one above and save first."
-msgstr "还没有设备组，请先在上面添加并保存。"
-
-msgid "No destination IP groups yet; add one above and save first."
-msgstr "还没有目标 IP 组，请先在上面添加并保存。"
