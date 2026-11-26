@@ -598,6 +598,16 @@ load_config() {
     cfg_log_rejected=""
 
     _lc_dump="$(uci -q show "${UCI_CONFIG}" 2>/dev/null)"
+    # libuci prints a newline inside a quoted value literally (uci_print_value
+    # only escapes single quotes), so one option can span several lines. Join
+    # continuations with a unit separator here and turn it back into a newline
+    # below; every record stays on one line, so `read` cannot truncate it.
+    _lc_sep="$(printf '\037')"
+    _lc_dump="$(printf '%s\n' "${_lc_dump}" | awk -v p="${UCI_CONFIG}." -v sep="${_lc_sep}" '
+        index($0, p) == 1 && index($0, "=") > 0 { if (buf != "") print buf; buf = $0; next }
+        { buf = buf sep $0 }
+        END { if (buf != "") print buf }
+    ')"
     # `uci show` single-quotes values and escapes an embedded quote as '\''.
     # Undo the escape in one pass, then drop the surrounding quotes per line so
     # callers see exactly what `uci get` returned.
@@ -608,6 +618,9 @@ load_config() {
         _lc_key="${_lc_key#"${UCI_CONFIG}".}"
         _lc_val="${_lc_val#\'}"
         _lc_val="${_lc_val%\'}"
+        case "${_lc_val}" in
+            *"${_lc_sep}"*) _lc_val="$(printf '%s' "${_lc_val}" | tr '\037' '\012')" ;;
+        esac
         case "${_lc_key}" in
             main.enabled) cfg_enabled="${_lc_val}" ;;
             main.interval) cfg_interval="${_lc_val}" ;;
