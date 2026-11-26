@@ -7,13 +7,31 @@ msgstr ""
 msgid "Routes each new connection by device group and destination (GeoIP category or IP group): matching traffic is sent to a gateway (along with DNS queries from those devices), and everything else goes direct. When a gateway is unreachable, its fallback setting applies."
 msgstr ""
 
-msgid "Basic Settings"
+msgid "Service"
 msgstr ""
 
-msgid "General"
+msgid "Devices & IP Groups"
 msgstr ""
 
-msgid "Advanced"
+msgid "System Settings"
+msgstr ""
+
+msgid "Hits"
+msgstr ""
+
+msgid "Rule hits:"
+msgstr ""
+
+msgid "matched (%d active rules)"
+msgstr ""
+
+msgid "Default direct:"
+msgstr ""
+
+msgid "%d new connections matched"
+msgstr ""
+
+msgid "%d new connections fell through to direct"
 msgstr ""
 
 msgid "Update GeoIP now"

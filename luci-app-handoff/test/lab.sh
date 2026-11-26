@@ -96,6 +96,8 @@ expect "JSON ip6_prefer=gua_ula_lla" "$(J '@.gateways[0].ip6_prefer')" gua_ula_l
 expect "JSON 自动发现 GUA" "$(J '@.gateways[0].ip6')" "$GW6"
 expect "JSON up6=true" "$(J '@.gateways[0].up6')" true
 for c in client-a client-b; do matrix $c direct SIDE direct SIDE GW GW GW; done
+expect "JSON 规则命中统计 > 0" "$(r "handoff status --json | jsonfilter -e '@.stats.rules.rside' | awk '{ print (\$1 >= 4) ? \"ok\" : \$1 }'")" ok
+expect "JSON 默认直连统计 > 0" "$(r "handoff status --json | jsonfilter -e '@.stats.default' | awk '{ print (\$1 >= 4) ? \"ok\" : \$1 }'")" ok
 
 echo "== 改规则不影响已有连接（流量卸载开启，限速下载 40MB 中途加规则）"
 $S lab-hosts "doas ip netns exec client-a curl -s -m 30 --limit-rate 8M -o /dev/null -w '%{size_download}' http://8.8.8.8/big >/dev/shm/gwr-big" 2>/dev/null &

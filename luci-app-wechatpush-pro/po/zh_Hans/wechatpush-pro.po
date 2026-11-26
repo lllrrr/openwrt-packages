@@ -10,7 +10,7 @@ msgstr ""
 
 #: applications/luci-app-wechatpush-pro/root/usr/share/luci/menu.d/luci-app-wechatpush-pro.json:3
 msgid "WeChat push (Pro)"
-msgstr "微信推送-pro"
+msgstr "微信推送Pro"
 
 #: applications/luci-app-wechatpush-pro/root/usr/share/luci/menu.d/luci-app-wechatpush-pro.json:15
 msgid "Basic Settings"

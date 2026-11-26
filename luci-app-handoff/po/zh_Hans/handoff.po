@@ -9,14 +9,32 @@ msgstr "网关分流"
 msgid "Routes each new connection by device group and destination (GeoIP category or IP group): matching traffic is sent to a gateway (along with DNS queries from those devices), and everything else goes direct. When a gateway is unreachable, its fallback setting applies."
 msgstr "按「设备组 × 目标（GeoIP / IP 组）」决定每条新连接的去向：命中的交给某台网关处理（其 DNS 一并转发），其余直连；网关不可达时按其「不通时」设置处理。"
 
-msgid "Basic Settings"
-msgstr "基本设置"
+msgid "Service"
+msgstr "服务开关"
 
-msgid "General"
-msgstr "基本"
+msgid "Devices & IP Groups"
+msgstr "设备与 IP 组"
 
-msgid "Advanced"
-msgstr "高级"
+msgid "System Settings"
+msgstr "系统设置"
+
+msgid "Hits"
+msgstr "命中"
+
+msgid "Rule hits:"
+msgstr "规则命中："
+
+msgid "matched (%d active rules)"
+msgstr "次（%d 条生效规则）"
+
+msgid "Default direct:"
+msgstr "默认直连："
+
+msgid "%d new connections matched"
+msgstr "命中 %d 条新连接"
+
+msgid "%d new connections fell through to direct"
+msgstr "未命中规则、默认直连 %d 条新连接"
 
 msgid "Update GeoIP now"
 msgstr "立即更新 GeoIP"

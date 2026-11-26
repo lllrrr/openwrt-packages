@@ -59,15 +59,22 @@ config rule                        # 分流规则，按段的先后顺序，第�
       "up": true, "up6": true, "via": "side" }
   ],
   "geoip": [ { "cat": "cn", "count": 9665, "mtime": 1764000000 } ],
-  "missing": [ "netflix" ]
+  "missing": [ "netflix" ],
+  "stats": {
+    "rules": { "rside": 83, "rkids": 12 },
+    "matched": 95,
+    "default": 45
+  }
 }
 ```
 
   - `running`：nft 表 `inet handoff` 是否存在。没在运行时 `gateways` 仍按配置列出，`up`/`up6` 为 null。
   - `ip6`：当前实际生效的 IPv6 地址（`auto` 模式下为自动发现结果，`manual` 模式下为配置值，`off` 或未发现为空字符串）。
   - `ip6_mode`：`"auto"` / `"manual"` / `"off"`。
+  - `ip6_prefer`：`"ula_lla_gua"` / `"lla_ula_gua"` / `"gua_ula_lla"`。
   - `v6_fallback`：`"reject"` / `"direct"` / `"blackhole"`。
   - `up`：IPv4 检测是否正常；`up6`：IPv6 检测是否正常（关闭或无 IPv6 地址时为 null）。
   - `via`：交给该网关的新连接实际去向：自己的 id、备用网关的 id，或 `"direct"`。
   - `geoip`：已下载的类别（mtime 为 Unix 秒）；`missing`：规则用到但还没有数据的类别。
+  - `stats`：规则新连接命中统计（仅按 `ct state new` 计数，避免非对称路由重复计包）：`rules` 为各生效规则段名对应的命中次数，`matched` 为所有规则命中总数，`default` 为未命中任何规则的默认直连新连接数。
 - `handoff update`：立即下载规则用到的 GeoIP 类别，有变化时重新加载规则。退出码 0 = 完成。

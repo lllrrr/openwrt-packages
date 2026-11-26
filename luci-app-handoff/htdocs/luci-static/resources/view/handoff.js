@@ -49,6 +49,12 @@ var CSS = [
 	'.ho-any{opacity:.68;font-style:italic}',
 	'.ho-empty{opacity:.55}',
 	'.ho-target-gw{font-weight:600;color:#0052ab}',
+	/* Top-level grouping tabs & rule hit counters */
+	'.ho-top-tabs{margin:0 0 12px 0 !important}',
+	'.ho-tab-hidden{display:none !important}',
+	'.ho-hits{display:inline-block;min-width:26px;text-align:center;padding:1px 7px;border-radius:10px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.88em;font-weight:600;border:1px solid rgba(127,127,127,.28);background:rgba(127,127,127,.08)}',
+	'.ho-hits.active{color:#0052ab;border-color:rgba(0,105,214,.4);background:rgba(0,105,214,.12)}',
+	'.ho-hits.zero{opacity:.6}',
 	/* Device multi-select picker */
 	'.ho-picker{display:flex;flex-direction:column;gap:8px;max-width:560px}',
 	'.ho-picker-bar{display:flex;align-items:center;gap:6px;flex-wrap:wrap}',
@@ -71,14 +77,36 @@ var CSS = [
 	'.ho-picker-manual textarea{flex:1;min-height:42px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.9em}',
 	'.ho-picker-err{color:#c43c35;font-size:.9em;font-weight:600}',
 	'@media (max-width:600px){.ho-status{flex-direction:column;align-items:flex-start}}',
-	'@media (prefers-color-scheme:dark){.ho-ok,.ho-badge.ok{color:#66d98c}.ho-err,.ho-badge.err,.ho-picker-err{color:#ff8a80}.ho-warn,.ho-badge.warn,.ho-dev-pill-warn{color:#ffc46b}.ho-tag-group,.ho-target-gw,.ho-picker-count{color:#7cb7ff}.ho-tag-geoip{color:#7ee0a2}.ho-tag-ipgroup{color:#c4b5fd}}',
+	'@media (prefers-color-scheme:dark){.ho-ok,.ho-badge.ok{color:#66d98c}.ho-err,.ho-badge.err,.ho-picker-err{color:#ff8a80}.ho-warn,.ho-badge.warn,.ho-dev-pill-warn{color:#ffc46b}.ho-tag-group,.ho-target-gw,.ho-picker-count,.ho-hits.active{color:#7cb7ff}.ho-tag-geoip{color:#7ee0a2}.ho-tag-ipgroup{color:#c4b5fd}}',
 	'[data-darkmode="true"] .ho-ok,[data-darkmode="true"] .ho-badge.ok{color:#66d98c}',
 	'[data-darkmode="true"] .ho-err,[data-darkmode="true"] .ho-badge.err,[data-darkmode="true"] .ho-picker-err{color:#ff8a80}',
 	'[data-darkmode="true"] .ho-warn,[data-darkmode="true"] .ho-badge.warn,[data-darkmode="true"] .ho-dev-pill-warn{color:#ffc46b}',
-	'[data-darkmode="true"] .ho-tag-group,[data-darkmode="true"] .ho-target-gw,[data-darkmode="true"] .ho-picker-count{color:#7cb7ff}',
+	'[data-darkmode="true"] .ho-tag-group,[data-darkmode="true"] .ho-target-gw,[data-darkmode="true"] .ho-picker-count,[data-darkmode="true"] .ho-hits.active{color:#7cb7ff}',
 	'[data-darkmode="true"] .ho-tag-geoip{color:#7ee0a2}',
 	'[data-darkmode="true"] .ho-tag-ipgroup{color:#c4b5fd}'
 ].join('\n');
+
+function formatHits(n) {
+	var v = Number(n);
+	if (!isFinite(v) || v < 0)
+		return '0';
+	if (v >= 1000000)
+		return (v / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+	if (v >= 10000)
+		return (v / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+	return String(Math.floor(v));
+}
+
+function bindSectionTab(sec, tabName) {
+	var origRender = sec.render;
+	sec.render = function() {
+		return origRender.apply(this, arguments).then(function(el) {
+			if (el)
+				el.setAttribute('data-ho-tab', tabName);
+			return el;
+		});
+	};
+}
 
 function injectCSS() {
 	if (!document.getElementById('handoff-css'))
@@ -205,6 +233,9 @@ return view.extend({
 	lastStatus: null,
 	statusBox: null,
 	statusItems: null,
+	tabBar: null,
+	activeTab: 'gateways',
+	mapNode: null,
 	hostCatalog: { list: [], byMac: {} },
 
 	fetchStatus: function() {
@@ -267,6 +298,36 @@ return view.extend({
 		]);
 	},
 
+	renderRuleHits: function(st, ruleId) {
+		if (!st || !st.running || !st.stats || !st.stats.rules ||
+			!Object.prototype.hasOwnProperty.call(st.stats.rules, ruleId))
+			return E('span', { 'class': 'ho-empty' }, ['—']);
+		var n = Number(st.stats.rules[ruleId]) || 0;
+		return E('span', {
+			'class': 'ho-hits ' + (n > 0 ? 'active' : 'zero'),
+			'title': _('%d new connections matched').format(n)
+		}, [formatHits(n)]);
+	},
+
+	applyTab: function(mapEl, tabName) {
+		this.activeTab = tabName || 'gateways';
+		if (this.tabBar) {
+			var lis = this.tabBar.querySelectorAll('li[data-tab]');
+			for (var i = 0; i < lis.length; i++) {
+				var active = lis[i].getAttribute('data-tab') === this.activeTab;
+				lis[i].classList.toggle('cbi-tab', active);
+				lis[i].classList.toggle('cbi-tab-disabled', !active);
+			}
+		}
+		if (mapEl) {
+			var secs = mapEl.querySelectorAll('[data-ho-tab]');
+			for (var j = 0; j < secs.length; j++) {
+				var show = secs[j].getAttribute('data-ho-tab') === this.activeTab;
+				secs[j].classList.toggle('ho-tab-hidden', !show);
+			}
+		}
+	},
+
 	updateStatusUI: function(st) {
 		this.lastStatus = st;
 
@@ -275,6 +336,7 @@ return view.extend({
 			var gws = (st && Array.isArray(st.gateways)) ? st.gateways : [];
 			var geoips = (st && Array.isArray(st.geoip)) ? st.geoip : [];
 			var missing = (st && Array.isArray(st.missing)) ? st.missing : [];
+			var stats = (st && st.stats && typeof st.stats === 'object') ? st.stats : null;
 			var downCount = 0;
 			var warnCount = 0;
 
@@ -340,6 +402,21 @@ return view.extend({
 				}, this));
 			}
 
+			if (st && st.running && stats) {
+				var matchedN = Number(stats.matched) || 0;
+				var defaultN = Number(stats.default) || 0;
+				var activeRules = stats.rules ? Object.keys(stats.rules).length : 0;
+				rows.push(E('div', { 'class': 'ho-row' }, [
+					E('span', { 'class': 'ho-dot info' }),
+					E('span', {}, [
+						E('span', { 'class': 'ho-muted' }, [_('Rule hits:')]),
+						E('span', { 'class': 'ho-mono', 'title': _('%d new connections matched').format(matchedN) }, [formatHits(matchedN)]),
+						E('span', { 'class': 'ho-muted' }, [_('matched (%d active rules)').format(activeRules) + ' · ' + _('Default direct:')]),
+						E('span', { 'class': 'ho-mono', 'title': _('%d new connections fell through to direct').format(defaultN) }, [formatHits(defaultN)])
+					])
+				]));
+			}
+
 			if (geoips.length) {
 				geoips.slice().sort(function(a, b) {
 					return String(a.cat || '').localeCompare(String(b.cat || ''));
@@ -391,6 +468,12 @@ return view.extend({
 			var gwId = badges[i].getAttribute('data-gw-id');
 			dom.content(badges[i], this.renderGwBadge(st, gwId));
 		}
+
+		var hitEls = document.querySelectorAll('.ho-rule-hits[data-rule-id]');
+		for (var j = 0; j < hitEls.length; j++) {
+			var ruleId = hitEls[j].getAttribute('data-rule-id');
+			dom.content(hitEls[j], this.renderRuleHits(st, ruleId));
+		}
 	},
 
 	refreshStatus: function() {
@@ -425,53 +508,21 @@ return view.extend({
 		var s, o;
 
 		// ============================================================
-		// 1. Basic Settings (NamedSection main)
+		// Tab 1 (Gateways): Enable switch + Gateways GridSection
 		// ============================================================
-		s = m.section(form.NamedSection, 'main', 'handoff', _('Basic Settings'));
+		s = m.section(form.NamedSection, 'main', 'handoff', _('Service'));
 		s.addremove = false;
-		s.tab('general', _('General'));
-		s.tab('advanced', _('Advanced'));
+		bindSectionTab(s, 'gateways');
 
-		o = s.taboption('general', form.Flag, 'enabled', _('Enable'));
+		o = s.option(form.Flag, 'enabled', _('Enable'));
 		o.default = '0';
 		o.rmempty = false;
 
-		o = s.taboption('general', widgets.NetworkSelect, 'lan', _('LAN interface'));
-		o.multiple = false;
-		o.nocreate = true;
-		o.noaliases = true;
-		o.default = 'lan';
-		o.rmempty = false;
-
-		o = s.taboption('general', form.Value, 'interval', _('Check interval'),
-			_('Seconds between gateway health checks (minimum 2).'));
-		o.datatype = 'and(uinteger,min(2))';
-		o.placeholder = '10';
-		o.default = '10';
-		o.rmempty = false;
-
-		o = s.taboption('advanced', form.Value, 'url', _('GeoIP download URL'),
-			_('{} will be replaced with the category name.'));
-		o.placeholder = DEFAULT_GEOIP_URL;
-		o.default = DEFAULT_GEOIP_URL;
-		o.rmempty = true;
-		o.validate = function(section_id, value) {
-			if (!value)
-				return true;
-			if (!/^https?:\/\/[^\s]+$/.test(value))
-				return _('Only http:// or https:// URLs are allowed');
-			if (value.indexOf('{}') === -1)
-				return _('URL must contain {} as the category placeholder');
-			return true;
-		};
-
-		// ============================================================
-		// 2. Gateways (GridSection gateway)
-		// ============================================================
 		s = m.section(form.GridSection, 'gateway', _('Gateways'),
 			_('Other gateways (e.g. side routers) on the LAN. Traffic routed to a gateway and DNS queries from those devices are sent to it; the gateway\'s own traffic is never looped back. IPv6 is auto-discovered by MAC by default; click Edit to customize IPv6 mode, fallback behavior, DNS port, and probe URL.'));
 		s.addremove = true;
 		s.anonymous = true;
+		bindSectionTab(s, 'gateways');
 		s.modaltitle = function(section_id) {
 			var name = uci.get('handoff', section_id, 'name');
 			return name ? _('Edit gateway: %s').format(name) : _('Edit gateway');
@@ -625,12 +676,13 @@ return view.extend({
 		};
 
 		// ============================================================
-		// 3. Device Groups (GridSection group)
+		// Tab 3 (Devices & IP Groups): Device Groups (GridSection group)
 		// ============================================================
 		s = m.section(form.GridSection, 'group', _('Device Groups'),
 			_('Identified by MAC address, which also matches IPv6 privacy addresses; click Edit to batch-select multiple LAN devices at once. IP addresses or CIDR subnets are also supported.'));
 		s.addremove = true;
 		s.anonymous = true;
+		bindSectionTab(s, 'groups');
 		s.modaltitle = function(section_id) {
 			var name = uci.get('handoff', section_id, 'name');
 			return name ? _('Edit device group: %s').format(name) : _('Edit device group');
@@ -937,12 +989,13 @@ return view.extend({
 		};
 
 		// ============================================================
-		// 4. Destination IP Groups (GridSection ipgroup)
+		// Tab 3 (Devices & IP Groups): Destination IP Groups (GridSection ipgroup)
 		// ============================================================
 		s = m.section(form.GridSection, 'ipgroup', _('Destination IP Groups'),
 			_('Custom destination address lists that can be used alongside GeoIP categories in routing rules, such as corporate subnets (e.g. 10.20.0.0/16), your own VPS, or game servers.'));
 		s.addremove = true;
 		s.anonymous = true;
+		bindSectionTab(s, 'groups');
 		s.modaltitle = function(section_id) {
 			var name = uci.get('handoff', section_id, 'name');
 			return name ? _('Edit destination IP group: %s').format(name) : _('Edit destination IP group');
@@ -986,13 +1039,14 @@ return view.extend({
 		};
 
 		// ============================================================
-		// 5. Routing Rules (GridSection rule, sortable)
+		// Tab 2 (Routing Rules): Routing Rules (GridSection rule, sortable)
 		// ============================================================
 		s = m.section(form.GridSection, 'rule', _('Routing Rules'),
 			_('Matched from top to bottom; the first matching rule applies, otherwise traffic goes direct. Local, loopback, multicast, and unreferenced private traffic goes direct (explicit Destination IP Groups may match private subnets such as corporate VPN ranges). Rule changes only affect new connections. Drag rows to reorder.'));
 		s.addremove = true;
 		s.anonymous = true;
 		s.sortable = true;
+		bindSectionTab(s, 'rules');
 		s.modaltitle = function(section_id) {
 			var name = uci.get('handoff', section_id, 'name');
 			return name ? _('Edit routing rule: %s').format(name) : _('Edit routing rule');
@@ -1157,7 +1211,51 @@ return view.extend({
 			return E('span', { 'class': 'ho-target-gw' }, [g.name || g.ip || val]);
 		};
 
-		// Build status box placed at the top of Basic Settings
+		o = s.option(form.DummyValue, '_hits', _('Hits'));
+		o.modalonly = false;
+		o.textvalue = function(section_id) {
+			return E('span', { 'class': 'ho-rule-hits', 'data-rule-id': section_id }, [
+				self.renderRuleHits(self.lastStatus, section_id)
+			]);
+		};
+
+		// ============================================================
+		// Tab 4 (System Settings): Low-frequency global options
+		// ============================================================
+		s = m.section(form.NamedSection, 'main', 'handoff', _('System Settings'));
+		s.addremove = false;
+		bindSectionTab(s, 'settings');
+
+		o = s.option(widgets.NetworkSelect, 'lan', _('LAN interface'));
+		o.multiple = false;
+		o.nocreate = true;
+		o.noaliases = true;
+		o.default = 'lan';
+		o.rmempty = false;
+
+		o = s.option(form.Value, 'interval', _('Check interval'),
+			_('Seconds between gateway health checks (minimum 2).'));
+		o.datatype = 'and(uinteger,min(2))';
+		o.placeholder = '10';
+		o.default = '10';
+		o.rmempty = false;
+
+		o = s.option(form.Value, 'url', _('GeoIP download URL'),
+			_('{} will be replaced with the category name.'));
+		o.placeholder = DEFAULT_GEOIP_URL;
+		o.default = DEFAULT_GEOIP_URL;
+		o.rmempty = true;
+		o.validate = function(section_id, value) {
+			if (!value)
+				return true;
+			if (!/^https?:\/\/[^\s]+$/.test(value))
+				return _('Only http:// or https:// URLs are allowed');
+			if (value.indexOf('{}') === -1)
+				return _('URL must contain {} as the category placeholder');
+			return true;
+		};
+
+		// Build persistent top status box and 4-tab navigation bar
 		this.statusItems = E('div', { 'class': 'ho-status-items' });
 		var btnUpdate = E('button', {
 			'type': 'button',
@@ -1190,28 +1288,50 @@ return view.extend({
 			E('div', { 'class': 'ho-status-actions' }, [btnUpdate])
 		]);
 
-		var placeStatus = L.bind(function(mapEl) {
+		var tabs = [
+			['gateways', _('Gateways')],
+			['rules', _('Routing Rules')],
+			['groups', _('Devices & IP Groups')],
+			['settings', _('System Settings')]
+		];
+		this.tabBar = E('ul', { 'class': 'cbi-tabmenu ho-top-tabs' }, tabs.map(function(t) {
+			return E('li', {
+				'data-tab': t[0],
+				'class': (t[0] === self.activeTab) ? 'cbi-tab' : 'cbi-tab-disabled'
+			}, [
+				E('a', {
+					'href': '#',
+					'click': function(ev) {
+						ev.preventDefault();
+						self.applyTab(self.mapNode, t[0]);
+					}
+				}, [t[1]])
+			]);
+		}));
+
+		var placeChrome = L.bind(function(mapEl) {
+			this.mapNode = mapEl;
 			var firstSec = mapEl.querySelector('.cbi-section');
 			if (firstSec) {
-				var insertBeforeEl = firstSec.querySelector('.cbi-tabmenu, .cbi-section-node');
-				if (insertBeforeEl)
-					firstSec.insertBefore(this.statusBox, insertBeforeEl);
-				else
-					firstSec.appendChild(this.statusBox);
+				mapEl.insertBefore(this.statusBox, firstSec);
+				mapEl.insertBefore(this.tabBar, firstSec);
 			} else {
-				mapEl.insertBefore(this.statusBox, mapEl.firstChild);
+				mapEl.insertBefore(this.tabBar, mapEl.firstChild);
+				mapEl.insertBefore(this.statusBox, this.tabBar);
 			}
+			this.applyTab(mapEl, this.activeTab);
 			this.updateStatusUI(this.lastStatus);
 			return mapEl;
 		}, this);
 
-		// 弹窗里点「保存」后 LuCI 会 reset() → renderContents() 重画整张表单，状态框会被冲掉：每次重画后放回去
+		// 弹窗里点「保存」后 LuCI 会 reset() → renderContents() 重画整张表单：重放状态栏、标签栏并保持当前标签页
 		var renderContents = m.renderContents;
 		m.renderContents = function() {
-			return renderContents.apply(this, arguments).then(placeStatus);
+			return renderContents.apply(this, arguments).then(placeChrome);
 		};
 
 		return m.render().then(L.bind(function(mapEl) {
+			this.mapNode = mapEl;
 			this.updateStatusUI(initStatus);
 			poll.add(L.bind(function() {
 				return this.refreshStatus();

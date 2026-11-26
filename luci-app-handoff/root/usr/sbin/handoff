@@ -410,8 +410,9 @@ ipgroup_sets() { # 每个目标 IP 组两个集合：IPv4、IPv6；集合名用 
 	nset "i_${s}_6" ipv6_addr "$a6" interval
 }
 
-rule_lines() { # 一条规则展开成若干 nft 规则；第一条命中的生效（goto / return 不再往下走）
+rule_lines() { # 一条规则展开成若干 nft 规则；第一条命中的生效（goto r_<段名> 计新连接命中并跳去目标）
 	local s=$1 en grp cats ipg inv target g c d x f dm da priv act ti neg anytgt
+	valid_sid "$s" || { warn "规则段名 $s 不合法，跳过这条规则"; return; }
 	config_get_bool en "$s" enabled 1
 	[ "$en" = 1 ] || return
 	config_get grp "$s" group
@@ -448,6 +449,19 @@ rule_lines() { # 一条规则展开成若干 nft 规则；第一条命中的生�
 	else
 		d=-
 	fi
+	# 每条生效规则对应一条计数链：仅在 ct state new 上累加命中次数（不把非对称路由的 ct state invalid 重复计数）
+	{
+		printf '\tchain r_%s {\n' "$s"
+		printf '\t\tct state new counter comment "r:%s"\n' "$s"
+		if [ -z "$ti" ]; then
+			printf '\t\tct mark set ct mark | %s return\n' "$M_DONE"
+		else
+			printf '\t\tmeta nfproto ipv4 goto g%s_4\n' "$ti"
+			printf '\t\tmeta nfproto ipv6 goto g%s_6\n' "$ti"
+		fi
+		printf '\t}\n'
+	} >>"$RUN/rchains.nft"
+	act="goto r_$s"
 	for x in $d; do
 		for f in 4 6; do
 			case $x in
@@ -458,7 +472,6 @@ rule_lines() { # 一条规则展开成若干 nft 规则；第一条命中的生�
 			esac
 			if [ $f = 4 ]; then da="ip daddr"; else da="ip6 daddr"; fi
 			priv="$da != @_priv$f "
-			if [ -z "$ti" ]; then act="ct mark set ct mark | $M_DONE return"; else act="goto g${ti}_$f"; fi
 			# DNS 同样按第一条命中：交给网关的设备查询跟去它的 DNS 状态链；
 			# 先命中「直连、任何目标」的设备留在本机（其余直连规则不影响 DNS）
 			if [ -n "$ti" ]; then
@@ -518,6 +531,7 @@ gen() {
 	local i
 	GROUPS= USED= IPGROUPS= IPGROUPS_OK=
 	: >"$RUN/dns.nft"
+	: >"$RUN/rchains.nft"
 	config_foreach group_sets group >"$RUN/sets.nft"
 	config_foreach ipgroup_sets ipgroup >>"$RUN/sets.nft"
 	config_foreach rule_lines rule >"$RUN/decide.nft"
@@ -536,12 +550,14 @@ gen() {
 		printf '\tchain g%s_4 {\n\t}\n\tchain g%s_6 {\n\t}\n' "$i" "$i"
 		printf '\tchain d%s_4 {\n\t}\n\tchain d%s_6 {\n\t}\n' "$i" "$i"
 	done
+	cat "$RUN/rchains.nft"
 	printf '\tchain decide {\n'
 	# 环回、链路本地、组播与本机地址始终直连；RFC1918/ULA 由规则按需排除，使显式 IP 组（如公司网段）能命中
 	printf '\t\tip daddr { 0.0.0.0/8, 127.0.0.0/8, 169.254.0.0/16, 224.0.0.0/3 } return\n'
 	printf '\t\tip6 daddr { ::/127, fe80::/10, ff00::/8 } return\n'
 	printf '\t\tfib daddr type { local, broadcast, multicast } return\n'
 	sed 's/^/\t\t/' "$RUN/decide.nft"
+	printf '\t\tct state new counter comment "r:_default"\n'
 	printf '\t\tct mark set ct mark | %s\n\t}\n' $M_DONE
 	printf '\tchain pre {\n\t\ttype filter hook prerouting priority mangle; policy accept;\n'
 	skip_lines
@@ -942,8 +958,20 @@ v6_text() { # 编号 → 这个网关自己的 IPv6 状态（只在它就是实�
 	fi
 }
 
+read_rule_stats() { # 从 nft 读出每条生效规则与 _default 的新连接命中次数（输出行："<id> <hits>"）
+	nft list table inet handoff 2>/dev/null | awk '
+	/ct state new counter packets [0-9]+ bytes [0-9]+ comment "r:[A-Za-z0-9_]+"/ {
+		p = 0; id = ""
+		for (i = 1; i <= NF; i++) {
+			if ($i == "packets") p = $(i + 1)
+			if ($i == "comment") { id = $(i + 1); gsub(/^"r:|"$/, "", id) }
+		}
+		if (id != "") print id, p
+	}'
+}
+
 status_json() { # SPEC.md 里的格式，一行 JSON，用 jshn 生成保证转义正确
-	local f i j a4 a6 m6 pref v6fb via on=
+	local f i j a4 a6 m6 pref v6fb via on= matched=0 defhits=0 sid cnt sf="/tmp/ho_stats.$$"
 	[ -r /usr/share/libubox/jshn.sh ] || { log "缺少 /usr/share/libubox/jshn.sh（需要 jshn 包）"; return 1; }
 	. /usr/share/libubox/jshn.sh
 	running && on=1
@@ -994,11 +1022,30 @@ status_json() { # SPEC.md 里的格式，一行 JSON，用 jshn 生成保证转�
 	json_add_array missing
 	for f in $(sort -u "$RUN/missing" 2>/dev/null); do json_add_string "" "$f"; done
 	json_close_array
+	json_add_object stats
+	json_add_object rules
+	if [ -n "$on" ]; then
+		read_rule_stats >"$sf"
+		while read -r sid cnt; do
+			case $cnt in '' | *[!0-9]*) cnt=0 ;; esac
+			if [ "$sid" = _default ]; then
+				defhits=$cnt
+			else
+				json_add_int "$sid" "$cnt"
+				matched=$((matched + cnt))
+			fi
+		done <"$sf"
+		rm -f "$sf"
+	fi
+	json_close_object
+	json_add_int matched "$matched"
+	json_add_int default "$defhits"
+	json_close_object
 	json_dump
 }
 
 status() {
-	local f i j a4
+	local f i j a4 matched=0 defhits=0 sid cnt rn sf="/tmp/ho_stats.$$"
 	load
 	[ "$1" = --json ] && { status_json; return $?; }
 	warns
@@ -1016,6 +1063,22 @@ status() {
 				echo "网关 $(gw_name "$i")（$a4）：不通，新连接直连"
 			fi
 		done
+		read_rule_stats >"$sf"
+		while read -r sid cnt; do
+			case $cnt in '' | *[!0-9]*) cnt=0 ;; esac
+			if [ "$sid" = _default ]; then
+				defhits=$cnt
+			else
+				matched=$((matched + cnt))
+			fi
+		done <"$sf"
+		echo "命中统计：规则命中 ${matched} 次新连接，默认直连 ${defhits} 次"
+		while read -r sid cnt; do
+			[ "$sid" = _default ] && continue
+			config_get rn "$sid" name
+			echo "  规则 ${rn:-$sid}：${cnt} 次"
+		done <"$sf"
+		rm -f "$sf"
 	fi
 	for f in "$DATA"/*.list; do
 		[ -f "$f" ] && echo "GeoIP $(basename "$f" .list)：$(wc -l <"$f") 条，更新于 $(date -r "$f" '+%F %T')"
