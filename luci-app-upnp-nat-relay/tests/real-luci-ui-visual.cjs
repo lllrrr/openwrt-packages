@@ -36,16 +36,24 @@ const themes = [
 	{ id: 'aurora-light', media: 'aurora', theme: 'aurora', colorScheme: 'light', dark: 'false', aurora: 'light' },
 	{ id: 'aurora-dark', media: 'aurora', theme: 'aurora', colorScheme: 'dark', dark: 'true', aurora: 'dark' }
 ];
+const themeSet = process.env.LUCI_UI_THEME_SET || 'all';
+if (!['all', 'bootstrap-only'].includes(themeSet))
+	throw new Error('Unsupported LUCI_UI_THEME_SET: ' + themeSet);
+const profileThemes = themeSet === 'bootstrap-only'
+	? themes.filter(theme => theme.media !== 'aurora')
+	: themes;
 const smoke = process.env.UPNP_UI_SMOKE_ONLY === '1';
 if (smoke && process.env.GITHUB_ACTIONS === 'true') throw new Error('Smoke-only mode is prohibited in GitHub Actions');
-const selectedThemes = smoke ? themes.filter(t => t.id === 'aurora-light') : themes;
+const selectedThemes = smoke
+	? profileThemes.filter(theme => theme.id === (themeSet === 'bootstrap-only' ? 'bootstrap-default-light' : 'aurora-light'))
+	: profileThemes;
 const selectedWidths = smoke ? [320, 1280] : allWidths;
 const report = {
 	schemaVersion: 1, sha: process.env.GITHUB_SHA || 'unknown', language,
 	environment: 'OpenWrt 24.10.8 rootfs with LuCI and UPnP NAT Relay files; service remains disabled',
-	mode: smoke ? 'local-smoke-only' : 'full-matrix', routes: routes.map(r => r.path),
+	mode: smoke ? 'local-smoke-only' : 'full-matrix', themeSet, themes: selectedThemes.map(theme => theme.id), routes: routes.map(r => r.path),
 	widths: selectedWidths, shortViewports,
-	method: 'Eight registered views and root alias; common and breakpoint-adjacent CSS widths; short portrait/landscape; Bootstrap system/default, explicit Light/Dark, Aurora Light/Dark.',
+	method: `Eight registered views and root alias; common and breakpoint-adjacent CSS widths; short portrait/landscape; theme set ${themeSet}.`,
 	notCovered: ['manual visual review', 'wizard step transitions and real service/network mutations', 'populated mappings and long logs'], rows: [], errors: []
 };
 fs.mkdirSync(output, { recursive: true });
@@ -219,6 +227,7 @@ async function capture(page, theme, route, width, height, view) {
 
 (async () => {
 	const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_EXECUTABLE || undefined });
+	report.browser = { version: browser.version(), playwrightVersion: require('playwright/package.json').version };
 	try {
 		for (const theme of selectedThemes) {
 			shell(`uci set luci.main.mediaurlbase='/luci-static/${theme.media}'; uci set luci.main.theme='${theme.theme}'; uci commit luci; rm -rf /tmp/luci-indexcache* /tmp/luci-modulecache*; /etc/init.d/uhttpd restart >/dev/null 2>&1`);
@@ -235,7 +244,7 @@ async function capture(page, theme, route, width, height, view) {
 		}
 	} finally { await browser.close(); }
 	const expected = selectedThemes.length * ((selectedWidths.length + shortViewports.length) * routes.length + 1);
-	console.log('VISUAL_MATRIX ' + JSON.stringify({ total: report.rows.length, expected, pass: report.rows.filter(x => x.result === 'PASS').length, fail: report.errors.length }));
+	console.log('VISUAL_MATRIX ' + JSON.stringify({ themeSet, themes: selectedThemes.map(theme => theme.id), total: report.rows.length, expected, pass: report.rows.filter(x => x.result === 'PASS').length, fail: report.errors.length }));
 	if (report.rows.length !== expected || report.errors.length) process.exitCode = 1;
 })().catch(e => {
 	report.errors.push({ fatal: e.stack || e.message });

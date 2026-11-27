@@ -32,12 +32,20 @@ const themes = [
 	{ id: 'aurora-light', media: 'aurora', theme: 'aurora', colorScheme: 'light', dark: 'false', aurora: 'light' },
 	{ id: 'aurora-dark', media: 'aurora', theme: 'aurora', colorScheme: 'dark', dark: 'true', aurora: 'dark' }
 ];
+const themeSet = process.env.LUCI_UI_THEME_SET || 'all';
+if (!['all', 'bootstrap-only'].includes(themeSet))
+	throw new Error('Unsupported LUCI_UI_THEME_SET: ' + themeSet);
+const selectedThemes = themeSet === 'bootstrap-only'
+	? themes.filter(theme => theme.media !== 'aurora')
+	: themes;
 const viewports = [...widths.map(width => ({ width, height: 900 })), ...shortViewports];
 const report = {
 	schemaVersion: 1,
 	sha: process.env.GITHUB_SHA || 'unknown',
 	language,
 	mode: 'wizard-mode-selection-only',
+	themeSet,
+	themes: selectedThemes.map(theme => theme.id),
 	notCovered: ['wizard step transitions and final configuration submission'],
 	rows: [],
 	errors: []
@@ -142,8 +150,9 @@ async function capture(page, theme, viewport, mode) {
 
 (async () => {
 	const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_EXECUTABLE || undefined });
+	report.browser = { version: browser.version(), playwrightVersion: require('playwright/package.json').version };
 	try {
-		for (const theme of themes) {
+		for (const theme of selectedThemes) {
 			shell(`uci set luci.main.mediaurlbase='/luci-static/${theme.media}'; uci set luci.main.theme='${theme.theme}'; uci commit luci; rm -rf /tmp/luci-indexcache* /tmp/luci-modulecache*; /etc/init.d/uhttpd restart >/dev/null 2>&1`);
 			await new Promise(resolve => setTimeout(resolve, 900));
 			const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: theme.colorScheme });
@@ -158,9 +167,9 @@ async function capture(page, theme, viewport, mode) {
 			} finally { await context.close(); }
 		}
 	} finally { await browser.close(); }
-	const expected = themes.length * viewports.length * 2;
+	const expected = selectedThemes.length * viewports.length * 2;
 	const pass = report.rows.filter(row => row.result === 'PASS').length;
-	console.log('WIZARD_MODE_MATRIX ' + JSON.stringify({ total: report.rows.length, expected, pass, fail: report.errors.length }));
+	console.log('WIZARD_MODE_MATRIX ' + JSON.stringify({ themeSet, themes: selectedThemes.map(theme => theme.id), total: report.rows.length, expected, pass, fail: report.errors.length }));
 	if (report.rows.length !== expected || report.errors.length) process.exitCode = 1;
 })().catch(error => {
 	report.errors.push({ fatal: error.stack || error.message });

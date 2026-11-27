@@ -27,11 +27,19 @@ const themes = [
 	{ id: 'aurora-light', media: 'aurora', theme: 'aurora', colorScheme: 'light', dark: 'false', aurora: 'light' },
 	{ id: 'aurora-dark', media: 'aurora', theme: 'aurora', colorScheme: 'dark', dark: 'true', aurora: 'dark' }
 ];
+const themeSet = process.env.LUCI_UI_THEME_SET || 'all';
+if (!['all', 'bootstrap-only'].includes(themeSet))
+	throw new Error('Unsupported LUCI_UI_THEME_SET: ' + themeSet);
+const selectedThemes = themeSet === 'bootstrap-only'
+	? themes.filter(theme => theme.media !== 'aurora')
+	: themes;
 const report = {
 	schemaVersion: 1,
 	sha: process.env.GITHUB_SHA || 'unknown',
 	language,
 	mode: 'all-wizard-steps-with-real-read-only-checks-plus-real-safe-save',
+	themeSet,
+	themes: selectedThemes.map(theme => theme.id),
 	widths,
 	shortViewports: viewports.filter(v => v.height !== 900),
 	notCovered: ['Auto mode network/firewall changes and service start are intentionally excluded from this disposable host-network LuCI container.'],
@@ -173,9 +181,10 @@ async function runFlow(page, theme, viewport, takeScreenshots) {
 
 (async () => {
 	const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_EXECUTABLE || undefined });
+	report.browser = { version: browser.version(), playwrightVersion: require('playwright/package.json').version };
 	let page;
 	try {
-		for (const theme of themes) {
+		for (const theme of selectedThemes) {
 			shell(`uci set luci.main.mediaurlbase='/luci-static/${theme.media}'; uci set luci.main.theme='${theme.theme}'; uci commit luci; rm -rf /tmp/luci-indexcache* /tmp/luci-modulecache*; /etc/init.d/uhttpd restart >/dev/null 2>&1`);
 			await new Promise(resolve => setTimeout(resolve, 600));
 			const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: theme.colorScheme });
@@ -220,9 +229,9 @@ async function runFlow(page, theme, viewport, takeScreenshots) {
 		if (page) await page.close().catch(() => {});
 		await browser.close();
 	}
-	const expectedRows = themes.length * viewports.length * 10;
+	const expectedRows = selectedThemes.length * viewports.length * 10;
 	const pass = report.rows.filter(row => row.result === 'PASS').length;
-	console.log('WIZARD_FLOW_MATRIX ' + JSON.stringify({ total: report.rows.length, expected: expectedRows, pass, fail: report.errors.length, safeSave: report.safeSave }));
+	console.log('WIZARD_FLOW_MATRIX ' + JSON.stringify({ themeSet, themes: selectedThemes.map(theme => theme.id), total: report.rows.length, expected: expectedRows, pass, fail: report.errors.length, safeSave: report.safeSave }));
 	if (report.rows.length !== expectedRows || report.errors.length || report.safeSave?.result !== 'PASS') process.exitCode = 1;
 })().catch(error => {
 	console.error(error);
