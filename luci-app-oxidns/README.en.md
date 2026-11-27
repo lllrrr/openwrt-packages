@@ -24,7 +24,7 @@ Built on the [svenshi/luci-app-oxidns](https://github.com/svenshi/luci-app-oxidn
 
 ## Pages
 
-There are only four top-level entries; the former nine pages are now in-page tabs. RPCs, UCI options and ACLs are unchanged, and the old URLs still reach the same panels.
+There are only four top-level entries; the former nine pages are now in-page tabs. RPCs, UCI options and ACLs are unchanged. Old URLs are kept as hidden menu nodes, so they still reach the same panels without appearing in the sidebar.
 
 | Entry | Tab | Purpose |
 |---|---|---|
@@ -38,7 +38,7 @@ There are only four top-level entries; the former nine pages are now in-page tab
 | `Data & Updates` | Geo data | geoip.dat / geosite.dat status, download URLs, directory, online update |
 | `Logs` | — | Filter and refresh logs, probe every upstream for answers, TTL and latency |
 
-Tabs are rendered lazily on first activation, so the YAML editor never measures a hidden pane and background pollers do not all run at once.
+Tabs are rendered lazily on first activation, so the YAML editor never measures a hidden pane. Pollers stop when you leave a tab and resume when you return.
 
 > Security note: core uploads are disabled by default. Enable "Allow manually uploaded cores" in `Configuration -> Settings` and make sure the logged-in user belongs to the `luci-app-oxidns-core-upload` ACL group (the default root account does). Uploaded binaries are never executed during validation; they are only run as the service core. Optional SHA-256 pins in `Data & Updates -> Geo data` abort an update on mismatch and keep the current data.
 

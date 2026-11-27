@@ -43,27 +43,52 @@ var configState = {};
 var viewRoot = null;
 var viewObserver = null;
 var cleanupTasks = [];
+var cleanupGeneration = 0;
 
 function isAttached(node) {
 	return !!(node && document.body && typeof document.body.contains === 'function' && document.body.contains(node));
 }
 
-function addCleanup(fn) {
-	if (typeof fn === 'function' && cleanupTasks.indexOf(fn) < 0)
-		cleanupTasks.push(fn);
+/* 清理任务按实例代次标记：旧实例的 observer 回调即使晚到，也只会执行
+ * 自己那一代的任务，不会连同新实例刚注册的任务一起清掉。 */
+function beginRender() {
+	if (viewRoot && !isAttached(viewRoot))
+		runCleanup(cleanupGeneration);
+	cleanupGeneration++;
 }
 
-function runCleanup() {
-	var tasks = cleanupTasks.slice();
-	cleanupTasks = [];
+function addCleanup(fn) {
+	if (typeof fn !== 'function')
+		return;
 
-	for (var i = 0; i < tasks.length; i++) {
-		try { tasks[i](); } catch (e) {}
+	for (var i = 0; i < cleanupTasks.length; i++) {
+		if (cleanupTasks[i].fn === fn && cleanupTasks[i].generation === cleanupGeneration)
+			return;
+	}
+	cleanupTasks.push({ 'fn': fn, 'generation': cleanupGeneration });
+}
+
+function runCleanup(generation) {
+	var matched = [];
+	var kept = [];
+
+	for (var i = 0; i < cleanupTasks.length; i++) {
+		if (generation == null || cleanupTasks[i].generation === generation)
+			matched.push(cleanupTasks[i]);
+		else
+			kept.push(cleanupTasks[i]);
+	}
+	cleanupTasks = kept;
+
+	for (var i = 0; i < matched.length; i++) {
+		try { matched[i].fn(); } catch (e) {}
 	}
 }
 
 function watchView(root) {
 	viewRoot = root || null;
+	var observedRoot = viewRoot;
+	var observedGeneration = cleanupGeneration;
 
 	if (viewObserver) {
 		try { viewObserver.disconnect(); } catch (e) {}
@@ -75,10 +100,10 @@ function watchView(root) {
 		return;
 
 	viewObserver = new MutationObserver(function() {
-		if (viewRoot && !isAttached(viewRoot)) {
+		if (!isAttached(observedRoot)) {
 			try { viewObserver.disconnect(); } catch (e) {}
 			viewObserver = null;
-			runCleanup();
+			runCleanup(observedGeneration);
 		}
 	});
 	viewObserver.observe(vp, { childList: true, subtree: false });
@@ -357,6 +382,7 @@ return baseclass.extend({
 	},
 
 	render: function(data) {
+		beginRender();
 		configState = data && data.config ? data.config : {};
 		var statusState = data && data.status ? data.status : {};
 		var readFailed = configState.ok === false;
@@ -375,7 +401,7 @@ return baseclass.extend({
 						_('Install the OxiDNS core before editing the configuration.')),
 					E('a', {
 						'class': 'btn cbi-button cbi-button-action',
-						'href': L.url('admin/services/oxidns/core')
+						'href': L.url('admin/services/oxidns/data') + '#core'
 					}, _('Install Core'))
 				])
 			]);

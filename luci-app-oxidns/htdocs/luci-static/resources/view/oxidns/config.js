@@ -20,7 +20,13 @@ return view.extend({
 	render: function(results) {
 		return tabs.build([
 			{ id: 'config', title: _('Configuration'), render: function() { return configPanel.render(results[0]); } },
-			{ id: 'settings', title: _('Settings'), render: function() { return settingsPanel.render(results[1]); } },
+			{
+				id: 'settings',
+				title: _('Settings'),
+				hashes: [ 'settings', 'api-credentials' ],
+				anchor: 'api-credentials',
+				render: function() { return settingsPanel.render(results[1]); }
+			},
 			{ id: 'prewarm', title: _('Prewarm'), render: function() { return prewarmPanel.render(results[2]); } }
 		]);
 	},

@@ -1,6 +1,7 @@
 'use strict';
 'require baseclass';
 'require rpc';
+'require view.oxidns.tabs as tabs';
 'require ui';
 'require poll';
 
@@ -47,6 +48,7 @@ var viewRoot = null;
 var pollFn = null;
 var viewObserver = null;
 var cleanupTasks = [];
+var cleanupGeneration = 0;
 var retryTimer = null;
 var retryCount = 0;
 
@@ -54,22 +56,46 @@ function isAttached(node) {
 	return !!(node && document.body && typeof document.body.contains === 'function' && document.body.contains(node));
 }
 
-function addCleanup(fn) {
-	if (typeof fn === 'function' && cleanupTasks.indexOf(fn) < 0)
-		cleanupTasks.push(fn);
+/* 清理任务按实例代次标记：旧实例的 observer 回调即使晚到，也只会执行
+ * 自己那一代的任务，不会连同新实例刚注册的任务一起清掉。 */
+function beginRender() {
+	if (viewRoot && !isAttached(viewRoot))
+		runCleanup(cleanupGeneration);
+	cleanupGeneration++;
 }
 
-function runCleanup() {
-	var tasks = cleanupTasks.slice();
-	cleanupTasks = [];
+function addCleanup(fn) {
+	if (typeof fn !== 'function')
+		return;
 
-	for (var i = 0; i < tasks.length; i++) {
-		try { tasks[i](); } catch (e) {}
+	for (var i = 0; i < cleanupTasks.length; i++) {
+		if (cleanupTasks[i].fn === fn && cleanupTasks[i].generation === cleanupGeneration)
+			return;
+	}
+	cleanupTasks.push({ 'fn': fn, 'generation': cleanupGeneration });
+}
+
+function runCleanup(generation) {
+	var matched = [];
+	var kept = [];
+
+	for (var i = 0; i < cleanupTasks.length; i++) {
+		if (generation == null || cleanupTasks[i].generation === generation)
+			matched.push(cleanupTasks[i]);
+		else
+			kept.push(cleanupTasks[i]);
+	}
+	cleanupTasks = kept;
+
+	for (var i = 0; i < matched.length; i++) {
+		try { matched[i].fn(); } catch (e) {}
 	}
 }
 
 function watchView(root) {
 	viewRoot = root || null;
+	var observedRoot = viewRoot;
+	var observedGeneration = cleanupGeneration;
 
 	if (viewObserver) {
 		try { viewObserver.disconnect(); } catch (e) {}
@@ -81,10 +107,10 @@ function watchView(root) {
 		return;
 
 	viewObserver = new MutationObserver(function() {
-		if (viewRoot && !isAttached(viewRoot)) {
+		if (!isAttached(observedRoot)) {
 			try { viewObserver.disconnect(); } catch (e) {}
 			viewObserver = null;
-			runCleanup();
+			runCleanup(observedGeneration);
 		}
 	});
 	viewObserver.observe(vp, { childList: true, subtree: false });
@@ -102,6 +128,20 @@ function cancelRetry() {
 		retryTimer = null;
 	}
 	retryCount = 0;
+}
+
+function startPolling() {
+	if (pollFn)
+		return;
+
+	pollFn = refreshAll;
+	poll.add(pollFn, 5);
+	refreshAll();
+}
+
+function stopPolling() {
+	unregisterPoll();
+	cancelRetry();
 }
 
 function backendMessage(err, fallback) {
@@ -130,7 +170,7 @@ function scheduleRetry() {
 	showRefreshError(_('Could not refresh DNS hijack status. Retrying...'));
 	retryTimer = window.setTimeout(function() {
 		retryTimer = null;
-		if (isAttached(viewRoot))
+		if (tabs.isActive(viewRoot))
 			refreshAll();
 	}, Math.min(30000, 1000 * Math.pow(2, retryCount)));
 }
@@ -308,7 +348,7 @@ function refreshHijack() {
 
 		/* 保留最后一次成功状态，失败时不把表单清空 */
 		hijackState = hijack;
-		if (isAttached(viewRoot))
+		if (tabs.isActive(viewRoot))
 			applyHijackState(hijackState, false);
 	}).catch(function(err) {
 		showRefreshError(backendMessage(err, _('Could not refresh DNS hijack status.')));
@@ -322,7 +362,7 @@ function refreshStatus() {
 			throw status || { code: 'rpc_unavailable' };
 
 		statusState = status;
-		if (isAttached(viewRoot))
+		if (tabs.isActive(viewRoot))
 			updateHijackControls();
 	}).catch(function(err) {
 		showRefreshError(backendMessage(err, _('Could not refresh OxiDNS status.')));
@@ -334,7 +374,7 @@ function refreshAll() {
 	/* 不能在未挂载时自行 unregisterPoll：poll.add() 会立即 step 一次，
 	 * 而那时 render 还没返回、map 不在 DOM 里，会把轮询自我删除。
 	 * 卸载清理由 watchView → runCleanup → addCleanup 负责。 */
-	if (!isAttached(viewRoot))
+	if (!tabs.isActive(viewRoot))
 		return Promise.resolve();
 
 	return Promise.all([ refreshStatus(), refreshHijack() ]).then(function() {
@@ -435,6 +475,7 @@ return baseclass.extend({
 	},
 
 	render: function(data) {
+		beginRender();
 		var hijack = (data && data.hijack) || {};
 		var status = (data && data.status) || {};
 
@@ -442,8 +483,7 @@ return baseclass.extend({
 		statusState = status;
 		dirty = false;
 
-		addCleanup(unregisterPoll);
-		addCleanup(cancelRetry);
+		addCleanup(stopPolling);
 
 		var map = E('div', { 'class': 'cbi-map' }, [
 			E('h2', {}, _('DNS Hijack')),
@@ -559,14 +599,17 @@ return baseclass.extend({
 		watchView(map);
 
 		/* LuCI 在 render 返回后才插入 DOM，而 poll.add() 会立即 step 一次；
-		 * 注册轮询和首帧回填都推迟到挂载之后。 */
+		 * 注册轮询和首帧回填都推迟到挂载之后。切到别的子标签时停掉，
+		 * 再切回来时由 cbi-tab-active 恢复。 */
 		window.setTimeout(function() {
-			if (!isAttached(viewRoot))
+			if (!tabs.isActive(viewRoot))
 				return;
-			pollFn = refreshAll;
-			poll.add(pollFn, 5);
+
+			var unwatch = tabs.watchActivation(viewRoot, startPolling, stopPolling);
+			addCleanup(unwatch);
 			updateHijackControls();
 			applyHijackState(hijackState, false);
+			startPolling();
 		}, 0);
 
 		return map;

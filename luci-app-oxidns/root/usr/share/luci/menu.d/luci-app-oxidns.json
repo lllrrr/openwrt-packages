@@ -52,5 +52,66 @@
 		"depends": {
 			"acl": [ "luci-app-oxidns" ]
 		}
+	},
+
+	"admin/services/oxidns/core": {
+		"action": {
+			"type": "view",
+			"path": "oxidns/core"
+		},
+		"hidden": true,
+		"depends": {
+			"acl": [ "luci-app-oxidns" ]
+		}
+	},
+	"admin/services/oxidns/settings": {
+		"action": {
+			"type": "view",
+			"path": "oxidns/settings"
+		},
+		"hidden": true,
+		"depends": {
+			"acl": [ "luci-app-oxidns" ]
+		}
+	},
+	"admin/services/oxidns/rules": {
+		"action": {
+			"type": "view",
+			"path": "oxidns/rules"
+		},
+		"hidden": true,
+		"depends": {
+			"acl": [ "luci-app-oxidns" ]
+		}
+	},
+	"admin/services/oxidns/geo": {
+		"action": {
+			"type": "view",
+			"path": "oxidns/geo"
+		},
+		"hidden": true,
+		"depends": {
+			"acl": [ "luci-app-oxidns" ]
+		}
+	},
+	"admin/services/oxidns/hijack": {
+		"action": {
+			"type": "view",
+			"path": "oxidns/hijack"
+		},
+		"hidden": true,
+		"depends": {
+			"acl": [ "luci-app-oxidns" ]
+		}
+	},
+	"admin/services/oxidns/prewarm": {
+		"action": {
+			"type": "view",
+			"path": "oxidns/prewarm"
+		},
+		"hidden": true,
+		"depends": {
+			"acl": [ "luci-app-oxidns" ]
+		}
 	}
 }

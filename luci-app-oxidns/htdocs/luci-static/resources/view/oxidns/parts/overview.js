@@ -1,6 +1,7 @@
 'use strict';
 'require baseclass';
 'require rpc';
+'require view.oxidns.tabs as tabs';
 'require ui';
 'require poll';
 
@@ -38,6 +39,7 @@ var viewRoot = null;
 var pollFn = null;
 var viewObserver = null;
 var cleanupTasks = [];
+var cleanupGeneration = 0;
 var retryTimer = null;
 var retryCount = 0;
 
@@ -45,22 +47,46 @@ function isAttached(node) {
 	return !!(node && document.body && typeof document.body.contains === 'function' && document.body.contains(node));
 }
 
-function addCleanup(fn) {
-	if (typeof fn === 'function' && cleanupTasks.indexOf(fn) < 0)
-		cleanupTasks.push(fn);
+/* 清理任务按实例代次标记：旧实例的 observer 回调即使晚到，也只会执行
+ * 自己那一代的任务，不会连同新实例刚注册的任务一起清掉。 */
+function beginRender() {
+	if (viewRoot && !isAttached(viewRoot))
+		runCleanup(cleanupGeneration);
+	cleanupGeneration++;
 }
 
-function runCleanup() {
-	var tasks = cleanupTasks.slice();
-	cleanupTasks = [];
+function addCleanup(fn) {
+	if (typeof fn !== 'function')
+		return;
 
-	for (var i = 0; i < tasks.length; i++) {
-		try { tasks[i](); } catch (e) {}
+	for (var i = 0; i < cleanupTasks.length; i++) {
+		if (cleanupTasks[i].fn === fn && cleanupTasks[i].generation === cleanupGeneration)
+			return;
+	}
+	cleanupTasks.push({ 'fn': fn, 'generation': cleanupGeneration });
+}
+
+function runCleanup(generation) {
+	var matched = [];
+	var kept = [];
+
+	for (var i = 0; i < cleanupTasks.length; i++) {
+		if (generation == null || cleanupTasks[i].generation === generation)
+			matched.push(cleanupTasks[i]);
+		else
+			kept.push(cleanupTasks[i]);
+	}
+	cleanupTasks = kept;
+
+	for (var i = 0; i < matched.length; i++) {
+		try { matched[i].fn(); } catch (e) {}
 	}
 }
 
 function watchView(root) {
 	viewRoot = root || null;
+	var observedRoot = viewRoot;
+	var observedGeneration = cleanupGeneration;
 
 	if (viewObserver) {
 		try { viewObserver.disconnect(); } catch (e) {}
@@ -72,10 +98,10 @@ function watchView(root) {
 		return;
 
 	viewObserver = new MutationObserver(function() {
-		if (viewRoot && !isAttached(viewRoot)) {
+		if (!isAttached(observedRoot)) {
 			try { viewObserver.disconnect(); } catch (e) {}
 			viewObserver = null;
-			runCleanup();
+			runCleanup(observedGeneration);
 		}
 	});
 	viewObserver.observe(vp, { childList: true, subtree: false });
@@ -93,6 +119,20 @@ function cancelRetry() {
 		retryTimer = null;
 	}
 	retryCount = 0;
+}
+
+function startPolling() {
+	if (pollFn)
+		return;
+
+	pollFn = refreshStatus;
+	poll.add(pollFn, 5);
+	refreshStatus();
+}
+
+function stopPolling() {
+	unregisterPoll();
+	cancelRetry();
 }
 
 function showRefreshError(message) {
@@ -123,7 +163,7 @@ function scheduleRetry() {
 	showRefreshError(_('Could not refresh OxiDNS status. Retrying...'));
 	retryTimer = window.setTimeout(function() {
 		retryTimer = null;
-		if (isAttached(viewRoot))
+		if (tabs.isActive(viewRoot))
 			refreshStatus();
 	}, Math.min(30000, 1000 * Math.pow(2, retryCount)));
 }
@@ -346,7 +386,7 @@ function refreshStatus() {
 	/* 不能在未挂载时自行 unregisterPoll：poll.add() 会立即 step 一次，
 	 * 而那时 render 还没返回、map 不在 DOM 里，会把轮询自我删除。
 	 * 卸载清理由 watchView → runCleanup → addCleanup 负责。 */
-	if (!isAttached(viewRoot))
+	if (!tabs.isActive(viewRoot))
 		return Promise.resolve();
 
 	/* 不用 L.resolveDefault：它吞掉错误，导致界面停留在旧状态且没有提示 */
@@ -371,11 +411,11 @@ function refreshStatus() {
 
 		Object.keys(fields).forEach(function(id) {
 			var node = document.getElementById(id);
-			if (node && isAttached(viewRoot))
+			if (node && tabs.isActive(viewRoot))
 				setNodeContent(node, fields[id]);
 		});
 
-		if (isAttached(viewRoot))
+		if (tabs.isActive(viewRoot))
 			updateServiceActions(statusState);
 	}).catch(function(err) {
 		/* 保留最后一次成功的状态，只提示错误并按指数退避重试 */
@@ -445,7 +485,7 @@ function disabledActionButton(label, hint, id) {
 function coreInstallLink() {
 	return E('a', {
 		'class': 'btn cbi-button cbi-button-action',
-		'href': L.url('admin/services/oxidns/core')
+		'href': L.url('admin/services/oxidns/data') + '#core'
 	}, _('Install Core'));
 }
 
@@ -512,11 +552,11 @@ return baseclass.extend({
 	},
 
 	render: function(status) {
+		beginRender();
 		status = status || {};
 		statusState = status;
 
-		addCleanup(unregisterPoll);
-		addCleanup(cancelRetry);
+		addCleanup(stopPolling);
 
 		var rows = [
 			renderRow(_('LuCI backend'), backendStatusBadge(status), 'oxidns-backend-status'),
@@ -566,7 +606,7 @@ return baseclass.extend({
 					}, _('Probe upstreams')),
 					E('a', {
 						'class': 'btn cbi-button',
-						'href': L.url('admin/services/oxidns/settings') + '#api-credentials'
+						'href': L.url('admin/services/oxidns/config') + '#api-credentials'
 					}, _('Manage API credentials'))
 				])
 			]),
@@ -581,13 +621,15 @@ return baseclass.extend({
 		watchView(map);
 
 		/* LuCI 在 render 返回后才插入 DOM，而 poll.add() 会立即 step 一次；
-		 * 注册轮询和首帧刷新都推迟到挂载之后。 */
+		 * 注册轮询和首帧刷新都推迟到挂载之后。切到别的子标签时停掉，
+		 * 再切回来时由 cbi-tab-active 恢复。 */
 		window.setTimeout(function() {
-			if (!isAttached(viewRoot))
+			if (!tabs.isActive(viewRoot))
 				return;
-			pollFn = refreshStatus;
-			poll.add(pollFn, 5);
-			refreshStatus();
+
+			var unwatch = tabs.watchActivation(viewRoot, startPolling, stopPolling);
+			addCleanup(unwatch);
+			startPolling();
 		}, 0);
 
 		return map;

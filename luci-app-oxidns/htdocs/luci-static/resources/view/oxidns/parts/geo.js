@@ -1,6 +1,7 @@
 'use strict';
 'require baseclass';
 'require rpc';
+'require view.oxidns.tabs as tabs';
 'require ui';
 
 var callGeoGet = rpc.declare({
@@ -45,28 +46,53 @@ var BACKEND_ERRORS = {
 
 var viewRoot = null;
 var cleanupTasks = [];
+var cleanupGeneration = 0;
 var viewObserver = null;
 
 function isAttached(node) {
 	return !!(node && document.body && typeof document.body.contains === 'function' && document.body.contains(node));
 }
 
-function addCleanup(fn) {
-	if (typeof fn === 'function' && cleanupTasks.indexOf(fn) < 0)
-		cleanupTasks.push(fn);
+/* 清理任务按实例代次标记：旧实例的 observer 回调即使晚到，也只会执行
+ * 自己那一代的任务，不会连同新实例刚注册的任务一起清掉。 */
+function beginRender() {
+	if (viewRoot && !isAttached(viewRoot))
+		runCleanup(cleanupGeneration);
+	cleanupGeneration++;
 }
 
-function runCleanup() {
-	var tasks = cleanupTasks.slice();
-	cleanupTasks = [];
+function addCleanup(fn) {
+	if (typeof fn !== 'function')
+		return;
 
-	for (var i = 0; i < tasks.length; i++) {
-		try { tasks[i](); } catch (e) {}
+	for (var i = 0; i < cleanupTasks.length; i++) {
+		if (cleanupTasks[i].fn === fn && cleanupTasks[i].generation === cleanupGeneration)
+			return;
+	}
+	cleanupTasks.push({ 'fn': fn, 'generation': cleanupGeneration });
+}
+
+function runCleanup(generation) {
+	var matched = [];
+	var kept = [];
+
+	for (var i = 0; i < cleanupTasks.length; i++) {
+		if (generation == null || cleanupTasks[i].generation === generation)
+			matched.push(cleanupTasks[i]);
+		else
+			kept.push(cleanupTasks[i]);
+	}
+	cleanupTasks = kept;
+
+	for (var i = 0; i < matched.length; i++) {
+		try { matched[i].fn(); } catch (e) {}
 	}
 }
 
 function watchView(root) {
 	viewRoot = root || null;
+	var observedRoot = viewRoot;
+	var observedGeneration = cleanupGeneration;
 
 	if (viewObserver) {
 		try { viewObserver.disconnect(); } catch (e) {}
@@ -78,10 +104,10 @@ function watchView(root) {
 		return;
 
 	viewObserver = new MutationObserver(function() {
-		if (viewRoot && !isAttached(viewRoot)) {
+		if (!isAttached(observedRoot)) {
 			try { viewObserver.disconnect(); } catch (e) {}
 			viewObserver = null;
-			runCleanup();
+			runCleanup(observedGeneration);
 		}
 	});
 	viewObserver.observe(vp, { childList: true, subtree: false });
@@ -259,6 +285,7 @@ function applyState(state) {
  * 发现 token 不匹配就直接丢弃，不会重复排定时器，也不会写已卸载的 DOM。
  */
 var pollState = { generation: 0, timer: null, failures: 0 };
+var geoRunning = false;
 
 function stopPoll() {
 	pollState.generation++;
@@ -280,6 +307,11 @@ function schedulePoll(delay) {
 	}, delay);
 }
 
+function resumePoll() {
+	if (geoRunning)
+		schedulePoll(2000);
+}
+
 function pollFailure(err) {
 	if (pollState.failures < 4) {
 		pollState.failures++;
@@ -297,11 +329,11 @@ function pollFailure(err) {
 function pollTick(token) {
 	pollState.timer = null;
 
-	if (token !== pollState.generation || !isAttached(viewRoot))
+	if (token !== pollState.generation || !tabs.isActive(viewRoot))
 		return;
 
 	return Promise.resolve(callGeoProgress()).then(function(progress) {
-		if (token !== pollState.generation || !isAttached(viewRoot))
+		if (token !== pollState.generation || !tabs.isActive(viewRoot))
 			return null;
 
 		var node = document.getElementById('oxidns-geo-progress');
@@ -310,7 +342,7 @@ function pollTick(token) {
 
 		return callGeoGet();
 	}).then(function(state) {
-		if (token !== pollState.generation || !isAttached(viewRoot) || !state)
+		if (token !== pollState.generation || !tabs.isActive(viewRoot) || !state)
 			return;
 
 		if (state.ok === false) {
@@ -321,6 +353,7 @@ function pollTick(token) {
 		pollState.failures = 0;
 		showError('');
 		refreshFileRows(state);
+		geoRunning = state.running === true;
 
 		if (state.running) {
 			var btn = document.getElementById('oxidns-geo-download-btn');
@@ -405,6 +438,7 @@ function downloadGeo() {
 			}
 			setStatus(_('Download started.'));
 			showError('');
+			geoRunning = true;
 			stopPoll();
 			schedulePoll(1500);
 		}).catch(function(err) {
@@ -459,8 +493,10 @@ return baseclass.extend({
 	},
 
 	render: function(state) {
+		beginRender();
 		state = state || {};
 		var running = state.running === true;
+		geoRunning = running;
 
 		addCleanup(stopPoll);
 
@@ -553,8 +589,16 @@ return baseclass.extend({
 
 		watchView(map);
 
-		if (running && state.ok !== false)
-			schedulePoll(1500);
+		window.setTimeout(function() {
+			if (!tabs.isActive(viewRoot))
+				return;
+
+			var unwatch = tabs.watchActivation(viewRoot, resumePoll, stopPoll);
+			addCleanup(unwatch);
+
+			if (geoRunning && state.ok !== false)
+				schedulePoll(1500);
+		}, 0);
 
 		return map;
 	},

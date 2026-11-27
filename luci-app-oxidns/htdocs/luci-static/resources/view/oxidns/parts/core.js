@@ -1,6 +1,7 @@
 'use strict';
 'require baseclass';
 'require rpc';
+'require view.oxidns.tabs as tabs';
 'require request';
 'require ui';
 
@@ -46,31 +47,58 @@ var statusState = {};
 var viewRoot = null;
 var viewObserver = null;
 var cleanupTasks = [];
+var cleanupGeneration = 0;
 var retryTimer = null;
 var retryCount = 0;
 var progressState = { generation: 0, timer: null, failures: 0 };
+var progressSession = null;
+var progressPaused = false;
 var activeOperation = null;
 
 function isAttached(node) {
 	return !!(node && document.body && typeof document.body.contains === 'function' && document.body.contains(node));
 }
 
-function addCleanup(fn) {
-	if (typeof fn === 'function' && cleanupTasks.indexOf(fn) < 0)
-		cleanupTasks.push(fn);
+/* 清理任务按实例代次标记：旧实例的 observer 回调即使晚到，也只会执行
+ * 自己那一代的任务，不会连同新实例刚注册的任务一起清掉。 */
+function beginRender() {
+	if (viewRoot && !isAttached(viewRoot))
+		runCleanup(cleanupGeneration);
+	cleanupGeneration++;
 }
 
-function runCleanup() {
-	var tasks = cleanupTasks.slice();
-	cleanupTasks = [];
+function addCleanup(fn) {
+	if (typeof fn !== 'function')
+		return;
 
-	for (var i = 0; i < tasks.length; i++) {
-		try { tasks[i](); } catch (e) {}
+	for (var i = 0; i < cleanupTasks.length; i++) {
+		if (cleanupTasks[i].fn === fn && cleanupTasks[i].generation === cleanupGeneration)
+			return;
+	}
+	cleanupTasks.push({ 'fn': fn, 'generation': cleanupGeneration });
+}
+
+function runCleanup(generation) {
+	var matched = [];
+	var kept = [];
+
+	for (var i = 0; i < cleanupTasks.length; i++) {
+		if (generation == null || cleanupTasks[i].generation === generation)
+			matched.push(cleanupTasks[i]);
+		else
+			kept.push(cleanupTasks[i]);
+	}
+	cleanupTasks = kept;
+
+	for (var i = 0; i < matched.length; i++) {
+		try { matched[i].fn(); } catch (e) {}
 	}
 }
 
 function watchView(root) {
 	viewRoot = root || null;
+	var observedRoot = viewRoot;
+	var observedGeneration = cleanupGeneration;
 
 	if (viewObserver) {
 		try { viewObserver.disconnect(); } catch (e) {}
@@ -82,10 +110,10 @@ function watchView(root) {
 		return;
 
 	viewObserver = new MutationObserver(function() {
-		if (viewRoot && !isAttached(viewRoot)) {
+		if (!isAttached(observedRoot)) {
 			try { viewObserver.disconnect(); } catch (e) {}
 			viewObserver = null;
-			runCleanup();
+			runCleanup(observedGeneration);
 		}
 	});
 	viewObserver.observe(vp, { childList: true, subtree: false });
@@ -219,13 +247,13 @@ function scheduleStatusRetry() {
 	showRefreshError(_('Could not refresh core status. Retrying...'));
 	retryTimer = window.setTimeout(function() {
 		retryTimer = null;
-		if (isAttached(viewRoot))
+		if (tabs.isActive(viewRoot))
 			refreshStatus();
 	}, Math.min(30000, 1000 * Math.pow(2, retryCount)));
 }
 
 function refreshStatus() {
-	if (!isAttached(viewRoot))
+	if (!tabs.isActive(viewRoot))
 		return Promise.resolve();
 
 	return Promise.resolve(callStatus()).then(function(status) {
@@ -246,7 +274,7 @@ function refreshStatus() {
 		setText('oxidns-core-persist', persistText(statusState));
 		setText('oxidns-core-service', serviceRunning(statusState) ? _('Running') : _('Stopped'));
 
-		if (isAttached(viewRoot))
+		if (tabs.isActive(viewRoot))
 			refreshActionButtons();
 	}).catch(function(err) {
 		scheduleStatusRetry();
@@ -454,16 +482,36 @@ function stopCoreProgressPolling() {
 		progressState.timer = null;
 	}
 	progressState.failures = 0;
+	progressSession = null;
+	progressPaused = false;
+}
+
+function pauseCoreProgressPolling() {
+	progressPaused = true;
+	if (progressState.timer !== null) {
+		window.clearTimeout(progressState.timer);
+		progressState.timer = null;
+	}
+}
+
+function resumeCoreProgressPolling() {
+	if (!progressSession || progressSession.token !== progressState.generation)
+		return;
+
+	progressPaused = false;
+	scheduleProgressTick(progressSession.logNode, progressSession.token);
 }
 
 function scheduleProgressTick(logNode, token) {
-	if (token !== progressState.generation)
+	if (progressPaused || token !== progressState.generation)
 		return;
 
 	var delay = progressState.failures
 		? Math.min(10000, 1000 * Math.pow(2, progressState.failures))
 		: 1000;
 
+	if (progressState.timer !== null)
+		window.clearTimeout(progressState.timer);
 	progressState.timer = window.setTimeout(function() {
 		progressState.timer = null;
 		if (token !== progressState.generation)
@@ -477,6 +525,8 @@ function scheduleProgressTick(logNode, token) {
 
 function startCoreProgressPolling(logNode) {
 	var token = ++progressState.generation;
+	progressPaused = false;
+	progressSession = { 'logNode': logNode, 'token': token };
 	scheduleProgressTick(logNode, token);
 
 	return {
@@ -730,6 +780,7 @@ return baseclass.extend({
 	},
 
 	render: function(status) {
+		beginRender();
 		statusState = status || {};
 		actionStateKey = coreInstalled(statusState) ? 'installed' : 'missing';
 
@@ -783,6 +834,15 @@ return baseclass.extend({
 		]);
 
 		watchView(map);
+
+		window.setTimeout(function() {
+			if (!tabs.isActive(viewRoot))
+				return;
+
+			var unwatch = tabs.watchActivation(viewRoot, resumeCoreProgressPolling,
+				pauseCoreProgressPolling);
+			addCleanup(unwatch);
+		}, 0);
 
 		if (statusState.ok === false)
 			showRefreshError(backendMessage(statusState, _('Could not refresh core status.')));

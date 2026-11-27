@@ -36,9 +36,27 @@ for (const entry of Object.values(menu)) {
 	if (entry.title)
 		required.add(entry.title);
 }
-const viewPaths = Object.keys(menu).filter(k => k !== 'admin/services/oxidns');
+const menuPaths = Object.keys(menu).filter(k => k !== 'admin/services/oxidns');
+const viewPaths = menuPaths.filter(k => menu[k].hidden !== true);
 if (viewPaths.length !== 4)
-	throw new Error(`expected 4 consolidated views, found ${viewPaths.length}: ${viewPaths.join(', ')}`);
+	throw new Error(`expected 4 visible consolidated views, found ${viewPaths.length}: ${viewPaths.join(', ')}`);
+const compatPaths = [
+	'core', 'settings', 'rules', 'geo', 'hijack', 'prewarm'
+].map(name => `admin/services/oxidns/${name}`);
+for (const path of compatPaths) {
+	const entry = menu[path];
+	if (!entry || entry.hidden !== true || !entry.action || entry.action.type !== 'view')
+		throw new Error(`missing hidden compatibility route: ${path}`);
+}
+
+const panelDir = 'htdocs/luci-static/resources/view/oxidns/parts';
+const legacyRoute = /L\.url\(['"]admin\/services\/oxidns\/(core|settings|rules|geo|hijack|prewarm)['"]\)/;
+for (const name of fs.readdirSync(panelDir).filter(f => f.endsWith('.js'))) {
+	const source = fs.readFileSync(`${panelDir}/${name}`, 'utf8');
+	const match = source.match(legacyRoute);
+	if (match)
+		throw new Error(`${name}: link to removed top-level route ${match[1]}; use the consolidated view + hash`);
+}
 
 function poIds(file) {
 	const ids = new Set();
@@ -359,18 +377,94 @@ NODE
 # [poll] LuCI poll.start() runs step() immediately on add(). A refresh callback
 # that unregisters itself while detach-checking kills the loop before the view
 # is ever inserted; registration must also wait for the post-mount setTimeout.
+# Tabbed panels must additionally stop polling when their tab becomes inactive.
 node <<'NODE'
 const fs = require('fs');
-for (const name of ['logs', 'parts/hijack', 'parts/overview']) {
-	const p = `htdocs/luci-static/resources/view/oxidns/${name}.js`;
-	const t = fs.readFileSync(p, 'utf8');
-	if (/if \(!isAttached\(viewRoot\)\) \{\s*\n\s*unregisterPoll\(\);/.test(t))
-		throw new Error(`${name}.js: refresh must not unregisterPoll() while detached`);
-	const addIdx = t.search(/^\s*poll\.add\(/m);
-	const timeoutIdx = t.lastIndexOf('window.setTimeout(function()', addIdx);
-	if (addIdx < 0 || timeoutIdx < 0 || !t.slice(timeoutIdx, addIdx).includes('isAttached(viewRoot)'))
-		throw new Error(`${name}.js: poll.add() must be inside the post-mount setTimeout`);
+const base = 'htdocs/luci-static/resources/view/oxidns';
+
+function noSelfDestruct(src, name) {
+	if (/if \(!isAttached\(viewRoot\)\) \{\s*\n\s*unregisterPoll\(\);/.test(src))
+		throw new Error(`${name}: refresh must not unregisterPoll() while detached`);
 }
+
+function blocksAfter(src, headerRe) {
+	const blocks = [];
+	const re = new RegExp(headerRe.source, 'g');
+	let match;
+	while ((match = re.exec(src))) {
+		const rest = src.slice(match.index);
+		const endRel = rest.search(/\n\s*\}/);
+		if (endRel >= 0)
+			blocks.push({ start: match.index, end: match.index + endRel + 1 });
+	}
+	return blocks;
+}
+
+function withinAny(idx, blocks) {
+	return blocks.some(b => idx > b.start && idx < b.end);
+}
+
+function addIndex(src, name) {
+	const idx = src.search(/^\s*poll\.add\(/m);
+	if (idx < 0)
+		throw new Error(`${name}: poll.add() not found`);
+	return idx;
+}
+
+/* Standalone views register poll directly inside the post-mount setTimeout. */
+function assertPostMountPoll(src, name, guard) {
+	noSelfDestruct(src, name);
+	if (!src.includes(guard))
+		throw new Error(`${name}: missing ${guard}`);
+	if (!withinAny(addIndex(src, name), blocksAfter(src, /window\.setTimeout\(function\(\)\s*\{/)))
+		throw new Error(`${name}: poll.add() must be inside the post-mount setTimeout`);
+}
+
+/* Tabbed panels register in startPolling(), which the post-mount setTimeout
+ * calls and the cbi-tab-active handler calls again after a tab switch. */
+function assertTabbedPoll(src, name) {
+	noSelfDestruct(src, name);
+	if (!src.includes('tabs.isActive(viewRoot)'))
+		throw new Error(`${name}: missing tabs.isActive(viewRoot)`);
+	if (!withinAny(addIndex(src, name), blocksAfter(src, /function startPolling\(\)\s*\{/)))
+		throw new Error(`${name}: poll.add() must live inside startPolling()`);
+
+	const mount = blocksAfter(src, /window\.setTimeout\(function\(\)\s*\{/)
+		.find(b => src.slice(b.start, b.end).includes('startPolling()'));
+	if (!mount)
+		throw new Error(`${name}: startPolling() must run from the post-mount setTimeout`);
+
+	if (!/watchActivation\(/.test(src) || !/stopPolling\(/.test(src))
+		throw new Error(`${name}: tabbed panels must stop polling on cbi-tab-inactive`);
+}
+
+assertPostMountPoll(fs.readFileSync(`${base}/logs.js`, 'utf8'), 'logs.js',
+	'isAttached(viewRoot)');
+
+for (const name of ['parts/hijack', 'parts/overview'])
+	assertTabbedPoll(fs.readFileSync(`${base}/${name}.js`, 'utf8'), `${name}.js`);
+
+for (const name of ['parts/core', 'parts/rules', 'parts/geo']) {
+	const src = fs.readFileSync(`${base}/${name}.js`, 'utf8');
+	if (!/watchActivation\(/.test(src))
+		throw new Error(`${name}.js: progress polling must pause on cbi-tab-inactive`);
+}
+
+const tabs = fs.readFileSync(`${base}/tabs.js`, 'utf8');
+if (!/cbi-tab-inactive/.test(tabs) || !/watchActivation/.test(tabs))
+	throw new Error('tabs.js must dispatch cbi-tab-inactive and expose watchActivation()');
+
+let rejected = false;
+try {
+	assertPostMountPoll(
+		'function render() { isAttached(viewRoot); poll.add(fn, 5); return map; }',
+		'negative fixture', 'isAttached(viewRoot)');
+}
+catch (e) {
+	rejected = true;
+}
+if (!rejected)
+	throw new Error('poll validator accepted add() outside post-mount setTimeout');
 NODE
 
 # [build-rules] Negative fixtures for the validators. These must fail on
