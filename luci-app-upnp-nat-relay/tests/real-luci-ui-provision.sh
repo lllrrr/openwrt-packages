@@ -22,7 +22,7 @@ if [ -n "${UPNP_UI_LMO:-}" ]; then
 	docker cp "$UPNP_UI_LMO" "$CONTAINER:/usr/lib/lua/luci/i18n/upnp-nat-relay.zh-cn.lmo"
 fi
 
-VERSION="$(sed -n 's/^PKG_VERSION:=//p' "$PKG/Makefile" | head -n1)"
+VERSION="$(cat "$ROOT/VERSION")"
 RELEASE="$(sed -n 's/^PKG_RELEASE:=//p' "$PKG/Makefile" | head -n1)"
 docker exec "$CONTAINER" sh -c "
 	set -eu

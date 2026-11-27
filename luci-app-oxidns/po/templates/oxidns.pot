@@ -35,7 +35,13 @@ msgstr ""
 msgid "A new OxiDNS core release is available."
 msgstr ""
 
+msgid "A plaintext password is still stored in UCI. Migrate it to the credential file."
+msgstr ""
+
 msgid "A proxy is currently configured. Enter a new value to replace it."
+msgstr ""
+
+msgid "A required probe command is missing."
 msgstr ""
 
 msgid "A token is currently configured. Enter a new value to replace it."
@@ -48,6 +54,9 @@ msgid "Active firewall sections"
 msgstr ""
 
 msgid "All"
+msgstr ""
+
+msgid "API credentials"
 msgstr ""
 
 msgid "Apply"
@@ -71,6 +80,9 @@ msgstr ""
 msgid "Baseline version"
 msgstr ""
 
+msgid "Basic Auth credentials are kept in a root-only file and injected into OxiDNS at runtime. They are never written to UCI."
+msgstr ""
+
 msgid "Binary path"
 msgstr ""
 
@@ -84,6 +96,9 @@ msgid "Bundled"
 msgstr ""
 
 msgid "Cancel"
+msgstr ""
+
+msgid "Check the DNS path or manage the credentials used by the OxiDNS API."
 msgstr ""
 
 msgid "Check Update"
@@ -108,6 +123,9 @@ msgid "Command output"
 msgstr ""
 
 msgid "Config path"
+msgstr ""
+
+msgid "Configuration"
 msgstr ""
 
 msgid "Configuration and working directory data are preserved unless selected below."
@@ -144,6 +162,9 @@ msgid "Core operation failed"
 msgstr ""
 
 msgid "Core repository"
+msgstr ""
+
+msgid "Could not generate credentials."
 msgstr ""
 
 msgid "Could not refresh DNS hijack status."
@@ -197,7 +218,31 @@ msgstr ""
 msgid "Could not refresh rule status. Use Refresh to try again."
 msgstr ""
 
+msgid "Credential file removed."
+msgstr ""
+
+msgid "Credentials are configured"
+msgstr ""
+
+msgid "Credentials saved."
+msgstr ""
+
+msgid "Credentials were written but the old UCI password remains."
+msgstr ""
+
+msgid "Current credentials"
+msgstr ""
+
 msgid "Current version"
+msgstr ""
+
+msgid "Detail"
+msgstr ""
+
+msgid "Diagnostics"
+msgstr ""
+
+msgid "Data & Updates"
 msgstr ""
 
 msgid "DNS Hijack"
@@ -222,6 +267,9 @@ msgid "Disable"
 msgstr ""
 
 msgid "Disabled"
+msgstr ""
+
+msgid "Domain"
 msgstr ""
 
 msgid "Domain lists used for China/ad split and ad blocking. The working copy is seeded from the bundled baseline at boot and can be updated from a published release."
@@ -269,6 +317,9 @@ msgstr ""
 msgid "Enabled (core not saved yet)"
 msgstr ""
 
+msgid "Enter a domain name and choose A or AAAA."
+msgstr ""
+
 msgid "Enter a number between %d and %d."
 msgstr ""
 
@@ -282,6 +333,9 @@ msgid "Error code"
 msgstr ""
 
 msgid "Example: http://127.0.0.1:7890"
+msgstr ""
+
+msgid "Failed"
 msgstr ""
 
 msgid "Failed to apply DNS hijack"
@@ -300,6 +354,15 @@ msgid "Failed to install the downloaded rules."
 msgstr ""
 
 msgid "Failed to install the uploaded core file."
+msgstr ""
+
+msgid "Failed to migrate credentials"
+msgstr ""
+
+msgid "Failed to read credentials"
+msgstr ""
+
+msgid "Failed to remove the credential file."
 msgstr ""
 
 msgid "Failed to remove the OxiDNS core."
@@ -338,13 +401,25 @@ msgstr ""
 msgid "Failed to update the OxiDNS core."
 msgstr ""
 
+msgid "Failed to write the credential file."
+msgstr ""
+
 msgid "Failed to write the firewall redirect."
 msgstr ""
 
 msgid "File"
 msgstr ""
 
+msgid "Fingerprint"
+msgstr ""
+
 msgid "Format: http://host:port, https://host:port, socks5://host:port, or socks5h://host:port. Use http://user:pass@host:port when authentication is required."
+msgstr ""
+
+msgid "Forwarder"
+msgstr ""
+
+msgid "Generate credentials"
 msgstr ""
 
 msgid "Geo Data"
@@ -407,13 +482,25 @@ msgstr ""
 msgid "Keyword (qname, domain, text...)"
 msgstr ""
 
+msgid "Latency"
+msgstr ""
+
 msgid "Latest version"
+msgstr ""
+
+msgid "Legacy UCI value"
 msgstr ""
 
 msgid "Lines"
 msgstr ""
 
+msgid "Live log"
+msgstr ""
+
 msgid "Local copy"
+msgstr ""
+
+msgid "Logs"
 msgstr ""
 
 msgid "LuCI backend"
@@ -422,7 +509,16 @@ msgstr ""
 msgid "LuCI can download the official OxiDNS release archive, install an uploaded .tar.gz archive or single oxidns binary, check for new releases and update the core in place."
 msgstr ""
 
+msgid "Manage API credentials"
+msgstr ""
+
 msgid "Manage the OxiDNS runtime, service, configuration, and logs from LuCI."
+msgstr ""
+
+msgid "Migrate UCI password"
+msgstr ""
+
+msgid "Migrated to the credential file."
 msgstr ""
 
 msgid "Missing"
@@ -434,10 +530,22 @@ msgstr ""
 msgid "No"
 msgstr ""
 
+msgid "No credential file is configured."
+msgstr ""
+
+msgid "No credentials configured"
+msgstr ""
+
+msgid "No legacy UCI password was found."
+msgstr ""
+
 msgid "No rule update available."
 msgstr ""
 
 msgid "No target port available (source: %s)."
+msgstr ""
+
+msgid "No upstream servers were found in config.yaml."
 msgstr ""
 
 msgid "No usable DNS listener port was found."
@@ -446,7 +554,16 @@ msgstr ""
 msgid "Not installed"
 msgstr ""
 
+msgid "Not probeable"
+msgstr ""
+
+msgid "Not set"
+msgstr ""
+
 msgid "One domain per line. Blank lines and lines starting with # are ignored. Changes apply on the next pass; use Run now to apply immediately."
+msgstr ""
+
+msgid "Only the first 12 are shown."
 msgstr ""
 
 msgid "Open WebUI"
@@ -500,6 +617,9 @@ msgstr ""
 msgid "OxiDNS log output"
 msgstr ""
 
+msgid "Password"
+msgstr ""
+
 msgid "Path"
 msgstr ""
 
@@ -536,6 +656,15 @@ msgstr ""
 msgid "Prewarm settings saved."
 msgstr ""
 
+msgid "Probe upstreams"
+msgstr ""
+
+msgid "Probed %s upstreams for %s %s"
+msgstr ""
+
+msgid "Probing upstreams..."
+msgstr ""
+
 msgid "Protocol"
 msgstr ""
 
@@ -543,6 +672,9 @@ msgid "QType"
 msgstr ""
 
 msgid "RCode"
+msgstr ""
+
+msgid "Read every forward upstream from config.yaml and query it directly. UDP and TCP show answers, TTL and latency; encrypted upstreams are listed with a reason when they cannot be probed locally."
 msgstr ""
 
 msgid "Read the port from config.yaml automatically"
@@ -566,7 +698,13 @@ msgstr ""
 msgid "Remove Core"
 msgstr ""
 
+msgid "Remove credentials"
+msgstr ""
+
 msgid "Remove OxiDNS Core"
+msgstr ""
+
+msgid "Remove the credential file? OxiDNS will fail closed until new credentials are set."
 msgstr ""
 
 msgid "Remove the OxiDNS core binary and Web UI files."
@@ -585,6 +723,12 @@ msgid "Repository"
 msgstr ""
 
 msgid "Reset"
+msgstr ""
+
+msgid "Responded"
+msgstr ""
+
+msgid "Response"
 msgstr ""
 
 msgid "Restart"
@@ -617,6 +761,9 @@ msgstr ""
 msgid "Resume"
 msgstr ""
 
+msgid "Root-only file"
+msgstr ""
+
 msgid "Rule Subscriptions"
 msgstr ""
 
@@ -632,6 +779,9 @@ msgstr ""
 msgid "Rule update available."
 msgstr ""
 
+msgid "Rules"
+msgstr ""
+
 msgid "Rules were written, but the firewall reload failed. The rules take effect on the next firewall reload or reboot."
 msgstr ""
 
@@ -639,6 +789,12 @@ msgid "Run now"
 msgstr ""
 
 msgid "Running"
+msgstr ""
+
+msgid "Save credentials"
+msgstr ""
+
+msgid "Save these credentials now"
 msgstr ""
 
 msgid "SHA-256"
@@ -686,6 +842,9 @@ msgstr ""
 msgid "Service status"
 msgstr ""
 
+msgid "Settings"
+msgstr ""
+
 msgid "Settings saved."
 msgstr ""
 
@@ -722,6 +881,9 @@ msgstr ""
 msgid "Stopped"
 msgstr ""
 
+msgid "Storage"
+msgstr ""
+
 msgid "Storage directory"
 msgstr ""
 
@@ -737,10 +899,19 @@ msgstr ""
 msgid "Target ports"
 msgstr ""
 
+msgid "The API listens outside loopback without TLS. Basic Auth sends credentials as Base64."
+msgstr ""
+
+msgid "The credential file has unsafe permissions. It was ignored."
+msgstr ""
+
 msgid "The LuCI backend is unavailable."
 msgstr ""
 
 msgid "The OxiDNS core is already up to date."
+msgstr ""
+
+msgid "The router could not create a temporary probe file."
 msgstr ""
 
 msgid "The UCI command is not available."
@@ -815,10 +986,22 @@ msgstr ""
 msgid "The system log setting is invalid."
 msgstr ""
 
+msgid "The username or password does not meet the requirements."
+msgstr ""
+
 msgid "The working directory is invalid."
 msgstr ""
 
+msgid "They are shown once. Copy them before closing this dialog."
+msgstr ""
+
 msgid "This overwrites every rule file in the working copy with the bundled baseline."
+msgstr ""
+
+msgid "TTL"
+msgstr ""
+
+msgid "Type"
 msgstr ""
 
 msgid "UDP"
@@ -866,7 +1049,19 @@ msgstr ""
 msgid "Upload has been cancelled"
 msgstr ""
 
+msgid "Upstream"
+msgstr ""
+
+msgid "Upstream probe"
+msgstr ""
+
+msgid "Upstream probe failed"
+msgstr ""
+
 msgid "Use a manual port"
+msgstr ""
+
+msgid "Username"
 msgstr ""
 
 msgid "Validate"
@@ -891,6 +1086,9 @@ msgid "Version"
 msgstr ""
 
 msgid "Versions"
+msgstr ""
+
+msgid "View credentials"
 msgstr ""
 
 msgid "View recent OxiDNS entries from OpenWrt logread. Use the filters to narrow down entries by keyword, plugin, query type or response code."

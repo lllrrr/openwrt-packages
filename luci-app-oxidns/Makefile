@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-oxidns
 PKG_VERSION:=0.2.0
-PKG_RELEASE:=17
+PKG_RELEASE:=20
 
 # CodeMirror (htdocs/luci-static/resources/oxidns-codemirror) is MIT licensed;
 # both license texts are shipped in the package metadata.

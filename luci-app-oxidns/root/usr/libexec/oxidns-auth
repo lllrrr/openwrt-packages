@@ -1,0 +1,67 @@
+#!/bin/sh
+# Shared OxiDNS API credential loader.
+#
+# Credentials live in /etc/oxidns/api-auth.env (root-only), never in UCI.
+# Callers may set OXIDNS_AUTH_FILE to override the path for tests. The file
+# uses two quoted assignments, so no shell evaluation is needed:
+#
+#   OXIDNS_API_USER='admin'
+#   OXIDNS_API_PASS='...'
+#
+# load_api_credentials sets API_USER / API_PASS and the diagnostic variables
+# AUTH_FILE_PRESENT, AUTH_FILE_SAFE and AUTH_FILE_MODE. Callers keep their own
+# legacy UCI fallback when this loader produces no credentials.
+
+AUTH_FILE="${OXIDNS_AUTH_FILE:-/etc/oxidns/api-auth.env}"
+AUTH_FILE_PRESENT=0
+AUTH_FILE_SAFE=0
+AUTH_FILE_MODE=''
+API_USER=''
+API_PASS=''
+
+auth_file_mode() {
+	if command -v stat >/dev/null 2>&1; then
+		stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1" 2>/dev/null || printf ''
+	else
+		printf ''
+	fi
+}
+
+load_api_credentials() {
+	AUTH_FILE_PRESENT=0
+	AUTH_FILE_SAFE=0
+	AUTH_FILE_MODE=''
+	API_USER=''
+	API_PASS=''
+
+	[ -f "$AUTH_FILE" ] || return 0
+	[ -L "$AUTH_FILE" ] && return 0
+	AUTH_FILE_PRESENT=1
+	AUTH_FILE_MODE="$(auth_file_mode "$AUTH_FILE")"
+	case "$AUTH_FILE_MODE" in
+		600|400) AUTH_FILE_SAFE=1 ;;
+		*) return 0 ;;
+	esac
+
+	while IFS= read -r auth_line; do
+		case "$auth_line" in
+			OXIDNS_API_USER=*)
+				auth_value="${auth_line#*=}"
+				auth_value="${auth_value#\'}"
+				auth_value="${auth_value%\'}"
+				API_USER="$auth_value"
+				;;
+			OXIDNS_API_PASS=*)
+				auth_value="${auth_line#*=}"
+				auth_value="${auth_value#\'}"
+				auth_value="${auth_value%\'}"
+				API_PASS="$auth_value"
+				;;
+		esac
+	done < "$AUTH_FILE"
+}
+
+auth_fingerprint() {
+	printf '%s' "$1" | sha256sum 2>/dev/null | awk '{ print $1 }' |
+		cut -c1-12 | sed 's/../&:/g; s/:$//'
+}

@@ -37,8 +37,14 @@ msgstr "Geo 数据下载正在进行中。"
 msgid "A new OxiDNS core release is available."
 msgstr "有新的 OxiDNS 内核版本可用。"
 
+msgid "A plaintext password is still stored in UCI. Migrate it to the credential file."
+msgstr "UCI 中仍存有明文密码。请迁移到凭据文件。"
+
 msgid "A proxy is currently configured. Enter a new value to replace it."
 msgstr "当前已配置代理。输入新值可替换现有代理。"
+
+msgid "A required probe command is missing."
+msgstr "缺少探测所需的命令。"
 
 msgid "A token is currently configured. Enter a new value to replace it."
 msgstr "当前已配置 Token。输入新值可替换现有 Token。"
@@ -51,6 +57,9 @@ msgstr "生效的防火墙规则段"
 
 msgid "All"
 msgstr "全部"
+
+msgid "API credentials"
+msgstr "API 凭据"
 
 msgid "Apply"
 msgstr "应用"
@@ -73,6 +82,9 @@ msgstr "可用"
 msgid "Baseline version"
 msgstr "内置基线版本"
 
+msgid "Basic Auth credentials are kept in a root-only file and injected into OxiDNS at runtime. They are never written to UCI."
+msgstr "Basic Auth 凭据保存在仅 root 可读的文件中，并在运行时注入 OxiDNS，不会写入 UCI。"
+
 msgid "Binary path"
 msgstr "二进制路径"
 
@@ -87,6 +99,9 @@ msgstr "内置"
 
 msgid "Cancel"
 msgstr "取消"
+
+msgid "Check the DNS path or manage the credentials used by the OxiDNS API."
+msgstr "检查 DNS 链路，或管理 OxiDNS API 使用的凭据。"
 
 msgid "Check Update"
 msgstr "检查更新"
@@ -111,6 +126,9 @@ msgstr "命令输出"
 
 msgid "Config path"
 msgstr "配置路径"
+
+msgid "Configuration"
+msgstr "配置"
 
 msgid "Configuration and working directory data are preserved unless selected below."
 msgstr "除非勾选下面的选项，否则配置和工作目录数据会保留。"
@@ -147,6 +165,9 @@ msgstr "内核操作失败"
 
 msgid "Core repository"
 msgstr "内核仓库"
+
+msgid "Could not generate credentials."
+msgstr "无法生成凭据。"
 
 msgid "Could not refresh DNS hijack status."
 msgstr "无法刷新 DNS 劫持状态。"
@@ -199,8 +220,32 @@ msgstr "无法刷新规则状态，正在重试..."
 msgid "Could not refresh rule status. Use Refresh to try again."
 msgstr "无法刷新规则状态，请点击“刷新”重试。"
 
+msgid "Credential file removed."
+msgstr "凭据文件已删除。"
+
+msgid "Credentials are configured"
+msgstr "凭据已配置"
+
+msgid "Credentials saved."
+msgstr "凭据已保存。"
+
+msgid "Credentials were written but the old UCI password remains."
+msgstr "凭据已写入，但 UCI 中仍保留旧密码。"
+
+msgid "Current credentials"
+msgstr "当前凭据"
+
 msgid "Current version"
 msgstr "当前版本"
+
+msgid "Detail"
+msgstr "详情"
+
+msgid "Diagnostics"
+msgstr "诊断"
+
+msgid "Data & Updates"
+msgstr "数据与更新"
 
 msgid "DNS Hijack"
 msgstr "DNS 劫持"
@@ -225,6 +270,9 @@ msgstr "禁用"
 
 msgid "Disabled"
 msgstr "已禁用"
+
+msgid "Domain"
+msgstr "域名"
 
 msgid "Domain lists used for China/ad split and ad blocking. The working copy is seeded from the bundled baseline at boot and can be updated from a published release."
 msgstr "用于国内外分流与广告拦截的域名列表。工作副本在启动时由内置基线补齐，也可以通过已发布的版本更新。"
@@ -271,6 +319,9 @@ msgstr "已启用"
 msgid "Enabled (core not saved yet)"
 msgstr "已启用（内核尚未保存）"
 
+msgid "Enter a domain name and choose A or AAAA."
+msgstr "请输入域名并选择 A 或 AAAA。"
+
 msgid "Enter a number between %d and %d."
 msgstr "请输入 %d 到 %d 之间的数字。"
 
@@ -285,6 +336,9 @@ msgstr "错误码"
 
 msgid "Example: http://127.0.0.1:7890"
 msgstr "示例：http://127.0.0.1:7890"
+
+msgid "Failed"
+msgstr "失败"
 
 msgid "Failed to apply DNS hijack"
 msgstr "应用 DNS 劫持失败"
@@ -303,6 +357,15 @@ msgstr "安装下载的规则失败。"
 
 msgid "Failed to install the uploaded core file."
 msgstr "安装上传的内核文件失败。"
+
+msgid "Failed to migrate credentials"
+msgstr "迁移凭据失败"
+
+msgid "Failed to read credentials"
+msgstr "读取凭据失败"
+
+msgid "Failed to remove the credential file."
+msgstr "删除凭据文件失败。"
 
 msgid "Failed to remove the OxiDNS core."
 msgstr "删除 OxiDNS 内核失败。"
@@ -340,14 +403,26 @@ msgstr "启动下载失败"
 msgid "Failed to update the OxiDNS core."
 msgstr "更新 OxiDNS 内核失败。"
 
+msgid "Failed to write the credential file."
+msgstr "写入凭据文件失败。"
+
 msgid "Failed to write the firewall redirect."
 msgstr "写入防火墙重定向规则失败。"
 
 msgid "File"
 msgstr "文件"
 
+msgid "Fingerprint"
+msgstr "指纹"
+
 msgid "Format: http://host:port, https://host:port, socks5://host:port, or socks5h://host:port. Use http://user:pass@host:port when authentication is required."
 msgstr "格式：http://主机:端口、https://主机:端口、socks5://主机:端口 或 socks5h://主机:端口。需要认证时使用 http://用户:密码@主机:端口。"
+
+msgid "Forwarder"
+msgstr "转发器"
+
+msgid "Generate credentials"
+msgstr "生成凭据"
 
 msgid "Geo Data"
 msgstr "Geo 数据"
@@ -409,14 +484,26 @@ msgstr "保持热门域名处于已解析状态，让首次访问更快。A 和 
 msgid "Keyword (qname, domain, text...)"
 msgstr "关键词（qname、域名、文本...）"
 
+msgid "Latency"
+msgstr "耗时"
+
 msgid "Latest version"
 msgstr "最新版本"
+
+msgid "Legacy UCI value"
+msgstr "旧版 UCI 值"
 
 msgid "Lines"
 msgstr "行数"
 
+msgid "Live log"
+msgstr "实时日志"
+
 msgid "Local copy"
 msgstr "本地副本"
+
+msgid "Logs"
+msgstr "日志"
 
 msgid "LuCI backend"
 msgstr "LuCI 后端"
@@ -424,8 +511,17 @@ msgstr "LuCI 后端"
 msgid "LuCI can download the official OxiDNS release archive, install an uploaded .tar.gz archive or single oxidns binary, check for new releases and update the core in place."
 msgstr "LuCI 可以下载官方 OxiDNS release archive、安装上传的 .tar.gz archive 或单个 oxidns 二进制，还可以检查新版本并就地更新内核。"
 
+msgid "Manage API credentials"
+msgstr "管理 API 凭据"
+
 msgid "Manage the OxiDNS runtime, service, configuration, and logs from LuCI."
 msgstr "在 LuCI 中管理 OxiDNS 运行时、服务、配置和日志。"
+
+msgid "Migrate UCI password"
+msgstr "迁移 UCI 密码"
+
+msgid "Migrated to the credential file."
+msgstr "已迁移到凭据文件。"
 
 msgid "Missing"
 msgstr "缺失"
@@ -436,11 +532,23 @@ msgstr "修改时间"
 msgid "No"
 msgstr "否"
 
+msgid "No credential file is configured."
+msgstr "未配置凭据文件。"
+
+msgid "No credentials configured"
+msgstr "未配置凭据"
+
+msgid "No legacy UCI password was found."
+msgstr "未找到旧版 UCI 密码。"
+
 msgid "No rule update available."
 msgstr "没有可用的规则更新。"
 
 msgid "No target port available (source: %s)."
 msgstr "没有可用的目标端口（来源：%s）。"
+
+msgid "No upstream servers were found in config.yaml."
+msgstr "config.yaml 中未找到上游服务器。"
 
 msgid "No usable DNS listener port was found."
 msgstr "未找到可用的 DNS 监听端口。"
@@ -448,8 +556,17 @@ msgstr "未找到可用的 DNS 监听端口。"
 msgid "Not installed"
 msgstr "未安装"
 
+msgid "Not probeable"
+msgstr "无法直接探测"
+
+msgid "Not set"
+msgstr "未设置"
+
 msgid "One domain per line. Blank lines and lines starting with # are ignored. Changes apply on the next pass; use Run now to apply immediately."
 msgstr "每行一个域名；空行和以 # 开头的行会被忽略。修改后下一轮生效；点击“立即预热”可马上应用。"
+
+msgid "Only the first 12 are shown."
+msgstr "仅显示前 12 个。"
 
 msgid "Open WebUI"
 msgstr "打开 WebUI"
@@ -502,6 +619,9 @@ msgstr "OxiDNS 已经停止。"
 msgid "OxiDNS log output"
 msgstr "OxiDNS 日志输出"
 
+msgid "Password"
+msgstr "密码"
+
 msgid "Path"
 msgstr "路径"
 
@@ -538,6 +658,15 @@ msgstr "预热列表"
 msgid "Prewarm settings saved."
 msgstr "预热设置已保存。"
 
+msgid "Probe upstreams"
+msgstr "探测上游"
+
+msgid "Probed %s upstreams for %s %s"
+msgstr "已探测 %s 个上游：%s %s"
+
+msgid "Probing upstreams..."
+msgstr "正在探测上游..."
+
 msgid "Protocol"
 msgstr "协议"
 
@@ -546,6 +675,9 @@ msgstr "查询类型"
 
 msgid "RCode"
 msgstr "响应码"
+
+msgid "Read every forward upstream from config.yaml and query it directly. UDP and TCP show answers, TTL and latency; encrypted upstreams are listed with a reason when they cannot be probed locally."
+msgstr "从 config.yaml 读取所有转发上游并直接查询。UDP/TCP 显示应答、TTL 和耗时；加密上游无法在本机直接探测时会列出原因。"
 
 msgid "Read the port from config.yaml automatically"
 msgstr "自动从 config.yaml 读取端口"
@@ -568,8 +700,14 @@ msgstr "从设备重新加载"
 msgid "Remove Core"
 msgstr "删除内核"
 
+msgid "Remove credentials"
+msgstr "删除凭据"
+
 msgid "Remove OxiDNS Core"
 msgstr "删除 OxiDNS 内核"
+
+msgid "Remove the credential file? OxiDNS will fail closed until new credentials are set."
+msgstr "删除凭据文件？在设置新凭据前 OxiDNS 将拒绝启动。"
 
 msgid "Remove the OxiDNS core binary and Web UI files."
 msgstr "删除 OxiDNS 内核二进制和 Web UI 文件。"
@@ -588,6 +726,12 @@ msgstr "仓库"
 
 msgid "Reset"
 msgstr "重置"
+
+msgid "Responded"
+msgstr "有响应"
+
+msgid "Response"
+msgstr "应答"
 
 msgid "Restart"
 msgstr "重启"
@@ -619,6 +763,9 @@ msgstr "正在从内置基线恢复规则..."
 msgid "Resume"
 msgstr "继续"
 
+msgid "Root-only file"
+msgstr "仅 root 可读文件"
+
 msgid "Rule Subscriptions"
 msgstr "规则订阅"
 
@@ -634,6 +781,9 @@ msgstr "规则操作失败"
 msgid "Rule update available."
 msgstr "有可用的规则更新。"
 
+msgid "Rules"
+msgstr "规则"
+
 msgid "Rules were written, but the firewall reload failed. The rules take effect on the next firewall reload or reboot."
 msgstr "规则已写入，但防火墙重载失败。规则会在下次重载防火墙或重启后生效。"
 
@@ -642,6 +792,12 @@ msgstr "立即预热"
 
 msgid "Running"
 msgstr "运行中"
+
+msgid "Save credentials"
+msgstr "保存凭据"
+
+msgid "Save these credentials now"
+msgstr "立即保存这组凭据"
 
 msgid "SHA-256"
 msgstr "SHA-256"
@@ -688,6 +844,9 @@ msgstr "服务操作失败"
 msgid "Service status"
 msgstr "服务状态"
 
+msgid "Settings"
+msgstr "设置"
+
 msgid "Settings saved."
 msgstr "设置已保存。"
 
@@ -724,6 +883,9 @@ msgstr "停止"
 msgid "Stopped"
 msgstr "已停止"
 
+msgid "Storage"
+msgstr "存储位置"
+
 msgid "Storage directory"
 msgstr "存储目录"
 
@@ -739,11 +901,20 @@ msgstr "目标架构"
 msgid "Target ports"
 msgstr "目标端口"
 
+msgid "The API listens outside loopback without TLS. Basic Auth sends credentials as Base64."
+msgstr "API 正在监听回环地址之外且未启用 TLS。Basic Auth 会以 Base64 传输凭据。"
+
+msgid "The credential file has unsafe permissions. It was ignored."
+msgstr "凭据文件权限不安全，已被忽略。"
+
 msgid "The LuCI backend is unavailable."
 msgstr "LuCI 后端不可用。"
 
 msgid "The OxiDNS core is already up to date."
 msgstr "OxiDNS 内核已是最新版本。"
+
+msgid "The router could not create a temporary probe file."
+msgstr "路由器无法创建探测临时文件。"
 
 msgid "The UCI command is not available."
 msgstr "UCI 命令不可用。"
@@ -817,11 +988,23 @@ msgstr "无法读取系统日志。"
 msgid "The system log setting is invalid."
 msgstr "系统日志设置无效。"
 
+msgid "The username or password does not meet the requirements."
+msgstr "用户名或密码不符合要求。"
+
 msgid "The working directory is invalid."
 msgstr "工作目录无效。"
 
+msgid "They are shown once. Copy them before closing this dialog."
+msgstr "仅显示一次。关闭窗口前请复制。"
+
 msgid "This overwrites every rule file in the working copy with the bundled baseline."
 msgstr "此操作会用内置基线覆盖工作副本中的全部规则文件。"
+
+msgid "TTL"
+msgstr "TTL"
+
+msgid "Type"
+msgstr "类型"
 
 msgid "UDP"
 msgstr "UDP"
@@ -868,8 +1051,20 @@ msgstr "上传内核"
 msgid "Upload has been cancelled"
 msgstr "上传已取消"
 
+msgid "Upstream"
+msgstr "上游"
+
+msgid "Upstream probe"
+msgstr "上游探测"
+
+msgid "Upstream probe failed"
+msgstr "上游探测失败"
+
 msgid "Use a manual port"
 msgstr "手动指定端口"
+
+msgid "Username"
+msgstr "用户名"
 
 msgid "Validate"
 msgstr "校验"
@@ -894,6 +1089,9 @@ msgstr "版本"
 
 msgid "Versions"
 msgstr "版本"
+
+msgid "View credentials"
+msgstr "查看凭据"
 
 msgid "View recent OxiDNS entries from OpenWrt logread. Use the filters to narrow down entries by keyword, plugin, query type or response code."
 msgstr "查看 OpenWrt logread 中最近的 OxiDNS 条目。可使用过滤器按关键词、插件、查询类型或响应码筛选。"

@@ -7,8 +7,9 @@ config settings 'main'
 	option persist_core '1'
 	option github_token ''
 	option download_proxy ''
-	# API 密码：配置里写 ${OXIDNS_API_PASS} 时，两处脚本从这里取值注入环境。
-	# 留空 = 不注入，oxidns 会因变量未定义而启动/检查失败（fail closed）。
+	# 旧版 API 密码：仅作迁移回退。新安装请到 Settings -> API credentials
+	# 生成凭据，写入 /etc/oxidns/api-auth.env（0600），这里保持为空。
+	# 配置里写 ${OXIDNS_API_PASS} 时由脚本注入环境；留空 = fail closed。
 	option api_pass ''
 	# S2: core_upload_install is disabled by default. Installing an arbitrary
 	# uploaded executable as root is only permitted after an administrator

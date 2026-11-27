@@ -17,6 +17,8 @@ PREWARM_BIN="${PREWARM_BIN:-/usr/libexec/oxidns-prewarm}"
 PREWARM_DIR="${PREWARM_DIR:-/etc/oxidns}"
 PREWARM_FILE="$PREWARM_DIR/prewarm.txt"
 PREWARM_DEFAULT_FILE="${PREWARM_DEFAULT_FILE:-/usr/share/oxidns/prewarm.default.txt}"
+AUTH_LIB="${OXIDNS_AUTH_LIB:-/usr/libexec/oxidns-auth}"
+[ -r "$AUTH_LIB" ] && . "$AUTH_LIB"
 # All rule files come from the baseline package / Rules page subscription
 # archive; there are no hand-maintained local policy lists.
 RULE_FILES="adguard-hostlist.txt anti-ad-domains.txt adrules-domains.txt neodevhost-domains.txt cn-domains.txt"
@@ -81,12 +83,21 @@ heal_prewarm_section_id() {
 }
 
 load_oxidns_settings() {
+	API_USER=""
 	API_PASS=""
 	config_load oxidns
 	config_get CONFIG_PATH main config_path "$DEFAULT_CONFIG_PATH"
 	config_get WORKING_DIR main working_dir "$DEFAULT_WORKING_DIR"
 	config_get_bool LOG_SYSLOG main log_syslog 1
 	config_get API_PASS main api_pass ""
+	# Credentials live in a root-only file. UCI remains as a temporary legacy
+	# fallback only when the file provides no credentials at all, so existing
+	# installs keep working until the UI migration is run.
+	LEGACY_API_PASS="$API_PASS"
+	load_api_credentials
+	if [ -z "$API_USER" ] && [ -z "$API_PASS" ]; then
+		API_PASS="$LEGACY_API_PASS"
+	fi
 }
 
 load_prewarm_settings() {
@@ -184,9 +195,13 @@ start_service() {
 
 	procd_open_instance
 	procd_set_param command "$PROG" start -c "$CONFIG_PATH" -d "$WORKING_DIR"
-	# [API password] The config uses ${OXIDNS_API_PASS}. procd only passes env
-	# vars explicitly declared here; inject the UCI value so the service
-	# process can expand it. Empty value is left unset on purpose (fail closed).
+	# [API credentials] The config uses ${OXIDNS_API_USER}/${OXIDNS_API_PASS}.
+	# procd only passes explicitly declared env vars. Values come from the
+	# root-only credential file, with UCI as a legacy fallback. Empty values
+	# stay unset on purpose so oxidns fails closed.
+	if [ -n "$API_USER" ]; then
+		procd_set_param env OXIDNS_API_USER="$API_USER"
+	fi
 	if [ -n "$API_PASS" ]; then
 		procd_set_param env OXIDNS_API_PASS="$API_PASS"
 	fi

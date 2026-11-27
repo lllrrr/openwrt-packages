@@ -16,6 +16,10 @@ cleanup_service_test() {
 trap cleanup_service_test EXIT
 trap 'exit 1' HUP INT TERM
 export REPO_DIR SERVICE_TEST_DIR
+# Both the real init script and the rpcd backend source the shared credential
+# loader. Point the fixtures at the repository copy so the tests exercise the
+# same code path as a device instead of silently losing load_api_credentials.
+export OXIDNS_AUTH_LIB="$REPO_DIR/root/usr/libexec/oxidns-auth"
 mkdir "$SERVICE_TEST_DIR/bin"
 # The init script seeds rule files from the baseline package before starting.
 # Keep that fixture local so the service tests do not need /usr/share writes.

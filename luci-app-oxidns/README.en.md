@@ -12,46 +12,46 @@ Built on the [svenshi/luci-app-oxidns](https://github.com/svenshi/luci-app-oxidn
 |---|---|---|
 | Bundled core | `oxidns-core` packages the official binary, WebUI and default config at build time | DNS works right after flashing; no first-run core download |
 | Bundled rule baseline | `oxidns-rules-baseline` ships five rule lists | First boot works offline; missing rule files are restored automatically |
-| Rule subscriptions | `Rules` page checks and applies updates with SHA256 verification, staging and rollback | One-click rule updates, validated and staged before replacement |
-| DNS prewarming | `Prewarm` page queries A / AAAA records ahead of time and fills the cache | First visit to common domains is served from cache |
-| Core upgrades | `Core -> Check Update` | Upgrade the core without rebuilding firmware |
+| Rule subscriptions | `Data & Updates -> Rules` checks and applies updates with SHA256 verification, staging and rollback | One-click rule updates, validated and staged before replacement |
+| DNS prewarming | `Configuration -> Prewarm` queries A / AAAA records ahead of time and fills the cache | First visit to common domains is served from cache |
+| Core upgrades | `Data & Updates -> Core` then `Check Update` | Upgrade the core without rebuilding firmware |
 | Log filtering | Keyword plus `plugin` / `qtype` / `rcode` filters and a live line count | Find the queries you care about, even in large logs |
-| DNS hijack | `DNS Hijack` page redirects LAN port 53 to the local OxiDNS listener, IPv4 and IPv6 | LAN clients use OxiDNS without changing their DNS setting, with real client IPs visible |
+| DNS hijack | `Overview -> DNS Hijack` redirects LAN port 53 to the local OxiDNS listener, IPv4 and IPv6 | LAN clients use OxiDNS without changing their DNS setting, with real client IPs visible |
 | CodeMirror editor | Configuration page uses a YAML syntax-highlighting editor with line numbers and an internal scroll viewport | Editing long configs no longer jumps the page |
-| Geo data management | `Geo Data` page downloads/updates geoip.dat and geosite.dat; URLs are editable and restorable | Refresh geo data without rebuilding firmware; defaults use the self-maintained rule source |
-| API password handling | Password lives in UCI and is injected into both the service and rpcd | No plaintext password in YAML; config validation and service stay in sync |
+| Geo data management | `Data & Updates -> Geo data` downloads/updates geoip.dat and geosite.dat; URLs are editable and restorable | Refresh geo data without rebuilding firmware; defaults use the self-maintained rule source |
+| API credential handling | Username and password live in a 0600 file and are injected as `${OXIDNS_API_USER}` / `${OXIDNS_API_PASS}` | No plaintext in UCI or YAML; one-click migration from legacy UCI |
 | Upgrade self-healing | Core, WebUI, config and rules recover after sysupgrade | Keep settings, reinstall the app once, and the service is back |
 
 ## Pages
 
-| Page | Purpose |
-|---|---|
-| `Overview` | Core / service status, WebUI entry, config path, log status |
-| `Core` | Install, upload, upgrade, repair or remove the core |
-| `DNS Hijack` | LAN port 53 redirect switch, target port source, firewall section status |
-| `Configuration` | CodeMirror highlighting, validate and save `config.yaml` |
-| `Logs` | Filter and refresh OxiDNS logs |
-| `Settings` | Repository, bundle, proxy, paths, logging and API password |
-| `Rules` | Baseline status, check for updates, apply updates |
-| `Geo Data` | geoip.dat / geosite.dat status, download URLs, directory, online update |
-| `Prewarm` | Enable switch, domain list, target endpoint, interval and manual run |
+There are only four top-level entries; the former nine pages are now in-page tabs. RPCs, UCI options and ACLs are unchanged, and the old URLs still reach the same panels.
 
-> Security note: core uploads are disabled by default. Enable "Allow manually uploaded cores" on the `Settings` page and make sure the logged-in user belongs to the `luci-app-oxidns-core-upload` ACL group (the default root account does). Uploaded binaries are never executed during validation; they are only run as the service core. Optional SHA-256 pins on the `Geo Data` page abort an update on mismatch and keep the current data.
+| Entry | Tab | Purpose |
+|---|---|---|
+| `Overview` | Overview | Core / service status, WebUI entry, config path, diagnostics shortcuts |
+| `Overview` | DNS Hijack | LAN port 53 redirect switch, target port source, firewall section status |
+| `Configuration` | YAML config | CodeMirror highlighting, validate and save `config.yaml` |
+| `Configuration` | Settings | Repository, bundle, proxy, paths, logging and API credential management |
+| `Configuration` | Prewarm | Enable switch, domain list, target endpoint, interval and manual run |
+| `Data & Updates` | Core | Install, upload, upgrade, repair or remove the core |
+| `Data & Updates` | Rules | Baseline status, check for updates, apply updates |
+| `Data & Updates` | Geo data | geoip.dat / geosite.dat status, download URLs, directory, online update |
+| `Logs` | — | Filter and refresh logs, probe every upstream for answers, TTL and latency |
+
+Tabs are rendered lazily on first activation, so the YAML editor never measures a hidden pane and background pollers do not all run at once.
+
+> Security note: core uploads are disabled by default. Enable "Allow manually uploaded cores" in `Configuration -> Settings` and make sure the logged-in user belongs to the `luci-app-oxidns-core-upload` ACL group (the default root account does). Uploaded binaries are never executed during validation; they are only run as the service core. Optional SHA-256 pins in `Data & Updates -> Geo data` abort an update on mismatch and keep the current data.
 
 ## Quick start
 
 1. Install the package as described in “Build and install”.
-2. Set the API password; it is stored only in UCI:
+2. Open the `Settings` tab under `Services -> OxiDNS -> Configuration`, click `Generate credentials` in `API credentials`, and copy them immediately. Credentials are written to `/etc/oxidns/api-auth.env` with mode `0600`, never to UCI. Use `Migrate UCI password` to move a legacy UCI password and clear it.
+3. In the `YAML config` tab of `Configuration`, adjust `config.yaml`, then click `Save & Restart`. Reference the credentials with `${OXIDNS_API_USER}` / `${OXIDNS_API_PASS}`.
+4. Open `Overview`, start the service and enable it at boot. `Diagnostics` links to the upstream probe and credential manager.
+5. Open the `Prewarm` tab under `Configuration`, make sure the target matches the listener in `config.yaml`, then click `Run now`.
+6. Open `Logs -> Upstream probe` to read every forward upstream from `config.yaml` and query it directly, showing answers, TTL, latency and why an upstream cannot be probed.
 
-   ```sh
-   uci set oxidns.main.api_pass="$(openssl rand -base64 24)"
-   uci commit oxidns
-   /etc/init.d/rpcd restart
-   ```
-
-3. Open `Services -> OxiDNS -> Configuration`, adjust `config.yaml`, then click `Save & Restart`.
-4. Open `Overview`, start the service and enable it at boot.
-5. Open `Prewarm`, make sure the target matches the listener in `config.yaml`, then click `Run now`.
+> Basic Auth sends credentials as Base64, not encryption. Keep the management API on loopback; use TLS or a VPN before exposing it remotely.
 
 ## DNS prewarming
 

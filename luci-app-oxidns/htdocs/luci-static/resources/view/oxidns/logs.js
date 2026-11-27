@@ -10,9 +10,25 @@ var callLogsRecent = rpc.declare({
 	expect: {}
 });
 
+var callUpstreamProbe = rpc.declare({
+	object: 'luci.oxidns',
+	method: 'upstream_probe',
+	params: [ 'qname', 'qtype' ],
+	expect: {}
+});
+
 var BACKEND_ERRORS = {
 	log_read_failed: _('The system log could not be read.'),
+	invalid_query: _('Enter a domain name and choose A or AAAA.'),
+	temp_unavailable: _('The router could not create a temporary probe file.'),
+	dependency_missing: _('A required probe command is missing.'),
 	rpc_unavailable: _('The LuCI backend is unavailable.')
+};
+
+var PROBE_STATUS = {
+	ok: _('Responded'),
+	error: _('Failed'),
+	unsupported: _('Not probeable')
 };
 
 var state = {
@@ -359,10 +375,12 @@ function updateFilterOptions() {
 }
 
 function refreshLogs() {
-	if (!isAttached(viewRoot)) {
-		unregisterPoll();
+	/* LuCI 的 poll.start() 会在 add() 时立即跑一次 step：那时 render 还没
+	 * 返回，map 尚未插入 DOM。若在这里 unregisterPoll() 会把自己从队列里
+	 * 删掉，导致轮询永久失效（手动刷新仍可用）。卸载清理由 watchView 的
+	 * MutationObserver → runCleanup → addCleanup(unregisterPoll) 负责。 */
+	if (!isAttached(viewRoot))
 		return Promise.resolve();
-	}
 
 	if (state.inFlight)
 		return Promise.resolve();
@@ -516,6 +534,80 @@ function filterBar() {
 	return bar;
 }
 
+function probeValue(id) {
+	var node = document.getElementById(id);
+	return node && node.value ? node.value : '';
+}
+
+function probeText(id, value) {
+	var node = document.getElementById(id);
+	if (node)
+		node.textContent = value || '';
+}
+
+function probeCell(text, style) {
+	return E('div', { 'class': 'td left', 'style': style || null }, text || '');
+}
+
+function renderProbeResults(result) {
+	var host = document.getElementById('oxidns-upstream-results');
+	if (!host)
+		return;
+	host.textContent = '';
+	if (!result || result.ok === false) {
+		probeText('oxidns-upstream-status', backendMessage(result, _('Upstream probe failed')));
+		return;
+	}
+	if (!result.upstreams || !result.upstreams.length) {
+		probeText('oxidns-upstream-status', _('No upstream servers were found in config.yaml.'));
+		return;
+	}
+	var summary = _('Probed %s upstreams for %s %s').format(
+		String(result.total || result.upstreams.length), result.qname, result.qtype);
+	if (result.truncated)
+		summary += ' ' + _('Only the first 12 are shown.');
+	probeText('oxidns-upstream-status', summary);
+
+	var rows = [E('div', { 'class': 'tr cbi-section-table-titles' }, [
+		probeCell(_('Forwarder')),
+		probeCell(_('Upstream')),
+		probeCell(_('State')),
+		probeCell(_('Response')),
+		probeCell(_('TTL')),
+		probeCell(_('Latency')),
+		probeCell(_('Detail'))
+	])];
+	result.upstreams.forEach(function(item) {
+		var color = item.status === 'ok' ? '#2f6b4f'
+			: item.status === 'error' ? '#a32d2d' : '#9a5b00';
+		var answer = item.answer || item.rcode || '';
+		var latency = item.latency_ms ? '%s ms'.format(item.latency_ms) : '';
+		rows.push(E('div', { 'class': 'tr' }, [
+			probeCell(item.tag || ''),
+			probeCell(item.addr || ''),
+			probeCell(PROBE_STATUS[item.status] || item.status, 'color: ' + color),
+			probeCell(answer),
+			probeCell(item.ttl || ''),
+			probeCell(latency),
+			probeCell(item.detail || '')
+		]));
+	});
+	host.appendChild(E('div', { 'class': 'table cbi-section-table' }, rows));
+}
+
+function runUpstreamProbe() {
+	probeText('oxidns-upstream-status', _('Probing upstreams...'));
+	var host = document.getElementById('oxidns-upstream-results');
+	if (host)
+		host.textContent = '';
+	return Promise.resolve(callUpstreamProbe(
+		probeValue('oxidns-upstream-qname') || 'example.com',
+		probeValue('oxidns-upstream-qtype') || 'A'
+	)).then(renderProbeResults).catch(function(err) {
+		renderProbeResults({ ok: false, code: err && err.code });
+	});
+}
+
 return view.extend({
 	load: function() {
 		return Promise.resolve({
@@ -545,6 +637,41 @@ return view.extend({
 			E('h2', {}, _('OxiDNS Logs')),
 			E('div', { 'class': 'cbi-map-descr' },
 				_('View recent OxiDNS entries from OpenWrt logread. Use the filters to narrow down entries by keyword, plugin, query type or response code.')),
+			E('h3', { 'id': 'upstream-probe' }, _('Upstream probe')),
+			E('div', { 'class': 'cbi-map-descr' },
+				_('Read every forward upstream from config.yaml and query it directly. UDP and TCP show answers, TTL and latency; encrypted upstreams are listed with a reason when they cannot be probed locally.')),
+			E('div', { 'class': 'cbi-section' }, [
+				E('div', {
+					'class': 'cbi-button-row',
+					'style': 'display: flex; flex-wrap: wrap; gap: .5em; margin-bottom: 1em;'
+				}, [
+					E('label', {}, _('Domain')),
+					E('input', {
+						'id': 'oxidns-upstream-qname',
+						'class': 'cbi-input-text',
+						'type': 'text',
+						'value': 'example.com'
+					}),
+					E('label', {}, _('Type')),
+					E('select', { 'id': 'oxidns-upstream-qtype', 'class': 'cbi-input-select' }, [
+						E('option', { 'value': 'A' }, 'A'),
+						E('option', { 'value': 'AAAA' }, 'AAAA')
+					]),
+					E('button', {
+						'id': 'oxidns-upstream-run',
+						'type': 'button',
+						'class': 'btn cbi-button cbi-button-action',
+						'click': function(ev) { ev.preventDefault(); return runUpstreamProbe(); }
+					}, _('Probe upstreams'))
+				]),
+				E('div', {
+					'id': 'oxidns-upstream-status',
+					'aria-live': 'polite',
+					'style': 'margin-bottom: .75em;'
+				}),
+				E('div', { 'id': 'oxidns-upstream-results' })
+			]),
+			E('h3', {}, _('Live log')),
 			E('div', { 'class': 'cbi-section' }, [
 				E('div', {
 					'class': 'cbi-button-row',
@@ -588,11 +715,14 @@ return view.extend({
 
 		watchView(map);
 
-		pollFn = refreshLogs;
-		poll.add(pollFn, 1);
+		/* LuCI 在 render 返回后才把 map 插入 DOM，而 poll.add() 会立即
+		 * step 一次；所以注册与首帧都推迟到挂载之后。 */
 		window.setTimeout(function() {
-			if (isAttached(viewRoot))
-				refreshLogs();
+			if (!isAttached(viewRoot))
+				return;
+			pollFn = refreshLogs;
+			poll.add(pollFn, 1);
+			refreshLogs();
 		}, 0);
 
 		return map;

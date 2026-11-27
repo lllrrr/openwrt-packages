@@ -106,6 +106,11 @@ assert_unsafe_upload_rejected() {
 		json_ok "v.ok === false && v.code === 'uploaded_archive_unsafe'"
 }
 
+# Both the init script driven below and every rpcd call source the shared
+# credential loader. Point them at the repository copy so fixtures exercise
+# the same code path as a device instead of losing load_api_credentials.
+export OXIDNS_AUTH_LIB="$PWD/root/usr/libexec/oxidns-auth"
+
 INIT_STUB_DIR="$(mktemp -d "${TMPDIR:-/tmp}/oxidns-init-stub.XXXXXX")"
 printf '#!/bin/sh\nsleep 30\n' > "$INIT_STUB_DIR/oxidns"
 : > "$INIT_STUB_DIR/config.yaml"

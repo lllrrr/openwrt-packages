@@ -22,6 +22,8 @@ CORE_PROGRESS_DIR="$TMP_ROOT/luci-oxidns"
 CORE_PROGRESS_LOG="$CORE_PROGRESS_DIR/core-progress.log"
 CORE_LOCK_DIR="$CORE_PROGRESS_DIR/core-operation.lock"
 CORE_LOCK_HELD=0
+AUTH_LIB="${OXIDNS_AUTH_LIB:-/usr/libexec/oxidns-auth}"
+[ -r "$AUTH_LIB" ] && . "$AUTH_LIB"
 
 # Rule subscriptions. The baseline ships with the oxidns-rules-baseline
 # package under /usr/share (read-only, replaced on package/firmware upgrade),
@@ -500,7 +502,7 @@ uci_delete_if_present() {
 
 load_settings() {
 	SERVICE_NAME="$DEFAULT_SERVICE_NAME"
-	CONFIG_PATH="$(uci_get config_path "$DEFAULT_CONFIG_PATH")"
+	CONFIG_PATH="${OXIDNS_CONFIG_PATH:-$(uci_get config_path "$DEFAULT_CONFIG_PATH")}"
 	WORKING_DIR="$(uci_get working_dir "$DEFAULT_WORKING_DIR")"
 	CORE_REPOSITORY="$(uci_get core_repository "$DEFAULT_CORE_REPOSITORY")"
 	CORE_BUNDLE="$(uci_get core_bundle "$DEFAULT_CORE_BUNDLE")"
@@ -533,19 +535,23 @@ load_settings() {
 	# S4: optional SHA256 pins for downloaded geo data (empty = no pin).
 	GEOIP_SHA256="$(uci_get geoip_sha256 '')"
 	GEOSITE_SHA256="$(uci_get geosite_sha256 '')"
-	# [API password] init script only injects this variable into the procd
-	# service process. rpcd is a separate daemon, so its children (notably
-	# `oxidns check` spawned by validate_config_file / core install) do NOT
-	# inherit that env and would fail on `${OXIDNS_API_PASS}` expansion.
-	# Export here so every child spawned by this script sees the same value.
-	# Precedence: already-exported env (e.g. from rpcd's own procd instance)
-	# wins; otherwise fall back to UCI. Empty/absent stays empty on purpose:
-	# oxidns must fail closed instead of silently running with a weak password.
-	if [ -z "${OXIDNS_API_PASS:-}" ]; then
-		OXIDNS_API_PASS="$(uci_get api_pass '')"
+	# [API credentials] init.d injects these into the procd service. rpcd is a
+	# separate daemon, so its children (oxidns check, core install) need the
+	# same values. Precedence: root-only credential file, then already-exported
+	# env, then legacy UCI password. Empty/absent stays unset on purpose:
+	# oxidns must fail closed instead of running with a weak password.
+	load_api_credentials
+	if [ -z "${OXIDNS_API_USER:-}" ] && [ -n "$API_USER" ]; then
+		OXIDNS_API_USER="$API_USER"
 	fi
-	# Only export when non-empty: an exported-but-empty variable would be seen
-	# as "defined" by oxidns and yield an empty password. Absent is safer.
+	if [ -z "${OXIDNS_API_PASS:-}" ]; then
+		OXIDNS_API_PASS="${API_PASS:-$(uci_get api_pass '')}"
+	fi
+	# Only export non-empty values: an exported-but-empty variable would be
+	# seen as "defined" by oxidns and yield an empty credential.
+	if [ -n "${OXIDNS_API_USER:-}" ]; then
+		export OXIDNS_API_USER
+	fi
 	if [ -n "${OXIDNS_API_PASS:-}" ]; then
 		export OXIDNS_API_PASS
 	fi
@@ -4796,6 +4802,397 @@ emit_geo_progress() {
 	printf '}\n'
 }
 
+# ===== API credentials (root-only file, no plaintext in UCI) =====
+credentials_write_file() {
+	cw_user="$1"
+	cw_pass="$2"
+	cw_dir="$(dirname "$AUTH_FILE")"
+	mkdir -p "$cw_dir" 2>/dev/null || return 1
+	[ -L "$AUTH_FILE" ] && return 1
+	cw_tmp="$(mktemp "$TMP_ROOT/oxidns-auth.XXXXXX" 2>/dev/null)" || return 1
+	if ! printf "OXIDNS_API_USER='%s'\nOXIDNS_API_PASS='%s'\n" \
+		"$cw_user" "$cw_pass" > "$cw_tmp"; then
+		rm -f "$cw_tmp" 2>/dev/null || true
+		return 1
+	fi
+	chmod 600 "$cw_tmp" 2>/dev/null || {
+		rm -f "$cw_tmp" 2>/dev/null || true
+		return 1
+	}
+	if ! mv -f "$cw_tmp" "$AUTH_FILE" 2>/dev/null; then
+		rm -f "$cw_tmp" 2>/dev/null || true
+		return 1
+	fi
+	return 0
+}
+
+credentials_valid_user() {
+	case "${1:-}" in
+		''|*[!A-Za-z0-9_-]*) return 1 ;;
+	esac
+	[ "${#1}" -le 64 ]
+}
+
+credentials_valid_pass() {
+	case "${1:-}" in
+		''|*\'*) return 1 ;;
+	esac
+	[ "${#1}" -ge 8 ] && [ "${#1}" -le 256 ]
+}
+
+credentials_random_secret() {
+	if command -v openssl >/dev/null 2>&1; then
+		openssl rand -base64 24 2>/dev/null | tr -d '\n'
+	elif command -v base64 >/dev/null 2>&1; then
+		dd if=/dev/urandom bs=24 count=1 2>/dev/null | base64 2>/dev/null | tr -d '\n'
+	else
+		od -An -N24 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n' | cut -c1-32
+	fi
+}
+
+credentials_random_user() {
+	cu_plain="$(credentials_random_secret | tr -dc 'A-Za-z0-9' 2>/dev/null)"
+	[ -n "$cu_plain" ] || cu_plain="admin$(date +%s 2>/dev/null || printf '1')"
+	printf 'op_%s' "$(printf '%s' "$cu_plain" | cut -c1-8)"
+}
+
+credentials_masked_user() {
+	[ -n "${1:-}" ] || { printf ''; return 0; }
+	mu_out="$(printf '%s' "$1" | cut -c1)"
+	mu_n=$((${#1} - 1))
+	while [ "$mu_n" -gt 0 ]; do
+		mu_out="${mu_out}•"
+		mu_n=$((mu_n - 1))
+	done
+	printf '%s' "$mu_out"
+}
+
+config_api_tls() {
+	[ -r "$CONFIG_PATH" ] || return 1
+	awk '
+		/^[^[:space:]#][^:]*:/ { top = $0; sub(/:.*/, "", top); second = "" }
+		top == "api" && /^[[:space:]]+http:[[:space:]]*[^[:space:]#]/ { second = "short"; next }
+		top == "api" && /^[[:space:]]+http:[[:space:]]*$/ { second = "http"; next }
+		top == "api" && second == "http" && /^[[:space:]]+ssl:/ { print "1"; exit }
+	' "$CONFIG_PATH"
+}
+
+emit_credentials_status() {
+	load_settings
+	load_api_credentials
+	LEGACY_PASS="$(uci_get api_pass '')"
+	FILE_CONFIGURED=0
+	if [ "$AUTH_FILE_SAFE" = "1" ] && { [ -n "$API_USER" ] || [ -n "$API_PASS" ]; }; then
+		FILE_CONFIGURED=1
+	fi
+	SOURCE="none"
+	if [ "$FILE_CONFIGURED" = "1" ]; then
+		SOURCE="file"
+	elif [ -n "$LEGACY_PASS" ]; then
+		SOURCE="legacy"
+	fi
+	FP=""
+	if [ -n "$API_USER" ] || [ -n "$API_PASS" ]; then
+		FP="$(auth_fingerprint "$API_USER:$API_PASS")"
+	fi
+	LISTEN="$(config_api_listen 2>/dev/null || true)"
+	TLS="$(config_api_tls 2>/dev/null || true)"
+	EXPOSED=0
+	case "$LISTEN" in
+		''|127.0.0.1:*|localhost:*|'[::1]:'*) EXPOSED=0 ;;
+		*) EXPOSED=1 ;;
+	esac
+	[ "$EXPOSED" = "1" ] && [ -z "$TLS" ] || EXPOSED=0
+	printf '{"ok":true,"configured":'
+	if [ "$FILE_CONFIGURED" = "1" ] || [ -n "$LEGACY_PASS" ]; then json_bool 1; else json_bool 0; fi
+	printf ',"source":'; json_string "$SOURCE"
+	printf ',"user_masked":'; json_string "$(credentials_masked_user "$API_USER")"
+	printf ',"fingerprint":'; json_string "$FP"
+	printf ',"auth_file":'; json_string "$AUTH_FILE"
+	printf ',"file_present":'; json_bool "$AUTH_FILE_PRESENT"
+	printf ',"file_safe":'; json_bool "$AUTH_FILE_SAFE"
+	printf ',"file_mode":'; json_string "$AUTH_FILE_MODE"
+	printf ',"legacy_plain":'; if [ -n "$LEGACY_PASS" ]; then json_bool 1; else json_bool 0; fi
+	printf ',"api_listen":'; json_string "$LISTEN"
+	printf ',"api_tls":'; if [ -n "$TLS" ]; then json_bool 1; else json_bool 0; fi
+	printf ',"expose_warning":'; json_bool "$EXPOSED"
+	printf '}\n'
+}
+
+emit_credentials_generate() {
+	GU="$(credentials_random_user)"
+	GP="$(credentials_random_secret)"
+	[ -n "$GU" ] && [ -n "$GP" ] || {
+		json_error "random_failed" "could not generate credentials"
+		return 1
+	}
+	printf '{"ok":true,"username":'; json_string "$GU"
+	printf ',"password":'; json_string "$GP"
+	printf '}\n'
+}
+
+emit_credentials_set() {
+	INPUT="$(cat)"
+	CU="$(input_value username "$INPUT")"
+	CP="$(input_value password "$INPUT")"
+	if ! credentials_valid_user "$CU"; then
+		json_error "invalid_credentials" "username must be 1-64 letters, digits, underscores or hyphens"
+		return 1
+	fi
+	if ! credentials_valid_pass "$CP"; then
+		json_error "invalid_credentials" "password must be 8-256 characters and contain no single quote"
+		return 1
+	fi
+	if ! credentials_write_file "$CU" "$CP"; then
+		json_error "credentials_write_failed" "failed to write the root-only credential file"
+		return 1
+	fi
+	emit_credentials_status
+}
+
+emit_credentials_reveal() {
+	load_api_credentials
+	if [ -z "$API_USER" ] && [ -z "$API_PASS" ]; then
+		json_error "credentials_missing" "no credential file is configured"
+		return 1
+	fi
+	printf '{"ok":true,"username":'; json_string "$API_USER"
+	printf ',"password":'; json_string "$API_PASS"
+	printf '}\n'
+}
+
+emit_credentials_migrate() {
+	INPUT="$(cat)"
+	MU="$(input_value username "$INPUT")"
+	[ -n "$MU" ] || MU="admin"
+	if ! credentials_valid_user "$MU"; then
+		json_error "invalid_credentials" "username must be 1-64 letters, digits, underscores or hyphens"
+		return 1
+	fi
+	MP="$(uci_get api_pass '')"
+	if [ -z "$MP" ]; then
+		json_error "nothing_to_migrate" "no legacy UCI password was found"
+		return 1
+	fi
+	if ! credentials_valid_pass "$MP"; then
+		json_error "invalid_credentials" "the legacy UCI password cannot be stored in the credential file"
+		return 1
+	fi
+	if ! credentials_write_file "$MU" "$MP"; then
+		json_error "credentials_write_failed" "failed to write the root-only credential file"
+		return 1
+	fi
+	if ! uci -q delete "$UCI_PACKAGE.$UCI_SECTION.api_pass" 2>/dev/null || \
+		! uci -q commit "$UCI_PACKAGE" 2>/dev/null; then
+		json_error "credentials_migrate_failed" "credentials were written but UCI still contains the old password"
+		return 1
+	fi
+	emit_credentials_status
+}
+
+emit_credentials_clear() {
+	if [ -f "$AUTH_FILE" ] && [ ! -L "$AUTH_FILE" ]; then
+		rm -f "$AUTH_FILE" 2>/dev/null || {
+			json_error "credentials_clear_failed" "failed to remove the credential file"
+			return 1
+		}
+	fi
+	emit_credentials_status
+}
+
+# ===== Upstream DNS probe =====
+config_upstreams() {
+	[ -r "$CONFIG_PATH" ] || return 1
+	awk '
+	function clean(s) {
+		sub(/^[[:space:]]*(-[[:space:]]*)?(addr:|bootstrap:|tag:|type:)[[:space:]]*/, "", s)
+		sub(/[[:space:]]*(#.*)?$/, "", s)
+		gsub(/^"/, "", s); gsub(/"$/, "", s)
+		gsub(/^\047/, "", s); gsub(/\047$/, "", s)
+		return s
+	}
+	/^[^[:space:]#][^:]*:/ {
+		top = $0; sub(/:.*/, "", top); second = "";
+		tag = ""; type = ""; in_args = 0; in_up = 0; cur = 0; next
+	}
+	top != "plugins" { next }
+	/^[[:space:]]*-[[:space:]]+tag:/ { tag = clean($0); type = ""; in_args = 0; in_up = 0; cur = 0; next }
+	/^[[:space:]]+type:/ { type = clean($0); next }
+	/^[[:space:]]+args:/ { in_args = 1; next }
+	in_args && /^[[:space:]]+upstreams:/ { in_up = 1; next }
+	in_up && /^[[:space:]]*-[[:space:]]*addr:/ {
+		n++; tags[n] = tag; addrs[n] = clean($0); boots[n] = ""; cur = n; next
+	}
+	in_up && cur > 0 && /^[[:space:]]+bootstrap:/ { boots[cur] = clean($0) }
+	END {
+		for (i = 1; i <= n; i++)
+			if (addrs[i] != "")
+				print tags[i] "\t" addrs[i] "\t" boots[i]
+	}
+	' "$CONFIG_PATH"
+}
+
+parse_upstream_addr() {
+	pa_addr="$1"
+	case "$pa_addr" in
+		udp://*) pa_scheme="udp"; pa_rest="${pa_addr#udp://}" ;;
+		tcp://*) pa_scheme="tcp"; pa_rest="${pa_addr#tcp://}" ;;
+		tls://*) pa_scheme="tls"; pa_rest="${pa_addr#tls://}" ;;
+		http://*) pa_scheme="http"; pa_rest="${pa_addr#http://}" ;;
+		https://*) pa_scheme="https"; pa_rest="${pa_addr#https://}" ;;
+		socks5://*) pa_scheme="socks5"; pa_rest="${pa_addr#socks5://}" ;;
+		socks5h://*) pa_scheme="socks5"; pa_rest="${pa_addr#socks5h://}" ;;
+		*) pa_scheme="udp"; pa_rest="$pa_addr" ;;
+	esac
+	pa_hostport="${pa_rest%%/*}"
+	case "$pa_hostport" in
+		*:*) pa_host="${pa_hostport%:*}"; pa_port="${pa_hostport##*:}" ;;
+		*)
+			pa_host="$pa_hostport"
+			case "$pa_scheme" in
+				tls) pa_port="853" ;;
+				http|https) pa_port="443" ;;
+				*) pa_port="53" ;;
+			esac
+			;;
+	esac
+	pa_host="${pa_host#[}"
+	pa_host="${pa_host%]}"
+	case "$pa_host" in
+		''|*[!A-Za-z0-9._-]*) return 1 ;;
+	esac
+	case "$pa_port" in
+		''|*[!0-9]*) return 1 ;;
+	esac
+	[ "$pa_port" -ge 1 ] && [ "$pa_port" -le 65535 ] || return 1
+	printf '%s\t%s\t%s\n' "$pa_scheme" "$pa_host" "$pa_port"
+}
+
+probe_upstream_one() {
+	pu_tag="$1"
+	pu_addr="$2"
+	pu_boot="$3"
+	pu_qname="$4"
+	pu_qtype="$5"
+	pu_status="ok"
+	pu_rcode=""
+	pu_answer=""
+	pu_ttl=""
+	pu_ms=""
+	pu_detail=""
+	pu_scheme=""
+	pu_host=""
+	pu_port=""
+
+	pu_parsed="$(parse_upstream_addr "$pu_addr" || true)"
+	if [ -n "$pu_parsed" ]; then
+		pu_scheme="$(printf '%s\n' "$pu_parsed" | cut -f1)"
+		pu_host="$(printf '%s\n' "$pu_parsed" | cut -f2)"
+		pu_port="$(printf '%s\n' "$pu_parsed" | cut -f3)"
+	fi
+
+	case "$pu_scheme" in
+		udp|tcp)
+			if ! command -v dig >/dev/null 2>&1; then
+				pu_status="unsupported"
+				pu_detail="dig is not installed"
+			elif [ "$pu_scheme" = "tcp" ]; then
+				pu_out="$(dig "@$pu_host" -p "$pu_port" +tcp "$pu_qname" "$pu_qtype" +time=2 +tries=1 +comments +answer +stats 2>&1)" || pu_status="error"
+			else
+				pu_out="$(dig "@$pu_host" -p "$pu_port" "$pu_qname" "$pu_qtype" +time=2 +tries=1 +comments +answer +stats 2>&1)" || pu_status="error"
+			fi
+			;;
+		tls)
+			if ! command -v dig >/dev/null 2>&1; then
+				pu_status="unsupported"
+				pu_detail="dig is not installed"
+			else
+				pu_out="$(dig "@$pu_host" -p "$pu_port" +tls "$pu_qname" "$pu_qtype" +time=2 +tries=1 +comments +answer +stats 2>&1)" || pu_status="error"
+				case "$pu_out" in
+					*unrecognized\ option*|*illegal\ option*) pu_status="unsupported" ;;
+				esac
+			fi
+			;;
+		'')
+			pu_status="unsupported"
+			pu_detail="upstream address could not be parsed"
+			;;
+		*)
+			pu_status="unsupported"
+			pu_detail="direct probing is not available for $pu_scheme upstreams"
+			;;
+	esac
+
+	if [ "$pu_status" = "ok" ] || [ "$pu_status" = "error" ]; then
+		pu_rcode="$(printf '%s\n' "${pu_out:-}" | awk '/status:/ { for (i = 1; i <= NF; i++) if ($i == "status:") { v = $(i+1); sub(/,$/, "", v); print v; exit } }')"
+		pu_ms="$(printf '%s\n' "${pu_out:-}" | awk '/Query time:/ { print $4; exit }')"
+		pu_answer="$(printf '%s\n' "${pu_out:-}" | awk -v qt="$pu_qtype" '$4 == qt { print $5; exit }')"
+		pu_ttl="$(printf '%s\n' "${pu_out:-}" | awk -v qt="$pu_qtype" '$4 == qt { print $2; exit }')"
+		case "$pu_ms" in ''|*[!0-9]*) pu_ms="" ;; esac
+		case "$pu_ttl" in ''|*[!0-9]*) pu_ttl="" ;; esac
+		if [ "$pu_status" = "ok" ] && [ -z "$pu_rcode" ]; then
+			pu_status="error"
+		fi
+		if [ "$pu_status" = "error" ]; then
+			pu_detail="$(printf '%s\n' "${pu_out:-}" | tr '\n' ' ' | cut -c1-200)"
+		fi
+	fi
+
+	printf '{"tag":'; json_string "$pu_tag"
+	printf ',"addr":'; json_string "$pu_addr"
+	printf ',"scheme":'; json_string "$pu_scheme"
+	printf ',"host":'; json_string "$pu_host"
+	printf ',"port":'; json_string "$pu_port"
+	printf ',"bootstrap":'; json_string "$pu_boot"
+	printf ',"status":'; json_string "$pu_status"
+	printf ',"rcode":'; json_string "$pu_rcode"
+	printf ',"answer":'; json_string "$pu_answer"
+	printf ',"ttl":'; json_string "$pu_ttl"
+	printf ',"latency_ms":'; json_string "$pu_ms"
+	printf ',"detail":'; json_string "$pu_detail"
+	printf '}'
+}
+
+emit_upstream_probe() {
+	INPUT="$(cat)"
+	QUERY_NAME="$(input_value qname "$INPUT")"
+	[ -n "$QUERY_NAME" ] || QUERY_NAME="example.com"
+	QUERY_TYPE="$(input_value qtype "$INPUT")"
+	[ -n "$QUERY_TYPE" ] || QUERY_TYPE="A"
+	case "$QUERY_NAME" in
+		''|*[!A-Za-z0-9.-]*) json_error "invalid_query" "qname must contain only letters, digits, dots and hyphens"; return 1 ;;
+	esac
+	[ "${#QUERY_NAME}" -le 253 ] || { json_error "invalid_query" "qname is too long"; return 1; }
+	case "$QUERY_TYPE" in
+		A|AAAA) ;;
+		*) json_error "invalid_query" "qtype must be A or AAAA"; return 1 ;;
+	esac
+	load_settings
+	UP_TMP="$(mktemp "$TMP_ROOT/oxidns-upstreams.XXXXXX" 2>/dev/null)" || {
+		json_error "temp_unavailable" "cannot create a temporary file"
+		return 1
+	}
+	config_upstreams > "$UP_TMP" 2>/dev/null || true
+	UP_TOTAL="$(wc -l < "$UP_TMP" 2>/dev/null | awk '{ print $1 + 0 }')"
+	UP_TRUNCATED=0
+	[ "$UP_TOTAL" -gt 12 ] && UP_TRUNCATED=1
+	printf '{"ok":true,"qname":'; json_string "$QUERY_NAME"
+	printf ',"qtype":'; json_string "$QUERY_TYPE"
+	printf ',"total":%s' "$UP_TOTAL"
+	printf ',"limit":12'
+	printf ',"truncated":'; json_bool "$UP_TRUNCATED"
+	printf ',"upstreams":['
+	up_first=1
+	sed -n '1,12p' "$UP_TMP" | while IFS="$(printf '\t')" read -r up_tag up_addr up_boot; do
+		[ -n "$up_addr" ] || continue
+		[ "$up_first" = "1" ] || printf ','
+		up_first=0
+		probe_upstream_one "$up_tag" "$up_addr" "$up_boot" "$QUERY_NAME" "$QUERY_TYPE"
+	done
+	printf ']}\n'
+	rm -f "$UP_TMP" 2>/dev/null || true
+}
+
 case "${1:-}" in
 	list)
 		printf '{'
@@ -4831,7 +5228,14 @@ case "${1:-}" in
 		printf '"geo_reset":{},'
 		printf '"geo_download":{"restart":"boolean"},'
 		printf '"geo_progress":{},'
-		printf '"logs_recent":{"limit":"number"}'
+		printf '"logs_recent":{"limit":"number"},'
+		printf '"credentials_status":{},'
+		printf '"credentials_generate":{},'
+		printf '"credentials_set":{"username":"string","password":"string"},'
+		printf '"credentials_reveal":{},'
+		printf '"credentials_migrate":{"username":"string"},'
+		printf '"credentials_clear":{},'
+		printf '"upstream_probe":{"qname":"string","qtype":"string"}'
 		printf '}\n'
 		;;
 	call)
@@ -4934,6 +5338,27 @@ case "${1:-}" in
 				;;
 			logs_recent)
 				emit_logs_recent
+				;;
+			credentials_status)
+				emit_credentials_status
+				;;
+			credentials_generate)
+				emit_credentials_generate
+				;;
+			credentials_set)
+				emit_credentials_set
+				;;
+			credentials_reveal)
+				emit_credentials_reveal
+				;;
+			credentials_migrate)
+				emit_credentials_migrate
+				;;
+			credentials_clear)
+				emit_credentials_clear
+				;;
+			upstream_probe)
+				emit_upstream_probe
 				;;
 			*)
 				json_error "unknown_method" "unknown RPC method"

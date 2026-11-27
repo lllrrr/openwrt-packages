@@ -15,7 +15,9 @@
 					"prewarm_read",
 					"hijack_get",
 					"geo_get",
-					"geo_progress"
+					"geo_progress",
+					"credentials_status",
+					"upstream_probe"
 				]
 			}
 		},
@@ -41,7 +43,12 @@
 					"hijack_save",
 					"geo_save",
 					"geo_reset",
-					"geo_download"
+					"geo_download",
+					"credentials_generate",
+					"credentials_set",
+					"credentials_reveal",
+					"credentials_migrate",
+					"credentials_clear"
 				]
 			}
 		}

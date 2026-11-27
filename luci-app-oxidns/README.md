@@ -12,46 +12,46 @@
 |---|---|---|
 | 内核随包分发 | `oxidns-core` 子包在编译期内置官方核心、WebUI 和默认配置 | 刷完固件就有 DNS 能力，首次使用无需联网安装内核 |
 | 规则随包分发 | `oxidns-rules-baseline` 子包内置 5 份规则基线 | 首次启动完全离线完成，规则文件缺失时自动补齐 |
-| 规则订阅管理 | `Rules` 页检查 / 更新，带 SHA256 校验、暂存校验和回滚 | 一键完成规则升级，替换前先完成校验与暂存 |
-| 域名预热 | `Prewarm` 页按 A / AAAA 提前查询并写入缓存 | 常用域名首次访问直接使用缓存，减少等待 |
-| 内核在线升级 | `Core` 页 `Check Update` | 不用重新编译固件即可升级内核 |
+| 规则订阅管理 | `Data & Updates -> 规则基线` 检查 / 更新，带 SHA256 校验、暂存校验和回滚 | 一键完成规则升级，替换前先完成校验与暂存 |
+| 域名预热 | `Configuration -> 预热` 按 A / AAAA 提前查询并写入缓存 | 常用域名首次访问直接使用缓存，减少等待 |
+| 内核在线升级 | `Data & Updates -> 内核` 的 `Check Update` | 不用重新编译固件即可升级内核 |
 | 日志筛选 | 关键词 + `plugin` / `qtype` / `rcode` 过滤，实时行数 | 快速定位某类查询，日志再多也能看 |
-| DNS 劫持 | `DNS Hijack` 页一键把 LAN 53 端口重定向到本机 OxiDNS，IPv4/IPv6 全覆盖 | 局域网设备无需改 DNS 即可走 OxiDNS，能看到真实客户端 IP |
+| DNS 劫持 | `Overview -> DNS Hijack` 一键把 LAN 53 端口重定向到本机 OxiDNS，IPv4/IPv6 全覆盖 | 局域网设备无需改 DNS 即可走 OxiDNS，能看到真实客户端 IP |
 | CodeMirror 编辑器 | 配置页用 YAML 语法高亮编辑器，带行号、内部滚动 | 编辑长配置不跳屏，改配置更直观 |
-| Geo 数据管理 | `Geo Data` 页在线下载/更新 geoip.dat 与 geosite.dat，地址可改可还原 | 数据更新不用重新编译固件，默认走自建规则源 |
-| API 密码托管 | 密码存 UCI，脚本自动注入 `${OXIDNS_API_PASS}` | 配置里不放明文，服务与网页校验都能正常工作 |
+| Geo 数据管理 | `Data & Updates -> Geo 数据` 在线下载/更新 geoip.dat 与 geosite.dat，地址可改可还原 | 数据更新不用重新编译固件，默认走自建规则源 |
+| API 凭据托管 | 用户名与密码存 `0600` 凭据文件，脚本注入 `${OXIDNS_API_USER}` / `${OXIDNS_API_PASS}` | UCI 与 YAML 都不放明文，旧密码一键迁移 |
 | 升级自愈 | 内核、WebUI、配置和规则在 sysupgrade 后自动恢复 | 保留配置升级固件后，重装一次插件即可恢复服务 |
 
 ## 页面一览
 
-| 页面 | 用途 |
-|---|---|
-| `Overview` | 内核 / 服务状态、WebUI 入口、配置路径、日志状态 |
-| `Core` | 安装、上传、升级、修复或移除内核 |
-| `DNS Hijack` | LAN 53 端口重定向开关、目标端口来源、防火墙段状态 |
-| `Configuration` | CodeMirror 高亮编辑、校验、保存 `config.yaml` |
-| `Logs` | 过滤和刷新 OxiDNS 日志 |
-| `Settings` | 仓库、bundle、代理、路径、日志与 API 密码 |
-| `Rules` | 规则基线状态、检查更新、一键更新 |
-| `Geo Data` | geoip.dat / geosite.dat 状态、下载地址、目录、在线更新 |
-| `Prewarm` | 预热开关、域名清单、目标地址与周期、手动执行 |
+顶部只有 4 个一级入口，原来的 9 个页面收进页内子标签。RPC、UCI 配置和 ACL 都没有变化，旧地址仍可直达对应面板。
 
-> 安全提示：上传内核默认关闭。需要在 `Settings` 页勾选“允许手动上传内核”，并且登录用户具备 `luci-app-oxidns-core-upload` ACL 组权限（默认 root 账号具备）；上传的二进制不会在校验阶段执行，仅作为服务内核运行。`Geo Data` 页可填写可选 SHA-256 校验值，下载内容校验失败会保留现有数据。
+| 一级入口 | 子标签 | 用途 |
+|---|---|---|
+| `Overview` | 概览 | 内核 / 服务状态、WebUI 入口、配置路径、诊断快捷入口 |
+| `Overview` | DNS Hijack | LAN 53 端口重定向开关、目标端口来源、防火墙段状态 |
+| `Configuration` | YAML 配置 | CodeMirror 高亮编辑、校验、保存 `config.yaml` |
+| `Configuration` | Settings | 仓库、bundle、代理、路径、日志与 API 凭据管理 |
+| `Configuration` | 预热 | 预热开关、域名清单、目标地址与周期、手动执行 |
+| `Data & Updates` | 内核 | 安装、上传、升级、修复或移除内核 |
+| `Data & Updates` | 规则基线 | 规则基线状态、检查更新、一键更新 |
+| `Data & Updates` | Geo 数据 | geoip.dat / geosite.dat 状态、下载地址、目录、在线更新 |
+| `Logs` | — | 过滤和刷新日志，探测全部上游的应答 / TTL / 耗时 |
+
+子标签采用懒渲染：只有首次切到该标签时才构建界面，避免编辑器在隐藏面板里量到零宽度，也不会让后台轮询同时跑满。
+
+> 安全提示：上传内核默认关闭。需要在 `Configuration -> Settings` 勾选“允许手动上传内核”，并且登录用户具备 `luci-app-oxidns-core-upload` ACL 组权限（默认 root 账号具备）；上传的二进制不会在校验阶段执行，仅作为服务内核运行。`Data & Updates -> Geo 数据` 可填写可选 SHA-256 校验值，下载内容校验失败会保留现有数据。
 
 ## 快速开始
 
 1. 按下面的“构建与安装”把插件装进固件或路由器。
-2. 设置 API 密码，密码只保存在 UCI：
+2. 打开 `Services -> OxiDNS -> Configuration -> Settings` 子标签的 `API credentials`，点 `Generate credentials`，立即复制并保存。凭据写入 `/etc/oxidns/api-auth.env`（权限 `0600`），不会写入 UCI。旧版 UCI 密码可用 `Migrate UCI password` 一键迁移并清除。
+3. 在 `Configuration -> YAML 配置` 子标签按需编辑 `config.yaml`，点 `Save & Restart`。配置里使用 `${OXIDNS_API_USER}` / `${OXIDNS_API_PASS}` 引用凭据。
+4. 打开 `Overview`，启动服务并启用开机自启；页面上的 `Diagnostics` 可直达上游探测和凭据管理。
+5. 打开 `Configuration -> 预热` 子标签，确认目标地址与 `config.yaml` 中的监听一致，点 `Run now` 立即预热。
+6. 打开 `Logs -> Upstream probe`，从 `config.yaml` 读取全部上游并直接查询，查看应答、TTL、耗时与不可探测原因。
 
-   ```sh
-   uci set oxidns.main.api_pass="$(openssl rand -base64 24)"
-   uci commit oxidns
-   /etc/init.d/rpcd restart
-   ```
-
-3. 打开 `Services -> OxiDNS -> Configuration`，按需编辑 `config.yaml`，点 `Save & Restart`。
-4. 打开 `Overview`，启动服务并启用开机自启。
-5. 打开 `Prewarm`，确认目标地址与 `config.yaml` 中的监听一致，点 `Run now` 立即预热。
+> Basic Auth 用 Base64 传输凭据，不是加密。管理 API 应只监听回环地址；如需远程访问，请启用 TLS 或通过 VPN 暴露。
 
 ## 域名预热（Prewarm）
 
