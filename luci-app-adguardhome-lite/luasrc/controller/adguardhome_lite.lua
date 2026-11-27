@@ -706,7 +706,7 @@ function index()
     local root = entry(
         { "admin", "services", "adguardhome_lite" },
         template("adguardhome_lite/wrapper"),
-        "ADH管理中心",
+        "AGH管理中心",
         60
     )
     root.dependent = true
