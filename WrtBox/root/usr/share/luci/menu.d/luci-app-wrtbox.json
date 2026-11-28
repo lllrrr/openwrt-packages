@@ -1,0 +1,45 @@
+{
+	"admin/services/wrtbox": {
+		"title": "WrtBox",
+		"order": 60,
+		"action": {
+			"type": "firstchild"
+		},
+		"depends": {
+			"acl": [ "luci-app-wrtbox" ],
+			"uci": { "wrtbox": true }
+		}
+	},
+	"admin/services/wrtbox/overview": {
+		"title": "Overview",
+		"order": 1,
+		"action": {
+			"type": "view",
+			"path": "wrtbox/overview"
+		}
+	},
+	"admin/services/wrtbox/settings": {
+		"title": "Core",
+		"order": 2,
+		"action": {
+			"type": "view",
+			"path": "wrtbox/settings"
+		}
+	},
+	"admin/services/wrtbox/profiles": {
+		"title": "Subscriptions",
+		"order": 3,
+		"action": {
+			"type": "view",
+			"path": "wrtbox/profiles"
+		}
+	},
+	"admin/services/wrtbox/log": {
+		"title": "Logs",
+		"order": 4,
+		"action": {
+			"type": "view",
+			"path": "wrtbox/log"
+		}
+	}
+}

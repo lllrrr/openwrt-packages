@@ -1,0 +1,24 @@
+#!/bin/sh
+
+[ "$ACTION" = "ifup" ] || exit 0
+[ "$INTERFACE" = "wan" ] || [ "$INTERFACE" = "wan6" ] || exit 0
+
+enabled="$(uci -q get wrtbox.main.enabled)"
+[ "$enabled" = "1" ] || exit 0
+
+core_path="$(uci -q get wrtbox.main.core_path)"
+[ -z "$core_path" ] && core_path="/usr/libexec/wrtbox/sing-box"
+
+# If running from volatile /tmp storage and binary is absent after boot, trigger delayed start once WAN is up
+if [ ! -x "$core_path" ]; then
+	case "$core_path" in
+		/tmp/*)
+			(
+				sleep 5
+				/etc/init.d/wrtbox start >/dev/null 2>&1
+			) &
+			;;
+	esac
+fi
+
+exit 0

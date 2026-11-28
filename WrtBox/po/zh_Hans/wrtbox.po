@@ -1,0 +1,382 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: zh_Hans\n"
+
+msgid "WrtBox"
+msgstr "WrtBox"
+
+msgid "Overview"
+msgstr "概览"
+
+msgid "Subscriptions"
+msgstr "订阅"
+
+msgid "Logs"
+msgstr "日志"
+
+msgid "Status"
+msgstr "状态"
+
+msgid "Service"
+msgstr "服务"
+
+msgid "Service Status"
+msgstr "服务状态"
+
+msgid "Core"
+msgstr "内核"
+
+msgid "Core Version"
+msgstr "内核版本"
+
+msgid "Profile"
+msgstr "配置文件"
+
+msgid "Inbounds"
+msgstr "入站模式"
+
+msgid "Arch"
+msgstr "架构"
+
+msgid "Free"
+msgstr "可用空间"
+
+msgid "Running (PID: %s, RAM: %s)"
+msgstr "运行中 (PID: %s, 内存: %s)"
+
+msgid "Stopped"
+msgstr "已停止"
+
+msgid "Installed"
+msgstr "已安装"
+
+msgid "Not Installed"
+msgstr "未安装"
+
+msgid "None"
+msgstr "未选择"
+
+msgid "Start"
+msgstr "启动"
+
+msgid "Stop"
+msgstr "停止"
+
+msgid "Restart"
+msgstr "重启"
+
+msgid "Open Panel"
+msgstr "打开面板"
+
+msgid "clash_api is not configured in the active profile"
+msgstr "当前配置未启用 clash_api"
+
+msgid "Service is not running"
+msgstr "服务未运行"
+
+msgid "Note: external_controller is 127.0.0.1; use 0.0.0.0 for LAN access"
+msgstr "提示：当前 external_controller 为 127.0.0.1，局域网访问请改为 0.0.0.0"
+
+msgid "Action \"%s\" failed: %s"
+msgstr "操作“%s”失败：%s"
+
+msgid "Core Settings"
+msgstr "内核设置"
+
+msgid "Subscription Settings"
+msgstr "订阅设置"
+
+msgid "Save Settings"
+msgstr "保存设置"
+
+msgid "Settings saved."
+msgstr "设置已保存。"
+
+msgid "Subscription"
+msgstr "订阅"
+
+msgid "Core Binary Path"
+msgstr "内核路径"
+
+msgid "Independent installation path for sing-box. Does not overwrite /usr/bin/sing-box."
+msgstr "社区版 sing-box 独立存放路径，不覆盖系统内置 /usr/bin/sing-box。"
+
+msgid "Flash"
+msgstr "闪存"
+
+msgid "RAM"
+msgstr "内存"
+
+msgid "External"
+msgstr "外置存储"
+
+msgid "Release Channel"
+msgstr "更新频道"
+
+msgid "Stable"
+msgstr "正式版"
+
+msgid "Testing"
+msgstr "测试版"
+
+msgid "CDN Acceleration"
+msgstr "CDN 加速"
+
+msgid "Accelerate GitHub downloads for core binary installation and updates."
+msgstr "仅用于加速社区版内核下载与更新。"
+
+msgid "CDN URL"
+msgstr "CDN 地址"
+
+msgid "Core Management"
+msgstr "内核管理"
+
+msgid "Check"
+msgstr "检查更新"
+
+msgid "Install Core"
+msgstr "安装内核"
+
+msgid "Update Core"
+msgstr "更新内核"
+
+msgid "Uninstall Core"
+msgstr "卸载内核"
+
+msgid "Confirm Uninstall"
+msgstr "确认卸载"
+
+msgid "Core uninstalled."
+msgstr "内核已卸载。"
+
+msgid "Install (%s)"
+msgstr "安装 (%s)"
+
+msgid "Test CDN"
+msgstr "测试 CDN"
+
+msgid "Testing..."
+msgstr "测试中..."
+
+msgid "OK (HTTP %d, %d ms)"
+msgstr "正常 (HTTP %d, %d ms)"
+
+msgid "Failed"
+msgstr "失败"
+
+msgid "Checking..."
+msgstr "查询中..."
+
+msgid "Latest: "
+msgstr "最新版本："
+
+msgid "Check failed: %s"
+msgstr "检查失败：%s"
+
+msgid "Failed: %s"
+msgstr "失败：%s"
+
+msgid "Current: %s (%s)"
+msgstr "当前版本：%s (%s)"
+
+msgid "Core binary not installed yet (%s)."
+msgstr "尚未安装内核 (%s)。"
+
+msgid "Auto-Update Core"
+msgstr "定时更新"
+
+msgid "Cron Schedule"
+msgstr "Cron 表达式"
+
+msgid "Auto-Update Subscriptions"
+msgstr "定时更新"
+
+msgid "User-Agent"
+msgstr "User-Agent"
+
+msgid "Upload JSON"
+msgstr "上传 JSON"
+
+msgid "Add Subscription"
+msgstr "添加订阅"
+
+msgid "Update All"
+msgstr "全部更新"
+
+msgid "All"
+msgstr "全部"
+
+msgid "Name"
+msgstr "名称"
+
+msgid "Type"
+msgstr "类型"
+
+msgid "Size"
+msgstr "大小"
+
+msgid "Updated"
+msgstr "更新时间"
+
+msgid "Actions"
+msgstr "操作"
+
+msgid "Active"
+msgstr "已激活"
+
+msgid "Inactive"
+msgstr "未激活"
+
+msgid "Activate"
+msgstr "激活"
+
+msgid "Update"
+msgstr "更新"
+
+msgid "Edit"
+msgstr "编辑"
+
+msgid "Delete"
+msgstr "删除"
+
+msgid "Confirm Delete"
+msgstr "确认删除"
+
+msgid "Local"
+msgstr "本地"
+
+msgid "Cancel"
+msgstr "取消"
+
+msgid "Save"
+msgstr "保存"
+
+msgid "Save & Fetch"
+msgstr "保存并拉取"
+
+msgid "Profile Name"
+msgstr "配置名称"
+
+msgid "Subscription URL"
+msgstr "订阅链接"
+
+msgid "JSON Content"
+msgstr "JSON 内容"
+
+msgid "Format JSON"
+msgstr "格式化"
+
+msgid "Add Local JSON"
+msgstr "添加本地配置"
+
+msgid "Edit Profile: %s"
+msgstr "编辑配置：%s"
+
+msgid "No profiles yet."
+msgstr "暂无配置，请上传 JSON 或添加订阅。"
+
+msgid "Core Log"
+msgstr "内核日志"
+
+msgid "Plugin Log"
+msgstr "插件日志"
+
+msgid "Refresh"
+msgstr "刷新"
+
+msgid "Clear"
+msgstr "清空"
+
+msgid "No log entries available."
+msgstr "暂无日志。"
+
+msgid "Panel"
+msgstr "面板"
+
+msgid "Panel URL"
+msgstr "面板地址"
+
+msgid "Starting..."
+msgstr "启动中..."
+
+msgid "Stopping..."
+msgstr "停止中..."
+
+msgid "Restarting..."
+msgstr "重启中..."
+
+msgid "Service started."
+msgstr "服务已启动。"
+
+msgid "Service stopped."
+msgstr "服务已停止。"
+
+msgid "Service restarted."
+msgstr "服务已重启。"
+
+msgid "Done."
+msgstr "完成。"
+
+msgid "RPC error: %s"
+msgstr "通信错误：%s"
+
+msgid "Service is stopped. Start the service before opening the panel."
+msgstr "服务未运行，请先启动服务后再打开面板。"
+
+msgid "Auto-filled from API service config. You can also edit the URL manually."
+msgstr "已自动读取配置中的 API 面板地址，也可手动修改。"
+
+msgid "Auto-filled from clash_api. You can also edit the URL manually."
+msgstr "已自动读取配置中的 Clash API 地址与密钥，也可手动修改。"
+
+msgid "Note: API listen is 127.0.0.1; use 0.0.0.0 for LAN access"
+msgstr "提示：当前 API 监听为 127.0.0.1，局域网访问请改为 0.0.0.0"
+
+msgid "No panel config detected in profile; using official panel by default."
+msgstr "当前配置未写面板设置，默认启用内置面板（:9191）。"
+
+msgid "Please enter a valid http:// or https:// panel URL."
+msgstr "请输入有效的 http:// 或 https:// 面板地址。"
+
+msgid "Testing all CDNs..."
+msgstr "正在自动测试所有 CDN..."
+
+msgid "Fastest: %s (%d ms, %d/%d available)"
+msgstr "最快节点：%s (%d ms，共 %d/%d 个可用)"
+
+msgid "All CDN nodes failed or timed out"
+msgstr "所有 CDN 节点均连接失败或超时"
+
+msgid "Fetching \"%s\"..."
+msgstr "正在拉取“%s”..."
+
+msgid "Updating \"%s\"..."
+msgstr "正在更新“%s”..."
+
+msgid "Fetch failed: %s"
+msgstr "拉取失败：%s"
+
+msgid "Update failed: %s"
+msgstr "更新失败：%s"
+
+msgid "Activation failed: %s"
+msgstr "激活失败：%s"
+
+msgid "Save failed: %s"
+msgstr "保存失败：%s"
+
+msgid "Invalid JSON: %s"
+msgstr "JSON 格式无效：%s"
+
+msgid "Invalid JSON syntax: %s"
+msgstr "JSON 语法错误：%s"
+
+msgid "Please enter a profile name."
+msgstr "请输入配置名称。"
+
+msgid "Subscription URL must start with http:// or https://"
+msgstr "订阅链接必须以 http:// 或 https:// 开头"
+
+msgid "Please upload or enter sing-box JSON content."
+msgstr "请上传或输入 sing-box JSON 配置内容。"

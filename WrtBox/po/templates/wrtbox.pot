@@ -1,0 +1,368 @@
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8\n"
+
+msgid "WrtBox"
+msgstr ""
+
+msgid "Overview"
+msgstr ""
+
+msgid "Subscriptions"
+msgstr ""
+
+msgid "Logs"
+msgstr ""
+
+msgid "Status"
+msgstr ""
+
+msgid "Service"
+msgstr ""
+
+msgid "Service Status"
+msgstr ""
+
+msgid "Core"
+msgstr ""
+
+msgid "Core Version"
+msgstr ""
+
+msgid "Profile"
+msgstr ""
+
+msgid "Inbounds"
+msgstr ""
+
+msgid "Arch"
+msgstr ""
+
+msgid "Free"
+msgstr ""
+
+msgid "Running (PID: %s, RAM: %s)"
+msgstr ""
+
+msgid "Stopped"
+msgstr ""
+
+msgid "Installed"
+msgstr ""
+
+msgid "Not Installed"
+msgstr ""
+
+msgid "None"
+msgstr ""
+
+msgid "Start"
+msgstr ""
+
+msgid "Stop"
+msgstr ""
+
+msgid "Restart"
+msgstr ""
+
+msgid "Open Panel"
+msgstr ""
+
+msgid "Core Settings"
+msgstr ""
+
+msgid "Subscription Settings"
+msgstr ""
+
+msgid "Save Settings"
+msgstr ""
+
+msgid "Settings saved."
+msgstr ""
+
+msgid "Subscription"
+msgstr ""
+
+msgid "Core Binary Path"
+msgstr ""
+
+msgid "Release Channel"
+msgstr ""
+
+msgid "CDN Acceleration"
+msgstr ""
+
+msgid "CDN URL"
+msgstr ""
+
+msgid "Core Management"
+msgstr ""
+
+msgid "Check"
+msgstr ""
+
+msgid "Install Core"
+msgstr ""
+
+msgid "Update Core"
+msgstr ""
+
+msgid "Uninstall Core"
+msgstr ""
+
+msgid "Confirm Uninstall"
+msgstr ""
+
+msgid "Core uninstalled."
+msgstr ""
+
+msgid "Test CDN"
+msgstr ""
+
+msgid "Auto-Update Core"
+msgstr ""
+
+msgid "Cron Schedule"
+msgstr ""
+
+msgid "Auto-Update Subscriptions"
+msgstr ""
+
+msgid "User-Agent"
+msgstr ""
+
+msgid "Upload JSON"
+msgstr ""
+
+msgid "Add Subscription"
+msgstr ""
+
+msgid "Update All"
+msgstr ""
+
+msgid "Name"
+msgstr ""
+
+msgid "Type"
+msgstr ""
+
+msgid "Size"
+msgstr ""
+
+msgid "Updated"
+msgstr ""
+
+msgid "Actions"
+msgstr ""
+
+msgid "Active"
+msgstr ""
+
+msgid "Inactive"
+msgstr ""
+
+msgid "Activate"
+msgstr ""
+
+msgid "Update"
+msgstr ""
+
+msgid "Edit"
+msgstr ""
+
+msgid "Delete"
+msgstr ""
+
+msgid "Confirm Delete"
+msgstr ""
+
+msgid "Local"
+msgstr ""
+
+msgid "Cancel"
+msgstr ""
+
+msgid "Save"
+msgstr ""
+
+msgid "Save & Fetch"
+msgstr ""
+
+msgid "Core Log"
+msgstr ""
+
+msgid "Plugin Log"
+msgstr ""
+
+msgid "Refresh"
+msgstr ""
+
+msgid "Clear"
+msgstr ""
+
+msgid "Panel"
+msgstr ""
+
+msgid "Panel URL"
+msgstr ""
+
+msgid "Starting..."
+msgstr ""
+
+msgid "Stopping..."
+msgstr ""
+
+msgid "Restarting..."
+msgstr ""
+
+msgid "Service started."
+msgstr ""
+
+msgid "Service stopped."
+msgstr ""
+
+msgid "Service restarted."
+msgstr ""
+
+msgid "Done."
+msgstr ""
+
+msgid "RPC error: %s"
+msgstr ""
+
+msgid "Service is stopped. Start the service before opening the panel."
+msgstr ""
+
+msgid "Auto-filled from API service config. You can also edit the URL manually."
+msgstr ""
+
+msgid "Auto-filled from clash_api. You can also edit the URL manually."
+msgstr ""
+
+msgid "Note: API listen is 127.0.0.1; use 0.0.0.0 for LAN access"
+msgstr ""
+
+msgid "No panel config detected in profile; using official panel by default."
+msgstr ""
+
+msgid "Please enter a valid http:// or https:// panel URL."
+msgstr ""
+
+msgid "Testing all CDNs..."
+msgstr ""
+
+msgid "Fastest: %s (%d ms, %d/%d available)"
+msgstr ""
+
+msgid "All CDN nodes failed or timed out"
+msgstr ""
+
+msgid "Accelerate GitHub downloads for core binary installation and updates."
+msgstr ""
+
+msgid "Action \"%s\" failed: %s"
+msgstr ""
+
+msgid "Activation failed: %s"
+msgstr ""
+
+msgid "Add Local JSON"
+msgstr ""
+
+msgid "All"
+msgstr ""
+
+msgid "Check failed: %s"
+msgstr ""
+
+msgid "Checking..."
+msgstr ""
+
+msgid "Core binary not installed yet (%s)."
+msgstr ""
+
+msgid "Current: %s (%s)"
+msgstr ""
+
+msgid "Edit Profile: %s"
+msgstr ""
+
+msgid "External"
+msgstr ""
+
+msgid "Failed"
+msgstr ""
+
+msgid "Failed: %s"
+msgstr ""
+
+msgid "Fetch failed: %s"
+msgstr ""
+
+msgid "Fetching \"%s\"..."
+msgstr ""
+
+msgid "Flash"
+msgstr ""
+
+msgid "Format JSON"
+msgstr ""
+
+msgid "Independent installation path for sing-box. Does not overwrite /usr/bin/sing-box."
+msgstr ""
+
+msgid "Install (%s)"
+msgstr ""
+
+msgid "Invalid JSON syntax: %s"
+msgstr ""
+
+msgid "Invalid JSON: %s"
+msgstr ""
+
+msgid "JSON Content"
+msgstr ""
+
+msgid "Latest: "
+msgstr ""
+
+msgid "No log entries available."
+msgstr ""
+
+msgid "No profiles yet."
+msgstr ""
+
+msgid "Note: external_controller is 127.0.0.1; use 0.0.0.0 for LAN access"
+msgstr ""
+
+msgid "Please enter a profile name."
+msgstr ""
+
+msgid "Please upload or enter sing-box JSON content."
+msgstr ""
+
+msgid "Profile Name"
+msgstr ""
+
+msgid "RAM"
+msgstr ""
+
+msgid "Save failed: %s"
+msgstr ""
+
+msgid "Stable"
+msgstr ""
+
+msgid "Subscription URL"
+msgstr ""
+
+msgid "Subscription URL must start with http:// or https://"
+msgstr ""
+
+msgid "Testing"
+msgstr ""
+
+msgid "Update failed: %s"
+msgstr ""
+
+msgid "Updating \"%s\"..."
+msgstr ""

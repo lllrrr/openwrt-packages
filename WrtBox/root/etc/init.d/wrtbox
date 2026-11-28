@@ -1,0 +1,107 @@
+#!/bin/sh /etc/rc.common
+
+START=99
+STOP=10
+USE_PROCD=1
+
+PROG_NAME="wrtbox"
+ACTIVE_CONF="/etc/wrtbox/active.json"
+BACKUP_CONF="/etc/wrtbox/active.json.bak"
+TASK_LOG="/tmp/log/wrtbox-tasks.log"
+
+log_msg() {
+	mkdir -p /tmp/log
+	printf '[%s] [init] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" >> "$TASK_LOG"
+	logger -t wrtbox "$1"
+}
+
+ensure_core_binary() {
+	local core_path
+	core_path="$(uci -q get wrtbox.main.core_path)"
+	[ -z "$core_path" ] && core_path="/usr/libexec/wrtbox/sing-box"
+
+	if [ -x "$core_path" ]; then
+		echo "$core_path"
+		return 0
+	fi
+
+	# Auto-fetch if binary was stored in volatile /tmp storage after reboot
+	case "$core_path" in
+		/tmp/*)
+			log_msg "Core binary missing in volatile path ($core_path), attempting auto-download..."
+			if /usr/libexec/wrtbox/core-manager.sh install >> "$TASK_LOG" 2>&1; then
+				if [ -x "$core_path" ]; then
+					echo "$core_path"
+					return 0
+				fi
+			fi
+			;;
+	esac
+
+	log_msg "ERROR: sing-box binary not found or not executable at $core_path"
+	return 1
+}
+
+start_service() {
+	local enabled core_path active_profile fw4_auto_tun
+
+	config_load "$PROG_NAME"
+	config_get_bool enabled main enabled 0
+	[ "$enabled" -eq 1 ] || return 0
+
+	core_path="$(ensure_core_binary)" || return 1
+
+	active_profile="$(uci -q get wrtbox.main.active_profile)"
+	if [ -n "$active_profile" ] && [ -f "/etc/wrtbox/profiles/${active_profile}.json" ]; then
+		/usr/libexec/wrtbox/sub-manager.uc prepare "$active_profile" >/dev/null 2>&1 || true
+	fi
+
+	if [ ! -s "$ACTIVE_CONF" ]; then
+		log_msg "ERROR: No active configuration found at $ACTIVE_CONF"
+		return 1
+	fi
+
+	if ! "$core_path" check -c "$ACTIVE_CONF" >/tmp/wrtbox-check.err 2>&1; then
+		log_msg "ERROR: Active config validation failed: $(tr '\n' ' ' < /tmp/wrtbox-check.err)"
+		rm -f /tmp/wrtbox-check.err
+		if [ -s "$BACKUP_CONF" ] && "$core_path" check -c "$BACKUP_CONF" >/dev/null 2>&1; then
+			cp -f "$BACKUP_CONF" "$ACTIVE_CONF"
+			log_msg "WARN: Restored previous working configuration from backup."
+		else
+			return 1
+		fi
+	fi
+	rm -f /tmp/wrtbox-check.err
+
+	config_get_bool fw4_auto_tun main fw4_auto_tun 1
+	if [ "$fw4_auto_tun" -eq 1 ]; then
+		/usr/libexec/wrtbox/fw4-tun.sh apply >/dev/null 2>&1
+	else
+		/usr/libexec/wrtbox/fw4-tun.sh clean >/dev/null 2>&1
+	fi
+
+	procd_open_instance "$PROG_NAME"
+	procd_set_param command "$core_path" run -c "$ACTIVE_CONF"
+	procd_set_param limits nofile="65535 65535"
+	procd_set_param respawn 3600 5 5
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_set_param file "$ACTIVE_CONF"
+	procd_close_instance
+
+	log_msg "Service started with $core_path"
+}
+
+stop_service() {
+	/usr/libexec/wrtbox/fw4-tun.sh clean >/dev/null 2>&1
+	log_msg "Service stopped"
+}
+
+reload_service() {
+	stop
+	start
+}
+
+service_triggers() {
+	procd_add_reload_trigger "wrtbox"
+}

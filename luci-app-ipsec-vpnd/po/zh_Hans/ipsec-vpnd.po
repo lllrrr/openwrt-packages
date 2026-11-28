@@ -1,0 +1,189 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-11-28 11:47+0800\n"
+"Last-Translator: Automatically generated\n"
+"Language-Team: none\n"
+"Language: zh-Hans\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:60
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:62
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:64
+msgid "IPSec VPN"
+msgstr "IPSec VPN"
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:60
+msgid "DISABLED"
+msgstr "已停用"
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:62
+msgid "RUNNING"
+msgstr "运行中"
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:64
+msgid "NOT RUNNING"
+msgstr "未运行"
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:84
+#, fuzzy
+msgid "Failed to apply the configuration."
+msgstr "授予访问 ipsec 配置的权限"
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:89
+msgid "IPSec VPN Server"
+msgstr "IPSec VPN 服务器"
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:90
+msgid ""
+"IPSec VPN connectivity using the native built-in VPN Client on iOS or "
+"Android (IKEv1 with PSK and Xauth)"
+msgstr ""
+"使用iOS 或者 Android (IKEv1 with PSK and Xauth) 原生内置 IPSec VPN 客户端进行"
+"连接"
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:149
+msgid "Missing dependencies"
+msgstr "缺少依赖"
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:155
+msgid "Install the missing packages with:"
+msgstr "请先安装缺失的软件包："
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:161
+msgid "IKEv1 is unavailable; IKEv2 still works."
+msgstr "IKEv1 不可用，IKEv2 仍可正常使用。"
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:167
+msgid "To enable IKEv1, install:"
+msgstr "如需启用 IKEv1，请安装："
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:186
+msgid "Failed to retrieve VPN client information."
+msgstr "获取 VPN 客户端信息失败"
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:191
+msgid "No VPN clients are connected."
+msgstr "当前没有 VPN 客户端在线"
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:203
+msgid "Assigned IP pending"
+msgstr "分配地址未就绪"
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:209
+msgid "Connected"
+msgstr "已连接"
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:209
+msgid "Disconnected"
+msgstr "已断开"
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:226
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:320
+msgid "Collecting data..."
+msgstr "正在收集数据中..."
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:247
+msgid "Enable"
+msgstr "启用"
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:251
+msgid "VPN Client IP"
+msgstr "VPN客户端地址段"
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:252
+msgid ""
+"Starting IP of the VPN client address pool (CIDR notation). Use a private "
+"subnet that does not overlap the LAN, e.g. 10.9.8.10/24"
+msgstr ""
+"VPN 客户端地址池的起始地址（CIDR 记法）。使用与 LAN 不重叠的私网网段，例如 "
+"10.9.8.10/24"
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:258
+msgid "VPN Client DNS"
+msgstr "VPN客户端DNS服务器"
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:259
+msgid ""
+"DNS server assigned to VPN clients. Use the VPN gateway (ipsec0) address, "
+"e.g. 10.9.8.1"
+msgstr ""
+"分配给 VPN 客户端的 DNS 服务器。使用 VPN 网关（ipsec0）地址，例如 10.9.8.1"
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:275
+msgid ""
+"Only printable ASCII is allowed: no spaces, tabs or other control characters."
+msgstr "只允许可打印 ASCII 字符：不能含空格、制表符等控制字符。"
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:277
+msgid ""
+"The characters \" and \\ are not allowed: they break the ipsec.secrets "
+"syntax."
+msgstr "不能含 \" 与 \\：它们会破坏 ipsec.secrets 的语法。"
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:281
+msgid "Account"
+msgstr "账户"
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:285
+msgid "Password"
+msgstr "密码"
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:290
+msgid "Secret Pre-Shared Key"
+msgstr "PSK密钥"
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:295
+msgid "Enable IKEv2 (PSK + MOBIKE)"
+msgstr "启用 IKEv2（PSK + MOBIKE）"
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:296
+msgid ""
+"Adds an IKEv2 connection for the native iOS/Android IKEv2 client. It "
+"supports MOBIKE, so the phone keeps the tunnel while switching between Wi-Fi "
+"and cellular. It authenticates with the PSK only (no username/password), so "
+"use a strong PSK; existing IKEv1 clients are unaffected."
+msgstr ""
+"为 iOS/Android 原生 IKEv2 客户端增加一条 IKEv2 连接。它支持 MOBIKE，手机在 "
+"Wi-Fi 与蜂窝网络之间切换时可保持隧道。该连接仅用 PSK 认证（不再校验账号密"
+"码），请使用足够强的 PSK；原有 IKEv1 客户端不受影响。"
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:311
+msgid "User"
+msgstr "用户"
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:312
+msgid "Remote Address"
+msgstr "来源地址"
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:313
+msgid "Assigned IP"
+msgstr "分配的 IP"
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:314
+msgid "Duration"
+msgstr "连接时长"
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:315
+msgid "Status"
+msgstr "状态"
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:328
+msgid "Clear all client history records?"
+msgstr "确定要清除所有客户端历史记录吗？"
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:332
+#, fuzzy
+msgid "Failed to clear the client history."
+msgstr "获取 VPN 客户端信息失败"
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:336
+msgid "Clear history"
+msgstr "清除历史"
+
+#: htdocs/luci-static/resources/view/ipsec-vpnd.js:339
+msgid "IPSec VPN Clients"
+msgstr "IPSec VPN 客户端"

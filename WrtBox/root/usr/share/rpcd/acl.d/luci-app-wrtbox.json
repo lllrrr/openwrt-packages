@@ -1,0 +1,38 @@
+{
+	"luci-app-wrtbox": {
+		"description": "Grant UCI and RPC access for WRTBox sing-box manager",
+		"read": {
+			"ubus": {
+				"luci.wrtbox": [
+					"get_status",
+					"check_core_update",
+					"get_core_task",
+					"test_cdn",
+					"list_profiles",
+					"get_profile_content",
+					"get_logs"
+				],
+				"service": [ "list" ]
+			},
+			"uci": [ "wrtbox" ]
+		},
+		"write": {
+			"ubus": {
+				"luci.wrtbox": [
+					"service_action",
+					"install_core",
+					"uninstall_core",
+					"save_cdn",
+					"save_profile",
+					"delete_profile",
+					"activate_profile",
+					"update_subscription",
+					"save_sub_settings",
+					"clear_logs",
+					"sync_cron"
+				]
+			},
+			"uci": [ "wrtbox" ]
+		}
+	}
+}

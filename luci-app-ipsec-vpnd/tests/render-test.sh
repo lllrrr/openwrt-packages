@@ -1,0 +1,339 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+#
+# luci-ipsec-vpnd-render 的离线回归测试。
+#
+# 渲染器把 /etc/config/ipsec-vpnd 翻译成 strongSwan 的 ipsec.conf / ipsec.secrets，
+# 这里用一个临时根目录 + 假的 lib/functions.sh 桩件来跑它，不碰真实配置。
+#
+# 覆盖：
+#   1. enabled=1 时生成 conn，rightsourceip/rightdns 与 UCI 一致
+#   2. ipsec.secrets 权限 0600，且含 PSK 与 XAuth 两行
+#   3. enabled=0 时不生成 conn，并清掉遗留的 ipsec.secrets
+#   4. 依赖自检不通过时不生成任何文件、退出码非 0
+#
+# 用法：sh tests/render-test.sh [渲染器路径]
+
+set -u
+
+RENDER="${1:-root/usr/lib/ipsec/luci-ipsec-vpnd-render}"
+# 在设备上跑时仓库路径不存在，退回安装后的路径
+[ -f "$RENDER" ] || RENDER="/usr/lib/ipsec/luci-ipsec-vpnd-render"
+[ -f "$RENDER" ] || { echo "找不到渲染器: $RENDER"; exit 1; }
+
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/render-test.XXXXXX")"
+trap 'rm -rf "$TMP"' EXIT
+
+fail=0
+check() {
+	# check <名称> <期望> <实际>
+	if [ "$2" = "$3" ]; then
+		echo "ok   - $1"
+	else
+		echo "FAIL - $1"
+		echo "       期望: [$2]"
+		echo "       实际: [$3]"
+		fail=1
+	fi
+}
+
+count_matches() {
+	# count_matches <正则> <文件>：匹配行数，文件不存在或无匹配都返回 0
+	if [ -f "$2" ]; then
+		grep -c "$1" "$2" 2>/dev/null | head -1
+	else
+		echo 0
+	fi
+}
+
+file_sum() {
+	# busybox 没有 cksum；md5sum/md5 两边都有
+	if command -v md5sum >/dev/null 2>&1; then
+		md5sum "$1" | cut -d' ' -f1
+	else
+		md5 -q "$1"
+	fi
+}
+
+file_mode() {
+	# 跨平台取权限（macOS / Linux / busybox 的 stat 参数都不一样，统一走 ls -l）
+	ls -l "$1" 2>/dev/null | awk '{
+		p = substr($1, 2, 9)
+		v = 0
+		for (i = 1; i <= 3; i++) {
+			d = 0
+			c = substr(p, i * 3 - 2, 1); if (c == "r") d += 4
+			c = substr(p, i * 3 - 1, 1); if (c == "w") d += 2
+			c = substr(p, i * 3,     1); if (c == "x") d += 1
+			v = v * 10 + d
+		}
+		print v
+	}'
+}
+
+# --- 桩件环境 ---------------------------------------------------------------
+mkdir -p "$TMP/lib" "$TMP/etc" "$TMP/bin" "$TMP/usr/lib/ipsec"
+
+cat > "$TMP/lib/functions.sh" <<'EOF'
+config_load() { :; }
+config_get() {
+	# config_get <var> <section> <option> <default>
+	_v="$(sed -n "s/^$3=//p" "$TEST_UCI" 2>/dev/null | head -n1)"
+	[ -n "$_v" ] || _v="$4"
+	eval "$1=\$_v"
+}
+EOF
+
+cat > "$TMP/bin/logger" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+chmod 0755 "$TMP/bin/logger"
+PATH="$TMP/bin:$PATH"
+export PATH
+
+# 默认模拟「有 xauth-generic 插件」的 6.0.x 环境；无 IKEv1 的用例会临时删掉它
+: > "$TMP/xauth-generic.conf"
+
+# 渲染器里的绝对路径统统换成临时目录
+sed -e "s|/etc/ipsec.conf|$TMP/etc/ipsec.conf|g" \
+    -e "s|/etc/ipsec.secrets|$TMP/etc/ipsec.secrets|g" \
+    -e "s|/usr/lib/ipsec/luci-ipsec-vpnd-deps|$TMP/usr/lib/ipsec/luci-ipsec-vpnd-deps|g" \
+    "$RENDER" > "$TMP/render"
+chmod 0755 "$TMP/render"
+
+run_render() {
+	TEST_UCI="$1" IPKG_INSTROOT="$TMP" IKEV1_PLUGIN_CONF="$TMP/xauth-generic.conf" \
+		"$TMP/render" >"$TMP/out" 2>&1
+	echo $?
+}
+
+# --- 1. enabled=1 ----------------------------------------------------------
+# 用非默认值：如果 stubs 或渲染器把选项名搞错（例如 clientip 写成 client_ip），
+# 值会退回内置默认 10.9.8.10/24，下面的断言就会失败。用默认值当输入的话，
+# 选项名写错也照样"通过"。
+cat > "$TMP/uci" <<'EOF'
+enabled=1
+clientip=172.30.0.50/24
+clientdns=172.30.0.1
+account=acc1
+password=pw1
+secret=psk1
+EOF
+
+rc="$(run_render "$TMP/uci")"
+check "enabled=1 时渲染成功" "0" "$rc"
+check "生成 conn xauth_psk" "1" "$(count_matches '^conn xauth_psk$' "$TMP/etc/ipsec.conf")"
+check "rightsourceip 取自 UCI" "1" "$(count_matches 'rightsourceip=172.30.0.50/24' "$TMP/etc/ipsec.conf")"
+check "rightdns 取自 UCI" "1" "$(count_matches 'rightdns=172.30.0.1' "$TMP/etc/ipsec.conf")"
+check "secrets 含 PSK" "1" "$(count_matches '^: PSK "psk1"$' "$TMP/etc/ipsec.secrets")"
+check "secrets 含 XAuth" "1" "$(count_matches '^acc1 : XAUTH "pw1"$' "$TMP/etc/ipsec.secrets")"
+check "secrets 权限 0600" "600" "$(file_mode "$TMP/etc/ipsec.secrets")"
+check "首次渲染报告 changed" "changed" "$(cat "$TMP/out")"
+check "IKEv1 开启 DPD" "1" "$(count_matches '^	dpdaction=clear$' "$TMP/etc/ipsec.conf")"
+check "DPD 探测间隔 30s" "1" "$(count_matches '^	dpddelay=30s$' "$TMP/etc/ipsec.conf")"
+check "DPD 超时 150s" "1" "$(count_matches '^	dpdtimeout=150s$' "$TMP/etc/ipsec.conf")"
+check "IKE/CHILD 生命周期已显式设置" "1" "$(count_matches '^	lifetime=4h$' "$TMP/etc/ipsec.conf")"
+check "默认不生成 IKEv2 conn" "0" "$(count_matches '^conn ikev2_psk$' "$TMP/etc/ipsec.conf")"
+
+# 幂等：同样的配置再渲染一次，报告 unchanged 且不改动文件
+before="$(file_sum "$TMP/etc/ipsec.conf")"
+rc="$(run_render "$TMP/uci")"
+check "重复渲染退出码 0" "0" "$rc"
+check "重复渲染报告 unchanged" "unchanged" "$(cat "$TMP/out")"
+check "重复渲染不改文件" "$before" "$(file_sum "$TMP/etc/ipsec.conf")"
+
+# --- 2. IKEv2 + MOBIKE -----------------------------------------------------
+cat > "$TMP/uci" <<'EOF'
+enabled=1
+clientip=10.9.8.10/24
+clientdns=10.9.8.1
+account=acc1
+password=pw1
+secret=psk1
+ikev2=1
+EOF
+
+rc="$(run_render "$TMP/uci")"
+check "ikev2=1 时渲染成功" "0" "$rc"
+check "ikev2=1 时生成 IKEv2 conn" "1" "$(count_matches '^conn ikev2_psk$' "$TMP/etc/ipsec.conf")"
+check "IKEv2 conn 开启 mobike" "1" "$(count_matches '^	mobike=yes$' "$TMP/etc/ipsec.conf")"
+check "IKEv2 复用 clientip 地址池" "2" "$(grep -c '^	rightsourceip=10.9.8.10/24$' "$TMP/etc/ipsec.conf")"
+check "IKEv2 复用 clientdns" "2" "$(grep -c '^	rightdns=10.9.8.1$' "$TMP/etc/ipsec.conf")"
+check "IKEv2 不需要 EAP 凭据" "0" "$(count_matches ': EAP ' "$TMP/etc/ipsec.secrets")"
+
+# --- 3. 无 IKEv1 插件（6.1 关闭 IKEv1 的构建） ------------------------------
+rm -f "$TMP/xauth-generic.conf"
+cat > "$TMP/uci" <<'EOF'
+enabled=1
+clientip=10.9.8.10/24
+clientdns=10.9.8.1
+account=acc1
+password=pw1
+secret=psk1
+ikev2=1
+EOF
+
+rc="$(run_render "$TMP/uci")"
+check "无 IKEv1 插件时渲染成功" "0" "$rc"
+check "无 IKEv1 插件时不生成 IKEv1 conn" "0" "$(count_matches '^conn xauth_psk$' "$TMP/etc/ipsec.conf")"
+check "无 IKEv1 插件时仍生成 IKEv2 conn" "1" "$(count_matches '^conn ikev2_psk$' "$TMP/etc/ipsec.conf")"
+check "无 IKEv1 插件时 secrets 不含 XAUTH" "0" "$(count_matches ': XAUTH ' "$TMP/etc/ipsec.secrets")"
+check "无 IKEv1 插件时 secrets 仍含 PSK" "1" "$(count_matches '^: PSK "psk1"$' "$TMP/etc/ipsec.secrets")"
+
+# 无 IKEv1 且没启用 IKEv2：两条路都没有，必须失败且不写配置
+cat > "$TMP/uci" <<'EOF'
+enabled=1
+clientip=10.9.8.10/24
+clientdns=10.9.8.1
+account=acc1
+password=pw1
+secret=psk1
+ikev2=0
+EOF
+rm -f "$TMP/etc/ipsec.conf"
+rc="$(run_render "$TMP/uci")"
+check "无 IKEv1 且无 IKEv2 时拒绝渲染" "1" "$([ "$rc" != "0" ] && echo 1 || echo 0)"
+check "无可用协议时不生成 ipsec.conf" "0" "$([ -e "$TMP/etc/ipsec.conf" ] && echo 1 || echo 0)"
+
+# 恢复插件，供后面的用例使用
+: > "$TMP/xauth-generic.conf"
+
+# --- 4. enabled=0 ----------------------------------------------------------
+cat > "$TMP/uci" <<'EOF'
+enabled=0
+clientip=10.9.8.10/24
+clientdns=10.9.8.1
+account=acc1
+password=pw1
+secret=psk1
+ikev2=1
+EOF
+
+rc="$(run_render "$TMP/uci")"
+check "enabled=0 时渲染成功" "0" "$rc"
+check "enabled=0 时不生成 conn" "0" "$(count_matches '^conn xauth_psk$' "$TMP/etc/ipsec.conf")"
+check "enabled=0 时不生成 IKEv2 conn" "0" "$(count_matches '^conn ikev2_psk$' "$TMP/etc/ipsec.conf")"
+check "enabled=0 时清掉遗留 secrets" "0" "$([ -e "$TMP/etc/ipsec.secrets" ] && echo 1 || echo 0)"
+check "enabled=0 时报告 changed" "changed" "$(cat "$TMP/out")"
+
+# --- 5. 凭据校验 ------------------------------------------------------------
+# 这些值会直接拼进 ipsec.secrets，含引号/反斜杠/空格/非 ASCII 会破坏语法，
+# 导致 charon 加载失败（整个服务不可用）。渲染器必须拒绝而不是照写。
+rm -f "$TMP/etc/ipsec.conf" "$TMP/etc/ipsec.secrets"
+write_bad() {
+	# write_bad <选项名> <值>：其余选项用合法值，被替换的那个只出现一次
+	# （stub 的 config_get 取第一行，重复写会让非法值永远读不到）
+	{
+		echo "enabled=1"
+		echo "clientip=10.9.8.10/24"
+		echo "clientdns=10.9.8.1"
+		echo "account=acc1"
+		echo "password=pw1"
+		echo "secret=psk1"
+	} | grep -v "^$1=" > "$TMP/uci"
+	printf '%s=%s\n' "$1" "$2" >> "$TMP/uci"
+}
+
+write_bad secret 'ab"c'
+rc="$(run_render "$TMP/uci")"
+check "PSK 含双引号时拒绝渲染" "1" "$([ "$rc" != "0" ] && echo 1 || echo 0)"
+check "PSK 含双引号时不写 ipsec.secrets" "0" "$([ -e "$TMP/etc/ipsec.secrets" ] && echo 1 || echo 0)"
+
+write_bad password 'ab\c'
+rc="$(run_render "$TMP/uci")"
+check "密码含反斜杠时拒绝渲染" "1" "$([ "$rc" != "0" ] && echo 1 || echo 0)"
+
+write_bad password 'pw 1'
+rc="$(run_render "$TMP/uci")"
+check "密码含空格时拒绝渲染" "1" "$([ "$rc" != "0" ] && echo 1 || echo 0)"
+
+write_bad account 'a#b'
+rc="$(run_render "$TMP/uci")"
+check "账号可含 #（不算非法字符）" "0" "$rc"
+
+# 默认占位值必须当成未配置：否则一键启用就是弱口令服务端
+rm -f "$TMP/etc/ipsec.secrets"
+{
+	echo "enabled=1"
+	echo "clientip=10.9.8.10/24"
+	echo "clientdns=10.9.8.1"
+	echo "account=vpnuser"
+	echo "password=changeme"
+	echo "secret=changeme"
+} > "$TMP/uci"
+rc="$(run_render "$TMP/uci")"
+check "默认占位凭据时拒绝启用" "1" "$([ "$rc" != "0" ] && echo 1 || echo 0)"
+check "默认占位凭据时不写 ipsec.secrets" "0" "$([ -e "$TMP/etc/ipsec.secrets" ] && echo 1 || echo 0)"
+
+# IKEv1 不可用时 account/password 不进 ipsec.secrets，不该再拦启用：
+# 否则只启用 IKEv2 的用户永远开不了服务，且报错指向一个他用不到的字段。
+rm -f "$TMP/etc/ipsec.secrets"
+{
+	echo "enabled=1"
+	echo "clientip=10.9.8.10/24"
+	echo "clientdns=10.9.8.1"
+	echo "account=vpnuser"
+	echo "password=changeme"
+	echo "secret=MyStrongPsk2026"
+	echo "ikev2=1"
+} > "$TMP/uci"
+mv "$TMP/xauth-generic.conf" "$TMP/xauth-generic.conf.off"
+rc="$(run_render "$TMP/uci")"
+check "IKEv1 不可用时默认 account/password 不阻塞 IKEv2" "0" "$rc"
+check "IKEv1 不可用时不写 XAUTH 行" "0" "$(count_matches 'XAUTH' "$TMP/etc/ipsec.secrets")"
+check "IKEv1 不可用时仍写出强 PSK" "1" "$(count_matches 'MyStrongPsk2026' "$TMP/etc/ipsec.secrets")"
+mv "$TMP/xauth-generic.conf.off" "$TMP/xauth-generic.conf"
+
+# 但 IKEv1 可用时默认 account 仍然要拦
+rm -f "$TMP/etc/ipsec.secrets"
+rc="$(run_render "$TMP/uci")"
+check "IKEv1 可用时默认 account 仍拒绝启用" "1" "$([ "$rc" != "0" ] && echo 1 || echo 0)"
+
+# secret 是两条路共用的 PSK，IKEv1 不可用时也必须是改过的
+rm -f "$TMP/etc/ipsec.secrets"
+sed 's/^secret=.*/secret=changeme/' "$TMP/uci" > "$TMP/uci2"
+mv "$TMP/xauth-generic.conf" "$TMP/xauth-generic.conf.off"
+rc="$(run_render "$TMP/uci2")"
+check "IKEv1 不可用时默认 PSK 仍拒绝启用" "1" "$([ "$rc" != "0" ] && echo 1 || echo 0)"
+mv "$TMP/xauth-generic.conf.off" "$TMP/xauth-generic.conf"
+
+# 停用时不该因为凭据问题而失败（用户就是要关掉）
+{
+	echo "enabled=0"
+	echo "account=vpnuser"
+	echo "password=changeme"
+	echo "secret=changeme"
+} > "$TMP/uci"
+rc="$(run_render "$TMP/uci")"
+check "停用时默认凭据不阻塞" "0" "$rc"
+
+# --- 6. 依赖自检不通过 -----------------------------------------------------
+cat > "$TMP/uci" <<'EOF'
+enabled=1
+clientip=10.9.8.10/24
+clientdns=10.9.8.1
+account=acc1
+password=pw1
+secret=psk1
+EOF
+
+cat > "$TMP/usr/lib/ipsec/luci-ipsec-vpnd-deps" <<'EOF'
+#!/bin/sh
+[ "$1" = "files" ] || [ "$1" = "files-required" ] && echo "starter|missing|/usr/lib/ipsec/starter"
+exit 1
+EOF
+chmod 0755 "$TMP/usr/lib/ipsec/luci-ipsec-vpnd-deps"
+
+rm -f "$TMP/etc/ipsec.conf" "$TMP/etc/ipsec.secrets"
+rc="$(run_render "$TMP/uci")"
+check "依赖缺失时退出码非 0" "1" "$([ "$rc" != "0" ] && echo 1 || echo 0)"
+check "依赖缺失时不生成 ipsec.conf" "0" "$([ -e "$TMP/etc/ipsec.conf" ] && echo 1 || echo 0)"
+check "依赖缺失时不生成 ipsec.secrets" "0" "$([ -e "$TMP/etc/ipsec.secrets" ] && echo 1 || echo 0)"
+
+if [ "$fail" -eq 0 ]; then
+	echo "render-test: 全部通过"
+	exit 0
+fi
+echo "render-test: 有失败项"
+exit 1

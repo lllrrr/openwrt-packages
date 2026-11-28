@@ -1,0 +1,8 @@
+#!/bin/sh
+
+mkdir -p /etc/wrtbox/profiles /usr/libexec/wrtbox /tmp/log
+chmod 0755 /etc/init.d/wrtbox 2>/dev/null || true
+chmod 0755 /usr/libexec/wrtbox/* 2>/dev/null || true
+/usr/libexec/wrtbox/cron-task.sh sync >/dev/null 2>&1 || true
+
+exit 0

@@ -1,0 +1,14 @@
+#!/bin/sh
+
+[ "$ACTION" = "reload" ] || [ "$ACTION" = "restart" ] || exit 0
+
+enabled="$(uci -q get wrtbox.main.enabled)"
+fw4_auto_tun="$(uci -q get wrtbox.main.fw4_auto_tun)"
+
+if [ "$enabled" = "1" ] && [ "${fw4_auto_tun:-1}" = "1" ]; then
+	if ubus -S call service list '{"name":"wrtbox"}' 2>/dev/null | grep -q '"running":true'; then
+		/usr/libexec/wrtbox/fw4-tun.sh apply >/dev/null 2>&1
+	fi
+fi
+
+exit 0

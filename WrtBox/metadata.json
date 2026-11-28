@@ -1,0 +1,5 @@
+{
+  "name": "luci-app-wrtbox",
+  "description": "OpenWrt 25+ LuCI plugin for managing sing-box Community Edition (reF1nd/sing-box-releases), JSON subscriptions, CDN-accelerated core updates, and safe config hot-reload.",
+  "requestFramePermissions": []
+}

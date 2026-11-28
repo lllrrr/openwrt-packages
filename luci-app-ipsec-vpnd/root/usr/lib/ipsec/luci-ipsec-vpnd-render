@@ -1,0 +1,262 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+#
+# 从 /etc/config/ipsec-vpnd 渲染 strongSwan 的 ipsec.conf / ipsec.secrets。
+#
+# 本包不自己启动 charon —— charon 由 strongSwan 原生的 `ipsec` 服务托管
+# （/etc/init.d/ipsec，来自 strongswan-ipsec 包），避免两个服务抢 UDP 500/4500
+# 导致其中一个无声退出。本脚本只负责把 UCI 配置翻译成 strongSwan 配置。
+#
+# 调用方：rpcd 的 apply 方法、uci-defaults、post-install/post-upgrade。
+# 未启用服务（enabled=0）时不写文件，保留用户已有配置。
+
+. "${IPKG_INSTROOT:-}/lib/functions.sh"
+
+# 依赖自检：只拦「必需」项（starter/charon/kernel-libipsec）。
+# xauth-generic / des 是可选插件：6.1 默认关闭 IKEv1 的构建里没有 xauth-generic，
+# 这时仍应生成 IKEv2 配置，而不是整体失败。
+if [ -x /usr/lib/ipsec/luci-ipsec-vpnd-deps ]; then
+	deps_out="$(/usr/lib/ipsec/luci-ipsec-vpnd-deps files-required)"
+	if [ $? -ne 0 ]; then
+		oldifs="$IFS"
+		IFS='
+'
+		for line in $deps_out; do
+			case "$line" in
+				*'|missing|'*) logger -t ipsec-vpnd "依赖缺失: ${line#*|missing|}" ;;
+			esac
+		done
+		IFS="$oldifs"
+		logger -t ipsec-vpnd "strongSwan 运行时不完整，未生成 ipsec.conf。请先 apk update，再安装 strongswan-minimal strongswan-mod-kernel-libipsec"
+		exit 1
+	fi
+fi
+
+config_load ipsec-vpnd
+
+# IKEv1/XAuth 只在系统 strongSwan 带 xauth-generic 插件时可用。
+# 可用环境变量覆盖，便于离线测试。
+IKEV1_PLUGIN_CONF="${IKEV1_PLUGIN_CONF:-/etc/strongswan.d/charon/xauth-generic.conf}"
+
+vt_enabled=0
+config_get vt_enabled "ipsec" "enabled" "0"
+
+vt_clientip="10.9.8.10/24"
+vt_clientdns="10.9.8.1"
+vt_account="vpnuser"
+vt_password="changeme"
+vt_secret="changeme"
+vt_ikev2="0"
+config_get vt_clientip "ipsec" "clientip" "$vt_clientip"
+config_get vt_clientdns "ipsec" "clientdns" "$vt_clientdns"
+config_get vt_account "ipsec" "account" "$vt_account"
+config_get vt_password "ipsec" "password" "$vt_password"
+config_get vt_secret "ipsec" "secret" "$vt_secret"
+config_get vt_ikev2 "ipsec" "ikev2" "$vt_ikev2"
+
+vt_ikev1=1
+if [ ! -f "$IKEV1_PLUGIN_CONF" ]; then
+	vt_ikev1=0
+	logger -t ipsec-vpnd "未找到 xauth-generic 插件，IKEv1/XAuth 不可用；继续生成 IKEv2 配置"
+fi
+
+# 凭据校验。ipsec.secrets 的语法里 " 与 \ 是引号/转义符，账号名在行首、
+# 引号外还是字段分隔，含这些字符会直接把 secrets 弄坏：starter 加载失败后
+# 整个服务起不来，而 render 只比内容不校验语法，apply 还会报"成功"。
+#
+# 只放行 `!`~`~`（可打印 ASCII，排除空格），并额外排除 `"` 与 `\` —— 它们在
+# secrets 的引号内是引号/转义符。这样同时满足：
+#   - 不需要为 secrets 做转义
+#   - 不含空格 / 控制字符，TSV 状态文件与 ipsec.conf 也安全
+#     （clientip/clientdns 直接写进 ipsec.conf 的 rightsourceip/rightdns）
+bad_value() {
+	# bad_value <显示名> <值>；LC_ALL=C 下按字节判断，避免多字节字符被当成合法
+	if printf '%s' "$2" | LC_ALL=C grep -q '[^!-~]' ||
+	   printf '%s' "$2" | grep -q '["\\]'; then
+		printf 'luci-ipsec-vpnd-render: %s 含非法字符（只允许可打印 ASCII，不能含空格、双引号、反斜杠），已拒绝生成配置\n' "$1" >&2
+		logger -t ipsec-vpnd "$1 含非法字符，已拒绝生成配置"
+		return 1
+	fi
+	return 0
+}
+
+# 默认占位凭据必须换掉才能启用：否则一键打开就是一个弱 PSK + 弱口令的 VPN 服务端。
+#
+# 只检查真正会用到的字段：secret 是 IKEv1/IKEv2 共用的 PSK，始终检查；
+# account/password 只用于 XAuth，vt_ikev1=0 时（strongSwan 6.1 无 xauth-generic，
+# 只提供 IKEv2）它们根本不会写进 ipsec.secrets，此时还拿默认值拦启用，
+# 等于让用户去改一个他用不到的字段，而且改完也照样开不起来。
+if [ "$vt_enabled" = "1" ]; then
+	_check_defaults() {
+		# _check_defaults <显示名> <值>
+		case "$2" in
+			changeme|vpnuser)
+				printf 'luci-ipsec-vpnd-render: %s 仍是默认占位值，请先在页面上改成自己的再启用\n' "$1" >&2
+				logger -t ipsec-vpnd "$1 仍是默认占位值，拒绝启用"
+				exit 1
+				;;
+		esac
+	}
+	_check_defaults secret "$vt_secret"
+	if [ "$vt_ikev1" = "1" ]; then
+		_check_defaults account "$vt_account"
+		_check_defaults password "$vt_password"
+	fi
+	unset -f _check_defaults
+	bad_value clientip "$vt_clientip" || exit 1
+	bad_value clientdns "$vt_clientdns" || exit 1
+	bad_value account "$vt_account" || exit 1
+	bad_value password "$vt_password" || exit 1
+	bad_value secret "$vt_secret" || exit 1
+fi
+
+# 两条路都没有时不生成配置，避免服务起来却谁都连不上。
+if [ "$vt_enabled" = "1" ] && [ "$vt_ikev1" = "0" ] && [ "$vt_ikev2" != "1" ]; then
+	logger -t ipsec-vpnd "IKEv1 不可用且未启用 IKEv2，未生成 ipsec.conf"
+	exit 1
+fi
+
+# 先写到临时文件，再和现有文件比对：内容没变就不动文件。
+# 这样 rpcd 的 apply 才知道要不要重启服务 —— 别的页面触发一次 apply
+# 不应该把正在跑的 VPN 连接踢掉。
+TMP_CONF="$(mktemp /tmp/.ipsec.conf.XXXXXX)"
+TMP_SECRETS="$(mktemp /tmp/.ipsec.secrets.XXXXXX)"
+# mktemp 建文件时的权限取决于调用方的 umask；secrets 里是明文 PSK 与口令，
+# 不等后面用 chmod 补，创建后立刻收紧，避免出现可读窗口。
+chmod 600 "$TMP_CONF" "$TMP_SECRETS"
+trap 'rm -f "$TMP_CONF" "$TMP_SECRETS"' EXIT
+
+cat > "$TMP_CONF" <<EOF
+# ipsec.conf - strongSwan IPsec configuration file
+#
+# 由 luci-app-ipsec-vpnd 自动生成，请勿手工修改：
+# 改动请在 LuCI 的 "VPN → IPSec VPN Server" 里做。
+
+# basic configuration
+
+config setup
+    # strictcrlpolicy=yes
+    # never：同一个 XAuth 账号允许手机/电脑同时在线（本包只有一个账号）。
+    # 代价是旧 SA 不会被新 SA 顶掉，必须靠 dpdaction=clear + 超时清理，
+    # 所以下面每个 conn 都显式开了 DPD。
+    uniqueids=never
+
+# Add connections here.
+EOF
+
+if [ "$vt_enabled" = "1" ]; then
+	if [ "$vt_ikev1" = "1" ]; then
+		cat >> "$TMP_CONF" <<EOF
+
+conn xauth_psk
+	keyexchange=ikev1
+	ike=aes128-sha256-modp2048,aes128-sha1-modp2048,aes128-sha1-modp1024,3des-sha1-modp1024,3des-sha1-modp1536
+	esp=aes128-sha1,3des-sha1
+	left=%defaultroute
+	leftauth=psk
+	leftsubnet=0.0.0.0/0
+	right=%any
+	rightauth=psk
+	rightauth2=xauth
+	rightsourceip=$vt_clientip
+	rightdns=$vt_clientdns
+	leftupdown=/usr/lib/ipsec/luci-ipsec-vpnd-updown
+	auto=add
+	lifetime=4h
+	ikelifetime=8h
+	dpddelay=30s
+	dpdtimeout=150s
+	dpdaction=clear
+EOF
+	fi
+
+	if [ "$vt_ikev2" = "1" ]; then
+		# IKEv2 + MOBIKE：手机 Wi-Fi/4G 切换时在协议内更新地址，不必重握手。
+		# 原生 iOS/Android 的 IKEv2 客户端只支持 PSK 或证书两种服务端认证；
+		# 本包没有 PKI，所以走 PSK（与 IKEv1 共用同一个 secret）。
+		# 代价：IKEv2 只凭 PSK 接入，不再要求账号密码，故默认关闭、由用户显式开启。
+		cat >> "$TMP_CONF" <<EOF
+
+conn ikev2_psk
+	keyexchange=ikev2
+	ike=aes128-sha256-modp2048,aes128-sha1-modp2048,aes128-sha1-modp1024,3des-sha1-modp1024
+	esp=aes128gcm16,aes128-sha1,3des-sha1
+	left=%defaultroute
+	leftauth=psk
+	leftsubnet=0.0.0.0/0
+	right=%any
+	rightauth=psk
+	rightsourceip=$vt_clientip
+	rightdns=$vt_clientdns
+	leftupdown=/usr/lib/ipsec/luci-ipsec-vpnd-updown
+	auto=add
+	mobike=yes
+	lifetime=4h
+	ikelifetime=8h
+	dpddelay=30s
+	dpdtimeout=150s
+	dpdaction=clear
+EOF
+	fi
+else
+	# 服务停用时也要把 conn 拿掉：charon 由系统 ipsec 服务托管，配置是全局的，
+	# 残留的 conn 会让服务在"已停用"状态下依然接受连接。
+	logger -t ipsec-vpnd "服务未启用，生成的 ipsec.conf 不含 conn"
+fi
+
+if [ "$vt_enabled" = "1" ]; then
+	# secrets 含 PSK 与 XAUTH 密码，用 177 umask 创建并收紧权限，避免本地用户读取
+	umask 177
+	{
+		cat <<EOF
+# /etc/ipsec.secrets - strongSwan IPsec secrets file
+# 由 luci-app-ipsec-vpnd 自动生成，请勿手工修改。
+: PSK "$vt_secret"
+EOF
+		# IKEv1 不可用时不要留无用的 XAuth 凭据
+		if [ "$vt_ikev1" = "1" ]; then
+			printf '%s : XAUTH "%s"\n' "$vt_account" "$vt_password"
+		fi
+	} > "$TMP_SECRETS"
+	umask 022
+else
+	# 停用时清掉遗留的凭据，避免旧口令继续留在磁盘上
+	: > "$TMP_SECRETS"
+fi
+
+changed=0
+if ! cmp -s "$TMP_CONF" /etc/ipsec.conf; then
+	changed=1
+fi
+if [ "$vt_enabled" = "1" ]; then
+	if ! cmp -s "$TMP_SECRETS" /etc/ipsec.secrets; then
+		changed=1
+	fi
+elif [ -e /etc/ipsec.secrets ]; then
+	# 停用状态下要把遗留的凭据文件清掉
+	changed=1
+fi
+
+if [ "$changed" = "1" ]; then
+	# 先写临时文件、再 rename 覆盖，避免 strongSwan 读到只写了一半的配置。
+	# /etc 与 /tmp 可能不是同一个文件系统，跨设备时 rename 会失败，退回原地写。
+	install_conf() {
+		# install_conf <源> <目标> <权限>
+		if mv -f "$1" "$2" 2>/dev/null; then
+			chmod "$3" "$2"
+		else
+			cat "$1" > "$2" && chmod "$3" "$2"
+		fi
+	}
+	if [ "$vt_enabled" = "1" ]; then
+		install_conf "$TMP_SECRETS" /etc/ipsec.secrets 600
+	else
+		rm -f /etc/ipsec.secrets
+	fi
+	install_conf "$TMP_CONF" /etc/ipsec.conf 644
+	echo "changed"
+else
+	echo "unchanged"
+fi
+
+exit 0
