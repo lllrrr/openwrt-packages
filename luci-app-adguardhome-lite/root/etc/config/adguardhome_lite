@@ -20,6 +20,9 @@ config adguardhome_lite 'main'
 	# 管理面板端口，默认 13800；被占用时可改为 13801 等
 	option webport '13800'
 
+	# 管理面板监听地址：0.0.0.0=局域网可访问（默认）；127.0.0.1=仅本机
+	option webaddr '0.0.0.0'
+
 	# 内核安装位置；/tmp 为内存临时位置，重启后会丢失，需要重新安装
 	option binpath '/usr/bin/AdGuardHome/AdGuardHome'
 
@@ -41,7 +44,9 @@ config adguardhome_lite 'main'
 	# 反代不可用时会自动回退到官方 CDN 和 GitHub 直连。
 	option github_proxy 'gh-proxy.org'
 
-	# 初始管理员账号和密码；默认 admin / admin123，建议首次登录后修改
+	# 初始管理员账号和密码；默认 admin / admin123 属弱口令，首次登录后必须修改。
+	# 密码为明文（AdGuard Home 只存不可逆哈希，插件调用本机 API 需要原文），
+	# 本文件权限固定为 600，请勿放宽。
 	option adminuser 'admin'
 	option adminpass 'admin123'
 

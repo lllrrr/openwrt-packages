@@ -1,0 +1,18 @@
+		<section class="agh-tab-panel" id="agh-tab-advanced">
+			<div class="agh-card">
+				<div class="agh-card-head">
+					<h3><%:Advanced Settings%></h3>
+					<div class="agh-inline">
+						<button type="button" id="agh-yaml-load" class="agh-ghost-btn agh-small-btn"><%:Reload%></button>
+						<button type="button" id="agh-yaml-save" class="agh-btn agh-btn-primary agh-small-btn"><%:Validate & Save%></button>
+					</div>
+				</div>
+				<textarea id="agh-yaml-editor" class="agh-code" spellcheck="false" placeholder="正在加载配置..."></textarea>
+				<div class="agh-form-actions">
+					<span id="agh-yaml-msg" class="agh-hint"></span>
+					<span id="agh-yaml-count" class="agh-hint agh-ml-auto"></span>
+				</div>
+				<p class="agh-hint agh-mt-8">这里改 AGH 官方配置文件 <code id="agh-yaml-path">/etc/AdGuardHome.yaml</code>。保存前自动校验，不通过不覆盖原文件；每次保存 <code>.bak</code> 备份。过滤规则、上游 DNS 等设置建议在插件或 AGH 面板修改，不建议手动修改！</p>
+			</div>
+		</section>
+

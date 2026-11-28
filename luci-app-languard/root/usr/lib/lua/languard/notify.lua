@@ -16,7 +16,8 @@ end
 
 local function default()
 	return { seq = 0, channels = {},
-	         events = { auto_block = true, new_device = true, expire = false } }
+	         events = { auto_block = true, new_device = true, expire = false,
+                    final_fallback = true, dep_down = true, dep_up = true } }
 end
 
 function M.load()

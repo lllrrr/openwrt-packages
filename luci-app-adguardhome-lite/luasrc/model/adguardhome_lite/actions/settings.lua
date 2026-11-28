@@ -5,7 +5,10 @@ local M = {}
 local tasks = require "luci.model.adguardhome_lite.tasks"
 
 function M.settings_get(ctx)
-    local fs, http, sys, uci, util, codes, agh, selftest, split_words, join_words, valid_iface_name, valid_client_spec, version_newer, clean_tag, CONF, SHARE, RUN, STATS_CACHE, VERSION_CACHE, CORE_UPDATE, PLUGIN_UPDATE, INSTALL_VERSION, RELEASE_URL, collect_stats, read_cache, cfg, CACHE_YAML_KEYS, yaml_cache_scalar, yaml_list_values, yaml_safe_search_enabled, yaml_section_scalar, yaml_set_section_scalar, cache_option, IGNORED_IFACE_PATTERNS, iface_ignored, net_devices, is_enabled, core_version, core_update_info, plugin_version, plugin_update_info, service_running, openclash_hijack_port, openclash_running, openclash_upstream_agh, passwall_enabled, passwall_dns_port, read_number, update_running, action_running, start_action, check_token, require_post, default_reason, json_error, state_value, agh_client, agh_request, agh_api, interval_days = ctx.fs, ctx.http, ctx.sys, ctx.uci, ctx.util, ctx.codes, ctx.agh, ctx.selftest, ctx.split_words, ctx.join_words, ctx.valid_iface_name, ctx.valid_client_spec, ctx.version_newer, ctx.clean_tag, ctx.CONF, ctx.SHARE, ctx.RUN, ctx.STATS_CACHE, ctx.VERSION_CACHE, ctx.CORE_UPDATE, ctx.PLUGIN_UPDATE, ctx.INSTALL_VERSION, ctx.RELEASE_URL, ctx.collect_stats, ctx.read_cache, ctx.cfg, ctx.CACHE_YAML_KEYS, ctx.yaml_cache_scalar, ctx.yaml_list_values, ctx.yaml_safe_search_enabled, ctx.yaml_section_scalar, ctx.yaml_set_section_scalar, ctx.cache_option, ctx.IGNORED_IFACE_PATTERNS, ctx.iface_ignored, ctx.net_devices, ctx.is_enabled, ctx.core_version, ctx.core_update_info, ctx.plugin_version, ctx.plugin_update_info, ctx.service_running, ctx.openclash_hijack_port, ctx.openclash_running, ctx.openclash_upstream_agh, ctx.passwall_enabled, ctx.passwall_dns_port, ctx.read_number, ctx.update_running, ctx.action_running, ctx.start_action, ctx.check_token, ctx.require_post, ctx.default_reason, ctx.json_error, ctx.state_value, ctx.agh_client, ctx.agh_request, ctx.agh_api, ctx.interval_days
+    local fs, http, uci, join_words = ctx.fs, ctx.http, ctx.uci, ctx.join_words
+    local CONF, cfg, yaml_list_values, yaml_section_scalar = ctx.CONF, ctx.cfg, ctx.yaml_list_values, ctx.yaml_section_scalar
+    local cache_option, net_devices, is_enabled, core_version = ctx.cache_option, ctx.net_devices, ctx.is_enabled, ctx.core_version
+    local service_running, passwall_enabled, passwall_dns_port, interval_days = ctx.service_running, ctx.passwall_enabled, ctx.passwall_dns_port, ctx.interval_days
     local binpath = cfg("binpath", "/usr/bin/AdGuardHome/AdGuardHome")
     local configpath = cfg("config", "/etc/AdGuardHome.yaml")
     local mode = cfg("dns_mode", "takeover")
@@ -82,6 +85,7 @@ function M.settings_get(ctx)
         enabled = is_enabled(),
         dns_mode = mode,
         webport = tonumber(cfg("webport", "13800")) or 13800,
+        webaddr = cfg("webaddr", "0.0.0.0"),
         binpath = binpath,
         workdir = cfg("workdir", "/etc/AdGuardHome"),
         channel = cfg("channel", "stable"),
@@ -108,7 +112,8 @@ function M.settings_get(ctx)
         passwall_enabled = passwall_enabled(),
         passwall_dns_port = passwall_dns_port(),
         admin_user = cfg("adminuser", "admin"),
-        admin_pass = cfg("adminpass", "admin123"),
+        -- 只回状态标记，明文密码不进入接口响应，避免被前端日志/缓存带出
+        admin_pass_set = (cfg("adminpass", "") ~= ""),
         config_path = configpath,
         core = fs.access(binpath, "x") and true or false,
         version = core_version(binpath),
@@ -117,7 +122,11 @@ function M.settings_get(ctx)
 end
 
 function M.settings_save(ctx)
-    local fs, http, sys, uci, util, codes, agh, selftest, split_words, join_words, valid_iface_name, valid_client_spec, version_newer, clean_tag, CONF, SHARE, RUN, STATS_CACHE, VERSION_CACHE, CORE_UPDATE, PLUGIN_UPDATE, INSTALL_VERSION, RELEASE_URL, collect_stats, read_cache, cfg, CACHE_YAML_KEYS, yaml_cache_scalar, yaml_list_values, yaml_safe_search_enabled, yaml_section_scalar, yaml_set_section_scalar, cache_option, IGNORED_IFACE_PATTERNS, iface_ignored, net_devices, is_enabled, core_version, core_update_info, plugin_version, plugin_update_info, service_running, openclash_hijack_port, openclash_running, openclash_upstream_agh, passwall_enabled, passwall_dns_port, read_number, update_running, action_running, start_action, check_token, require_post, default_reason, json_error, state_value, agh_client, agh_request, agh_api, interval_days = ctx.fs, ctx.http, ctx.sys, ctx.uci, ctx.util, ctx.codes, ctx.agh, ctx.selftest, ctx.split_words, ctx.join_words, ctx.valid_iface_name, ctx.valid_client_spec, ctx.version_newer, ctx.clean_tag, ctx.CONF, ctx.SHARE, ctx.RUN, ctx.STATS_CACHE, ctx.VERSION_CACHE, ctx.CORE_UPDATE, ctx.PLUGIN_UPDATE, ctx.INSTALL_VERSION, ctx.RELEASE_URL, ctx.collect_stats, ctx.read_cache, ctx.cfg, ctx.CACHE_YAML_KEYS, ctx.yaml_cache_scalar, ctx.yaml_list_values, ctx.yaml_safe_search_enabled, ctx.yaml_section_scalar, ctx.yaml_set_section_scalar, ctx.cache_option, ctx.IGNORED_IFACE_PATTERNS, ctx.iface_ignored, ctx.net_devices, ctx.is_enabled, ctx.core_version, ctx.core_update_info, ctx.plugin_version, ctx.plugin_update_info, ctx.service_running, ctx.openclash_hijack_port, ctx.openclash_running, ctx.openclash_upstream_agh, ctx.passwall_enabled, ctx.passwall_dns_port, ctx.read_number, ctx.update_running, ctx.action_running, ctx.start_action, ctx.check_token, ctx.require_post, ctx.default_reason, ctx.json_error, ctx.state_value, ctx.agh_client, ctx.agh_request, ctx.agh_api, ctx.interval_days
+    local fs, http, sys, uci = ctx.fs, ctx.http, ctx.sys, ctx.uci
+    local agh, split_words, valid_iface_name, valid_client_spec = ctx.agh, ctx.split_words, ctx.valid_iface_name, ctx.valid_client_spec
+    local CONF, SHARE, RUN, CORE_UPDATE = ctx.CONF, ctx.SHARE, ctx.RUN, ctx.CORE_UPDATE
+    local service_running, update_running, action_running, start_action = ctx.service_running, ctx.update_running, ctx.action_running, ctx.start_action
+    local require_post, json_error, agh_client = ctx.require_post, ctx.json_error, ctx.agh_client
     if not require_post() then
         return
     end
@@ -129,6 +138,10 @@ function M.settings_save(ctx)
         json_error("插件正在更新，请等待完成后再保存设置。", 409, "plugin_update_busy")
         return
     end
+    if action_running() then
+        json_error("正在执行其他操作，请等待完成后再保存设置。", 409, "action_busy")
+        return
+    end
 
     local enabled = http.formvalue("enabled") or "0"
     local mode = http.formvalue("dns_mode") or "takeover"
@@ -137,6 +150,11 @@ function M.settings_save(ctx)
     local workdir = http.formvalue("workdir") or "/etc/AdGuardHome"
     local channel = http.formvalue("channel") or "stable"
     local proxy = http.formvalue("github_proxy") or "gh-proxy.org"
+    -- 手机 App 等旧客户端不传 webaddr 时保持原值，避免被重置为对外监听
+    local webaddr = http.formvalue("webaddr")
+    if webaddr ~= nil and webaddr ~= "0.0.0.0" and webaddr ~= "127.0.0.1" then
+        webaddr = "0.0.0.0"
+    end
     local cache_enabled = http.formvalue("cache_enabled") or "1"
     local cache_size_raw = http.formvalue("cache_size_mb") or "16"
     local cache_ttl_min_raw = http.formvalue("cache_ttl_min") or "0"
@@ -329,6 +347,9 @@ function M.settings_save(ctx)
     uci:set(CONF, "main", "enabled", enabled)
     uci:set(CONF, "main", "dns_mode", mode)
     uci:set(CONF, "main", "webport", tostring(port))
+    if webaddr then
+        uci:set(CONF, "main", "webaddr", webaddr)
+    end
     uci:set(CONF, "main", "binpath", binpath)
     uci:set(CONF, "main", "workdir", workdir)
     uci:set(CONF, "main", "channel", channel)
@@ -379,14 +400,18 @@ function M.settings_save(ctx)
     end
     uci:commit(CONF)
 
-    start_action("sh " .. SHARE .. "/apply_settings.sh")
+    if not start_action("apply") then
+        json_error("设置已保存，但应用任务启动失败，请稍后手动重启服务。", 409, "action_busy")
+        return
+    end
 
     http.prepare_content("application/json")
     http.write_json({ ok = true })
 end
 
 function M.yaml_get(ctx)
-    local fs, http, sys, uci, util, codes, agh, selftest, split_words, join_words, valid_iface_name, valid_client_spec, version_newer, clean_tag, CONF, SHARE, RUN, STATS_CACHE, VERSION_CACHE, CORE_UPDATE, PLUGIN_UPDATE, INSTALL_VERSION, RELEASE_URL, collect_stats, read_cache, cfg, CACHE_YAML_KEYS, yaml_cache_scalar, yaml_list_values, yaml_safe_search_enabled, yaml_section_scalar, yaml_set_section_scalar, cache_option, IGNORED_IFACE_PATTERNS, iface_ignored, net_devices, is_enabled, core_version, core_update_info, plugin_version, plugin_update_info, service_running, openclash_hijack_port, openclash_running, openclash_upstream_agh, passwall_enabled, passwall_dns_port, read_number, update_running, action_running, start_action, check_token, require_post, default_reason, json_error, state_value, agh_client, agh_request, agh_api, interval_days = ctx.fs, ctx.http, ctx.sys, ctx.uci, ctx.util, ctx.codes, ctx.agh, ctx.selftest, ctx.split_words, ctx.join_words, ctx.valid_iface_name, ctx.valid_client_spec, ctx.version_newer, ctx.clean_tag, ctx.CONF, ctx.SHARE, ctx.RUN, ctx.STATS_CACHE, ctx.VERSION_CACHE, ctx.CORE_UPDATE, ctx.PLUGIN_UPDATE, ctx.INSTALL_VERSION, ctx.RELEASE_URL, ctx.collect_stats, ctx.read_cache, ctx.cfg, ctx.CACHE_YAML_KEYS, ctx.yaml_cache_scalar, ctx.yaml_list_values, ctx.yaml_safe_search_enabled, ctx.yaml_section_scalar, ctx.yaml_set_section_scalar, ctx.cache_option, ctx.IGNORED_IFACE_PATTERNS, ctx.iface_ignored, ctx.net_devices, ctx.is_enabled, ctx.core_version, ctx.core_update_info, ctx.plugin_version, ctx.plugin_update_info, ctx.service_running, ctx.openclash_hijack_port, ctx.openclash_running, ctx.openclash_upstream_agh, ctx.passwall_enabled, ctx.passwall_dns_port, ctx.read_number, ctx.update_running, ctx.action_running, ctx.start_action, ctx.check_token, ctx.require_post, ctx.default_reason, ctx.json_error, ctx.state_value, ctx.agh_client, ctx.agh_request, ctx.agh_api, ctx.interval_days
+    local fs, http, util, cfg = ctx.fs, ctx.http, ctx.util, ctx.cfg
+    local is_enabled, service_running = ctx.is_enabled, ctx.service_running
     local configpath = cfg("config", "/etc/AdGuardHome.yaml")
     local yaml = fs.readfile(configpath) or ""
 
@@ -397,12 +422,16 @@ function M.yaml_get(ctx)
         path = configpath,
         enabled = is_enabled(),
         running = service_running(cfg("binpath", "/usr/bin/AdGuardHome/AdGuardHome")),
+        -- 前端保存时回传，用于检测期间是否被其他页面/AGH 面板改过
+        hash = util.hash_text(yaml),
         yaml = yaml
     })
 end
 
 function M.yaml_save(ctx)
-    local fs, http, sys, uci, util, codes, agh, selftest, split_words, join_words, valid_iface_name, valid_client_spec, version_newer, clean_tag, CONF, SHARE, RUN, STATS_CACHE, VERSION_CACHE, CORE_UPDATE, PLUGIN_UPDATE, INSTALL_VERSION, RELEASE_URL, collect_stats, read_cache, cfg, CACHE_YAML_KEYS, yaml_cache_scalar, yaml_list_values, yaml_safe_search_enabled, yaml_section_scalar, yaml_set_section_scalar, cache_option, IGNORED_IFACE_PATTERNS, iface_ignored, net_devices, is_enabled, core_version, core_update_info, plugin_version, plugin_update_info, service_running, openclash_hijack_port, openclash_running, openclash_upstream_agh, passwall_enabled, passwall_dns_port, read_number, update_running, action_running, start_action, check_token, require_post, default_reason, json_error, state_value, agh_client, agh_request, agh_api, interval_days = ctx.fs, ctx.http, ctx.sys, ctx.uci, ctx.util, ctx.codes, ctx.agh, ctx.selftest, ctx.split_words, ctx.join_words, ctx.valid_iface_name, ctx.valid_client_spec, ctx.version_newer, ctx.clean_tag, ctx.CONF, ctx.SHARE, ctx.RUN, ctx.STATS_CACHE, ctx.VERSION_CACHE, ctx.CORE_UPDATE, ctx.PLUGIN_UPDATE, ctx.INSTALL_VERSION, ctx.RELEASE_URL, ctx.collect_stats, ctx.read_cache, ctx.cfg, ctx.CACHE_YAML_KEYS, ctx.yaml_cache_scalar, ctx.yaml_list_values, ctx.yaml_safe_search_enabled, ctx.yaml_section_scalar, ctx.yaml_set_section_scalar, ctx.cache_option, ctx.IGNORED_IFACE_PATTERNS, ctx.iface_ignored, ctx.net_devices, ctx.is_enabled, ctx.core_version, ctx.core_update_info, ctx.plugin_version, ctx.plugin_update_info, ctx.service_running, ctx.openclash_hijack_port, ctx.openclash_running, ctx.openclash_upstream_agh, ctx.passwall_enabled, ctx.passwall_dns_port, ctx.read_number, ctx.update_running, ctx.action_running, ctx.start_action, ctx.check_token, ctx.require_post, ctx.default_reason, ctx.json_error, ctx.state_value, ctx.agh_client, ctx.agh_request, ctx.agh_api, ctx.interval_days
+    local fs, http, sys, util = ctx.fs, ctx.http, ctx.sys, ctx.util
+    local RUN, cfg, is_enabled, update_running = ctx.RUN, ctx.cfg, ctx.is_enabled, ctx.update_running
+    local action_running, start_action, require_post, json_error = ctx.action_running, ctx.start_action, ctx.require_post, ctx.json_error
     if not require_post() then
         return
     end
@@ -425,6 +454,16 @@ function M.yaml_save(ctx)
     yaml = yaml:gsub("\r\n", "\n")
     local configpath = cfg("config", "/etc/AdGuardHome.yaml")
     local binpath = cfg("binpath", "/usr/bin/AdGuardHome/AdGuardHome")
+
+    -- 并发保护：编辑期间配置文件被其他页面或 AGH 面板改动过时，
+    -- 直接覆盖会静默丢弃对方的修改，因此要求前端重新加载后再保存。
+    local base_hash = http.formvalue("base_hash")
+    local old = fs.readfile(configpath) or ""
+    if base_hash and base_hash ~= "" and base_hash ~= util.hash_text(old) then
+        json_error("配置文件已被其他操作修改，请重新加载后再编辑保存。", 409, "yaml_conflict")
+        return
+    end
+
     if not fs.access(binpath, "x") then
         json_error("尚未安装内核，无法校验配置。", nil, "core_not_installed")
         return
@@ -442,16 +481,18 @@ function M.yaml_save(ctx)
         return
     end
 
-    local old = fs.readfile(configpath) or ""
     fs.writefile(configpath .. ".bak", old)
     if not fs.writefile(configpath, yaml) then
         json_error("写入配置文件失败。", nil, "yaml_write_failed")
         return
     end
-    sys.call("chmod 600 " .. configpath .. " >/dev/null 2>&1")
+    sys.call(string.format("chmod 600 %q >/dev/null 2>&1", configpath))
 
     if is_enabled() then
-        start_action("/etc/init.d/adguardhome_lite restart")
+        if not start_action("restart") then
+            json_error("配置已写入，但重启任务启动失败，请稍后手动重启服务。", 409, "action_busy")
+            return
+        end
     end
 
     http.prepare_content("application/json")

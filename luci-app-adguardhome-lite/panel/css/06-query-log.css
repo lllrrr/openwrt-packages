@@ -1,0 +1,45 @@
+/* ========== 查询日志表 ========== */
+.agh-query-table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:12px}
+.agh-query-table th{
+	padding:7px 8px;border-bottom:1px solid var(--agh-border-strong);
+	font-size:10.5px;font-weight:700;text-align:left;color:var(--agh-muted);white-space:nowrap;
+}
+.agh-query-table td{
+	padding:6px 8px;border-bottom:1px solid var(--agh-border);
+	white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+	vertical-align:top;line-height:1.45;
+}
+/* 域名 / 命中规则可换行显示，长内容不再被省略号截断；
+   客户端固定单行（放不下时省略，悬停看完整名称+IP） */
+.agh-query-table td.agh-query-domain,
+.agh-query-table td.agh-query-rule{
+	white-space:normal;overflow:visible;text-overflow:clip;
+	overflow-wrap:anywhere;
+}
+.agh-query-table tbody tr:hover{background:var(--agh-surface-2)}
+.agh-query-table tbody tr:last-child td{border-bottom:0}
+.agh-query-table .agh-empty{border:0;padding:10px}
+.agh-col-time{width:112px}
+.agh-col-client{width:22%}
+.agh-col-domain{width:18%}
+.agh-col-rule{width:39%}
+.agh-col-elapsed{width:64px}
+.agh-col-status{width:76px}
+.agh-query-date{margin-right:4px}
+.agh-query-time,.agh-query-elapsed{
+	font-family:var(--agh-mono);font-size:11px;color:var(--agh-muted);
+	font-variant-numeric:tabular-nums;
+}
+.agh-query-client,.agh-query-rule{color:var(--agh-muted)}
+.agh-query-domain{color:var(--agh-strong)}
+.agh-log-block{color:var(--agh-danger);font-weight:600}
+.agh-log-ok{color:var(--agh-success);font-weight:600}
+
+.agh-pager{display:flex;align-items:center;justify-content:flex-end;gap:10px;padding-top:10px}
+.agh-pager-info{font-size:11.5px;color:var(--agh-muted)}
+
+/* input[type=search] 的基础规则带属性选择器，优先级高于类名，
+   这里用同权重选择器覆盖，否则会 width:100% 把工具栏挤成三行 */
+input.agh-querylog-search{width:180px;height:28px;font-size:11.5px}
+.agh-querylog-select{width:auto;min-width:98px;height:28px;font-size:11.5px;padding:0 26px 0 8px}
+

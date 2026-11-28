@@ -1,0 +1,218 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: luci-app-adguardhome-lite\n"
+"Language: zh-cn\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid "AdGuard Home Admin Center"
+msgstr "AdGuard Home 管理中心"
+
+msgid "Admin Center"
+msgstr "管理中心"
+
+msgid "Loading"
+msgstr "读取中"
+
+msgid "New version available"
+msgstr "发现新版本"
+
+msgid "Check for plugin updates"
+msgstr "点击检测插件更新"
+
+msgid "Overview"
+msgstr "概览"
+
+msgid "Basic Settings"
+msgstr "基础设置"
+
+msgid "Filter Rules"
+msgstr "过滤规则"
+
+msgid "Advanced Settings"
+msgstr "高级配置"
+
+msgid "Logs"
+msgstr "运行日志"
+
+msgid "Guide"
+msgstr "使用说明"
+
+msgid "Switch to dark"
+msgstr "切换为暗色"
+
+msgid "Switch theme"
+msgstr "切换暗色 / 浅色主题"
+
+msgid "Open AGH panel"
+msgstr "打开 AGH 面板"
+
+msgid "Plugin Update"
+msgstr "插件更新"
+
+msgid "Preparing..."
+msgstr "准备中..."
+
+msgid "Close"
+msgstr "关闭"
+
+msgid "Service Status"
+msgstr "运行状态"
+
+msgid "Refresh"
+msgstr "刷新"
+
+msgid "Filter Statistics"
+msgstr "过滤统计"
+
+msgid "Clear Stats"
+msgstr "清空统计"
+
+msgid "Initial Setup"
+msgstr "初始化配置"
+
+msgid "Install/Update Core"
+msgstr "安装/更新内核"
+
+msgid "Enable with One Click"
+msgstr "一键启用"
+
+msgid "Service Control"
+msgstr "服务控制"
+
+msgid "Start Service"
+msgstr "启动服务"
+
+msgid "Stop & Disable Autostart"
+msgstr "停止并关闭自启"
+
+msgid "Restart Service"
+msgstr "重启服务"
+
+msgid "DNS Self-Test"
+msgstr "DNS 自检"
+
+msgid "Run Test"
+msgstr "开始检测"
+
+msgid "Beginner Tips"
+msgstr "新手提示"
+
+msgid "Legacy Installation Detected"
+msgstr "检测到旧版残留"
+
+msgid "Clean Up Now"
+msgstr "一键清理"
+
+msgid "Plugin Settings"
+msgstr "插件配置"
+
+msgid "DNS Resolution"
+msgstr "DNS 解析"
+
+msgid "Service & DNS"
+msgstr "服务与 DNS"
+
+msgid "Save & Apply"
+msgstr "保存并应用"
+
+msgid "Upstream DNS"
+msgstr "上游 DNS"
+
+msgid "DNS Cache"
+msgstr "DNS 缓存"
+
+msgid "Encrypted Upstream"
+msgstr "加密上游"
+
+msgid "Bootstrap DNS Help"
+msgstr "bootstrap DNS 说明"
+
+msgid "Change Panel Password"
+msgstr "修改面板密码"
+
+msgid "Save New Password"
+msgstr "保存新密码"
+
+msgid "Stats & Log Retention"
+msgstr "统计与日志保留"
+
+msgid "Subscriptions / Rule Lists"
+msgstr "订阅 / 规则列表"
+
+msgid "Add Subscription"
+msgstr "添加订阅"
+
+msgid "Custom Rules (Whitelist / Blacklist)"
+msgstr "自定义规则（白名单 / 黑名单）"
+
+msgid "Reload"
+msgstr "重新加载"
+
+msgid "Validate & Save"
+msgstr "校验并保存"
+
+msgid "Service Logs"
+msgstr "运行日志"
+
+msgid "Query Log"
+msgstr "查询日志"
+
+msgid "Download Log"
+msgstr "下载日志"
+
+msgid "Prev"
+msgstr "上一页"
+
+msgid "Next"
+msgstr "下一页"
+
+msgid "1. Get Started in 3 Steps"
+msgstr "一、三步开始使用"
+
+msgid "2. How to Choose a DNS Mode"
+msgstr "二、DNS 接管方式怎么选"
+
+msgid "3. Commonly Used Features"
+msgstr "三、平时常用的功能"
+
+msgid "5 Filter Switches Explained"
+msgstr "过滤规则 5 个开关分别管什么"
+
+msgid "4. Important Notes"
+msgstr "四、必须注意的事项"
+
+msgid "5. Troubleshooting"
+msgstr "五、出问题怎么办"
+
+msgid "6. Settings Still in the AGH Panel"
+msgstr "六、这些设置仍在 AdGuard Home 面板"
+
+msgid "Update Plugin Online"
+msgstr "在线更新插件"
+
+msgid "Cancel"
+msgstr "取消"
+
+msgid "Start Update"
+msgstr "开始更新"
+
+msgid "Confirm"
+msgstr "请确认"
+
+msgid "OK"
+msgstr "确定"
+
+msgid "2GB and above"
+msgstr "2GB 及以上"
+
+msgid "Save Rules"
+msgstr "保存规则"
+
+msgid "All"
+msgstr "全部"
+
+msgid "Blocked"
+msgstr "已拦截"
+
+msgid "Allowed"
+msgstr "已放行"

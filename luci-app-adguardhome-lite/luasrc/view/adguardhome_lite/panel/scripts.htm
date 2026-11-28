@@ -1,0 +1,33 @@
+<script src="<%=resource%>/adguardhome-lite/twin-bcrypt.min.js?v=20261108b"></script>
+<script src="<%=resource%>/adguardhome-lite/panel.js?v=20261127a"></script>
+<script>
+	// 向内嵌它的 LuCI 页面上报真实高度，外层不再轮询 iframe DOM
+	(function () {
+		function report() {
+			var app = document.querySelector('.agh-app');
+			if (!app || window.parent === window) return;
+			var height = Math.ceil(app.getBoundingClientRect().height);
+			if (height > 0) {
+				window.parent.postMessage({ type: 'agh-height', height: height }, window.location.origin);
+			}
+		}
+		function bind() {
+			var app = document.querySelector('.agh-app');
+			if (window.ResizeObserver && app) {
+				new ResizeObserver(report).observe(app);
+			} else {
+				setInterval(report, 2000);
+			}
+			report();
+		}
+		if (document.readyState === 'loading') {
+			document.addEventListener('DOMContentLoaded', bind);
+		} else {
+			bind();
+		}
+		window.addEventListener('load', report);
+	})();
+</script>
+</body>
+</html>
+

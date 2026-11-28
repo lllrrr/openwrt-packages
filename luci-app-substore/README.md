@@ -13,7 +13,7 @@
 ## 安装
 
 > 包名中的版本号必须与 [Makefile](Makefile) 的 `PKG_VERSION` / `PKG_RELEASE` 保持一致
-> （当前 `2.7.3-r3`）。
+> （当前 `2.7.4-r1`）。
 
 **最低支持 OpenWrt / ImmortalWrt 23.05**（更早的版本不在支持范围内）。
 

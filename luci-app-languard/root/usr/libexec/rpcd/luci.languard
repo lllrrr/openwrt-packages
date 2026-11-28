@@ -38,7 +38,7 @@ local DOMAIN_FILE = STATE_DIR .. "/domains.json"
 local DOMAIN_HOSTS = STATE_DIR .. "/domainblock.hosts"
 local NOTIFY_TMP = "/tmp/languard-notify.json"
 local LOG_FILE = STATE_DIR .. "/login.log"
-local LOG_MAX = 500
+local LOG_MAX = 5000
 local AUTOCFG_FILE = STATE_DIR .. "/auto.json"
 -- SOCKS5 代理的配置。以前硬编码在 init 脚本里,
 -- 密码对任何能读文件的人都可见;改存这里(600)并在界面上管理。
@@ -1220,6 +1220,74 @@ local function honk_poll(now)
 	return added
 end
 
+-- ---- Final 兜底观察 -------------------------------------------------
+-- 落进 Final 组的流都是没命中任何规则的兜底流量。把第一次出现的域名
+-- (没域名时用目标 IP)记下来,整点攒成一条 final_fallback 通知发出去,
+-- 供人工审阅:该直连的去 honk 里给它加规则。报过的进 seen,不再重复。
+-- 状态独立成文件;调用方用 pcall 包着,坏了不影响账本归类。
+IDX.final_file = STATE_DIR .. "/final_seen.json"
+
+IDX.final_watch = function(now, flows)
+	local fw = load_json_map(IDX.final_file, function()
+		return { seen = {}, pending = {}, hour = 0 }
+	end)
+	fw.seen = fw.seen or {}
+	fw.pending = fw.pending or {}
+	local dirty = false
+
+	-- 整点结算:把上一小时攒下的新目标发出去,再转入 seen
+	local hr = math.floor(now / 3600)
+	if fw.hour == 0 then
+		fw.hour = hr
+		dirty = true
+	elseif hr > fw.hour then
+		local items = {}
+		for t, e in pairs(fw.pending) do
+			items[#items + 1] = { t = t, n = e.n or 1 }
+		end
+		if #items > 0 then
+			table.sort(items, function(a, b) return a.n > b.n end)
+			local lines = {}
+			for i = 1, math.min(#items, 25) do
+				lines[#lines + 1] = string.format("%s ×%d", items[i].t, items[i].n)
+			end
+			if #items > 25 then
+				lines[#lines + 1] = string.format("… and %d more", #items - 25)
+			end
+			notify_event("final_fallback",
+				"Final fallback: " .. #items .. " new target(s) in the last hour",
+				table.concat(lines, "\n"))
+			for _, it in ipairs(items) do fw.seen[it.t] = true end
+			fw.pending = {}
+		end
+		fw.hour = hr
+		dirty = true
+	end
+
+	-- 登记本轮新出现的兜底目标
+	for _, f in pairs(flows) do
+		if f.outbound == "Final" then
+			local delta = (f.up or 0) + (f.dn or 0)
+			local target = f.domain
+			if not target or target == "" then
+				target = f.dst and tostring(f.dst):match("^(%d+%.%d+%.%d+%.%d+)") or nil
+			end
+			if target and delta > 0 and not fw.seen[target] then
+				local e = fw.pending[target]
+				if not e then
+					e = { n = 0, b = 0 }
+					fw.pending[target] = e
+				end
+				e.n = e.n + 1
+				e.b = e.b + delta
+				dirty = true
+			end
+		end
+	end
+
+	if dirty then save_json_map(IDX.final_file, fw) end
+end
+
 -- 探测当前在跑的代理引擎:honk(native 9527) 或 OpenClash(clash 9090)。
 -- 端口互斥:先探 9527,不通再探 9090。结果缓存进 IDX。
 -- 全部挂 IDX.*,不新增顶层 local(已贴 200 上限)。
@@ -1329,6 +1397,10 @@ IDX.openclash_poll = function(now)
 end
 
 local function collect_app_stats(now)
+	-- Final 兜底观察先行:不依赖应用库,失败也不能拖垮下面的归类
+	local flows = load_json_map(HONK_PENDING, function() return {} end)
+	pcall(IDX.final_watch, now, flows)
+
 	local apps = load_apps()
 	if #apps.apps == 0 then return nil end
 
@@ -1356,7 +1428,6 @@ local function collect_app_stats(now)
 	-- 采集器每两秒把增量写进 honk_pending.json;这里只做归类和落盘,然后
 	-- 清空它。不再扫 conntrack - 被 TPROXY 接管的流根本不出现在那张表里。
 	local counted = 0
-	local flows = load_json_map(HONK_PENDING, function() return {} end)
 
 	for key, f in pairs(flows) do
 		local delta = f.up + f.dn
@@ -2537,7 +2608,7 @@ methods.importfile = sysm.importfile
 ntfm = require "languard.notify"
 ntfm.setup({
 	notify_file = NOTIFY_FILE, notify_tmp = NOTIFY_TMP, state_dir = STATE_DIR,
-	events = { "auto_block", "new_device", "expire" },
+	events = { "auto_block", "new_device", "expire", "final_fallback", "dep_down", "dep_up" },
 	shq = function(v) return shq(v) end,
 })
 notify_event = function(e, t, b) return ntfm.event(e, t, b) end
@@ -4600,6 +4671,102 @@ function methods.expire()
 end
 
 -- Called once a minute by the watcher: schedules first, then expiry.
+-- ---- 依赖探针 -------------------------------------------------------
+-- languard 借了几个外部包的能力,对方不在时对应功能会静默失效。把四个
+-- 运行时依赖的探针集中在这里,selfcheck(展示)与 tick 里的 dep_watch
+-- (主动通知)共用同一份判断,免得两边口径不一致。探针只在"功能已
+-- 启用且有规则"时才判失败:没配 QoS 规则就不需要 qosmate,没有域名
+-- 规则就不需要 dnsmasq,免得为没在用的东西报警。
+IDX.dep_probes = function()
+	local out = {}
+	local function add(id, label, ok, detail, hint)
+		out[#out + 1] = { id = id, label = label, ok = ok and true or false,
+		                  detail = detail or "", hint = hint or "" }
+	end
+
+	-- 代理引擎:账本的数据源。引擎不在时采集器不报错、tick 照样报绿,
+	-- 账本会静默冻结,所以必须单独探。
+	local engine = IDX.proxy_active(true)
+	add("proxyengine", "proxy engine", engine ~= nil,
+		engine and ("running: " .. engine) or "neither honk nor OpenClash answers",
+		engine and "" or "traffic ledger has no source; check honk / OpenClash")
+
+	-- qosmate:游戏提速的 hfsc 类由它建,我们只往类里送包。
+	local qos = load_qos()
+	local n_qos = (type(qos) == "table" and type(qos.rules) == "table") and #qos.rules or 0
+	if n_qos == 0 then
+		add("qosmate", "qosmate", true, "no QoS rules", "")
+	else
+		local dt = sys.exec("nft list table inet dscptag 2>/dev/null") or ""
+		local okq = dt ~= ""
+		add("qosmate", "qosmate", okq,
+			okq and (n_qos .. " QoS rule(s), qosmate tables present")
+			    or (n_qos .. " QoS rule(s) but qosmate's dscptag table is missing"),
+			okq and "" or "QoS priorities have no hfsc classes to land in; check qosmate")
+	end
+
+	-- dnsmasq:域名黑名单靠它读 hosts 文件;它不在,名单就是一张废纸。
+	local doms = load_json_map(DOMAIN_FILE, function() return {} end)
+	local n_dom = (type(doms) == "table" and type(doms.names) == "table") and #doms.names or 0
+	if doms.enabled == false or n_dom == 0 then
+		add("dnsmasq", "dnsmasq", true, "no blocked domains", "")
+	else
+		local pid = trim(sys.exec("pidof dnsmasq 2>/dev/null") or "")
+		local reg = (sys.exec("uci -q get dhcp.@dnsmasq[0].addnhosts 2>/dev/null") or "")
+			:find("domainblock.hosts", 1, true) ~= nil
+		local okd = pid ~= "" and reg
+		add("dnsmasq", "dnsmasq", okd,
+			okd and (n_dom .. " blocked domain(s), dnsmasq running")
+			    or (n_dom .. " blocked domain(s) but dnsmasq " ..
+			        (pid == "" and "is not running" or "has not registered our hosts file")),
+			okd and "" or "domain blocklist is not being served; check dnsmasq")
+	end
+
+	-- 入站代理(sing-box):设置里启用了就必须真的在监听。
+	local sd = load_socks()
+	if not (sd and sd.enabled) then
+		add("socks", "inbound proxy", true, "disabled", "")
+	else
+		local port = tonumber(sd.port) or 0
+		local oks = port > 0 and socks_listening(port)
+		add("socks", "inbound proxy", oks,
+			oks and ("listening on :" .. port)
+			    or ("enabled but :" .. port .. " is not listening"),
+			oks and "" or "sing-box is not running; check the inbound proxy settings")
+	end
+
+	return out
+end
+
+-- 依赖跌落/恢复通知:tick 每 5 分钟探一次,连续两次失败才报 dep_down,
+-- 免得重启途中的抖动刷屏;恢复时发 dep_up 闭环。状态落在 depwatch.json。
+IDX.dep_file = STATE_DIR .. "/depwatch.json"
+
+IDX.dep_watch = function(now)
+	local dw = load_json_map(IDX.dep_file, function() return { last = 0, deps = {} } end)
+	if now - (tonumber(dw.last) or 0) < 300 then return end
+	dw.last = now
+	dw.deps = type(dw.deps) == "table" and dw.deps or {}
+	for _, p in ipairs(IDX.dep_probes()) do
+		local d = dw.deps[p.id] or { fails = 0, down = false }
+		if p.ok then
+			if d.down then
+				notify_event("dep_up", "Dependency recovered: " .. p.label, p.detail)
+			end
+			d.fails, d.down = 0, false
+		else
+			d.fails = (tonumber(d.fails) or 0) + 1
+			if d.fails >= 2 and not d.down then
+				d.down = true
+				notify_event("dep_down", "Dependency down: " .. p.label,
+					p.detail .. (p.hint ~= "" and (" — " .. p.hint) or ""))
+			end
+		end
+		dw.deps[p.id] = d
+	end
+	save_json_map(IDX.dep_file, dw)
+end
+
 function methods.tickcfg()
 	local d = load_json_map(STATE_DIR .. "/tick.json", function() return { enabled = true } end)
 	if d.enabled == nil then d.enabled = true end
@@ -4666,6 +4833,7 @@ function methods.tick()
 		stt.ok_at = now
 	end
 	save_json_map(STATE_DIR .. "/tickstate.json", stt)
+	pcall(IDX.dep_watch, now)
 	if IDX.appips_dirty then
 		save_json_map(APPIPS_FILE, IDX.appips)
 		IDX.appips, IDX.appips_dirty = nil, nil
@@ -4956,6 +5124,9 @@ function methods.selfcheck()
 	local cfg = load_autocfg()
 	add("autoprot", cfg.enabled,
 		cfg.enabled and ("on, threshold " .. cfg.threshold) or "off", "")
+
+	-- 9) 外部依赖:与 tick 里的 dep_watch 共用同一组探针
+	for _, p in ipairs(IDX.dep_probes()) do add(p.id, p.ok, p.detail, p.hint) end
 
 	local all_ok = true
 	for _, c in ipairs(checks) do if not c.ok then all_ok = false end end

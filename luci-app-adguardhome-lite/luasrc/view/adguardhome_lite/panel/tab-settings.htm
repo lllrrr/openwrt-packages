@@ -1,0 +1,303 @@
+		<section class="agh-tab-panel" id="agh-tab-settings">
+			<div class="agh-subtabs" id="agh-settings-tabs">
+				<button type="button" class="agh-subtab is-active" data-subtab="svc"><%:Plugin Settings%></button>
+				<button type="button" class="agh-subtab" data-subtab="upstream"><%:DNS Resolution%></button>
+			</div>
+
+			<div class="agh-card is-active" data-subpanel="svc">
+				<div class="agh-card-head">
+					<div class="agh-card-head-left"><h3><%:Service & DNS%></h3><span class="agh-hint agh-head-note">默认配置：接管 53 端口，管理面板端口 13800，默认账号 admin / 密码 admin123。保存后自动应用，约 5-10 秒恢复。</span></div>
+				</div>
+				<form id="agh-settings-form" class="agh-form" autocomplete="off">
+					<div class="agh-field agh-field-switch">
+						<div>
+							<div class="agh-label-row"><label for="agh-set-enabled">启用 AdGuard Home</label><span class="agh-hint">开启后启动服务；关闭后停止服务并恢复 DNSMasq 原始设置。</span></div>
+						</div>
+						<span class="agh-switch-state" data-for="agh-set-enabled">已关闭</span>
+						<label class="agh-switch">
+							<input type="checkbox" id="agh-set-enabled">
+							<span></span>
+						</label>
+					</div>
+
+				<div class="agh-form-grid agh-grid-compact">
+						<div class="agh-field agh-field-wide">
+							<label for="agh-set-dns-mode">DNS 接管方式</label>
+							<select id="agh-set-dns-mode">
+								<option value="takeover">接管 53 端口（默认，DNSMasq 移到 1745）</option>
+								<option value="passwall">PassWall / PassWall2 前置（AGH 53 → PassWall DNS 分流，保留劫持）</option>
+								<option value="upstream">DNSMasq 上游（AdGuard Home 监听 5333）</option>
+								<option value="clashfirst">Clash 前置（Clash 7874 → AGH 5335 → 真实 DNS）</option>
+								<option value="none">仅面板模式（不接管 DNS）</option>
+							</select>
+							<p class="agh-hint agh-hint-warn" id="agh-dns-mode-note" style="display:none"></p>
+						</div>
+
+						<div class="agh-field">
+							<label for="agh-set-webport">管理面板端口</label>
+							<input type="number" id="agh-set-webport" min="1" max="65535" placeholder="13800">
+						</div>
+
+						<div class="agh-field">
+							<label for="agh-set-webaddr">面板监听地址</label>
+							<select id="agh-set-webaddr">
+								<option value="0.0.0.0">全部地址（0.0.0.0，局域网可访问）</option>
+								<option value="127.0.0.1">仅本机（127.0.0.1，局域网无法直接访问）</option>
+							</select>
+						</div>
+
+						<div class="agh-field">
+							<label for="agh-set-binpath">内核安装位置</label>
+							<select id="agh-set-binpath">
+								<option value="/usr/bin/AdGuardHome/AdGuardHome">内置存储（推荐，重启保留）</option>
+								<option value="/tmp/AdGuardHome/AdGuardHome">内存临时（重启后需重新安装）</option>
+							</select>
+						</div>
+
+						<div class="agh-field">
+							<label for="agh-set-channel">内核更新通道</label>
+							<select id="agh-set-channel">
+								<option value="stable">正式版（推荐）</option>
+								<option value="beta">预发布版（谨慎使用）</option>
+								<option value="legacy">旧版本（兼容旧配置，如 v0.107.x）</option>
+							</select>
+						</div>
+
+						<div class="agh-field">
+							<label for="agh-set-github-proxy">GitHub 反代</label>
+							<select id="agh-set-github-proxy">
+								<option value="none">关闭（不使用）</option>
+								<option value="gh-proxy.org">gh-proxy.org</option>
+								<option value="ghproxy.cc">ghproxy.cc</option>
+								<option value="ghproxy.com">ghproxy.com</option>
+								<option value="ghfast.top">ghfast.top</option>
+							</select>
+						</div>
+
+						<div class="agh-field">
+							<label for="agh-set-workdir">数据工作目录</label>
+							<select id="agh-set-workdir">
+								<option value="/etc/AdGuardHome">内置存储（推荐，数据保留）</option>
+								<option value="/tmp/AdGuardHome">内存临时（减少闪存写入）</option>
+							</select>
+						</div>
+
+						<div class="agh-bypass-row" id="agh-bypass-group">
+							<div class="agh-field">
+								<label>不参与接管的接口</label>
+								<div class="agh-select" id="agh-bypass-iface-dd">
+									<button type="button" class="agh-select-toggle" id="agh-bypass-iface-toggle">
+										<span id="agh-bypass-iface-label">全部接管</span>
+										<span class="agh-select-arrow">▾</span>
+									</button>
+									<div class="agh-select-menu" id="agh-bypass-iface-menu" hidden></div>
+								</div>
+							</div>
+							<div class="agh-field">
+								<label for="agh-set-bypass-clients">不参与接管的客户端 IP / CIDR</label>
+								<input type="text" id="agh-set-bypass-clients" placeholder="192.168.1.50 192.168.2.0/24 fd00::5">
+							</div>
+						</div>
+						<p class="agh-hint agh-field-wide" id="agh-bypass-note" style="display:none">「不参与接管」只在「接管 53 端口」模式下生效：该模式由插件自建 nft 规则接管查询，其它模式不经过这些规则。</p>
+					</div>
+
+					<div class="agh-form-actions">
+						<button type="submit" id="agh-save-settings-btn" class="agh-btn agh-btn-primary"><%:Save & Apply%></button>
+						<span id="agh-settings-msg" class="agh-hint"></span>
+					</div>
+				</form>
+			</div>
+
+			<div class="agh-card" data-subpanel="upstream">
+				<div class="agh-card-head">
+					<div class="agh-card-head-left">
+						<h3><%:Upstream DNS%></h3>
+						<span class="agh-hint agh-head-note">自动按当前接管方式写入；选择「自定义」后固定使用下面的列表，切换接管方式也不会改。</span>
+					</div>
+					<span id="agh-upstream-msg" class="agh-hint"></span>
+				</div>
+				<p id="agh-upstream-lan-note" class="agh-hint agh-hint-warn agh-notice-warn" hidden></p>
+				<form id="agh-upstream-form" class="agh-form" autocomplete="off">
+					<div class="agh-form-grid agh-rows">
+						<div class="agh-field agh-upstream-row">
+							<label for="agh-set-upstream-source">上游来源</label>
+							<div class="agh-field-row agh-upstream-line">
+								<select id="agh-set-upstream-source">
+									<option value="auto">自动（按接管方式）</option>
+									<option value="custom">自定义</option>
+								</select>
+								<span class="agh-hint">当前生效：<span id="agh-upstream-current">读取中...</span></span>
+								<div class="agh-upstream-custom" id="agh-upstream-custom-field" hidden>
+									<label for="agh-set-upstream-custom">自定义上游列表</label>
+									<div class="agh-upstream-custom-body">
+										<textarea id="agh-set-upstream-custom" rows="4" placeholder="1.1.1.1&#10;tls://dns.alidns.com&#10;[/corp.example/]10.0.0.1"></textarea>
+										<p class="agh-hint">一行一个；支持 IP、<code>tls://</code>、<code>https://</code>、<code>quic://</code>，以及 <code>[/域名/]IP</code> 条件转发。</p>
+									</div>
+								</div>
+							</div>
+						</div>
+					</div>
+					<div class="agh-form-actions">
+						<button type="submit" id="agh-save-upstream-btn" class="agh-btn agh-btn-primary"><%:Save & Apply%></button>
+						<span class="agh-hint">保存后重启 AGH，约 5-10 秒生效。</span>
+					</div>
+				</form>
+			</div>
+
+			<div class="agh-card" data-subpanel="upstream">
+				<div class="agh-card-head">
+					<div class="agh-card-head-left">
+						<h3><%:DNS Cache%></h3>
+						<span class="agh-hint agh-head-note">缓存可减少上游查询，重启服务后清空。</span>
+					</div>
+					<span id="agh-cache-msg" class="agh-hint"></span>
+				</div>
+				<form id="agh-cache-form" class="agh-form" autocomplete="off">
+					<div class="agh-field agh-field-switch">
+						<div>
+							<div class="agh-label-row"><label for="agh-set-cache-enabled">启用 DNS 缓存</label><span class="agh-hint">老版本升级会保留当前设置。</span></div>
+						</div>
+						<span class="agh-switch-state" data-for="agh-set-cache-enabled">已关闭</span>
+						<label class="agh-switch">
+							<input type="checkbox" id="agh-set-cache-enabled" checked>
+							<span></span>
+						</label>
+					</div>
+					<div class="agh-form-grid agh-form-grid-3" id="agh-cache-fields">
+						<div class="agh-field">
+							<div class="agh-label-row">
+								<label for="agh-set-cache-size">缓存大小</label>
+								<span class="agh-hint">默认 16MB；低配 8/16MB，大内存 64/128MB。</span>
+							</div>
+							<select id="agh-set-cache-size">
+								<option value="8">8 MB</option>
+								<option value="16" selected>16 MB（推荐）</option>
+								<option value="32">32 MB</option>
+								<option value="64">64 MB</option>
+								<option value="128">128 MB</option>
+							</select>
+						</div>
+						<div class="agh-field">
+							<label for="agh-set-cache-ttl-min">最小 TTL（秒，0=不覆盖）</label>
+							<input type="number" id="agh-set-cache-ttl-min" min="0" max="604800" step="1" value="0">
+						</div>
+						<div class="agh-field">
+							<label for="agh-set-cache-ttl-max">最大 TTL（秒，0=不限制）</label>
+							<input type="number" id="agh-set-cache-ttl-max" min="0" max="604800" step="1" value="0">
+						</div>
+					</div>
+					<div class="agh-field agh-field-switch">
+						<div>
+							<div class="agh-label-row"><label for="agh-set-cache-optimistic">乐观缓存</label><span class="agh-hint">过期先返回旧记录再后台刷新；Clash fake-IP 不建议开启。</span></div>
+						</div>
+						<label class="agh-switch">
+							<input type="checkbox" id="agh-set-cache-optimistic">
+							<span></span>
+						</label>
+					</div>
+					<div class="agh-form-actions">
+						<button type="submit" id="agh-save-cache-btn" class="agh-btn agh-btn-primary"><%:Save & Apply%></button>
+						<span class="agh-hint">保存后重启 AGH，约 5-10 秒生效。</span>
+					</div>
+				</form>
+			</div>
+
+			<div class="agh-card" data-subpanel="upstream">
+				<div class="agh-card-head">
+					<div class="agh-card-head-left"><h3><%:Encrypted Upstream%></h3><span class="agh-hint agh-head-note">仅在「Clash 前置」模式生效；其它模式的上游是本机 DNSMasq，加密不会生效。</span></div>
+					<span id="agh-crypto-msg" class="agh-hint"></span>
+				</div>
+				
+				<form id="agh-crypto-form" class="agh-form" autocomplete="off">
+					<div class="agh-form-grid" id="agh-crypto-fields">
+						<div class="agh-field">
+							<label for="agh-set-dns-crypto">加密方式</label>
+							<select id="agh-set-dns-crypto">
+								<option value="off">关闭（默认）</option>
+								<option value="alidns">阿里 DoH（dns.alidns.com）</option>
+								<option value="dnspod">DNSPod DoH（doh.pub）</option>
+								<option value="cloudflare">Cloudflare DoH（需代理）</option>
+								<option value="custom">自定义上游</option>
+							</select>
+							<p class="agh-hint">国内推荐阿里或 DNSPod；Cloudflare 部分网络不可达。</p>
+						</div>
+						<div class="agh-field agh-crypto-side">
+							<p class="agh-hint agh-hint-warn" id="agh-crypto-mode-note" style="display:none"></p>
+							<div id="agh-crypto-custom-wrap" hidden>
+								<label for="agh-set-dns-crypto-custom">自定义上游地址</label>
+								<input type="text" id="agh-set-dns-crypto-custom" placeholder="https://dns.example.com/dns-query">
+								<p class="agh-hint">支持 https://（DoH）、tls://（DoT）、quic://（DoQ）、sdns://（DNSCrypt）。</p>
+							</div>
+						</div>
+					</div>
+					<div class="agh-form-actions">
+						<button type="submit" id="agh-save-crypto-btn" class="agh-btn agh-btn-primary"><%:Save & Apply%></button>
+						<span class="agh-hint">保存后重启 AGH，约 5-10 秒生效。</span>
+					</div>
+					<details class="agh-details">
+						<summary><%:Bootstrap DNS Help%></summary>
+						<p class="agh-hint">仅在 bootstrap 为空时自动补写 223.5.5.5、119.29.29.29，已有值不覆盖。</p>
+					</details>
+				</form>
+			</div>
+
+			<div class="agh-cols-2">
+				<div class="agh-card" data-subpanel="svc">
+					<div class="agh-card-head">
+						<h3><%:Change Panel Password%></h3>
+					</div>
+					<form id="agh-password-form" class="agh-form" autocomplete="off">
+						<div class="agh-form-grid agh-rows">
+							<div class="agh-field">
+								<label for="agh-newpass" title="新密码（至少 8 个字符）">新密码（≥8 位）</label>
+								<input type="password" id="agh-newpass" autocomplete="new-password">
+							</div>
+							<div class="agh-field">
+								<label for="agh-newpass2">再次输入新密码</label>
+								<input type="password" id="agh-newpass2" autocomplete="new-password">
+							</div>
+						</div>
+						<div class="agh-form-actions">
+							<button type="submit" id="agh-savepass-btn" class="agh-btn agh-btn-primary"><%:Save New Password%></button>
+							<span id="agh-pass-msg" class="agh-hint"></span>
+						</div>
+					</form>
+				</div>
+
+				<div class="agh-card" data-subpanel="svc">
+					<div class="agh-card-head">
+						<div class="agh-card-head-left"><h3><%:Stats & Log Retention%></h3><span class="agh-hint agh-head-note">控制 AdGuard Home 的统计和查询日志保留时长；保存后会重启服务。</span></div>
+						<span id="agh-retention-msg" class="agh-hint"></span>
+					</div>
+					<form id="agh-retention-form" class="agh-form" autocomplete="off">
+						<div class="agh-form-grid agh-rows">
+							<div class="agh-field">
+								<label for="agh-set-stats-days">统计保留</label>
+								<select id="agh-set-stats-days">
+									<option value="7">7 天</option>
+									<option value="30">30 天（默认）</option>
+									<option value="90">90 天</option>
+									<option value="180">180 天</option>
+									<option value="365">365 天</option>
+								</select>
+							</div>
+							<div class="agh-field">
+								<label for="agh-set-querylog-days">查询日志保留</label>
+								<select id="agh-set-querylog-days">
+									<option value="1">1 天</option>
+									<option value="7">7 天</option>
+									<option value="30">30 天（默认）</option>
+									<option value="90">90 天</option>
+									<option value="180">180 天</option>
+								</select>
+							</div>
+						</div>
+						<div class="agh-form-actions">
+							<button type="submit" id="agh-save-retention-btn" class="agh-btn agh-btn-primary"><%:Save & Apply%></button>
+							<span class="agh-hint">保存后重启 AGH，约 5-10 秒生效。</span>
+						</div>
+					</form>
+				</div>
+			</div>
+		</section>
+

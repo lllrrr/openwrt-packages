@@ -6,6 +6,10 @@ mkdir -p /etc/AdGuardHome /usr/bin/AdGuardHome 2>/dev/null
 chmod 755 /etc/init.d/adguardhome_lite 2>/dev/null
 chmod 755 /usr/share/adguardhome-lite/*.sh 2>/dev/null
 
+# adminpass 明文保存（AGH 密码哈希不可逆，插件调用本机 API 需要明文），
+# 因此配置文件只允许 root 读取。
+chmod 600 /etc/config/adguardhome_lite 2>/dev/null
+
 # 清理 LuCI 菜单缓存，让插件入口立即出现
 rm -f /tmp/luci-indexcache /tmp/luci-indexcache.* 2>/dev/null
 

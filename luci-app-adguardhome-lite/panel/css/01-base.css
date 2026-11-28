@@ -1,0 +1,112 @@
+@font-face{font-family:"Space Grotesk";font-style:normal;font-weight:400;font-display:swap;src:url("fonts/space-grotesk-400.woff2") format("woff2")}
+@font-face{font-family:"Space Grotesk";font-style:normal;font-weight:500;font-display:swap;src:url("fonts/space-grotesk-500.woff2") format("woff2")}
+@font-face{font-family:"Space Grotesk";font-style:normal;font-weight:600;font-display:swap;src:url("fonts/space-grotesk-600.woff2") format("woff2")}
+@font-face{font-family:"Space Grotesk";font-style:normal;font-weight:700;font-display:swap;src:url("fonts/space-grotesk-700.woff2") format("woff2")}
+@font-face{font-family:"JetBrains Mono";font-style:normal;font-weight:400;font-display:swap;src:url("fonts/jetbrains-mono-400.woff2") format("woff2")}
+@font-face{font-family:"JetBrains Mono";font-style:normal;font-weight:700;font-display:swap;src:url("fonts/jetbrains-mono-700.woff2") format("woff2")}
+
+/* AdGuard Home 管理中心 · 操作台配色（冷灰 + 单色青）
+   仅作用于 iframe 内部，不加载任何 LuCI 主题样式。 */
+
+:root{
+	--agh-bg:#f4f5f7;
+	--agh-surface:#fff;
+	--agh-surface-2:#f7f8fa;
+	--agh-surface-3:#eceef2;
+	--agh-text:#1b1f24;
+	--agh-strong:#11151a;
+	--agh-muted:#5f6773;
+	--agh-muted-2:#3d444d;
+	--agh-border:#e2e5ea;
+	--agh-border-strong:#cbd1d9;
+	--agh-primary:#0f766e;
+	--agh-primary-2:#0d9488;
+	--agh-primary-soft:#e6f4f1;
+	--agh-on-primary:#ffffff;
+	--agh-success:#0f766e;
+	--agh-success-soft:#e6f4f1;
+	--agh-warning:#b54708;
+	--agh-warning-soft:#fdf1e5;
+	--agh-danger:#b42318;
+	--agh-danger-soft:#fdeceb;
+	--agh-ring:rgba(15,118,110,.22);
+	--agh-radius:12px;
+	--agh-radius-sm:9px;
+	--agh-radius-xs:6px;
+	--agh-gap:8px;
+	--agh-font:"Space Grotesk","Noto Sans SC",system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+	--agh-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+	--agh-z-top:20;
+}
+
+html.agh-dark{
+	--agh-bg:#0e1116;
+	--agh-surface:#151a21;
+	--agh-surface-2:#1a2028;
+	--agh-surface-3:#222a34;
+	--agh-text:#e6e9ee;
+	--agh-strong:#f4f6f8;
+	--agh-muted:#98a2b3;
+	--agh-muted-2:#c3cad4;
+	--agh-border:#262d37;
+	--agh-border-strong:#39424f;
+	--agh-primary:#2dd4bf;
+	--agh-primary-2:#5eead4;
+	--agh-primary-soft:#12312e;
+	--agh-on-primary:#06201d;
+	--agh-success:#2dd4bf;
+	--agh-success-soft:#12312e;
+	--agh-warning:#f5b26b;
+	--agh-warning-soft:#332316;
+	--agh-danger:#f97066;
+	--agh-danger-soft:#331b1a;
+	--agh-ring:rgba(45,212,191,.22);
+}
+
+/* color-scheme 挂在面板容器上，不放 html：否则暗色下浏览器会把 iframe 画布涂成不透明黑，
+   居中留白处就会露出两块黑边（浅色模式不会） */
+.agh-app{color-scheme:light}
+html.agh-dark .agh-app{color-scheme:dark}
+
+*,*::before,*::after{box-sizing:border-box}
+
+html,body{margin:0;padding:0;min-height:0;background:transparent}
+
+body{
+	font-family:var(--agh-font);
+	font-size:13.5px;
+	line-height:1.6;
+	color:var(--agh-text);
+	background:transparent;
+	-webkit-font-smoothing:antialiased;
+}
+
+button,input,select,textarea{font:inherit;color:inherit}
+
+h1,h2,h3,h4{margin:0;text-wrap:balance}
+p{text-wrap:pretty}
+
+a{color:var(--agh-primary);text-decoration:none}
+a:hover{text-decoration:underline}
+
+code{
+	font-family:var(--agh-mono);
+	font-size:11.5px;
+	padding:1px 4px;
+	border-radius:4px;
+	background:var(--agh-surface-3);
+	color:var(--agh-muted-2);
+}
+
+[hidden]{display:none !important}
+
+:focus-visible{outline:2px solid var(--agh-primary-2);outline-offset:2px}
+
+@media (prefers-reduced-motion:reduce){
+	*,*::before,*::after{
+		transition-duration:.001ms !important;
+		animation-duration:.001ms !important;
+		animation-iteration-count:1 !important;
+	}
+}
+

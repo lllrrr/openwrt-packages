@@ -130,54 +130,25 @@ build_jobs() {
 	' "$PREWARM_FILE" 2>/dev/null | sort -u | awk '{ print "A " $0; print "AAAA " $0 }'
 }
 
-# C2: BusyBox builds differ on the custom-port option. Prefer nslookup on
-# stock OpenWrt, detect -port/-p from its usage text, and fall back to dig if
-# nslookup cannot set the port. Probe stderr is kept for diagnostics.
+# dig is a hard package dependency (bind-dig). The BusyBox resolver applet is
+# not used: its custom-port flag differs across builds (-port vs -p vs
+# unsupported), which once made prewarming issue queries to port 53 instead of
+# the listener and silently warm nothing.
 detect_query_tool() {
-	QUERY_TOOL=""
-	NSLOOKUP_PORT_FLAG=""
-	if command -v nslookup >/dev/null 2>&1; then
-		QUERY_TOOL=nslookup
-		USAGE_TEXT="$(nslookup --help 2>&1 || true)"
-		[ -n "$USAGE_TEXT" ] || USAGE_TEXT="$(nslookup -help 2>&1 || true)"
-		case "$USAGE_TEXT" in
-			*'-port'*) NSLOOKUP_PORT_FLAG='-port' ;;
-			*'-p '* | *'-p='*) NSLOOKUP_PORT_FLAG='-p' ;;
-			*)
-				if command -v dig >/dev/null 2>&1; then
-					QUERY_TOOL=dig
-				else
-					PROBE_ERR="$WORK_DIR/nslookup-probe.err"
-					nslookup -type=A -port="$PORT" "$SERVER" "$SERVER" >/dev/null 2>"$PROBE_ERR" || true
-					PROBE_TEXT="$(sed -n '1,2p' "$PROBE_ERR" 2>/dev/null | tr '\n' ' ')"
-					fail "dependency_missing: nslookup does not support a custom DNS port: ${PROBE_TEXT:-unknown}" 2
-				fi
-				;;
-		esac
-	elif command -v dig >/dev/null 2>&1; then
-		QUERY_TOOL=dig
-	else
-		fail "dependency_missing: neither dig nor nslookup is installed" 2
-	fi
+	command -v dig >/dev/null 2>&1 || \
+		fail "dependency_missing: dig is not installed (install bind-dig)" 2
+	QUERY_TOOL=dig
 }
 
 run_query_job() {
 	qtype="$1"
 	name="$2"
 	err_file="$3"
-	if [ "$QUERY_TOOL" = "dig" ]; then
-		tcp_flag=""
-		[ "$PROTOCOL" = "tcp" ] && tcp_flag="+tcp"
-		dig +time="$PREWARM_QUERY_TIMEOUT" +tries="$PREWARM_RETRIES" \
-			@"$SERVER" -p "$PORT" $tcp_flag "$qtype" "$name" \
-			>/dev/null 2>"$err_file"
-	elif [ "$NSLOOKUP_PORT_FLAG" = "-p" ]; then
-		nslookup -type="$qtype" -p "$PORT" "$name" "$SERVER" \
-			>/dev/null 2>"$err_file"
-	else
-		nslookup -type="$qtype" "-port=$PORT" "$name" "$SERVER" \
-			>/dev/null 2>"$err_file"
-	fi
+	tcp_flag=""
+	[ "$PROTOCOL" = "tcp" ] && tcp_flag="+tcp"
+	dig +time="$PREWARM_QUERY_TIMEOUT" +tries="$PREWARM_RETRIES" \
+		@"$SERVER" -p "$PORT" $tcp_flag "$qtype" "$name" \
+		>/dev/null 2>"$err_file"
 }
 
 # P3/P4: one worker per bounded queue. A slow domain only blocks its own

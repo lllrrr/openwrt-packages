@@ -1,0 +1,46 @@
+	<header class="agh-topbar">
+		<div class="agh-topbar-in">
+			<div class="agh-brand">
+				<span class="agh-brand-mark" aria-hidden="true">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.6-2.9 8.4-7 10-4.1-1.6-7-5.4-7-10V6z"/></svg>
+				</span>
+				<span class="agh-brand-txt">
+					<span class="agh-brand-name">AdGuard Home</span>
+					<span class="agh-brand-sub"><%:Admin Center%></span>
+				</span>
+				<span id="agh-plugin-version" class="agh-version" role="button" tabindex="0" title="<%:Check for plugin updates%>">读取中</span>
+				<button type="button" id="agh-plugin-update" class="agh-update-tip" hidden><%:New version available%></button>
+			</div>
+
+			<nav class="agh-tabs" id="agh-tabs">
+				<div class="agh-tabs-scroll">
+					<button type="button" class="agh-tab is-active" data-tab="overview"><%:Overview%></button>
+					<button type="button" class="agh-tab" data-tab="settings"><%:Basic Settings%></button>
+					<button type="button" class="agh-tab" data-tab="filters"><%:Filter Rules%></button>
+					<button type="button" class="agh-tab" data-tab="advanced"><%:Advanced Settings%></button>
+					<button type="button" class="agh-tab" data-tab="logs"><%:Logs%></button>
+					<button type="button" class="agh-tab" data-tab="guide"><%:Guide%></button>
+				</div>
+				<span id="agh-toast" class="agh-toast" role="status" aria-live="polite"></span>
+			</nav>
+
+			<div class="agh-topbar-actions">
+				<span id="agh-header-status" class="agh-pill agh-pill-muted">读取中</span>
+				<button type="button" id="agh-theme-toggle" class="agh-theme-btn" title="<%:Switch theme%>"><%:Switch to dark%></button>
+				<a href="#" id="agh-header-console" class="agh-badge agh-badge-link is-disabled" target="_blank" rel="noopener" aria-disabled="true">打开 AGH 面板</a>
+			</div>
+		</div>
+	</header>
+
+	<div class="agh-card agh-progress-card" id="agh-plugin-update-progress" hidden>
+		<div class="agh-card-head">
+			<h3><%:Plugin Update%></h3>
+			<span class="agh-inline">
+				<span id="agh-plugin-update-phase" class="agh-hint">准备中...</span>
+				<button type="button" class="agh-mini-btn" id="agh-plugin-update-dismiss" hidden><%:Close%></button>
+			</span>
+		</div>
+		<div class="agh-progress-bar is-indeterminate" id="agh-plugin-update-bar"><i></i></div>
+		<pre class="agh-log agh-mt-8" id="agh-plugin-update-log"></pre>
+	</div>
+

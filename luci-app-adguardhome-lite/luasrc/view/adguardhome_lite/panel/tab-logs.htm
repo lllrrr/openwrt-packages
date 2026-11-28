@@ -1,0 +1,63 @@
+		<section class="agh-tab-panel" id="agh-tab-logs">
+			<div class="agh-subtabs" id="agh-logs-tabs">
+				<button type="button" class="agh-subtab is-active" data-logtab="sys"><%:Service Logs%></button>
+				<button type="button" class="agh-subtab" data-logtab="query"><%:Query Log%></button>
+			</div>
+
+			<div class="agh-card is-active" data-logpanel="sys">
+				<div class="agh-card-head agh-head-inline">
+					<div class="agh-card-head-left"><h3><%:Service Logs%></h3><span class="agh-hint agh-head-note">按类型分区显示：持久化状态、服务操作、订阅更新、系统日志、内核安装/更新；系统日志最新在最前，默认每 5 秒自动刷新。</span></div>
+					<div class="agh-inline">
+						<select id="agh-log-level" class="agh-select">
+							<option value="">全部级别</option>
+							<option value="error">仅错误</option>
+							<option value="warn">仅警告</option>
+						</select>
+						<button type="button" id="agh-log-refresh" class="agh-ghost-btn agh-small-btn"><%:Refresh%></button>
+						<label class="agh-inline agh-check-label">
+							<input type="checkbox" id="agh-log-auto" checked>
+							每 5 秒自动刷新
+						</label>
+						<button type="button" id="agh-log-download" class="agh-btn agh-btn-secondary agh-small-btn"><%:Download Log%></button>
+					</div>
+				</div>
+				
+				<div id="agh-log-box" class="agh-log-sections"><div class="agh-empty">正在读取日志...</div></div>
+			</div>
+
+			<div class="agh-card" data-logpanel="query">
+				<div class="agh-card-head agh-head-inline">
+					<div class="agh-card-head-left"><h3><%:Query Log%></h3><span id="agh-querylog-hint" class="agh-hint agh-head-note">来自 AdGuard Home 查询日志；每页 20 条，支持筛选、搜索与翻页。</span></div>
+					<div class="agh-inline">
+						<div class="agh-seg" id="agh-querylog-filter">
+							<button type="button" class="is-active" data-qstatus=""><%:All%></button>
+							<button type="button" data-qstatus="blocked"><%:Blocked%></button>
+							<button type="button" data-qstatus="allowed"><%:Allowed%></button>
+						</div>
+						<input type="search" id="agh-querylog-search" class="agh-querylog-search" placeholder="搜索域名 / 客户端" autocomplete="off">
+						<select id="agh-querylog-auto" class="agh-querylog-select">
+							<option value="0">手动刷新</option>
+							<option value="5" selected>每 5 秒</option>
+							<option value="10">每 10 秒</option>
+						</select>
+						<button type="button" id="agh-querylog-refresh" class="agh-ghost-btn agh-small-btn"><%:Refresh%></button>
+					</div>
+				</div>
+				
+				<table class="agh-query-table">
+					<colgroup>
+						<col class="agh-col-time"><col class="agh-col-client"><col class="agh-col-domain"><col class="agh-col-rule"><col class="agh-col-elapsed"><col class="agh-col-status">
+					</colgroup>
+					<thead>
+						<tr><th>时间</th><th>客户端</th><th>域名</th><th>命中规则</th><th class="agh-query-elapsed">耗时</th><th>状态</th></tr>
+					</thead>
+					<tbody id="agh-querylog-list"><tr><td colspan="6"><div class="agh-empty">读取中...</div></td></tr></tbody>
+				</table>
+				<div class="agh-pager">
+					<button type="button" id="agh-querylog-prev" class="agh-ghost-btn agh-small-btn" disabled><%:Prev%></button>
+					<span id="agh-querylog-pageinfo" class="agh-pager-info">第 1 页</span>
+					<button type="button" id="agh-querylog-next" class="agh-ghost-btn agh-small-btn" disabled><%:Next%></button>
+				</div>
+			</div>
+		</section>
+

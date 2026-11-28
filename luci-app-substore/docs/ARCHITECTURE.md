@@ -94,7 +94,7 @@ LuCI 前端（`/usr/lib/lua/luci/`）：
 
 - 目标 LuCI 使用 Lua 兼容模式，需依赖 `luci-lua-runtime` + `luci-compat`（23.05+）
 - Lua 控制器沿用 `module()` + `entry()` 风格（24.10 有效，活跃插件仍在使用）
-- **25.12 风险**：LuCI 模板优先级已转向 `.ut`（ucode），`.htm` 为 Legacy。阶段4 已评估迁移方案，详见 `docs/UCODE_MIGRATION.md`（含 `.htm`→`.ut` 语法对照与逐模板映射；核心库纯 Lua 可通过 `include()` 复用，迁移成本集中在 5 个模板的胶水代码）
+- **25.12 风险**：LuCI 模板优先级已转向 `.ut`（ucode），`.htm` 为 Legacy，但 23.05 / 25.12 / master 均仍提供 `luci-lua-runtime` 兼容层，`.htm` 经兼容层可正常渲染。阶段4 已评估迁移方案，详见 `docs/UCODE_MIGRATION.md`（结论：ucode 无法加载 Lua，迁移等于 2.3 万行重写，当前无必要）
 - 不假设所有 OpenWrt 版本依赖一致，分版本适配
 - 纯 Lua 核心库优先用 Lua 5.1 标准库（luci 自带 lua5.1），避免 luarocks 依赖
 - 如需要 YAML 解析：优先评估纯 Lua 实现或 luci 内置，避免重运行时

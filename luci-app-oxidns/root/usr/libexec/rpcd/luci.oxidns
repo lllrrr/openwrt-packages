@@ -3987,12 +3987,9 @@ emit_prewarm_run() {
 		return 1
 	fi
 	# C3: report missing helper dependencies as structured errors instead of
-	# an empty reply or a generic failure.
-	require_commands mktemp awk sort wc find logger || return 1
-	if ! command -v dig >/dev/null 2>&1 && ! command -v nslookup >/dev/null 2>&1; then
-		json_error "dependency_missing" "required command is not installed: dig or nslookup"
-		return 1
-	fi
+	# an empty reply or a generic failure. dig is the only DNS client used by
+	# the prewarmer; it comes from the hard bind-dig package dependency.
+	require_commands mktemp awk sort wc find logger dig || return 1
 	if ! PREWARM_OUTPUT="$("$PREWARM_BIN" --once 2>&1)"; then
 		case "$PREWARM_OUTPUT" in
 			*dependency_missing*)

@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.7.4-r1] - 修正 UCODE_MIGRATION.md 的错误前提（仅文档）
+
+`docs/UCODE_MIGRATION.md` 的初版评估建立在一条不成立的前提上：ucode 可以通过
+`include()` 复用 Lua 核心库。实际 ucode 的 `include()` / `loadfile()` /
+`loadstring()` 只编译 ucode 源码，无法加载 `.lua`，两个运行时也不能互相
+`require`——迁移是约 2.3 万行的重写，不存在「只迁模板、核心库复用」的路径。
+重写后同时修正了四处事实错误：
+
+- 25.12 兼容性：`openwrt-23.05` / `openwrt-25.12` / `master` 三个分支均仍提供
+  `luci-lua-runtime`，初版「25.12 可能移除 Lua 运行时」没有依据；23.05 起
+  LuCI 已是 ucode dispatcher + Lua 兼容层，并非初版所说的纯 Lua。
+- 模板清单：初版列出的 `settings.htm` 并不存在，实际为 7 个模板（补上
+  `local_form.htm` / `node_edit.htm` / `combo.htm`）。
+- `.htm` → `.ut` 语法对照：`.ut` 使用 `{% %}` / `{{ }}` / `{# #}` /
+  `{% include('header') %}` / `{{ _('Text') }}`，不是 `<% %>` 标签集；
+  且 `{{ }}` 不做 HTML 转义（需显式 `entityencode()`，对应 Lua 侧 `pcdata()`）。
+  标签形式对照 LuCI 25.12 源码核实，转义语义对照 ucode 官方手册核实。
+- 补入真实规模（核心 8,710 行、控制器 612、模板 1,146、cron 82、测试 12,377）
+  与语义硬点（357 处 Lua pattern 调用、257 处 `%` 字符类、15 处非贪婪 `.-`、
+  4 处 `pcall`、3 个元表哨兵），并给出结论：当前无迁移必要，列出三个触发门槛。
+
+`docs/ARCHITECTURE.md` §6 与 `docs/PLAN.md` 中引用同一错误前提的表述一并修正。
+
+### 影响
+
+**仅文档，无代码、无测试变更。** 版本号由 `2.7.3-r3` 更新为 `2.7.4-r1`
+（按维护者指定，未走 r4–r9），README / README.en / `docs/INSTALL.md` 同步。
+全套 59 个 Lua 测试全部通过（各文件自报的 passed 数合计 2,698 条断言、0 失败），
+`tests/cron_result_test.sh` 14 条通过、0 失败（未改动被测代码，跑一遍确认无意外）。
+
 ## [2.7.3-r3] - 安装命令改用通配文件名，翻译包并入对应包管理器代码块（仅文档）
 
 `README.md` / `README.en.md` 的安装步骤不再写死版本号：opkg 用

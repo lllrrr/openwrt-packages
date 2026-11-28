@@ -1,6 +1,6 @@
 #!/bin/sh
 # AdGuard Home 管理中心 - DNS 接管模式管理
-# 用法：dns_mode.sh apply|revert|status
+# 用法：dns_mode.sh apply|revert|status|status-json
 # 说明：自动保存和恢复 DNSMasq 原始设置，关闭服务或切换模式时不会破坏上网。
 
 . /usr/share/adguardhome-lite/common.sh
@@ -600,6 +600,10 @@ apply_mode() {
             ;;
     esac
 
+    # 上游与接管方式绑定，模式未变时也可能需要纠正（如 PassWall 被关闭后
+    # 上游仍指向其已失效的端口），因此每次 apply 都对齐一次。
+    sync_agh_upstream
+
     if mode_is_applied; then
         if ! patch_agh_port; then
             log_msg "无法写入 AdGuard Home DNS 端口，正在恢复 DNSMasq 设置..."
@@ -613,8 +617,8 @@ apply_mode() {
     # 从「Clash 前置」切到其它模式时，必须先把 Clash 上游还原，
     # 否则 Clash 仍指向 AdGuard Home，而 AdGuard Home 又转给 Clash，形成查询环。
     if [ "$mode_applied" = "clashfirst" ] && [ "$dns_mode" != "clashfirst" ]; then
-        clashfirst_openclash_restore
-        clashfirst_openclash_refresh &
+        clashfirst_clash_restore
+        clashfirst_clash_refresh &
     fi
 
     # 先恢复原始状态，再基于原始状态应用新模式，保证来回切换不叠加。
@@ -677,25 +681,13 @@ apply_mode() {
                 log_msg "PassWall 未启用：查询会经 AdGuard Home 转给本机 DNSMasq（1745），不走 PassWall 分流。"
             fi
             ;;
-        openclash)
-            # 保留 Clash 的 53 劫持，但 DNSMasq 必须留在 53：
-            # 这样即使 Clash 重启/更新导致劫持规则消失，客户端仍有 DNS。
-            if ! openclash_forward_add; then
-                log_msg "无法写入 DNSMasq 转发规则，已取消 Clash 串联模式。"
-                restore_original
-                uci -q set "$CONF.main.mode_applied=none"
-                uci -q commit "$CONF" 2>/dev/null
-                return 1
-            fi
-            ensure_safe_dnsmasq_layout
-            ;;
         clashfirst)
             if ! set_dnsmasq_port 53; then
                 cancel_dns_mode_apply "无法将 DNSMasq 端口写为 53，已取消本次 DNS 接管。"
                 return 1
             fi
             _oc_rc=0
-            clashfirst_openclash_apply || _oc_rc=$?
+            clashfirst_clash_apply || _oc_rc=$?
             case "$_oc_rc" in
                 0) log_msg "已将 Clash 自定义上游 DNS 设为 127.0.0.1:$dnsport" ;;
                 2) log_msg "未检测到 Clash：请手动把 Clash 上游 DNS 设为 127.0.0.1:$dnsport" ;;
@@ -717,6 +709,58 @@ apply_mode() {
     restart_dnsmasq
     log_msg "已应用 $(mode_name)"
     return 0
+}
+
+# 切换接管方式后同步 AdGuard Home 的上游 DNS。
+# init.d 的 restart 只跑本脚本，不执行 apply_settings.sh；若不同步，
+# 从「PassWall 前置」切回「接管 53」后上游仍指向 PassWall 的端口（此时已无人监听），
+# 全网查询会返回 SERVFAIL。
+sync_agh_upstream() {
+    [ -s "$configpath" ] || return 0
+    [ "$upstream_source" = "custom" ] && return 0
+
+    case "$dns_mode" in
+        takeover) _up="127.0.0.1:1745" ;;
+        openclash) _up="127.0.0.1:$clash_dns_port" ;;
+        clashfirst)
+            _up="$(dns_crypto_url)"
+            [ -n "$_up" ] || _up="$(detect_real_upstream_dns)"
+            ;;
+        upstream) _up="$(detect_upstream_dns)" ;;
+        passwall) _up="$(passwall_upstream_dns)" ;;
+        *) _up="127.0.0.1:$(dnsmasq_port)" ;;
+    esac
+    [ -n "$_up" ] || return 0
+
+    _cur="$(yaml_get_list "$configpath" "upstream_dns")"
+    _auto="$(uci -q get "$CONF.main.auto_upstream" 2>/dev/null)"
+    if [ "$_cur" = "$_up" ]; then
+        # 上游已是目标值，只补齐记录，避免下次判断拿到旧值
+        [ "$_auto" = "$_up" ] || uci -q set "$CONF.main.auto_upstream=$_up"
+        return 0
+    fi
+
+    # 只改插件自己写入的值；用户手填的上游保持不动
+    _is_auto=0
+    [ -n "$_auto" ] && [ "$_cur" = "$_auto" ] && _is_auto=1
+    case "$_cur" in
+        "127.0.0.1"|"127.0.0.1:53"|"127.0.0.1:1745"|"127.0.0.1:5335"|"127.0.0.1:$clash_dns_port"|127.0.0.1:114[0-9][0-9]|"223.5.5.5 119.29.29.29")
+            _is_auto=1
+            ;;
+    esac
+    _self_ip="$(lan_ipv4)"
+    if [ -n "$_self_ip" ]; then
+        case "$_cur" in
+            "$_self_ip":*) _is_auto=1 ;;
+        esac
+    fi
+    [ "$_is_auto" = "1" ] || return 0
+
+    if yaml_set_list "$configpath" "upstream_dns" "$_up"; then
+        uci -q set "$CONF.main.auto_upstream=$_up"
+        uci -q commit "$CONF" 2>/dev/null
+        log_msg "已根据接管方式同步 AdGuard Home 上游：$_up"
+    fi
 }
 
 # 保证 DNSMasq 监听 53，唯一例外是 Clash 仍把 53 劫持到某个端口：
@@ -837,7 +881,7 @@ revert_mode() {
     dns_redirect_restore
 
     if [ "$_applied" = "clashfirst" ]; then
-        clashfirst_openclash_restore
+        clashfirst_clash_restore
     fi
 
     if [ "$_applied" = "openclash" ]; then
@@ -873,7 +917,7 @@ revert_mode() {
 
     if [ "$_applied" = "clashfirst" ]; then
         # 恢复 Clash 上游后需要重载，否则 Clash 仍指向已停止的 5335
-        clashfirst_openclash_refresh &
+        clashfirst_clash_refresh &
     fi
 
     _new_port="$(get_uci dhcp.@dnsmasq[0].port)"
@@ -885,11 +929,24 @@ revert_mode() {
         # 按 DNSMasq 实际端口自检：Clash 劫持布局下 DNSMasq 可能不在 53
         _chk_port="$(get_uci dhcp.@dnsmasq[0].port)"
         [ -n "$_chk_port" ] || _chk_port="53"
-        if ! nslookup -timeout=2 -retry=1 -port="$_chk_port" www.baidu.com 127.0.0.1 >/dev/null 2>&1; then
+        # 本机查询若被 PassWall/Clash 的 nat_output 规则劫持，127.0.0.1 打的不是
+        # DNSMasq，直接探测必然失败，需要先识别出来避免误报断网。
+        _lo_hj="$(local_dns_hijack_port "$_chk_port")"
+        if [ -n "$_lo_hj" ]; then
+            if port_listening "$_lo_hj"; then
+                log_msg "本机 DNS 查询被劫持到 :$_lo_hj（PassWall/Clash），由该插件应答，跳过 DNSMasq 自检。"
+            else
+                log_event warn dns_local_probe_hijacked "本机 DNS 查询被 PassWall/Clash 劫持到未监听的 :$_lo_hj，路由器自身无法解析；DNSMasq 已恢复到端口 $_chk_port，请检查该插件的 DNS 劫持设置。"
+            fi
+        elif ! nslookup -timeout=2 -retry=1 -port="$_chk_port" www.baidu.com 127.0.0.1 >/dev/null 2>&1; then
             log_event warn dns_revert_failed "DNSMasq（端口 $_chk_port）解析仍失败，请检查 Clash 运行状态或 WAN DNS。"
         fi
         log_msg "已恢复 DNSMasq 原始设置"
     fi
+}
+
+json_esc() {
+    printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
 
 show_status() {
@@ -918,12 +975,52 @@ show_status() {
     echo "passwall_dns_port=$(passwall_dns_port)"
 }
 
+# 与文本输出同源，供外部监控/脚本直接消费，避免解析人读格式
+show_status_json() {
+    _sj_dnsmasq_port="$(get_uci dhcp.@dnsmasq[0].port)"
+    _sj_pw_port="$(passwall_dns_port)"
+    _sj_pw_on=0
+    passwall_enabled && _sj_pw_on=1
+    _sj_pw_redir="$(get_uci passwall.@global[0].dns_redirect)"
+    [ "$(uci -q get passwall2.@global[0].enabled 2>/dev/null)" = "1" ] && \
+        _sj_pw_redir="$(get_uci passwall2.@global[0].dns_redirect)"
+
+    printf '{"ok":true'
+    printf ',"dns_mode":"%s"' "$(json_esc "$dns_mode")"
+    printf ',"mode_applied":"%s"' "$(json_esc "$mode_applied")"
+    printf ',"agh_dns_port":%s' "${dnsport:-0}"
+    printf ',"dnsmasq_port":%s' "${_sj_dnsmasq_port:-0}"
+    printf ',"dnsmasq_noresolv":"%s"' "$(json_esc "$(get_uci dhcp.@dnsmasq[0].noresolv)")"
+    printf ',"lan_dhcp_option":"%s"' "$(json_esc "$(get_uci dhcp.lan.dhcp_option)")"
+    printf ',"added_dhcp_option":"%s"' "$(json_esc "$(get_uci "$CONF.main.added_dhcp_option")")"
+    printf ',"dnsmasq_dns_redirect":"%s"' "$(json_esc "$(get_uci dhcp.@dnsmasq[0].dns_redirect)")"
+    printf ',"added_dns_redirect":"%s"' "$(json_esc "$(get_uci "$CONF.main.added_dns_redirect")")"
+    printf ',"openclash_hijack_port":"%s"' "$(json_esc "$(openclash_hijack_port)")"
+    printf ',"agh_bypassed":"%s"' "$(json_esc "$(get_uci "$CONF.main.agh_bypassed")")"
+    printf ',"passwall_enabled":%s' "$_sj_pw_on"
+    printf ',"passwall_dns_port":%s' "${_sj_pw_port:-0}"
+    printf ',"passwall_dns_redirect":"%s"' "$(json_esc "$_sj_pw_redir")"
+    printf '}\n'
+}
+
 case "$ACTION" in
-    apply) apply_mode ;;
-    revert) revert_mode ;;
+    apply|revert)
+        # apply 与 revert 会互相覆盖对方的中间结果，必须串行执行
+        lock_action || exit 1
+        if [ "$ACTION" = "apply" ]; then
+            apply_mode
+            _act_rc=$?
+        else
+            revert_mode
+            _act_rc=$?
+        fi
+        # 透传失败码，调用方（init.d / apply_settings.sh）才能感知并回滚
+        exit "$_act_rc"
+        ;;
     status) show_status ;;
+    status-json) show_status_json ;;
     *)
-        echo "用法：$0 apply|revert|status"
+        echo "用法：$0 apply|revert|status|status-json"
         exit 1
         ;;
 esac

@@ -1,0 +1,119 @@
+		<section class="agh-tab-panel" id="agh-tab-filters">
+			<div class="agh-card">
+				<div class="agh-card-head">
+					<div class="agh-card-head-left"><h3><%:Filter Rules%></h3><span class="agh-hint agh-head-note">直接管理过滤开关、订阅列表和自定义规则，修改后立即生效，不需要重启。</span></div>
+					<span id="agh-filters-msg" class="agh-hint"></span>
+				</div>
+				
+
+				<div class="agh-form-grid agh-form-grid-5">
+					<div class="agh-field agh-field-switch agh-field-switch-stack">
+						<div class="agh-switch-head">
+							<label for="agh-filter-enabled">过滤规则生效</label>
+							<span class="agh-switch-state" data-for="agh-filter-enabled" data-on="已生效" data-off="未生效">未生效</span>
+							<label class="agh-switch"><input type="checkbox" id="agh-filter-enabled"><span></span></label>
+						</div>
+					</div>
+					<div class="agh-field agh-field-switch agh-field-switch-stack">
+						<div class="agh-switch-head">
+							<label for="agh-filter-adult">成人内容拦截</label>
+							<span class="agh-switch-state" data-for="agh-filter-adult">已关闭</span>
+							<label class="agh-switch"><input type="checkbox" id="agh-filter-adult"><span></span></label>
+						</div>
+					</div>
+					<div class="agh-field agh-field-switch agh-field-switch-stack">
+						<div class="agh-switch-head">
+							<label for="agh-filter-parental">家长控制</label>
+							<span class="agh-switch-state" data-for="agh-filter-parental">已关闭</span>
+							<label class="agh-switch"><input type="checkbox" id="agh-filter-parental"><span></span></label>
+						</div>
+					</div>
+					<div class="agh-field agh-field-switch agh-field-switch-stack">
+						<div class="agh-switch-head">
+							<label for="agh-filter-safesearch">安全搜索</label>
+							<span class="agh-switch-state" data-for="agh-filter-safesearch">已关闭</span>
+							<label class="agh-switch"><input type="checkbox" id="agh-filter-safesearch"><span></span></label>
+						</div>
+					</div>
+					<div class="agh-field agh-field-switch agh-field-switch-stack">
+						<div class="agh-switch-head">
+							<label for="agh-filter-safebrowsing">浏览安全</label>
+							<span class="agh-switch-state" data-for="agh-filter-safebrowsing">已关闭</span>
+							<label class="agh-switch"><input type="checkbox" id="agh-filter-safebrowsing"><span></span></label>
+						</div>
+					</div>
+				</div>
+
+				<div class="agh-subhead-row"><h4 class="agh-subhead"><%:Subscriptions / Rule Lists%></h4>
+				<div class="agh-memory-trim">
+					<span class="agh-hint">按设备内存切换规则档位：</span>
+					<div class="agh-seg" id="agh-memory-trim">
+						<button type="button" data-tier="512">512MB</button>
+						<button type="button" data-tier="1024">1GB</button>
+						<button type="button" data-tier="2048"><%:2GB and above%></button>
+					</div>
+					<span id="agh-memory-trim-msg" class="agh-hint"></span>
+					<label for="agh-preset-source" class="agh-hint">下载源</label>
+					<select id="agh-preset-source" class="agh-preset-source" title="预置订阅从哪个源下载，切换后已有列表会自动改到新源">
+						<option value="jsdelivr">jsDelivr（默认）</option>
+						<option value="github">GitHub 直连</option>
+						<option value="custom">自建备用</option>
+					</select>
+				</div>
+				</div>
+					<p class="agh-hint">预置三档自建过滤规则，按设备内存档位分别 3 / 4 / 6 个列表。切换自动移除其它档位列表，白名单和自定义订阅不受影响；内置白名单默认不启用，手动开启。切换下载源自动改源并重新下载，失败自动换源重试。</p>
+
+				<div id="agh-filter-list" class="agh-rule-list"><div class="agh-empty">读取中...</div></div>
+
+				<h4 class="agh-subhead"><%:Add Subscription%></h4>
+				<form id="agh-filter-add-form" class="agh-form" autocomplete="off">
+					<div class="agh-form-grid agh-form-grid-3">
+						<div class="agh-field">
+							<label for="agh-filter-name">名称（可选）</label>
+							<input type="text" id="agh-filter-name" placeholder="例如：广告规则">
+						</div>
+						<div class="agh-field">
+							<label for="agh-filter-url">订阅地址</label>
+							<input type="text" id="agh-filter-url" placeholder="https://example.com/filter.txt">
+						</div>
+						<div class="agh-field">
+							<label for="agh-filter-whitelist">列表类型</label>
+							<select id="agh-filter-whitelist">
+								<option value="0">黑名单（拦截）</option>
+								<option value="1">白名单（放行）</option>
+							</select>
+							<p class="agh-hint">白名单列表用于放行指定域名，默认按黑名单拦截。</p>
+						</div>
+					</div>
+					<div class="agh-form-actions">
+						<button type="submit" class="agh-btn agh-btn-primary"><%:Add Subscription%></button>
+						<span class="agh-hint">保存后 AdGuard Home 会自动下载规则。</span>
+					</div>
+				</form>
+
+				<h4 class="agh-subhead"><%:Custom Rules (Whitelist / Blacklist)%></h4>
+				<form id="agh-filter-rules-form" class="agh-form" autocomplete="off">
+					<div class="agh-label-row agh-rules-label">
+						<label for="agh-filter-rules">规则内容</label>
+						<span class="agh-hint">一行一条，AdGuard 语法；<code>@@</code> 开头为白名单。</span>
+					</div>
+					<div class="agh-rules-layout">
+						<textarea id="agh-filter-rules" class="agh-rules-textarea" rows="9" spellcheck="false" placeholder="@@||example.com^&#10;||ads.example.com^"></textarea>
+						<div class="agh-field agh-field-switch agh-field-switch-stack agh-rules-aside">
+							<div class="agh-switch-head">
+								<label for="agh-filter-doh">拦截 DoH 服务器</label>
+								<span class="agh-switch-state" data-for="agh-filter-doh">已关闭</span>
+								<label class="agh-switch"><input type="checkbox" id="agh-filter-doh"><span></span></label>
+							</div>
+							<p class="agh-hint">阻止浏览器和应用绕过 AdGuard Home 直连 dns.google、doh.pub 等加密 DNS。开启后这 9 条规则会同步写入左侧自定义规则，可随时手动调整。</p>
+						</div>
+					</div>
+					<div class="agh-form-actions">
+						<button type="submit" class="agh-btn agh-btn-primary"><%:Save Rules%></button>
+						<span class="agh-hint">保存后立即生效。</span>
+					</div>
+				</form>
+			</div>
+
+		</section>
+

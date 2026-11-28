@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-oxidns
 PKG_VERSION:=0.2.0
-PKG_RELEASE:=20
+PKG_RELEASE:=22
 
 # CodeMirror (htdocs/luci-static/resources/oxidns-codemirror) is MIT licensed;
 # both license texts are shipped in the package metadata.
@@ -17,7 +17,10 @@ LUCI_TITLE:=LuCI support for OxiDNS
 # conditional dependency silently produced firmware whose first boot died with
 # "failed to open text source '/etc/oxidns/rules/cn-domains.txt'" unless the
 # baseline happened to be selected by hand.
-LUCI_DEPENDS:=+luci-base +rpcd +jsonfilter +uclient-fetch +ca-bundle +oxidns-core +oxidns-rules-baseline
+# bind-dig supplies `dig`, the only DNS client used by the prewarmer. BusyBox
+# nslookup is not used because its custom-port flag varies across builds
+# (-port vs -p vs unsupported), which made prewarming silently warm nothing.
+LUCI_DEPENDS:=+luci-base +rpcd +jsonfilter +uclient-fetch +ca-bundle +oxidns-core +oxidns-rules-baseline +bind-dig
 LUCI_PKGARCH:=all
 
 define Package/luci-app-oxidns/postinst

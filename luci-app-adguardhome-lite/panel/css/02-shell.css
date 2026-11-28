@@ -1,0 +1,217 @@
+/* ========== 外壳 ========== */
+.agh-app{
+	width:100%;
+	max-width:1200px;
+	margin:0 auto;
+	background:var(--agh-bg);
+	border:1px solid var(--agh-border);
+	border-radius:var(--agh-radius);
+}
+
+/* ========== 顶栏 ========== */
+.agh-topbar{
+	background:var(--agh-surface);
+	border-bottom:1px solid var(--agh-border);
+	border-radius:var(--agh-radius) var(--agh-radius) 0 0;
+}
+.agh-topbar-in{
+	display:flex;
+	flex-wrap:wrap;
+	align-items:center;
+	gap:0 18px;
+	padding:8px 18px 0;
+}
+.agh-brand{display:flex;align-items:center;gap:10px;flex:0 0 auto;white-space:nowrap;order:1}
+.agh-brand-mark{
+	width:34px;height:34px;
+	border-radius:9px;
+	display:grid;place-items:center;
+	background:var(--agh-primary);
+	color:var(--agh-on-primary);
+}
+.agh-brand-mark svg{width:19px;height:19px}
+.agh-brand-txt{display:flex;align-items:baseline;gap:7px;min-width:0}
+.agh-brand-name{font-size:17px;font-weight:700;color:var(--agh-strong)}
+.agh-brand-sub{font-size:13px;color:var(--agh-muted)}
+
+/* 导航栏单独占一行，位于标题行（品牌 / 状态 / 操作）下方，左对齐 */
+.agh-tabs{
+	order:3;display:flex;align-items:stretch;
+	flex:1 0 100%;min-width:0;height:48px;
+	margin:4px -18px 0;padding:0 18px;
+	border-top:1px solid var(--agh-border);
+}
+.agh-tabs-scroll{
+	display:flex;align-items:stretch;
+	margin:0;
+	overflow-x:auto;
+	scrollbar-width:thin;
+}
+.agh-tab{
+	position:relative;
+	border:0;background:transparent;
+	padding:0 16px;
+	font-size:15px;font-weight:600;
+	color:var(--agh-muted);
+	cursor:pointer;white-space:nowrap;
+}
+.agh-tab:hover{color:var(--agh-text)}
+.agh-tab.is-active{color:var(--agh-strong)}
+.agh-tab.is-active::after{
+	content:"";position:absolute;left:10px;right:10px;bottom:0;height:2px;
+	background:var(--agh-primary);
+}
+
+.agh-topbar-actions{display:flex;align-items:center;flex-wrap:wrap;justify-content:flex-end;gap:12px;flex:0 0 auto;order:2;margin-left:auto;min-width:0;max-width:100%}
+
+.agh-version{
+	font-family:var(--agh-mono);font-size:12.5px;color:var(--agh-muted);
+	border:1px solid var(--agh-border);border-radius:var(--agh-radius-xs);
+	padding:3px 9px;white-space:nowrap;cursor:pointer;
+}
+.agh-version:hover{color:var(--agh-primary);border-color:var(--agh-primary-2)}
+.agh-version.is-checking{color:var(--agh-muted);cursor:progress}
+
+.agh-core-badge{
+	display:inline-flex;align-items:center;height:24px;padding:0 9px;
+	border:1px solid var(--agh-border);border-radius:var(--agh-radius-xs);
+	background:var(--agh-surface-2);
+	font-family:var(--agh-mono);font-size:12px;color:var(--agh-muted);
+	white-space:nowrap;
+}
+
+.agh-update-tip{
+	height:26px;padding:0 11px;
+	border:1px solid var(--agh-warning);
+	border-radius:var(--agh-radius-xs);
+	background:var(--agh-warning-soft);color:var(--agh-warning);
+	font-size:12.5px;font-weight:600;cursor:pointer;white-space:nowrap;
+}
+
+.agh-theme-btn{
+	height:36px;padding:0 14px;
+	border:1px solid var(--agh-border-strong);
+	border-radius:var(--agh-radius-xs);
+	background:var(--agh-surface);
+	color:var(--agh-muted-2);
+	font-size:13.5px;font-weight:600;cursor:pointer;white-space:nowrap;
+}
+.agh-theme-btn:hover{color:var(--agh-primary);border-color:var(--agh-primary-2)}
+
+/* 顶栏里的状态胶囊与面板入口 */
+.agh-pill{
+	display:inline-flex;align-items:center;gap:6px;
+	height:28px;padding:0 11px;
+	border:1px solid var(--agh-border);
+	border-radius:var(--agh-radius-xs);
+	background:var(--agh-surface-2);
+	font-size:13px;font-weight:600;color:var(--agh-muted);
+	white-space:nowrap;
+}
+.agh-pill-ok{background:var(--agh-success-soft);color:var(--agh-success);border-color:var(--agh-success)}
+.agh-pill-warn{background:var(--agh-warning-soft);color:var(--agh-warning);border-color:var(--agh-warning)}
+.agh-pill-bad{background:var(--agh-danger-soft);color:var(--agh-danger);border-color:var(--agh-danger)}
+.agh-pill-muted{background:var(--agh-surface-2);color:var(--agh-muted)}
+
+.agh-badge{
+	display:inline-flex;align-items:center;
+	height:36px;padding:0 14px;
+	border:1px solid var(--agh-border-strong);
+	border-radius:var(--agh-radius-xs);
+	background:var(--agh-surface);
+	font-size:13.5px;font-weight:600;color:var(--agh-text);
+	white-space:nowrap;
+}
+a.agh-badge:hover{border-color:var(--agh-primary-2);color:var(--agh-primary);text-decoration:none}
+.agh-badge-link{cursor:pointer}
+.agh-badge.is-disabled,.agh-btn.is-disabled{
+	opacity:.5;cursor:not-allowed;pointer-events:none;
+}
+
+/* ========== 页面容器 ========== */
+.agh-main{padding:18px 20px 6px}
+.agh-tab-panel{display:none}
+.agh-tab-panel.is-active{display:block}
+
+.agh-cols{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:0 28px;align-items:start}
+.agh-col{min-width:0}
+.agh-col + .agh-col{border-left:1px solid var(--agh-border);padding-left:28px}
+/* 等宽两栏：两张同类卡片横向并排。
+   两张卡共用同一套行轨道（subgrid），卡头高度不同也不会让下面的字段行错位。 */
+.agh-cols-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:auto auto;gap:0 28px;align-items:start}
+.agh-cols-2 > .agh-card{
+	display:grid;grid-template-rows:subgrid;grid-row:span 2;
+	min-width:0;border-bottom:0;padding-top:0;padding-bottom:0;
+}
+/* 两栏卡片共用同一个标签列宽，两张卡的控件左边缘严格对齐；
+   标签单行不换行，超长用省略号，避免把控件列挤窄 */
+.agh-cols-2 .agh-form-grid{min-width:0}
+.agh-cols-2 .agh-form-grid.agh-rows > .agh-field{
+	grid-template-columns:112px minmax(0,1fr);
+	gap:0 14px;align-items:center;
+}
+.agh-cols-2 .agh-form-grid.agh-rows > .agh-field > label{
+	grid-column:1;grid-row:1;
+	white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.agh-cols-2 .agh-form-grid.agh-rows > .agh-field > input,
+.agh-cols-2 .agh-form-grid.agh-rows > .agh-field > select,
+.agh-cols-2 .agh-form-grid.agh-rows > .agh-field > textarea,
+.agh-cols-2 .agh-form-grid.agh-rows > .agh-field > .agh-select{
+	grid-column:2;grid-row:1;width:100%;max-width:none;
+}
+
+.agh-card{padding:14px 0;border-bottom:1px solid var(--agh-border)}
+.agh-card:first-child{padding-top:0}
+.agh-card:last-child{border-bottom:0}
+.agh-col > .agh-card:last-child{border-bottom:0}
+.agh-card[data-subpanel],.agh-card[data-logpanel]{display:none}
+.agh-card[data-subpanel].is-active,.agh-card[data-logpanel].is-active{display:block}
+.agh-progress-card{margin:12px 20px 0;padding:14px 0;border-bottom:0}
+
+.agh-card-head{
+	display:flex;align-items:flex-start;justify-content:space-between;
+	gap:12px;flex-wrap:wrap;margin-bottom:10px;
+}
+.agh-card-head h3{font-size:13.5px;font-weight:700;color:var(--agh-strong)}
+/* 标题与说明同行：说明跟在标题右侧，占满剩余宽度 */
+.agh-card-head-left{min-width:0;flex:1 1 auto;display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 12px}
+.agh-card-head-left h3{flex:0 0 auto}
+.agh-card-head-left .agh-head-note{flex:1 1 320px}
+.agh-head-note{font-weight:400}
+/* 卡片头部的筛选/操作控件并排一行，下拉框不占满宽度 */
+.agh-card-head .agh-inline{flex:0 0 auto}
+.agh-card-head .agh-inline select{width:auto;min-width:130px}
+/* 卡片头右侧的独立按钮不能被说明文字挤压 */
+.agh-card-head > .agh-btn,.agh-card-head > .agh-ghost-btn,.agh-card-head > .agh-mini-btn{flex:0 0 auto;align-self:center}
+/* 标题、说明与操作控件压在同一行，说明在自己的宽度内折行 */
+.agh-card-head.agh-head-inline{align-items:center;flex-wrap:nowrap}
+.agh-card-head.agh-head-inline .agh-card-head-left{flex:1 1 auto}
+.agh-subhead{
+	font-size:12.5px;font-weight:700;color:var(--agh-strong);
+	margin:14px 0 8px;
+}
+.agh-subhead-row{
+	display:flex;align-items:center;justify-content:space-between;
+	gap:10px;flex-wrap:wrap;margin:14px 0 8px;
+}
+.agh-subhead-row .agh-subhead{margin:0}
+
+.agh-hint{margin:0;font-size:11.5px;line-height:1.55;color:var(--agh-muted)}
+.agh-hint-warn{color:var(--agh-warning)}
+/* 需要提醒的说明做成浅底提示条，比一整行橙色文字更清楚 */
+.agh-notice-warn{
+	margin:0 0 12px;
+	padding:9px 12px;
+	border:1px solid var(--agh-warning);
+	border-radius:var(--agh-radius-sm);
+	background:var(--agh-warning-soft);
+	color:var(--agh-warning);
+	line-height:1.65;
+}
+.agh-stats-notice{color:var(--agh-muted)}
+.agh-stats-alert{margin-top:8px}
+.agh-mt-8{margin-top:8px}
+.agh-ml-auto{margin-left:auto}
+.agh-inline{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap}
+

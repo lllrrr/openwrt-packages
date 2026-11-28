@@ -1,0 +1,87 @@
+/* ========== 子页签 ========== */
+.agh-subtabs{
+	display:flex;gap:16px;
+	border-bottom:1px solid var(--agh-border);
+	margin-bottom:2px;
+	overflow-x:auto;scrollbar-width:thin;
+}
+.agh-subtab{
+	border:0;border-bottom:2px solid transparent;background:transparent;
+	padding:8px 1px;
+	font-size:12.5px;font-weight:600;color:var(--agh-muted);
+	cursor:pointer;white-space:nowrap;
+}
+.agh-subtab:hover{color:var(--agh-text)}
+.agh-subtab.is-active{color:var(--agh-strong);border-bottom-color:var(--agh-primary)}
+
+/* ========== 过滤开关网格（五个开关并列一排） ========== */
+.agh-form-grid-5{
+	display:grid;grid-template-columns:repeat(5,minmax(0,1fr));
+	border:1px solid var(--agh-border);
+	border-radius:var(--agh-radius-sm);
+	overflow:hidden;
+}
+.agh-form-grid-5 > .agh-field{
+	display:block;
+	padding:10px 12px;
+	border-right:1px solid var(--agh-border);
+}
+.agh-form-grid-5 > .agh-field:last-child{border-right:0}
+.agh-form-grid-5 .agh-switch-head{gap:8px}
+.agh-form-grid-5 .agh-switch-head > label:first-child{font-size:12px}
+.agh-switch-head{display:flex;align-items:center;gap:10px}
+.agh-switch-head > label:first-child{flex:1;min-width:0;font-size:12.5px;font-weight:600;color:var(--agh-strong);cursor:pointer}
+
+/* 开关带说明时整行竖排，避免说明被 flex 挤成竖排单字 */
+.agh-field-switch.agh-field-switch-stack{display:block}
+.agh-field-switch-stack > .agh-hint,
+.agh-field-switch-stack > p{margin:6px 0 0}
+
+/* ========== 规则列表 ========== */
+.agh-rule-list{border-top:1px solid var(--agh-border)}
+.agh-rule{
+	display:grid;
+	grid-template-columns:auto minmax(0,1fr) auto auto auto;
+	gap:10px;align-items:center;
+	padding:8px 0;
+	border-bottom:1px solid var(--agh-border);
+	font-size:12.5px;
+}
+.agh-rule:last-child{border-bottom:0}
+.agh-rule-name{
+	font-weight:600;color:var(--agh-strong);
+	min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.agh-rule-tag{
+	margin-left:4px;padding:0 5px;
+	border:1px solid var(--agh-primary-2);border-radius:4px;
+	background:var(--agh-primary-soft);color:var(--agh-primary);
+	font-size:10px;font-weight:600;
+}
+.agh-rule-source{
+	font-size:10.5px;color:var(--agh-muted);
+	border:1px solid var(--agh-border);border-radius:4px;
+	padding:0 5px;white-space:nowrap;
+}
+.agh-rule-meta{font-size:11px;color:var(--agh-muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+.agh-rule-count{text-align:right;min-width:64px}
+
+/* 上下排列：规则输入框在上，DoH 开关条在下，均占满整行 */
+.agh-rules-label{margin-bottom:8px}
+.agh-rules-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:12px}
+/* 自定义规则是多行文本，用等宽字体并给足高度，方便逐条核对 */
+.agh-rules-textarea{
+	height:220px;min-height:220px;
+	font-family:var(--agh-mono);font-size:12px;line-height:1.6;
+	padding:8px 10px;
+}
+.agh-rules-aside{
+	background:var(--agh-surface-3);
+	border:1px solid var(--agh-border);
+	border-radius:var(--agh-radius-sm);
+	padding:11px 14px;
+}
+.agh-rules-aside > .agh-hint{margin:8px 0 0;line-height:1.7}
+.agh-memory-trim{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.agh-preset-source{width:auto;min-width:132px;height:28px;font-size:11.5px;padding:0 26px 0 8px}
+

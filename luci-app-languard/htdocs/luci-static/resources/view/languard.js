@@ -848,7 +848,7 @@ return view.extend({
 		var evBox = document.getElementById('cb-nt-events');
 		if (evBox) {
 			while (evBox.firstChild) evBox.removeChild(evBox.firstChild);
-			var labels = { auto_block: _('Auto block'), new_device: _('New device'), expire: _('Block expired') };
+			var labels = { auto_block: _('Auto block'), new_device: _('New device'), expire: _('Block expired'), final_fallback: _('Final fallback'), dep_down: _('Dependency down'), dep_up: _('Dependency recovered') };
 			(n.event_names || []).forEach(function (e) {
 				var on = n.events && n.events[e];
 				evBox.appendChild(E('div', { 'class': 'cb-dchip' + (on ? ' on' : ''), 'data-event': e,
@@ -2282,7 +2282,7 @@ return view.extend({
 				         detail: (e.note || '') };
 			});
 		}).catch(function () { return []; });
-		return Promise.all([ callLogList('500'), audit ]).then(function (both) {
+		return Promise.all([ callLogList('5000'), audit ]).then(function (both) {
 			var res = both[0];
 			var merged = ((res && res.entries) || []).concat(both[1]);
 			merged.sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); });
@@ -2376,6 +2376,21 @@ return view.extend({
 		return m ? m[1] : null;
 	},
 
+	// Flip a folded group (log entries by IP, policy IPs by source).
+	// Member rows carry data-grp=<key> in the same tbody as the header.
+	toggleGrp: function (store, key, hdr) {
+		var open = !store[key];
+		store[key] = open;
+		var arrow = hdr.querySelector('.cb-grp-arrow');
+		if (arrow) arrow.textContent = open ? '▾' : '▸';
+		var tbody = hdr.parentNode;
+		if (!tbody) return;
+		var kids = tbody.children;
+		for (var i = 0; i < kids.length; i++)
+			if (kids[i].getAttribute('data-grp') === key)
+				kids[i].style.display = open ? '' : 'none';
+	},
+
 	renderLogs: function () {
 		var tbody = document.getElementById('cb-log-tbody');
 		if (!tbody) return;
@@ -2409,17 +2424,8 @@ return view.extend({
 				all.length ? _('No entries match the filter') : _('No activity recorded yet'))));
 		}
 
-		var lastDay = null;
-		list.forEach(function (e) {
-			var day = self.logDayLabel(e.ts);
-			if (day.key !== lastDay) {
-				lastDay = day.key;
-				tbody.appendChild(E('tr', { 'class': 'cb-day' }, E('td', { 'colspan': 7 },
-					day.key === 'today' || day.key === 'yday'
-						? E('span', {}, E('em', {}, day.label), ' ', fmtTime(e.ts).split(' ')[0])
-						: day.label)));
-			}
-
+		// One entry row; shared by the flat and the folded rendering below.
+		var entryRow = function (e) {
 			var resLabel = e.result === 'success' ? 'success'
 				: (e.result === 'failure' ? 'failure' : 'closed');
 			var resBadge = E('span', { 'class': 'cb-res cb-res-' +
@@ -2446,7 +2452,7 @@ return view.extend({
 			var key = e.ts + '|' + e.ip + '|' + e.kind + '|' + e.result;
 			var cls = self.logResultClass(e.result) + (newKeys[key] ? ' cb-new' : '');
 
-			tbody.appendChild(E('tr', { 'class': cls }, [
+			return E('tr', { 'class': cls }, [
 				E('td', { 'class': 'cb-t' }, (function () {
 					// the day separator already carries the date; on a phone the
 					// column only needs the clock
@@ -2465,8 +2471,81 @@ return view.extend({
 				E('td', { 'class': 'cb-detail' }, reason || geoCell
 					? [ geoCell, geoCell && reason ? ' ' : '', reason ]
 					: '')
-			]));
-		});
+			]);
+		};
+
+		if (this.logFold === false) {
+			var lastDay = null;
+			list.forEach(function (e) {
+				var day = self.logDayLabel(e.ts);
+				if (day.key !== lastDay) {
+					lastDay = day.key;
+					tbody.appendChild(E('tr', { 'class': 'cb-day' }, E('td', { 'colspan': 7 },
+						day.key === 'today' || day.key === 'yday'
+							? E('span', {}, E('em', {}, day.label), ' ', fmtTime(e.ts).split(' ')[0])
+							: day.label)));
+				}
+				tbody.appendChild(entryRow(e));
+			});
+		} else {
+			// Folded by source IP: an address with several entries collapses
+			// into one summary row at its newest entry's position; singletons
+			// and address-less entries stay ordinary rows in place.
+			this.logOpen = this.logOpen || {};
+			var byIp = {};
+			list.forEach(function (e) {
+				if (e.ip) (byIp[e.ip] = byIp[e.ip] || []).push(e);
+			});
+			var emitted = {};
+			list.forEach(function (e) {
+				var entries = e.ip ? byIp[e.ip] : null;
+				if (!entries || entries.length === 1) { tbody.appendChild(entryRow(e)); return; }
+				if (emitted[e.ip]) return;
+				emitted[e.ip] = 1;
+				var open = !!self.logOpen[e.ip];
+				var latest = entries[0];
+				var tally = {};
+				entries.forEach(function (x) { tally[x.result] = (tally[x.result] || 0) + 1; });
+				var resParts = [];
+				[ 'failure', 'success', 'disconnect' ].forEach(function (r) {
+					if (!tally[r]) return;
+					if (resParts.length) resParts.push(' ');
+					resParts.push(E('span', { 'class': 'cb-res cb-res-' +
+						(r === 'success' ? 'ok' : (r === 'failure' ? 'fail' : 'end')) },
+						(r === 'disconnect' ? 'closed' : r) + ' ×' + tally[r]));
+				});
+				var users = {};
+				entries.forEach(function (x) { if (x.user) users[x.user] = 1; });
+				var userNames = Object.keys(users);
+				var src0 = self.logSource(latest.kind);
+				var reason0 = String(latest.detail || '').replace(/^auth=\w+\s*/, '').trim();
+				tbody.appendChild(E('tr', { 'class': 'cb-grp-hdr',
+					'click': function (ev) { self.toggleGrp(self.logOpen, e.ip, ev.currentTarget); } }, [
+					E('td', { 'class': 'cb-t' }, fmtTime(latest.ts)),
+					E('td', {}, resParts),
+					E('td', {}, src0
+						? E('span', { 'class': 'cb-res ' + src0.cls }, src0.label)
+						: E('span', { 'class': 'cb-drop' }, '-')),
+					E('td', { 'class': 'cb-hide-sm' }, E('span', { 'class': 'cb-drop' }, '-')),
+					E('td', { 'class': 'cb-ip' }, [
+						E('span', { 'class': 'cb-grp-arrow' }, open ? '▾' : '▸'), ' ',
+						e.ip, ' ',
+						E('span', { 'class': 'cb-grp-n' }, '×' + entries.length)
+					]),
+					E('td', { 'class': 'cb-u cb-hide-sm' },
+						userNames.length === 1 ? userNames[0]
+							: (userNames.length ? userNames.length + ' ' + _('users') : '-')),
+					E('td', { 'class': 'cb-detail' },
+						reason0.length > 60 ? reason0.slice(0, 60) + '…' : reason0)
+				]));
+				entries.forEach(function (x) {
+					var tr = entryRow(x);
+					tr.setAttribute('data-grp', e.ip);
+					if (!open) tr.style.display = 'none';
+					tbody.appendChild(tr);
+				});
+			});
+		}
 
 		var cnt = document.getElementById('cb-log-count');
 		if (cnt) cnt.textContent = list.length + ' / ' + all.length + ' ' + _('entries');
@@ -2810,8 +2889,9 @@ return view.extend({
 			tbody.appendChild(E('tr', {}, emptyCell));
 		}
 
-		list.forEach(function (r) {
-			tbody.appendChild(E('tr', {}, [
+		// One blocked-address row; shared by the grouped rendering below.
+		var ipRow = function (r) {
+			return E('tr', {}, [
 				E('td', { 'style': 'white-space:nowrap' }, [
 					r.ip,
 					' ',
@@ -2830,7 +2910,56 @@ return view.extend({
 						'class': 'cb-btn cb-btn-ok',
 						'click': function (ev) { self.handleIpDel(r.ip, ev); }
 					}, _('Unblock')))
+			]);
+		};
+
+		// Fold by source: a feed carrying two thousand addresses becomes
+		// one row. Groups sort by size; an active filter opens every group
+		// so matches are visible without clicking through.
+		var groups = [], byKey = {};
+		list.forEach(function (r) {
+			var k = r.category === 'feed' ? 'feed:' + (r.feed_name || '') : (r.category || 'other');
+			var g = byKey[k];
+			if (!g) { g = byKey[k] = { key: k, rows: [] }; groups.push(g); }
+			g.rows.push(r);
+		});
+		groups.sort(function (a, b) { return b.rows.length - a.rows.length; });
+
+		this.ipOpen = this.ipOpen || {};
+		groups.forEach(function (g) {
+			if (groups.length === 1 && g.rows.length === 1) {
+				tbody.appendChild(ipRow(g.rows[0]));
+				return;
+			}
+			var c = catMeta(g.rows[0].category);
+			var label = (g.rows[0].category === 'feed' && g.rows[0].feed_name)
+				? g.rows[0].feed_name : c.label;
+			var open = self.ipOpen[g.key];
+			if (open === undefined)
+				open = q !== '' || list.length <= 40 || groups.length === 1;
+			tbody.appendChild(E('tr', { 'class': 'cb-grp-hdr',
+				'click': function (ev) { self.toggleGrp(self.ipOpen, g.key, ev.currentTarget); } }, [
+				E('td', { 'colspan': 6 }, [
+					E('span', { 'class': 'cb-grp-arrow' }, open ? '▾' : '▸'), ' ',
+					E('span', { 'class': 'cb-src ' + c.cls }, label), ' ',
+					E('span', { 'class': 'cb-grp-n' }, g.rows.length + ' ' + _('addresses'))
+				])
 			]));
+			// Cap the DOM per group; anything deeper is a filter query away.
+			var shown = g.rows.slice(0, 300);
+			shown.forEach(function (r) {
+				var tr = ipRow(r);
+				tr.setAttribute('data-grp', g.key);
+				if (!open) tr.style.display = 'none';
+				tbody.appendChild(tr);
+			});
+			if (g.rows.length > shown.length) {
+				var more = E('tr', {}, E('td', { 'colspan': 6, 'class': 'cb-empty' },
+					'… ' + (g.rows.length - shown.length) + ' ' + _('more — narrow the filter to see them')));
+				more.setAttribute('data-grp', g.key);
+				if (!open) more.style.display = 'none';
+				tbody.appendChild(more);
+			}
 		});
 
 		var cnt = document.getElementById('cb-ip-count');
@@ -3580,7 +3709,7 @@ E('div', { 'class': 'cb-card' }, [
 			'id': 'cb-pane-logs'
 		}, [
 			E('p', { 'style': 'opacity:.75;margin:.25rem 0 1rem' },
-				_('Every successful and failed login through SSH or LuCI, newest first. Kept in memory-backed storage, capped at 500 entries.')),
+				_('Every successful and failed login through SSH or LuCI, newest first. Kept in memory-backed storage, capped at 5,000 entries.')),
 			E('div', { 'class': 'cb-log-filters' }, [
 				E('input', {
 					'type': 'text',
@@ -3600,6 +3729,11 @@ E('div', { 'class': 'cb-card' }, [
 					E('option', { 'value': 'all' }, _('All results')),
 					E('option', { 'value': 'ok' }, _('Success only')),
 					E('option', { 'value': 'fail' }, _('Failures only'))
+				]),
+				E('label', { 'class': 'cb-fold-toggle' }, [
+					E('input', { 'type': 'checkbox', 'checked': 'checked',
+						'change': function (ev) { self.logFold = ev.target.checked; self.renderLogs(); } }),
+					_('Fold by IP')
 				]),
 				E('span', { 'class': 'cb-count', 'id': 'cb-log-count' }, ''),
 				E('button', { 'class': 'cb-btn cb-btn-danger',

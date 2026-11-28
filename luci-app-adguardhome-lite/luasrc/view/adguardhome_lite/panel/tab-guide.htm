@@ -1,0 +1,103 @@
+		<section class="agh-tab-panel" id="agh-tab-guide">
+			<div class="agh-card">
+				<div class="agh-card-head">
+					<h3><%:1. Get Started in 3 Steps%></h3>
+				</div>
+				<ol class="agh-guide-list">
+					<li><b>安装内核：</b>打开「概览 → 初始化配置」，点「安装/更新内核」。默认安装正式版；下载慢或失败时，到「基础设置 → 插件配置」选择 GitHub 反代（推荐 <code>gh-proxy.org</code>）。</li>
+					<li><b>一键启用：</b>回到概览点「一键启用」。插件会生成配置，默认账号 <code>admin</code>、密码 <code>admin123</code>，并默认使用「接管 53 端口」。</li>
+					<li><b>登录面板：</b>点「打开 AGH 面板」，用上面的账号密码登录。第一次登录后请立即修改默认密码。</li>
+				</ol>
+				<p class="agh-hint"><b>注意：</b>启用会修改路由器的 DNS 设置。公司、宿舍等不允许自行修改 DNS 的网络，请先确认再启用；只想看面板、不改 DNS 时，在「基础设置」选择「仅面板模式」。</p>
+			</div>
+
+			<div class="agh-card">
+				<div class="agh-card-head">
+					<h3><%:2. How to Choose a DNS Mode%></h3>
+				</div>
+				<ul class="agh-tips">
+					<li><b>大多数家庭：</b>选「接管 53 端口」（默认，推荐）。装了 Clash、开着 DNS 劫持也能用，过滤和逐设备统计最完整。</li>
+					<li><b>正在用 PassWall / PassWall2：</b>选「PassWall 前置」，不需要关闭它们的 DNS 劫持。重启后如果换了 DNS 端口，插件会在端口稳定约 25 秒后自动跟随（短暂重启一次 AdGuard Home），避免端口抖动期反复重启；无需手动保存。</li>
+					<li><b>不想让 AdGuard Home 占 53：</b>可选「Clash 前置」（需要 Clash 正在运行，面板来源都会显示 127.0.0.1，属于正常现象）或「DNSMasq 上游」（DNSMasq 继续当入口；Clash 开着 DNS 劫持时不要用）。</li>
+					<li><b>只想先看看面板：</b>选「仅面板模式」，完全不改系统 DNS。</li>
+				</ul>
+				<p class="agh-hint agh-mt-8"><b>注意：</b>启用后常见的几种情况。</p>
+				<ul class="agh-tips">
+					<li><b>接管失效：</b>插件会从 Clash 等程序手里抢回 53 端口；如果概览提示接管失效或查询被 Clash 抢走，重新保存一次设置即可。</li>
+					<li><b>来回切换：</b>切换接管方式时，插件会先把 DNSMasq 恢复成你原来的设置，不会越切越乱。</li>
+					<li><b>排除接口 / 客户端：</b>只在「接管 53 端口」下可用。被排除的设备查询路由器 DNS 时由 DNSMasq 直接应答，不计入 AdGuard Home 统计；设备自己指定外部 DNS 的查询不受影响。多个客户端用空格分隔，支持单个 IP、网段（CIDR）和 IPv6。</li>
+				</ul>
+			</div>
+
+			<div class="agh-card">
+				<div class="agh-card-head">
+					<h3><%:3. Commonly Used Features%></h3>
+				</div>
+				<ul class="agh-tips">
+					<li><b>概览：</b>看 DNS 查询、拦截数量和服务状态；「DNS 自检」可检查内核、进程、面板端口和本机 DNS 是否正常。结果分「正常 / 提示 / 异常」三档：查询被 PassWall 或 Clash 劫持但目标端口有服务时只提示，端口无人监听才判为异常。</li>
+					<li><b>过滤规则：</b>5 个过滤开关、订阅列表和自定义规则都在这里，修改后立即生效，具体见下一节。</li>
+					<li><b>运行日志：</b>出问题先看这里；可筛选错误、查看内核更新日志和查询日志。</li>
+					<li><b>版本更新：</b>点顶部的版本号检查更新，发现新版可在页面内升级；升级前会自动备份配置。</li>
+				</ul>
+				<p class="agh-hint"><b>建议：</b>开启「拦截 DoH 服务器」，防止浏览器或 App 使用加密 DNS 绕过过滤；设备自己开了「私人 DNS / DoH」时，过滤不会生效。</p>
+			</div>
+
+			<div class="agh-card">
+				<div class="agh-card-head">
+					<h3><%:5 Filter Switches Explained%></h3>
+				</div>
+				<ul class="agh-tips">
+					<li><b>过滤规则生效：</b>总开关。关掉后所有订阅和自定义规则都不再拦截，但规则不会删除，重新打开即恢复。</li>
+					<li><b>成人内容拦截：</b>自动加一份成人内容规则，拦截次数算入「已拦截」。与「家长控制」只能开一个。</li>
+					<li><b>家长控制：</b>用 AdGuard Home 自带的家长控制，需要能连上它的服务端；连不上会自动关闭，避免断网。与「成人内容拦截」只能开一个。</li>
+					<li><b>安全搜索：</b>让搜索引擎强制开启安全搜索，过滤成人结果。</li>
+					<li><b>浏览安全：</b>拦截恶意软件和钓鱼网站；依赖境外服务，如果解析变慢可以关掉。</li>
+				</ul>
+				<p class="agh-hint">订阅列表和自定义规则在下方「订阅 / 规则列表」管理，改完立即生效；总开关关闭时，其余 4 个开关会变灰不能点。</p>
+			</div>
+
+			<div class="agh-card">
+				<div class="agh-card-head">
+					<h3><%:4. Important Notes%></h3>
+				</div>
+				<ul class="agh-tips">
+					<li><b>改默认密码：</b>默认账号 <code>admin</code>、密码 <code>admin123</code>，首次登录后请修改。</li>
+					<li><b>面板端口：</b>默认 <code>13800</code>；53、1745、5333、5335 已被 DNS 相关服务占用，不能填。不要把面板端口映射到公网。</li>
+					<li><b>内核更新通道：</b>正式版装最新正式发布；预发布版装 GitHub 上的预览版（可能不稳定）；旧版本装上一代正式版（老配置兼容用，例如正式版已到 v1.x 时装 v0.107.x）。每次更换内核前会自动备份配置。</li>
+					<li><b>GitHub 反代：</b>下载内核、检查插件与内核更新、在线升级都会用到；关闭后全部直连。国内下载慢时推荐 <code>gh-proxy.org</code>。</li>
+					<li><b>数据工作目录：</b>默认「内置存储」，重启后统计保留；改到「内存临时」可减少闪存写入，但重启后统计清空。</li>
+					<li><b>本地域名：</b>「接管 53 端口」下使用自定义上游会绕过本机 DNSMasq，<code>xxx.lan</code> 等本地域名将无法解析；需要保留时，在自定义上游末尾加上 <code>127.0.0.1:1745</code>。</li>
+					<li><b>内核位置：</b>内核装在「内存临时」时重启后会消失，需要重新安装；长期使用建议选「内置存储」。</li>
+					<li><b>固件升级后：</b>配置会保留，但内核需要重新安装；DNS 接管设置可能被重置，重新保存一次即可。</li>
+					<li><b>停止与卸载：</b>停止服务或卸载插件会自动恢复 DNSMasq 原始设置；启用后如果无法上网，先在概览点「停止并关闭自启」。</li>
+					<li><b>避免冲突：</b>「接管 53 端口」会调整 DNSMasq，请确认没有其它 DNS 服务同时占用 53 端口。</li>
+					<li><b>能拦什么：</b>DNS 过滤只能拦广告域名；抖音、微信等 App 内同域名广告需要客户端级方案。恶意/钓鱼统计依赖「浏览安全」（境外服务，开启后解析变慢可关闭）；成人内容统计只计算 AdGuard Home 原生家长控制。</li>
+				</ul>
+			</div>
+
+			<div class="agh-card">
+				<div class="agh-card-head">
+					<h3><%:5. Troubleshooting%></h3>
+				</div>
+				<ul class="agh-tips">
+					<li><b>启用后不能上网：</b>概览 →「停止并关闭自启」，会恢复 DNSMasq 原始设置；仍异常可重启路由器。</li>
+					<li><b>面板打不开：</b>先确认服务是「运行中」；停止服务时 13800 面板也会关闭。刚启动可等 5～10 秒再试，并确认端口没有被其它程序占用。</li>
+					<li><b>广告拦不住：</b>确认用的是「接管 53 端口」；检查设备是否开了 DoH / 私人 DNS；必要时开启「拦截 DoH 服务器」。</li>
+					<li><b>忘记密码：</b>「基础设置 → 插件配置」可直接重设，不需要旧密码。</li>
+					<li><b>反馈问题：</b>先点概览的「开始检测」，再到「运行日志」筛选「仅错误」，附上带原因码的错误行。</li>
+				</ul>
+			</div>
+
+			<div class="agh-card">
+				<div class="agh-card-head">
+					<h3><%:6. Settings Still in the AGH Panel%></h3>
+				</div>
+				<ul class="agh-tips">
+					<li><b>客户端设置：</b>给设备命名、按设备单独指定上游或过滤规则。</li>
+					<li><b>家长控制与阻止服务：</b>可屏蔽抖音、游戏平台等整类服务。</li>
+					<li><b>DNSSEC、fallback、上游模式：</b>在「设置 → DNS 设置」调整。</li>
+					<li><b>详细统计：</b>时间图表和更细分类在 AGH 面板的「仪表盘」；插件里只显示主要数字。</li>
+				</ul>
+				<p class="agh-hint">插件和 AGH 面板修改的是同一份配置，两边都能改，以最后一次保存为准。</p>
+			</div>
+		</section>

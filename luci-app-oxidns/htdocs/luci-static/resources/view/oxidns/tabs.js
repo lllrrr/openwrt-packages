@@ -60,7 +60,12 @@ function dispatch(pane, type, detail) {
 	}));
 }
 
-return {
+/* LuCI's module loader requires every factory to return a Class subclass
+ * constructor (Class.isSubclass check). Returning a plain object is rejected
+ * as "factory yields invalid constructor" on newer LuCI builds. extend()
+ * puts these helpers on the prototype; require() hands callers an instance,
+ * so tabs.build()/isActive()/watchActivation() keep working unchanged. */
+return baseclass.extend({
 	isActive: isActive,
 	watchActivation: watchActivation,
 
@@ -161,4 +166,4 @@ return {
 
 		return E('div', {}, [ menu, group ]);
 	}
-};
+});

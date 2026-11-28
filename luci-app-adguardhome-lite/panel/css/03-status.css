@@ -1,0 +1,129 @@
+/* ========== 运行状态（状态带） ========== */
+.agh-card.agh-band{
+	background:var(--agh-surface);
+	border:1px solid var(--agh-border);
+	border-radius:var(--agh-radius);
+	padding:14px 18px;
+	margin-bottom:14px;
+}
+#agh-status-grid{
+	display:grid;
+	grid-template-columns:repeat(2,minmax(0,1fr));
+	column-gap:28px;
+}
+.agh-status-item{
+	display:grid;
+	grid-template-columns:92px minmax(0,1fr);
+	gap:10px;align-items:start;
+	padding:7px 0;
+	border-bottom:1px solid var(--agh-border);
+	font-size:12.5px;
+}
+#agh-status-grid > .agh-status-item:last-child{border-bottom:0}
+/* 状态项按两列成对排列，避免右列出现大块空洞；仅“配置建议”独占整行 */
+.agh-status-wide{grid-column:auto}
+.agh-status-full{grid-column:1 / -1}
+.agh-status-full{grid-template-columns:92px minmax(0,1fr)}
+.agh-status-nowrap .agh-v{white-space:nowrap}
+.agh-k{color:var(--agh-muted)}
+.agh-v{color:var(--agh-strong);min-width:0;overflow-wrap:anywhere}
+.agh-ok{color:var(--agh-success);font-weight:600}
+.agh-bad{color:var(--agh-danger);font-weight:600}
+.agh-warn{color:var(--agh-warning)}
+.agh-path{font-family:var(--agh-mono);font-size:11.5px;color:var(--agh-muted-2);overflow-wrap:anywhere}
+.agh-pass-wrap{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+.agh-beta-tag{
+	margin-left:4px;padding:0 5px;
+	border:1px solid var(--agh-warning);border-radius:4px;
+	background:var(--agh-warning-soft);color:var(--agh-warning);
+	font-size:10px;font-weight:600;
+}
+.agh-core-update{cursor:pointer;color:var(--agh-warning);text-decoration:underline}
+
+/* ========== 过滤统计 ========== */
+.agh-metrics{
+	display:grid;grid-template-columns:repeat(4,minmax(0,1fr));
+	border:2px solid var(--agh-primary);
+	border-radius:var(--agh-radius-sm);
+	overflow:hidden;
+}
+.agh-metric{padding:11px 13px;border-right:2px solid var(--agh-primary);min-width:0}
+.agh-metric:last-child{border-right:0}
+.agh-metric-num{
+	font-size:22px;font-weight:700;line-height:1.25;
+	color:var(--agh-strong);
+	font-variant-numeric:tabular-nums;
+}
+.agh-metric-label{margin-top:1px;font-size:11px;color:var(--agh-muted)}
+
+/* ========== 初始化步骤 ========== */
+.agh-steps{border-top:1px solid var(--agh-border)}
+.agh-step{
+	display:flex;align-items:flex-start;gap:11px;
+	padding:11px 0;border-bottom:1px solid var(--agh-border);
+}
+.agh-step:last-child{border-bottom:0}
+.agh-step-no{
+	width:20px;height:20px;flex:0 0 20px;
+	border:1px solid var(--agh-border-strong);border-radius:50%;
+	display:grid;place-items:center;
+	font-size:10.5px;color:var(--agh-muted);margin-top:1px;
+}
+.agh-step-body{flex:1;min-width:0}
+.agh-step-title{font-size:12.5px;font-weight:600;color:var(--agh-strong)}
+/* 步骤标题与说明同一行，说明在剩余宽度内折行 */
+.agh-step-title-row{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 12px;margin-bottom:7px}
+.agh-step-title-row > .agh-step-title{flex:0 0 auto}
+.agh-step-title-row > .agh-hint{flex:1 1 260px}
+
+/* ========== 进度 ========== */
+.agh-progress-wrap{margin-top:12px;padding:11px 13px;border:1px solid var(--agh-border);border-radius:var(--agh-radius-sm);background:var(--agh-surface-2)}
+.agh-progress-head{display:flex;justify-content:space-between;gap:10px;margin-bottom:7px;font-size:12px;font-weight:600;color:var(--agh-strong)}
+.agh-progress-bar{position:relative;height:6px;border-radius:999px;background:var(--agh-surface-3);overflow:hidden}
+.agh-progress-bar i{position:absolute;inset:0 auto 0 0;width:100%;background:var(--agh-primary);border-radius:999px;transition:width .2s}
+.agh-progress-bar.is-indeterminate i{width:35%;animation:agh-slide 1.2s ease-in-out infinite}
+@keyframes agh-slide{
+	0%{transform:translateX(-110%)}
+	100%{transform:translateX(310%)}
+}
+
+/* ========== 日志块 / 空状态 ========== */
+.agh-log{
+	margin:0;padding:9px 11px;
+	border:1px solid var(--agh-border);
+	border-radius:var(--agh-radius-sm);
+	background:var(--agh-surface-2);
+	font-family:var(--agh-mono);
+	font-size:11px;line-height:1.7;
+	color:var(--agh-text);
+	white-space:pre-wrap;word-break:break-word;
+	max-height:220px;overflow:auto;
+}
+.agh-log-tall{max-height:300px}
+.agh-log-sections{display:flex;flex-direction:column;gap:12px}
+.agh-log-section-title{
+	display:flex;align-items:center;gap:7px;
+	margin:0 0 5px;
+	font-size:11px;font-weight:700;color:var(--agh-muted);
+}
+.agh-log-section-title::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--agh-primary)}
+.agh-empty{
+	padding:16px;border:1px dashed var(--agh-border);border-radius:var(--agh-radius-sm);
+	text-align:center;font-size:12px;color:var(--agh-muted);
+}
+
+/* ========== 提示列表 ========== */
+.agh-tips{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:7px}
+.agh-tips li{
+	position:relative;
+	padding-left:14px;
+	font-size:12px;line-height:1.6;color:var(--agh-muted-2);
+}
+.agh-tips li::before{
+	content:"";position:absolute;left:3px;top:8px;
+	width:4px;height:4px;border-radius:50%;background:var(--agh-border-strong);
+}
+.agh-tips li b{color:var(--agh-strong);font-weight:600}
+.agh-guide-list{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:12.5px;color:var(--agh-muted-2)}
+.agh-guide-list b{color:var(--agh-strong)}
+

@@ -1,0 +1,50 @@
+/* ========== 弹窗 ========== */
+.agh-modal{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center}
+.agh-modal[hidden]{display:none}
+.agh-modal-mask{position:absolute;inset:0;background:rgba(9,12,16,.5)}
+.agh-modal-body{
+	position:relative;
+	width:min(560px,calc(100vw - 32px));
+	max-height:calc(100vh - 24px);
+	overflow:auto;
+	padding:18px 20px;
+	border:1px solid var(--agh-border);
+	border-radius:var(--agh-radius);
+	background:var(--agh-surface);
+	color:var(--agh-text);
+}
+.agh-modal-body h3{font-size:15px;color:var(--agh-strong);margin-bottom:6px}
+.agh-confirm-body{width:min(440px,calc(100vw - 32px))}
+.agh-confirm-text{font-size:12.5px;line-height:1.7;color:var(--agh-muted-2);margin:8px 0 0}
+.agh-modal-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:10px 0;font-size:12.5px}
+.agh-modal-row > span{min-width:72px;color:var(--agh-muted)}
+.agh-modal-row label{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+.agh-modal-row input[type="text"]{width:140px;height:30px}
+.agh-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}
+.agh-update-notes{margin:10px 0;padding:9px 11px;border:1px solid var(--agh-border);border-radius:var(--agh-radius-sm);background:var(--agh-surface-2)}
+.agh-update-notes-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+.agh-update-notes-title{font-size:12px;font-weight:700;color:var(--agh-strong)}
+.agh-update-notes-link{font-size:11.5px}
+.agh-update-notes pre{
+	margin:0;max-height:180px;overflow:auto;
+	font-family:var(--agh-mono);font-size:11px;line-height:1.6;
+	color:var(--agh-muted-2);white-space:pre-wrap;word-break:break-word;
+}
+
+/* ========== 提示条 ========== */
+.agh-toast{
+	position:fixed;top:18px;right:18px;z-index:40;
+	display:none;
+	max-width:min(420px,calc(100vw - 36px));
+	padding:10px 13px;
+	border:1px solid var(--agh-border-strong);
+	border-left:3px solid var(--agh-primary);
+	border-radius:var(--agh-radius-sm);
+	background:var(--agh-surface);
+	font-size:12.5px;font-weight:600;color:var(--agh-text);
+}
+.agh-toast.is-visible{display:block}
+.agh-toast.is-ok{border-left-color:var(--agh-success)}
+.agh-toast.is-warn{border-left-color:var(--agh-warning)}
+.agh-toast.is-bad{border-left-color:var(--agh-danger)}
+

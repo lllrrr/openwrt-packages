@@ -11,7 +11,7 @@ group them, then re-emit them in a format your client can consume.
 ## Installation
 
 > The version in the package name must match `PKG_VERSION` / `PKG_RELEASE` in the
-> [Makefile](Makefile) (currently `2.7.3-r3`).
+> [Makefile](Makefile) (currently `2.7.4-r1`).
 
 **Minimum supported: OpenWrt / ImmortalWrt 23.05** (older releases are out of scope).
 

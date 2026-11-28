@@ -114,7 +114,7 @@ log_msg "已按内存写入 $preset_tier 档预置规则。"
 migrate_cache_conf
 
 # 同步面板端口和 DNS 端口
-yaml_set_scalar "$configpath" "address" "0.0.0.0:$webport"
+yaml_set_scalar "$configpath" "address" "$webaddr:$webport"
 yaml_set_scalar "$configpath" "port" "$dnsport"
 
 # 上游 DNS 适配：避免 AdGuard Home 与自身 53 端口形成回环
@@ -180,6 +180,8 @@ fi
 uci -q set "$CONF.main.adminuser=$DEFAULT_ADMIN"
 uci -q set "$CONF.main.adminpass=$DEFAULT_PASS"
 uci -q commit "$CONF" 2>/dev/null
+# adminpass 为明文（AGH 哈希不可逆），配置文件只允许 root 读取
+chmod 600 "/etc/config/$CONF" 2>/dev/null
 
 log_msg "首次配置生成完成：面板端口 $webport，DNS 端口 $dnsport，上游 DNS $upstream_note。"
 log_msg "默认管理员：$DEFAULT_ADMIN，默认密码：$DEFAULT_PASS（建议首次登录后修改）。"

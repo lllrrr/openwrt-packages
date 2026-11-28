@@ -255,7 +255,23 @@ a.agh-badge:hover{border-color:var(--agh-primary-2);color:var(--agh-primary);tex
 	display:grid;grid-template-rows:subgrid;grid-row:span 2;
 	min-width:0;border-bottom:0;padding-top:0;padding-bottom:0;
 }
-.agh-cols-2 .agh-form-grid.agh-rows > .agh-field{grid-template-columns:minmax(0,170px) minmax(0,1fr);gap:3px 12px}
+/* 两栏卡片共用同一个标签列宽，两张卡的控件左边缘严格对齐；
+   标签单行不换行，超长用省略号，避免把控件列挤窄 */
+.agh-cols-2 .agh-form-grid{min-width:0}
+.agh-cols-2 .agh-form-grid.agh-rows > .agh-field{
+	grid-template-columns:112px minmax(0,1fr);
+	gap:0 14px;align-items:center;
+}
+.agh-cols-2 .agh-form-grid.agh-rows > .agh-field > label{
+	grid-column:1;grid-row:1;
+	white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.agh-cols-2 .agh-form-grid.agh-rows > .agh-field > input,
+.agh-cols-2 .agh-form-grid.agh-rows > .agh-field > select,
+.agh-cols-2 .agh-form-grid.agh-rows > .agh-field > textarea,
+.agh-cols-2 .agh-form-grid.agh-rows > .agh-field > .agh-select{
+	grid-column:2;grid-row:1;width:100%;max-width:none;
+}
 
 .agh-card{padding:14px 0;border-bottom:1px solid var(--agh-border)}
 .agh-card:first-child{padding-top:0}
@@ -278,6 +294,8 @@ a.agh-badge:hover{border-color:var(--agh-primary-2);color:var(--agh-primary);tex
 /* 卡片头部的筛选/操作控件并排一行，下拉框不占满宽度 */
 .agh-card-head .agh-inline{flex:0 0 auto}
 .agh-card-head .agh-inline select{width:auto;min-width:130px}
+/* 卡片头右侧的独立按钮不能被说明文字挤压 */
+.agh-card-head > .agh-btn,.agh-card-head > .agh-ghost-btn,.agh-card-head > .agh-mini-btn{flex:0 0 auto;align-self:center}
 /* 标题、说明与操作控件压在同一行，说明在自己的宽度内折行 */
 .agh-card-head.agh-head-inline{align-items:center;flex-wrap:nowrap}
 .agh-card-head.agh-head-inline .agh-card-head-left{flex:1 1 auto}
@@ -479,7 +497,9 @@ a.agh-badge:hover{border-color:var(--agh-primary-2);color:var(--agh-primary);tex
 .agh-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 
 /* ========== 表单基础 ========== */
-.agh-form{display:block}
+/* min-width:0 必须显式声明：作为 grid 子项时默认 min-width:auto，
+   会被输入框固有宽度撑破列宽，导致两栏卡片互相挤压 */
+.agh-form{display:block;min-width:0}
 /* 字段内：标签与说明同一行，控件另起一行 */
 .agh-field{display:grid;grid-template-columns:auto minmax(0,1fr);gap:5px 8px;min-width:0;align-items:start}
 .agh-field > label{grid-row:1;grid-column:1}
@@ -519,6 +539,13 @@ input:disabled,select:disabled,textarea:disabled{opacity:.55;cursor:not-allowed}
 
 .agh-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 20px}
 .agh-form-grid-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px 16px}
+/* 加密上游右列：与左列「加密方式」并排，内部纵向堆叠提示与自定义地址 */
+.agh-form-grid > .agh-field.agh-crypto-side{display:block}
+.agh-form-grid > .agh-field.agh-crypto-side > .agh-hint{margin:0 0 6px}
+.agh-field.agh-crypto-side #agh-crypto-custom-wrap > label{
+	display:block;margin-bottom:5px;
+	font-size:12.5px;font-weight:600;color:var(--agh-strong);
+}
 .agh-form-grid-tight{gap:10px 16px}
 .agh-form-actions{
 	display:flex;align-items:center;gap:10px;flex-wrap:wrap;
@@ -540,7 +567,7 @@ input:disabled,select:disabled,textarea:disabled{opacity:.55;cursor:not-allowed}
 .agh-form-grid.agh-rows > .agh-field > input,
 .agh-form-grid.agh-rows > .agh-field > select,
 .agh-form-grid.agh-rows > .agh-field > textarea,
-.agh-form-grid.agh-rows > .agh-field > .agh-select{grid-column:2;grid-row:1;width:100%;max-width:560px}
+.agh-form-grid.agh-rows > .agh-field > .agh-select{grid-column:2;grid-row:1;width:100%;max-width:560px;min-width:0}
 .agh-form-grid.agh-rows > .agh-field > .agh-hint{grid-column:2;grid-row:1;margin:0}
 /* 有说明行的字段：说明在上、控件在下，避免说明与控件抢同一行 */
 .agh-form-grid.agh-rows > .agh-field:has(> .agh-hint:not(.agh-hint-warn)) > input,
@@ -557,6 +584,37 @@ input:disabled,select:disabled,textarea:disabled{opacity:.55;cursor:not-allowed}
 .agh-form-grid.agh-rows > .agh-field > .agh-field-row > select,
 .agh-form-grid.agh-rows > .agh-field > .agh-field-row > input{width:260px;max-width:100%;flex:0 0 auto}
 .agh-form-grid.agh-rows > .agh-field > .agh-field-row > .agh-hint{margin:0;min-width:0}
+
+/* 紧凑两列设置：标签在上、控件在下，横向并排以减少纵向占用 */
+.agh-form-grid.agh-grid-compact{
+	display:grid;
+	grid-template-columns:repeat(2,minmax(0,1fr));
+	gap:12px 18px;
+}
+.agh-form-grid.agh-grid-compact > .agh-field{
+	display:flex;flex-direction:column;gap:4px;
+	align-items:stretch;
+	padding:0;border-bottom:0;
+}
+.agh-form-grid.agh-grid-compact > .agh-field > label{font-size:12px}
+.agh-form-grid.agh-grid-compact > .agh-field > .agh-hint{margin:0;font-size:11.5px}
+.agh-form-grid.agh-grid-compact > .agh-field > input,
+.agh-form-grid.agh-grid-compact > .agh-field > select,
+.agh-form-grid.agh-grid-compact > .agh-field > .agh-select{max-width:none;width:100%}
+.agh-form-grid.agh-grid-compact > .agh-field-wide{grid-column:1 / -1}
+/* 「不参与接管」两字段并进主网格：整行占满，内部再分两列 */
+.agh-form-grid.agh-grid-compact > .agh-bypass-row{
+	grid-column:1 / -1;
+	display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
+	gap:12px 18px;
+}
+.agh-form-grid.agh-grid-compact > .agh-bypass-row > .agh-field{
+	display:flex;flex-direction:column;gap:4px;
+	align-items:stretch;padding:0;border-bottom:0;min-width:0;
+}
+.agh-form-grid.agh-grid-compact > .agh-bypass-row > .agh-field > label{font-size:12px}
+.agh-form-grid.agh-grid-compact > .agh-bypass-row > .agh-field > input,
+.agh-form-grid.agh-grid-compact > .agh-bypass-row > .agh-field > .agh-select{max-width:none;width:100%}
 
 /* 上游来源行：下拉与「当前生效」紧贴标签；选「自定义」后列表在同一行右侧横向并列 */
 .agh-form-grid.agh-rows > .agh-field.agh-upstream-row{grid-template-columns:auto minmax(0,1fr)}
@@ -597,8 +655,8 @@ html.agh-dark .agh-switch > span::after{background:#dbe2ea}
 
 .agh-check-label{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--agh-muted-2);cursor:pointer}
 
-.agh-field.is-locked,.agh-form-grid.is-locked{opacity:.5}
-.agh-field.is-locked > label,.agh-form-grid.is-locked label{color:var(--agh-muted)}
+.agh-field.is-locked,.agh-form-grid.is-locked,.agh-bypass-row.is-locked{opacity:.5}
+.agh-field.is-locked > label,.agh-form-grid.is-locked label,.agh-bypass-row.is-locked label{color:var(--agh-muted)}
 
 /* 自定义下拉（不参与接管的接口） */
 .agh-select{position:relative}
@@ -613,8 +671,10 @@ html.agh-dark .agh-switch > span::after{background:#dbe2ea}
 .agh-select-toggle > span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .agh-select-arrow{color:var(--agh-muted);font-size:11px;flex:0 0 auto}
 .agh-select-menu{
-	position:absolute;z-index:var(--agh-z-top);top:calc(100% + 4px);left:0;right:0;
-	max-height:220px;overflow:auto;
+	position:absolute;z-index:var(--agh-z-top);top:calc(100% + 4px);left:0;
+	/* 宽度跟随最长选项，避免接口名被截断；再用 max-width 兜住窄屏不越界 */
+	min-width:100%;width:max-content;max-width:min(420px,calc(100vw - 40px));
+	max-height:220px;overflow-y:auto;overflow-x:hidden;
 	padding:4px;
 	border:1px solid var(--agh-border);border-radius:var(--agh-radius-sm);
 	background:var(--agh-surface);
@@ -622,9 +682,11 @@ html.agh-dark .agh-switch > span::after{background:#dbe2ea}
 .agh-select-menu[hidden]{display:none}
 .agh-select-menu .agh-option{
 	display:flex;align-items:center;gap:8px;
+	min-width:0;
 	padding:6px 8px;border-radius:4px;
-	font-size:12px;color:var(--agh-muted-2);cursor:pointer;
+	font-size:12px;color:var(--agh-muted-2);cursor:pointer;white-space:nowrap;
 }
+.agh-select-menu .agh-option > span{overflow:hidden;text-overflow:ellipsis}
 .agh-select-menu .agh-option:hover{background:var(--agh-surface-2);color:var(--agh-text)}
 
 /* 分段按钮 */
@@ -908,6 +970,8 @@ input.agh-querylog-search{width:180px;height:28px;font-size:11.5px}
 	.agh-metric{border-right:0;border-bottom:2px solid var(--agh-primary)}
 	.agh-metric:last-child{border-bottom:0}
 	.agh-form-grid,.agh-form-grid-3{grid-template-columns:1fr}
+	.agh-form-grid.agh-grid-compact{grid-template-columns:1fr;gap:10px}
+	.agh-form-grid.agh-grid-compact > .agh-bypass-row{grid-template-columns:1fr;gap:10px}
 	.agh-form-grid-5{grid-template-columns:1fr}
 	.agh-form-grid-5 > .agh-field{border-right:0;border-bottom:1px solid var(--agh-border)}
 	.agh-form-grid-5 > .agh-field:nth-last-child(2){border-bottom:1px solid var(--agh-border)}

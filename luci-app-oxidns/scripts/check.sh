@@ -137,6 +137,17 @@ if grep -q 'credentials_set.*api_pass' root/usr/libexec/rpcd/luci.oxidns; then
 	echo "credentials_set must never write the password back into UCI" >&2
 	exit 1
 fi
+# Random credential generation must survive a minimal firmware without
+# openssl or coreutils base64. Keep the openssl/base64/od fallback chain
+# intact: on stock OpenWrt only the od + tr + cut branch is available.
+CRED_FN="$(awk '/^credentials_random_secret\(\) \{/{f=1} f{print} f&&/^\}/{exit}' \
+	root/usr/libexec/rpcd/luci.oxidns)"
+for CRED_STEP in 'openssl rand -base64' 'command -v base64' 'od -An -N24 -tx1 /dev/urandom'; do
+	printf '%s\n' "$CRED_FN" | grep -qF "$CRED_STEP" || {
+		echo "credentials_random_secret lost fallback step: $CRED_STEP" >&2
+		exit 1
+	}
+done
 # [prewarm] Keep the LuCI panel, ACL endpoint, helper script and default list
 # wired together. The panel is now the third tab of the Configuration view.
 grep -q 'parts.prewarm' htdocs/luci-static/resources/view/oxidns/config.js
@@ -183,6 +194,21 @@ if grep -q 'xargs .*-P' root/usr/libexec/oxidns-prewarm; then
 	exit 1
 fi
 grep -q 'wait' root/usr/libexec/oxidns-prewarm
+# Prewarming issues queries with `dig` only. BusyBox nslookup's custom-port
+# flag differs across builds (-port/-p/unsupported) and once sent queries to
+# port 53, so it must not come back. bind-dig must be a hard package dependency
+# for a standalone install to have the required binary.
+grep -q 'dig +time=' root/usr/libexec/oxidns-prewarm
+if grep -q 'nslookup' root/usr/libexec/oxidns-prewarm; then
+	echo "prewarmer must use dig (bind-dig), not nslookup" >&2
+	exit 1
+fi
+grep -q '+bind-dig' Makefile
+if grep -q 'nslookup' root/usr/libexec/rpcd/luci.oxidns; then
+	echo "rpcd prewarm_run must not accept nslookup as a query tool" >&2
+	exit 1
+fi
+grep -q 'require_commands mktemp awk sort wc find logger dig' root/usr/libexec/rpcd/luci.oxidns
 sh -n scripts/build-luci-package.sh
 sh -n scripts/integration-check.sh
 sh -n scripts/service-check.sh
@@ -453,6 +479,24 @@ for (const name of ['parts/core', 'parts/rules', 'parts/geo']) {
 const tabs = fs.readFileSync(`${base}/tabs.js`, 'utf8');
 if (!/cbi-tab-inactive/.test(tabs) || !/watchActivation/.test(tabs))
 	throw new Error('tabs.js must dispatch cbi-tab-inactive and expose watchActivation()');
+
+/* Every JS module under view/ is loaded through LuCI.require(), whose loader
+ * rejects any factory not returning a Class subclass constructor with
+ * "<name> factory yields invalid constructor" (seen on OpenWrt 25.12 LuCI).
+ * Guard all view modules, especially the tabs helper that used to return a
+ * plain object literal. */
+for (const file of fs.readdirSync(base).filter(f => f.endsWith('.js'))) {
+	const src = fs.readFileSync(`${base}/${file}`, 'utf8');
+	if (/^return\s*\{/m.test(src))
+		throw new Error(`${file}: LuCI factory must return view.extend()/baseclass.extend(), not a plain object`);
+}
+if (!/return\s+baseclass\.extend\(\{/.test(tabs))
+	throw new Error('tabs.js must return baseclass.extend() so Class.isSubclass() accepts it');
+for (const file of fs.readdirSync(`${base}/parts`).filter(f => f.endsWith('.js'))) {
+	const src = fs.readFileSync(`${base}/parts/${file}`, 'utf8');
+	if (/^return\s*\{/m.test(src))
+		throw new Error(`parts/${file}: LuCI factory must return baseclass.extend(), not a plain object`);
+}
 
 let rejected = false;
 try {

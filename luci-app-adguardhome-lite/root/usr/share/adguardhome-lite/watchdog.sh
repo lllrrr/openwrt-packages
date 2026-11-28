@@ -53,13 +53,20 @@ check_parental() {
 # 当前上游仍由插件管理时自动跟随，用户自定义的上游不动；端口没变时什么都不做。
 # 注意：AdGuard Home 的 SIGHUP 不会应用上游 DNS 的变更（实测仍查旧端口并报 connection refused），
 # 必须结束进程让 procd 用新配置重新拉起，DNS 中断约 10 秒。
+# 新上游必须先稳定 PSW_STABLE_SECONDS 秒：PassWall 重启时其 DNS 端口会短暂消失，
+# 立刻回退会在端口恢复后来回翻转，每轮都要重启 AdGuard Home，
+# 实测造成 procd crash loop 并误触发整体回退。
 PSW_SYNC_INTERVAL=10
+PSW_STABLE_SECONDS=25
 PSW_SYNC_LAST=0
+PSW_PENDING=""
+PSW_PENDING_SINCE=0
 
 sync_passwall_upstream() {
     [ "$dns_mode" = "passwall" ] || return 0
     [ "$upstream_source" = "custom" ] && return 0
-    passwall_enabled || return 0
+    # PassWall 被手动关闭时不能直接返回：其 DNS 端口随即消失，
+    # 上游必须跟随回退到本机 DNSMasq（1745），否则全网 SERVFAIL。
 
     _exp="$(passwall_upstream_dns)"
     case "$_exp" in
@@ -70,7 +77,24 @@ sync_passwall_upstream() {
     [ -n "$_cur" ] || return 0
     # 上游已偏离插件记录的值，说明是用户手填的，不再接管
     [ "$_cur" = "$_auto" ] || return 0
-    [ "$_cur" != "$_exp" ] || return 0
+
+    _now="$(date +%s)"
+    if [ "$_cur" = "$_exp" ]; then
+        PSW_PENDING=""
+        PSW_PENDING_SINCE=0
+        return 0
+    fi
+    # 目标值先记下来，连续稳定若干轮才真正落盘
+    if [ "$_exp" != "$PSW_PENDING" ]; then
+        PSW_PENDING="$_exp"
+        PSW_PENDING_SINCE="$_now"
+        return 0
+    fi
+    [ $(( _now - PSW_PENDING_SINCE )) -ge "$PSW_STABLE_SECONDS" ] || return 0
+
+    # AdGuard Home 还在重启（管理端口未就绪）时不要再结束它，否则会形成 crash loop
+    is_agh_running || return 0
+    port_listening "$webport" || return 0
 
     yaml_set_list "$configpath" "upstream_dns" "$_exp" || return 0
     uci -q set "$CONF.main.auto_upstream=$_exp"

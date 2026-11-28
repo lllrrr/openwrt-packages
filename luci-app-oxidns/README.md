@@ -70,7 +70,9 @@
 
 - `config.yaml` 里有 `cache` 插件，并且它在预热目标入口实际执行的链路上；
 - 预热页里的 IP、端口、协议与 `udp_server` / `tcp_server` 的 `listen` 一致；
-- 路由器上有 `dig`，或支持 `-port` 的 `nslookup`。
+- 路由器上有 `dig`（由 `bind-dig` 提供，已作为本插件依赖自动安装）。
+
+预热固定使用 `dig` 指定 `@IP -p 端口` 查询，不再使用 BusyBox `nslookup`：不同固件的 `nslookup` 自定义端口写法不一致（`-port` / `-p` / 不支持），可能导致查询落到 53 端口而预热无效。
 
 页面上的 `Server IP` 可选 `127.0.0.1` 或 `192.168.1.1`；端口和协议可自由填写。`Run now` 不受总开关影响，可随时手动执行一轮。周期填 `0` 表示服务启动时执行一次。
 
@@ -137,7 +139,9 @@ make menuconfig
 make package/luci-app-oxidns/compile V=s
 ```
 
-`oxidns-core` 和 `oxidns-rules-baseline` 是硬依赖，选中插件会一起选中。产物在 `bin/packages/<架构>/`。
+硬依赖（选中插件会一起选中）：`oxidns-core`、`oxidns-rules-baseline`、`bind-dig`（预热用 `dig`），以及 LuCI/rpcd 基础组件 `luci-base`、`rpcd`、`jsonfilter`、`uclient-fetch`、`ca-bundle`。产物在 `bin/packages/<架构>/`。
+
+OpenWrt 25.12 及更新版本的 LuCI 要求每个 JS 模块都返回 `baseclass.extend()` / `view.extend()` 生成的类构造器；本插件的 `tabs.js` 已按此修正。插件**不依赖** `openssl`、`base64` 等命令：生成随机凭据时依次尝试 `openssl rand -base64` → `base64` → BusyBox 自带的 `od`/`tr`/`cut`，最少只有 busybox 的固件也能生成合法的 32 位密码。
 
 支持 x86_64、aarch64、i386、ARM hard-float（cortex 映射 armv7，其余映射 armv6）；soft-float ARM 不能直接使用官方 hard-float（eabihf）内核。MIPS 等未发布 musl 内核的架构**无法用 buildroot 打包内置内核**（`oxidns-core` 是硬依赖）；可以走下面的“快速打包”不嵌入内核，再从 `Core` 页上传适配的内核。
 

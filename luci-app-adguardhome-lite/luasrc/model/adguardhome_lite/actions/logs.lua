@@ -4,12 +4,32 @@
 local M = {}
 
 function M.logs(ctx)
-    local fs, http, sys, uci, util, codes, agh, selftest, split_words, join_words, valid_iface_name, valid_client_spec, version_newer, clean_tag, CONF, SHARE, RUN, STATS_CACHE, VERSION_CACHE, CORE_UPDATE, PLUGIN_UPDATE, INSTALL_VERSION, RELEASE_URL, collect_stats, read_cache, cfg, CACHE_YAML_KEYS, yaml_cache_scalar, yaml_list_values, yaml_safe_search_enabled, yaml_section_scalar, yaml_set_section_scalar, cache_option, IGNORED_IFACE_PATTERNS, iface_ignored, net_devices, is_enabled, core_version, core_update_info, plugin_version, plugin_update_info, service_running, openclash_hijack_port, openclash_running, openclash_upstream_agh, passwall_enabled, passwall_dns_port, read_number, update_running, action_running, start_action, check_token, require_post, default_reason, json_error, state_value, agh_client, agh_request, agh_api, interval_days = ctx.fs, ctx.http, ctx.sys, ctx.uci, ctx.util, ctx.codes, ctx.agh, ctx.selftest, ctx.split_words, ctx.join_words, ctx.valid_iface_name, ctx.valid_client_spec, ctx.version_newer, ctx.clean_tag, ctx.CONF, ctx.SHARE, ctx.RUN, ctx.STATS_CACHE, ctx.VERSION_CACHE, ctx.CORE_UPDATE, ctx.PLUGIN_UPDATE, ctx.INSTALL_VERSION, ctx.RELEASE_URL, ctx.collect_stats, ctx.read_cache, ctx.cfg, ctx.CACHE_YAML_KEYS, ctx.yaml_cache_scalar, ctx.yaml_list_values, ctx.yaml_safe_search_enabled, ctx.yaml_section_scalar, ctx.yaml_set_section_scalar, ctx.cache_option, ctx.IGNORED_IFACE_PATTERNS, ctx.iface_ignored, ctx.net_devices, ctx.is_enabled, ctx.core_version, ctx.core_update_info, ctx.plugin_version, ctx.plugin_update_info, ctx.service_running, ctx.openclash_hijack_port, ctx.openclash_running, ctx.openclash_upstream_agh, ctx.passwall_enabled, ctx.passwall_dns_port, ctx.read_number, ctx.update_running, ctx.action_running, ctx.start_action, ctx.check_token, ctx.require_post, ctx.default_reason, ctx.json_error, ctx.state_value, ctx.agh_client, ctx.agh_request, ctx.agh_api, ctx.interval_days
+    local fs, http, sys, RUN = ctx.fs, ctx.http, ctx.sys, ctx.RUN
+    local state_value = ctx.state_value
     local level = (http.formvalue("level") or ""):lower()
     local syslog = sys.exec("logread 2>/dev/null | grep -i 'adguard' | tail -n 300") or ""
     local update = fs.readfile(RUN .. "_update.log") or ""
     local action = fs.readfile(RUN .. "_action.log") or ""
     local filter = fs.readfile(RUN .. "_filter.log") or ""
+
+    -- 每个动作单独落盘，通用 _action.log 只保留最近一次，这里把各自的历史也读出来
+    local action_name = (fs.readfile(RUN .. "_action.name") or ""):gsub("%s+", "")
+    local per_action = {}
+    for _, name in ipairs({ "apply", "restart", "set_password" }) do
+        local base = RUN .. "_action_" .. name
+        local body = fs.readfile(base .. ".log")
+        if body then
+            local code = (fs.readfile(base .. ".code") or ""):gsub("%s+", "")
+            local mtime = fs.stat(base .. ".log", "mtime")
+            per_action[#per_action + 1] = {
+                name = name,
+                body = body,
+                code = code ~= "" and code or "-",
+                time = mtime and os.date("%Y-%m-%d %H:%M:%S", mtime) or "-"
+            }
+        end
+    end
+    table.sort(per_action, function(a, b) return a.time > b.time end)
 
     if level == "error" or level == "warn" or level == "info" then
         local tag = "[" .. level:upper() .. "]"
@@ -38,6 +58,17 @@ function M.logs(ctx)
     http.write(update)
     http.write("\n\n===== 最近一次服务操作日志 =====\n")
     http.write(action)
+    http.write("\n\n===== 各动作最近一次日志（当前动作：" .. (action_name ~= "" and action_name or "无") .. "） =====\n")
+    if #per_action == 0 then
+        http.write("暂无记录\n")
+    end
+    for _, item in ipairs(per_action) do
+        http.write(string.format("--- %s | 返回码 %s | %s ---\n", item.name, item.code, item.time))
+        http.write(item.body)
+        if item.body ~= "" and item.body:sub(-1) ~= "\n" then
+            http.write("\n")
+        end
+    end
     http.write("\n\n===== 订阅更新日志（最近 100 次） =====\n")
     http.write(filter)
 end

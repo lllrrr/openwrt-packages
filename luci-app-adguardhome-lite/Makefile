@@ -24,6 +24,9 @@ define Package/luci-app-adguardhome-lite/postinst
 [ -n "$${IPKG_INSTROOT}" ] && exit 0
 mkdir -p /etc/AdGuardHome /usr/bin/AdGuardHome 2>/dev/null
 chmod 755 /etc/init.d/adguardhome_lite 2>/dev/null
+# opkg 升级会把新包的默认 conffile 存成 <包名>-opkg，没有代码引用它，
+# 留着只会被误当成当前配置编辑；用户配置在 /etc/config/adguardhome_lite 中不受影响。
+rm -f /etc/config/adguardhome_lite-opkg 2>/dev/null
 rm -f /tmp/luci-indexcache /tmp/luci-indexcache.* 2>/dev/null
 if [ -x /etc/init.d/adguardhome_lite ] && [ "$$(uci -q get adguardhome_lite.main.enabled 2>/dev/null)" = "1" ]; then
 	/etc/init.d/adguardhome_lite enable >/dev/null 2>&1

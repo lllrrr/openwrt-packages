@@ -1,0 +1,71 @@
+/* ========== 响应式 ========== */
+@media (max-width:900px){
+	.agh-cols{grid-template-columns:1fr;gap:0}
+	.agh-cols-2{grid-template-columns:1fr;gap:0}
+	.agh-col + .agh-col{border-left:0;padding-left:0;border-top:1px solid var(--agh-border);margin-top:2px}
+	.agh-form-grid.agh-rows > .agh-field{grid-template-columns:1fr;gap:4px}
+	.agh-form-grid.agh-rows > .agh-field > label{grid-column:1;grid-row:1}
+	.agh-form-grid.agh-rows > .agh-field > .agh-hint{grid-column:1;grid-row:2}
+	.agh-form-grid.agh-rows > .agh-field > input,
+	.agh-form-grid.agh-rows > .agh-field > select,
+	.agh-form-grid.agh-rows > .agh-field > textarea,
+	.agh-form-grid.agh-rows > .agh-field > .agh-select{grid-column:1;grid-row:2;max-width:none}
+	.agh-form-grid.agh-rows > .agh-field:has(> .agh-hint:not(.agh-hint-warn)) > input,
+	.agh-form-grid.agh-rows > .agh-field:has(> .agh-hint:not(.agh-hint-warn)) > select,
+	.agh-form-grid.agh-rows > .agh-field:has(> .agh-hint:not(.agh-hint-warn)) > textarea,
+	.agh-form-grid.agh-rows > .agh-field:has(> .agh-hint:not(.agh-hint-warn)) > .agh-select{grid-row:3}
+	.agh-form-grid.agh-rows > .agh-field > .agh-hint.agh-hint-warn,
+	.agh-form-grid.agh-rows > .agh-field > p{grid-column:1;grid-row:4}
+	.agh-form-grid.agh-rows > .agh-field.agh-upstream-row{grid-template-columns:minmax(0,1fr)}
+	.agh-form-grid.agh-rows > .agh-field > .agh-field-row.agh-upstream-line{grid-column:1;grid-row:2}
+	.agh-form-grid.agh-rows > .agh-field > .agh-field-row.agh-upstream-line > .agh-hint{padding-top:0}
+	.agh-upstream-custom{flex-basis:100%;min-width:0}
+	.agh-upstream-custom > label{padding-top:0;white-space:normal}
+	.agh-rules-layout{grid-template-columns:1fr}
+	.agh-card-head.agh-head-inline{flex-wrap:wrap}
+	.agh-form-grid-5{grid-template-columns:1fr 1fr}
+	.agh-form-grid-5 > .agh-field{border-bottom:1px solid var(--agh-border)}
+	.agh-form-grid-5 > .agh-field:nth-child(even){border-right:0}
+	.agh-form-grid-5 > .agh-field:nth-last-child(2),
+	.agh-form-grid-5 > .agh-field:last-child{border-bottom:0}
+	.agh-form-grid-5 > .agh-field:last-child:nth-child(odd){grid-column:1 / -1;border-right:0}
+	.agh-topbar-in{padding:8px 14px 0;gap:0 14px}
+	.agh-tabs{height:44px;margin:4px -14px 0;padding:0 8px}
+	.agh-brand-txt .agh-brand-sub{display:none}
+}
+
+@media (max-width:680px){
+	.agh-main{padding:14px 14px 4px}
+	.agh-brand-name{font-size:16px}
+	.agh-topbar-actions{gap:10px}
+	.agh-theme-btn,.agh-badge{height:34px;padding:0 12px}
+	.agh-pill{height:24px;padding:0 9px;font-size:12px}
+	#agh-status-grid{grid-template-columns:1fr;column-gap:0}
+	.agh-status-wide,.agh-status-full{grid-column:auto}
+	.agh-metrics{grid-template-columns:1fr}
+	.agh-metric{border-right:0;border-bottom:2px solid var(--agh-primary)}
+	.agh-metric:last-child{border-bottom:0}
+	.agh-form-grid,.agh-form-grid-3{grid-template-columns:1fr}
+	.agh-form-grid.agh-grid-compact{grid-template-columns:1fr;gap:10px}
+	.agh-form-grid.agh-grid-compact > .agh-bypass-row{grid-template-columns:1fr;gap:10px}
+	.agh-form-grid-5{grid-template-columns:1fr}
+	.agh-form-grid-5 > .agh-field{border-right:0;border-bottom:1px solid var(--agh-border)}
+	.agh-form-grid-5 > .agh-field:nth-last-child(2){border-bottom:1px solid var(--agh-border)}
+	.agh-form-grid-5 > .agh-field:last-child{border-bottom:0}
+	.agh-form-grid-5 > .agh-field:last-child:nth-child(odd){grid-column:auto}
+	.agh-query-table .agh-col-rule,
+	.agh-query-table .agh-col-elapsed,
+	.agh-query-table th:nth-child(4),
+	.agh-query-table th:nth-child(5),
+	.agh-query-table td:nth-child(4),
+	.agh-query-table td:nth-child(5){display:none}
+	.agh-col-time{width:74px}
+	.agh-col-client{width:110px}
+	/* 手机上时间只留时分秒，省出宽度给客户端与域名 */
+	.agh-query-date{display:none}
+	.agh-rule{grid-template-columns:auto minmax(0,1fr) auto}
+	.agh-rule-source{display:none}
+	.agh-rule-meta.agh-rule-count{display:none}
+	.agh-footer{padding:12px 14px}
+	.agh-subhead-row{gap:8px}
+}

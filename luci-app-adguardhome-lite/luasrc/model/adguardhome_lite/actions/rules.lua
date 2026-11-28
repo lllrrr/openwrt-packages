@@ -74,7 +74,8 @@ local function matches_any(url, patterns)
 end
 
 function M.filters_get(ctx)
-    local fs, http, sys, uci, util, codes, agh, selftest, split_words, join_words, valid_iface_name, valid_client_spec, version_newer, clean_tag, CONF, SHARE, RUN, STATS_CACHE, VERSION_CACHE, CORE_UPDATE, PLUGIN_UPDATE, INSTALL_VERSION, RELEASE_URL, collect_stats, read_cache, cfg, CACHE_YAML_KEYS, yaml_cache_scalar, yaml_list_values, yaml_safe_search_enabled, yaml_section_scalar, yaml_set_section_scalar, cache_option, IGNORED_IFACE_PATTERNS, iface_ignored, net_devices, is_enabled, core_version, core_update_info, plugin_version, plugin_update_info, service_running, openclash_hijack_port, openclash_running, openclash_upstream_agh, passwall_enabled, passwall_dns_port, read_number, update_running, action_running, start_action, check_token, require_post, default_reason, json_error, state_value, agh_client, agh_request, agh_api, interval_days = ctx.fs, ctx.http, ctx.sys, ctx.uci, ctx.util, ctx.codes, ctx.agh, ctx.selftest, ctx.split_words, ctx.join_words, ctx.valid_iface_name, ctx.valid_client_spec, ctx.version_newer, ctx.clean_tag, ctx.CONF, ctx.SHARE, ctx.RUN, ctx.STATS_CACHE, ctx.VERSION_CACHE, ctx.CORE_UPDATE, ctx.PLUGIN_UPDATE, ctx.INSTALL_VERSION, ctx.RELEASE_URL, ctx.collect_stats, ctx.read_cache, ctx.cfg, ctx.CACHE_YAML_KEYS, ctx.yaml_cache_scalar, ctx.yaml_list_values, ctx.yaml_safe_search_enabled, ctx.yaml_section_scalar, ctx.yaml_set_section_scalar, ctx.cache_option, ctx.IGNORED_IFACE_PATTERNS, ctx.iface_ignored, ctx.net_devices, ctx.is_enabled, ctx.core_version, ctx.core_update_info, ctx.plugin_version, ctx.plugin_update_info, ctx.service_running, ctx.openclash_hijack_port, ctx.openclash_running, ctx.openclash_upstream_agh, ctx.passwall_enabled, ctx.passwall_dns_port, ctx.read_number, ctx.update_running, ctx.action_running, ctx.start_action, ctx.check_token, ctx.require_post, ctx.default_reason, ctx.json_error, ctx.state_value, ctx.agh_client, ctx.agh_request, ctx.agh_api, ctx.interval_days
+    local http, cfg, yaml_safe_search_enabled, yaml_section_scalar = ctx.http, ctx.cfg, ctx.yaml_safe_search_enabled, ctx.yaml_section_scalar
+    local agh_api = ctx.agh_api
     http.header("Cache-Control", "no-store")
     http.prepare_content("application/json")
 
@@ -127,7 +128,9 @@ function M.filters_get(ctx)
 end
 
 function M.filters_save(ctx)
-    local fs, http, sys, uci, util, codes, agh, selftest, split_words, join_words, valid_iface_name, valid_client_spec, version_newer, clean_tag, CONF, SHARE, RUN, STATS_CACHE, VERSION_CACHE, CORE_UPDATE, PLUGIN_UPDATE, INSTALL_VERSION, RELEASE_URL, collect_stats, read_cache, cfg, CACHE_YAML_KEYS, yaml_cache_scalar, yaml_list_values, yaml_safe_search_enabled, yaml_section_scalar, yaml_set_section_scalar, cache_option, IGNORED_IFACE_PATTERNS, iface_ignored, net_devices, is_enabled, core_version, core_update_info, plugin_version, plugin_update_info, service_running, openclash_hijack_port, openclash_running, openclash_upstream_agh, passwall_enabled, passwall_dns_port, read_number, update_running, action_running, start_action, check_token, require_post, default_reason, json_error, state_value, agh_client, agh_request, agh_api, interval_days = ctx.fs, ctx.http, ctx.sys, ctx.uci, ctx.util, ctx.codes, ctx.agh, ctx.selftest, ctx.split_words, ctx.join_words, ctx.valid_iface_name, ctx.valid_client_spec, ctx.version_newer, ctx.clean_tag, ctx.CONF, ctx.SHARE, ctx.RUN, ctx.STATS_CACHE, ctx.VERSION_CACHE, ctx.CORE_UPDATE, ctx.PLUGIN_UPDATE, ctx.INSTALL_VERSION, ctx.RELEASE_URL, ctx.collect_stats, ctx.read_cache, ctx.cfg, ctx.CACHE_YAML_KEYS, ctx.yaml_cache_scalar, ctx.yaml_list_values, ctx.yaml_safe_search_enabled, ctx.yaml_section_scalar, ctx.yaml_set_section_scalar, ctx.cache_option, ctx.IGNORED_IFACE_PATTERNS, ctx.iface_ignored, ctx.net_devices, ctx.is_enabled, ctx.core_version, ctx.core_update_info, ctx.plugin_version, ctx.plugin_update_info, ctx.service_running, ctx.openclash_hijack_port, ctx.openclash_running, ctx.openclash_upstream_agh, ctx.passwall_enabled, ctx.passwall_dns_port, ctx.read_number, ctx.update_running, ctx.action_running, ctx.start_action, ctx.check_token, ctx.require_post, ctx.default_reason, ctx.json_error, ctx.state_value, ctx.agh_client, ctx.agh_request, ctx.agh_api, ctx.interval_days
+    local fs, http, sys, uci = ctx.fs, ctx.http, ctx.sys, ctx.uci
+    local CONF, RUN, cfg, require_post = ctx.CONF, ctx.RUN, ctx.cfg, ctx.require_post
+    local json_error, agh_api = ctx.json_error, ctx.agh_api
     if not require_post() then
         return
     end
@@ -139,7 +142,7 @@ function M.filters_save(ctx)
         return
     end
 
-    local path, body
+    local req_path, body
     if act == "add" then
         local url = (http.formvalue("url") or ""):gsub("^%s+", ""):gsub("%s+$", "")
         local name = (http.formvalue("name") or ""):gsub("^%s+", ""):gsub("%s+$", "")
@@ -156,7 +159,7 @@ function M.filters_save(ctx)
         if name == "" then
             name = url
         end
-        path = "/control/filtering/add_url"
+        req_path = "/control/filtering/add_url"
         body = jsonc.stringify({ name = name, url = url, whitelist = whitelist })
     elseif act == "toggle" then
         local url = http.formvalue("url") or ""
@@ -167,7 +170,7 @@ function M.filters_save(ctx)
             json_error("缺少规则地址。", nil, "invalid_rule_source")
             return
         end
-        path = "/control/filtering/set_url"
+        req_path = "/control/filtering/set_url"
         body = jsonc.stringify({
             url = url,
             whitelist = whitelist,
@@ -180,7 +183,7 @@ function M.filters_save(ctx)
             json_error("缺少规则地址。", nil, "invalid_rule_source")
             return
         end
-        path = "/control/filtering/remove_url"
+        req_path = "/control/filtering/remove_url"
         body = jsonc.stringify({ url = url, whitelist = whitelist })
     elseif act == "rules" then
         local raw = http.formvalue("rules") or ""
@@ -191,7 +194,7 @@ function M.filters_save(ctx)
                 rules[#rules + 1] = line
             end
         end
-        path = "/control/filtering/set_rules"
+        req_path = "/control/filtering/set_rules"
         body = jsonc.stringify({ rules = rules })
     elseif act == "preset_source" then
         -- 切换预置规则下载源：保存选择，并把已有的内置列表改到新源
@@ -451,7 +454,7 @@ function M.filters_save(ctx)
             local _, sresp = agh_api("/control/filtering/status", "GET")
             local st = jsonc.parse(sresp)
             local interval = st and tonumber(st.interval) or 24
-            path = "/control/filtering/config"
+            req_path = "/control/filtering/config"
             body = jsonc.stringify({ enabled = value, interval = interval })
         elseif feature == "safesearch" then
             -- 安全搜索：v1.0.0 移除了 /control/safesearch/enable|disable，
@@ -476,16 +479,16 @@ function M.filters_save(ctx)
                 end
             end
             -- 更老的内核没有 settings 接口时退回旧写法
-            path = "/control/safesearch/" .. (value and "enable" or "disable")
+            req_path = "/control/safesearch/" .. (value and "enable" or "disable")
         else
-            path = string.format("/control/%s/%s", feature, value and "enable" or "disable")
+            req_path = string.format("/control/%s/%s", feature, value and "enable" or "disable")
         end
     else
         json_error("不支持的操作。", nil, "rule_action_failed")
         return
     end
 
-    local code, resp = agh_api(path, "POST", body)
+    local code, resp = agh_api(req_path, "POST", body)
     if code ~= "200" then
         local detail = tostring(resp or ""):gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
         if #detail > 120 then
@@ -633,8 +636,15 @@ function M.querylog_get(ctx)
 end
 
 function M.retention_save(ctx)
-    local fs, http, sys, uci, util, codes, agh, selftest, split_words, join_words, valid_iface_name, valid_client_spec, version_newer, clean_tag, CONF, SHARE, RUN, STATS_CACHE, VERSION_CACHE, CORE_UPDATE, PLUGIN_UPDATE, INSTALL_VERSION, RELEASE_URL, collect_stats, read_cache, cfg, CACHE_YAML_KEYS, yaml_cache_scalar, yaml_list_values, yaml_safe_search_enabled, yaml_section_scalar, yaml_set_section_scalar, cache_option, IGNORED_IFACE_PATTERNS, iface_ignored, net_devices, is_enabled, core_version, core_update_info, plugin_version, plugin_update_info, service_running, openclash_hijack_port, openclash_running, openclash_upstream_agh, passwall_enabled, passwall_dns_port, read_number, update_running, action_running, start_action, check_token, require_post, default_reason, json_error, state_value, agh_client, agh_request, agh_api, interval_days = ctx.fs, ctx.http, ctx.sys, ctx.uci, ctx.util, ctx.codes, ctx.agh, ctx.selftest, ctx.split_words, ctx.join_words, ctx.valid_iface_name, ctx.valid_client_spec, ctx.version_newer, ctx.clean_tag, ctx.CONF, ctx.SHARE, ctx.RUN, ctx.STATS_CACHE, ctx.VERSION_CACHE, ctx.CORE_UPDATE, ctx.PLUGIN_UPDATE, ctx.INSTALL_VERSION, ctx.RELEASE_URL, ctx.collect_stats, ctx.read_cache, ctx.cfg, ctx.CACHE_YAML_KEYS, ctx.yaml_cache_scalar, ctx.yaml_list_values, ctx.yaml_safe_search_enabled, ctx.yaml_section_scalar, ctx.yaml_set_section_scalar, ctx.cache_option, ctx.IGNORED_IFACE_PATTERNS, ctx.iface_ignored, ctx.net_devices, ctx.is_enabled, ctx.core_version, ctx.core_update_info, ctx.plugin_version, ctx.plugin_update_info, ctx.service_running, ctx.openclash_hijack_port, ctx.openclash_running, ctx.openclash_upstream_agh, ctx.passwall_enabled, ctx.passwall_dns_port, ctx.read_number, ctx.update_running, ctx.action_running, ctx.start_action, ctx.check_token, ctx.require_post, ctx.default_reason, ctx.json_error, ctx.state_value, ctx.agh_client, ctx.agh_request, ctx.agh_api, ctx.interval_days
+    local fs, http, cfg, yaml_set_section_scalar = ctx.fs, ctx.http, ctx.cfg, ctx.yaml_set_section_scalar
+    local start_action, require_post, json_error = ctx.start_action, ctx.require_post, ctx.json_error
     if not require_post() then
+        return
+    end
+
+    -- 直接改写 YAML，必须等内核/插件/其它动作结束后再执行
+    if ctx.busy_reason() then
+        json_error("正在执行其他任务，请等待完成后再修改保留周期。", 409, "action_busy")
         return
     end
 
@@ -661,7 +671,7 @@ function M.retention_save(ctx)
         return
     end
 
-    start_action("sh " .. SHARE .. "/apply_settings.sh")
+    start_action("apply")
     http.header("Cache-Control", "no-store")
     http.prepare_content("application/json")
     http.write_json({ ok = true })

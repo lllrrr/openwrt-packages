@@ -53,13 +53,6 @@ state_write() {
     return 0
 }
 
-# 读取持久化状态；不存在时输出空行
-state_read() {
-    _st_file="/etc/adguardhome_lite/state/$1"
-    [ -f "$_st_file" ] || return 0
-    head -n 1 "$_st_file" 2>/dev/null
-}
-
 # 读取插件配置。所有变量均使用全局变量，供调用脚本直接使用。
 load_conf() {
     if command -v config_load >/dev/null 2>&1; then
@@ -69,12 +62,18 @@ load_conf() {
     config_get enabled "main" enabled "0"
     config_get dns_mode "main" dns_mode "takeover"
     config_get webport "main" webport "13800"
+    config_get webaddr "main" webaddr "0.0.0.0"
+    case "$webaddr" in
+        0.0.0.0|127.0.0.1) ;;
+        *) webaddr="0.0.0.0" ;;
+    esac
     config_get binpath "main" binpath "/usr/bin/AdGuardHome/AdGuardHome"
     config_get configpath "main" config "/etc/AdGuardHome.yaml"
     config_get workdir "main" workdir "/etc/AdGuardHome"
     config_get channel "main" channel "stable"
     config_get github_proxy "main" github_proxy "gh-proxy.org"
     config_get adminuser "main" adminuser "admin"
+    # 兜底值与模板内置哈希（admin123）对应，仅在老配置缺字段时命中
     config_get adminpass "main" adminpass "admin123"
     config_get cache_enabled "main" cache_enabled ""
     config_get cache_size_mb "main" cache_size_mb ""
@@ -144,18 +143,31 @@ passwall_dns_port() {
     fi
 }
 
+# 部分固件把 network.lan.ipaddr 存成 CIDR（10.0.0.1/24），
+# 直接拼进上游会变成非法地址 10.0.0.1/24:11400，AdGuard Home 启动即崩溃。
+lan_ipv4() {
+    _lip="$(uci -q get network.lan.ipaddr 2>/dev/null)"
+    _lip="${_lip%%/*}"
+    echo "$_lip"
+}
+
 # PassWall 模式下 AdGuard Home 的上游：交给 PassWall 自己的 DNS 做分流与去污染。
 # PassWall 未启用时回退到本机 DNSMasq（1745），避免上游指向不存在的端口导致断网。
 # 注意：PassWall 自带的 dnsmasq 开了 local-service，只回答局域网来源的查询，
 # 用 127.0.0.1 会被拒绝（表现为只有缓存能解析、新域名全部失败），所以这里用局域网 IP。
 passwall_upstream_dns() {
     if passwall_enabled; then
-        _pw_ip="$(uci -q get network.lan.ipaddr 2>/dev/null)"
-        [ -n "$_pw_ip" ] || _pw_ip="127.0.0.1"
-        echo "$_pw_ip:$(passwall_dns_port)"
-    else
-        echo "127.0.0.1:1745"
+        _pw_port="$(passwall_dns_port)"
+        # UCI 仍为启用、但进程已被停掉（/etc/init.d/passwall stop 不改 enabled）
+        # 时该端口无人监听，继续指向它会让全网查询 SERVFAIL，必须回退到 DNSMasq。
+        if [ -n "$_pw_port" ] && port_listening "$_pw_port"; then
+            _pw_ip="$(lan_ipv4)"
+            [ -n "$_pw_ip" ] || _pw_ip="127.0.0.1"
+            echo "$_pw_ip:$_pw_port"
+            return 0
+        fi
     fi
+    echo "127.0.0.1:1745"
 }
 
 # 加密上游地址：预设值或用户自定义；关闭时返回空
@@ -180,6 +192,36 @@ dnsmasq_port() {
 
 have_cmd() {
     command -v "$1" >/dev/null 2>&1
+}
+
+# DNS 接管动作互斥锁。apply 与 revert 会同时改写 DNSMasq 端口、DHCP option 6、
+# nft 规则和 mode_applied，并发执行时后完成的一方会用自己的旧快照覆盖，
+# 实测会留下「mode_applied=takeover 但 53 无监听」的断网状态。
+# 锁随进程退出自动释放；子脚本通过 AGH_LOCK_HELD 继承，避免自锁。
+AGH_LOCK_FILE="/var/run/adguardhome_lite_dnsmode.lock"
+
+lock_action() {
+    [ "$AGH_LOCK_HELD" = "1" ] && return 0
+    AGH_LOCK_HELD=1
+    export AGH_LOCK_HELD
+
+    # 没有 flock 时退化为无锁：宁可并发也不要让用户卡住无法应用设置
+    have_cmd flock || return 0
+    mkdir -p /var/run 2>/dev/null
+    exec 8>"$AGH_LOCK_FILE" 2>/dev/null || return 0
+
+    # BusyBox flock 没有 -w，用轮询实现带超时的等待
+    _lk_i=0
+    while ! flock -n 8; do
+        _lk_i=$(( _lk_i + 1 ))
+        if [ "$_lk_i" -ge 20 ]; then
+            log_event warn dns_mode_busy "等待其它 DNS 接管任务超时，本次操作已跳过。"
+            AGH_LOCK_HELD=""
+            return 1
+        fi
+        sleep 1
+    done
+    return 0
 }
 
 # 不参与接管的接口列表（空格分隔）。
@@ -464,6 +506,18 @@ port_listening() {
     netstat -lntu 2>/dev/null | grep -qE "[:.]${_lp}[[:space:]]"
 }
 
+# 本机发出的 DNS 查询是否被其它插件的 nat_output 规则劫持（Clash/PassWall 常见）。
+# 命中时 nslookup 127.0.0.1 打到的是劫持目标而不是本机 DNS 服务，
+# 不能用来判断 DNSMasq/AdGuard Home 是否正常，否则会误报断网。
+local_dns_hijack_port() {
+    have_cmd nft || return 0
+    _lh_port="${1:-53}"
+    _lh_line=$(nft list ruleset 2>/dev/null \
+        | grep -E "oif \"lo\".*dport ${_lh_port} .*redirect to :[0-9]+" | head -n 1)
+    [ -n "$_lh_line" ] || return 0
+    echo "$_lh_line" | sed -n 's/.*redirect to :\([0-9][0-9]*\).*/\1/p'
+}
+
 # WAN 下发的上游 DNS（排除本机回环与 fake-IP 地址）
 wan_dns_servers() {
     [ -s /tmp/resolv.conf.d/resolv.conf.auto ] || return 0
@@ -578,26 +632,6 @@ openclash_forward_del() {
         $0 == e { skip = 0; next }
         skip != 1 { print }
     ' "$OC_CONF" > "$OC_CONF.tmp.$$" && mv -f "$OC_CONF.tmp.$$" "$OC_CONF"
-}
-
-openclash_forward_add() {
-    _ocdir="$(dnsmasq_confdir)"
-    mkdir -p "$_ocdir" 2>/dev/null || return 1
-
-    openclash_forward_del
-
-    {
-        printf '%s\n' "$OC_BEGIN"
-        # strict-order：DNSMasq 有多个上游时按顺序优先查询 AdGuard Home，
-        # 避免轮询到 WAN DNS 造成过滤被绕过；AdGuard Home 不可用时仍可回退。
-        printf 'strict-order\n'
-        if dnsmasq_hash_rule_supported; then
-            printf 'server=/#/127.0.0.1#%s\n' "$dnsport"
-        else
-            printf 'server=/./127.0.0.1#%s\n' "$dnsport"
-        fi
-        printf '%s\n' "$OC_END"
-    } > "$_ocdir/$OC_FILE"
 }
 
 # 读取 YAML 中某个两空格缩进的列表，返回空格分隔的一行
@@ -887,12 +921,14 @@ clashfirst_disable_upstream() {
 
 # 关闭 Clash 原有 nameserver 组，仅保留指向 AdGuard Home 的上游。
 # 返回值：0 成功；2 未安装 Clash；3 Clash 版本不支持自定义 DNS。
-clashfirst_openclash_apply() {
+# 注：UCI 键仍沿用 oc_* 前缀，改名会让旧设备上已保存的 Clash 上游记录失去引用，
+# 导致 restore 删不掉那条 dns_servers，从而形成查询环，故键名保持不变。
+clashfirst_clash_apply() {
     uci -q get openclash.config >/dev/null 2>&1 || return 2
     uci -q get openclash.config.enable_custom_dns >/dev/null 2>&1 || return 3
 
     # 清理上一次可能残留的设置（不重启 Clash）
-    clashfirst_openclash_restore >/dev/null 2>&1
+    clashfirst_clash_restore >/dev/null 2>&1
 
     _old_cd=$(uci -q get openclash.config.enable_custom_dns)
     [ -n "$_old_cd" ] || _old_cd="0"
@@ -925,7 +961,7 @@ clashfirst_openclash_apply() {
 }
 
 # 恢复 Clash 的原有 DNS 上游设置
-clashfirst_openclash_restore() {
+clashfirst_clash_restore() {
     _r_sid=$(uci -q get "$CONF.main.oc_agh_sid")
     _r_sids=$(uci -q get "$CONF.main.oc_disabled_sids")
     _r_old=$(uci -q get "$CONF.main.oc_old_custom_dns")
@@ -955,7 +991,7 @@ clashfirst_openclash_restore() {
 }
 
 # 让 Clash 重新生成 DNS 配置使自定义上游生效；仅在 Clash 已运行时重启。
-clashfirst_openclash_refresh() {
+clashfirst_clash_refresh() {
     # Clash 的“快速启动”会在配置未变时跳过 yml_change.sh，
     # 导致自定义上游不生效；无论 Clash 是否在运行，都要先让缓存失效。
     rm -f /tmp/openclash.change /tmp/openclash_tpl_cache

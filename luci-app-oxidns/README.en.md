@@ -70,7 +70,9 @@ Three things make prewarming effective:
 
 - `config.yaml` contains a `cache` plugin on the chain used by the target listener;
 - the IP, port and protocol in the page match the listener's `listen` value;
-- the router has `dig`, or an `nslookup` that supports `-port`.
+- the router has `dig` (provided by `bind-dig`, installed automatically as a package dependency).
+
+Prewarming always uses `dig` with an explicit `@IP -p PORT`. BusyBox `nslookup` is not used: its custom-port syntax differs across builds (`-port`, `-p`, or unsupported), which could send queries to port 53 and warm nothing.
 
 `Server IP` accepts `127.0.0.1` or `192.168.1.1`; port and protocol are free-form. `Run now` ignores the enable switch and always runs one pass. An interval of `0` runs once at service start.
 
@@ -112,7 +114,9 @@ make menuconfig
 make package/luci-app-oxidns/compile V=s
 ```
 
-`oxidns-core` and `oxidns-rules-baseline` are hard dependencies and are selected with the app. Artifacts appear in `bin/packages/<arch>/`.
+Hard dependencies selected with the app: `oxidns-core`, `oxidns-rules-baseline`, `bind-dig` (provides `dig` for prewarming), plus the LuCI/rpcd base `luci-base`, `rpcd`, `jsonfilter`, `uclient-fetch` and `ca-bundle`. Artifacts appear in `bin/packages/<arch>/`.
+
+On OpenWrt 25.12 and newer, LuCI requires every JS module factory to return a `baseclass.extend()` / `view.extend()` class constructor; `tabs.js` has been updated accordingly. The app does **not** require `openssl` or `base64`: random credentials fall back through `openssl rand -base64` → `base64` → BusyBox `od`/`tr`/`cut`, so a minimal busybox-only image still generates a valid 32-character password.
 
 Supported targets: x86_64, aarch64, i386 and ARM hard-float (cortex maps to armv7, others to armv6). Soft-float ARM cannot use the published hard-float (eabihf) core. Architectures without a published musl core (for example MIPS) cannot bake in a core through buildroot because `oxidns-core` is a hard dependency; use the quick-packaging path below without an embedded core and upload a suitable core from the `Core` page.
 

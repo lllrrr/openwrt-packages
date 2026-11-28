@@ -18,6 +18,9 @@ OLD_FILES="/usr/lib/lua/luci/controller/adguardhome.lua
 /usr/share/rpcd/acl.d/luci-app-adguardhome.json
 /etc/init.d/adguardhome"
 OLD_KERNELS="/usr/bin/AdGuardHome /usr/sbin/AdGuardHome"
+# opkg 升级时会把旧 conffile 存成 <包名>-opkg。这些文件没有任何代码引用，
+# 却常被误当成当前配置手动编辑，且不会随卸载删除。
+OLD_CONF_RESIDUE="/etc/config/adguardhome_lite-opkg /etc/config/adguardhome-opkg"
 BACKUP_ROOT="/etc/adguardhome_lite"
 
 json_escape() {
@@ -79,6 +82,12 @@ scan() {
 		add_item "kernel" "旧内核文件" "$k" "将移动到备份目录"
 	done
 
+	local c
+	for c in $OLD_CONF_RESIDUE; do
+		[ -f "$c" ] || continue
+		add_item "conffile" "旧配置模板残留" "$c" "opkg 升级遗留，未被任何代码使用，可安全备份后删除"
+	done
+
 	printf '{"ok":true,"count":%s,"items":[%s]}\n' "$count" "$items"
 }
 
@@ -118,6 +127,16 @@ clean() {
 		[ -f "$k" ] || continue
 		mkdir -p "$bk$(dirname "$k")" 2>/dev/null
 		mv "$k" "$bk$k" >/dev/null 2>&1
+		removed=$((removed + 1))
+	done
+
+	# 旧 conffile 残留：只备份后删除，绝不改动当前 /etc/config/adguardhome_lite
+	local c
+	for c in $OLD_CONF_RESIDUE; do
+		[ -f "$c" ] || continue
+		mkdir -p "$bk$(dirname "$c")" 2>/dev/null
+		cp -a "$c" "$bk$c" >/dev/null 2>&1
+		rm -f "$c"
 		removed=$((removed + 1))
 	done
 

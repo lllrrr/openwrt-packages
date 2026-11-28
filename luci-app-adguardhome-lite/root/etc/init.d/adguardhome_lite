@@ -13,6 +13,13 @@ start_service() {
 
     if [ "$enabled" != "1" ]; then
         log_msg "AdGuard Home 当前设置为未启用，跳过启动。"
+        # 断电、升级中断或直接改 UCI 关闭时，可能留下「DNSMasq 已被移走但
+        # AdGuard Home 不再启动」的布局，此时 53 端口无人监听会断网。
+        _ma="$(uci -q get "$CONF.main.mode_applied" 2>/dev/null)"
+        if [ "$_ma" != "none" ]; then
+            log_msg "检测到上次未完成恢复（mode_applied=${_ma:-空}），先恢复 DNSMasq 设置。"
+            /usr/share/adguardhome-lite/dns_mode.sh revert
+        fi
         return 0
     fi
 
@@ -83,6 +90,12 @@ stop_service() {
 service_stopped() {
     # 此钩子在 procd 结束进程之后执行；若仍有残留进程则强制结束
     force_stop_agh
+    # apply_settings.sh 会在 stop 之后立即重新接管，此时再 revert 只会把 DNSMasq
+    # 抢回 53 与尚未退出的 AGH 抢端口（实测 dnsmasq 连崩 6 次），因此跳过。
+    if [ "$AGH_APPLYING" = "1" ]; then
+        log_msg "设置正在重新应用，跳过 DNSMasq 恢复。"
+        return 0
+    fi
     /usr/share/adguardhome-lite/dns_mode.sh revert
     log_msg "AdGuard Home 已停止，DNSMasq 设置已恢复。"
 }

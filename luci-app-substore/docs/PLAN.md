@@ -70,7 +70,7 @@
 - 规则配置页
 - 完整错误处理、日志
 - 分版本依赖适配（23.05 / 24.10 / 25.12）
-- **模板迁移：`.htm` → `.ut`（ucode），确保 25.12 兼容**（调研：25.12 模板优先级 `.ut` only）
+- **模板迁移：`.htm` → `.ut`（ucode）**（调研结论：25.12 优先 `.ut`，但 `.htm` 仍经 `luci-lua-runtime` 兼容层渲染，迁移非必需，见 `docs/UCODE_MIGRATION.md`）
 - 订阅下载方式定案：curl vs Lua socket（影响 SSRF 防护实现，阶段1评估）
 - docs/SECURITY.md、docs/TESTING.md、CHANGELOG.md
 
@@ -98,4 +98,4 @@
   - [x] 错误处理（core.sync 日志、action_update pcall 兜底、列表状态列展示错误）
   - [x] 安全加固（下载文件名白名单防头注入；SSRF/大小/超时此前已实现）
   - [x] 多版本兼容（LUCI_DEPENDS luci-lua-runtime + luci-compat）
-  - [ ] 模板迁移 `.htm` → `.ut`（ucode）：已评估并写 docs/UCODE_MIGRATION.md，未执行——需 25.12 构建环境验证
+  - [x] 模板迁移 `.htm` → `.ut`（ucode）：已评估（docs/UCODE_MIGRATION.md），结论为**当前不做**——上游仍保留 Lua 兼容层；CI 已在 24.10.8 / 25.12.5 SDK 上构建验证

@@ -74,8 +74,11 @@ if ! check_agh_config; then
     die "新配置校验失败，已恢复原密码。"
 fi
 
+# 明文密码必须保留：AGH 只存 bcrypt 哈希且不可逆，插件调用本机 API 需要原文。
+# 因此这里收紧配置文件权限，保证只有 root 能读到。
 uci -q set "$CONF.main.adminpass=$pass"
 uci -q commit "$CONF" 2>/dev/null
+chmod 600 "/etc/config/$CONF" 2>/dev/null
 
 if [ "$was_running" = "1" ]; then
     log_msg "正在重新启动服务..."

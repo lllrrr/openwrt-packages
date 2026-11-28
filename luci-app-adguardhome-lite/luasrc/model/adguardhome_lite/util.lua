@@ -128,4 +128,29 @@ function M.clean_tag(v)
     return (tostring(v or ""):gsub("%s+", ""):gsub("^[vV]", ""))
 end
 
+-- 配置文件内容校验和：用于保存前比对，防止并发编辑互相覆盖。
+-- djb2 在 Lua 5.1 的 double 精度内不会溢出（2^32 * 33 < 2^53）。
+-- 不用 string.format("%08x")：部分 32 位 Lua 构建（如 Kwrt 的 double int32）
+-- 会拒绝大于 2^31-1 的整数，哈希值一旦越过就会抛异常，导致接口 500。
+local HEX_DIGITS = "0123456789abcdef"
+
+local function hex32(n)
+    local out = {}
+    for i = 8, 1, -1 do
+        local d = n % 16
+        out[i] = HEX_DIGITS:sub(d + 1, d + 1)
+        n = math.floor(n / 16)
+    end
+    return table.concat(out)
+end
+
+function M.hash_text(s)
+    s = tostring(s or "")
+    local h = 5381
+    for i = 1, #s do
+        h = (h * 33 + s:byte(i)) % 4294967296
+    end
+    return hex32(h) .. "-" .. tostring(#s)
+end
+
 return M

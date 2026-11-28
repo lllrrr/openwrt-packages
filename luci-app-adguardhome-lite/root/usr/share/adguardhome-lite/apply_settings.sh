@@ -4,6 +4,10 @@
 
 . /usr/share/adguardhome-lite/common.sh
 
+# 整段应用过程（含 stop/start 触发的 dns_mode.sh 调用）必须串行，
+# 否则面板连点保存会并发改写 DNSMasq 端口与 nft 规则，留下断网布局。
+lock_action || exit 1
+
 load_conf
 
 # 老版本升级：UCI 没有缓存选项时，沿用当前 YAML 状态，避免覆盖用户选择。
@@ -30,9 +34,14 @@ fi
 mkdir -p /var/run 2>/dev/null
 log_msg "开始应用 AdGuard Home 设置..."
 
-# 停止服务时会触发 service_stopped，自动恢复 DNSMasq 原始设置
+# 停止服务时会触发 service_stopped，自动恢复 DNSMasq 原始设置。
+# 但这里紧接着要重新接管，恢复动作会把 DNSMasq 抢回 53，与尚未完全退出的
+# AdGuard Home 抢端口（实测 dnsmasq 连续崩溃 6 次），因此标记为「重新应用中」。
 if [ -x /etc/init.d/adguardhome_lite ]; then
+    AGH_APPLYING=1
+    export AGH_APPLYING
     /etc/init.d/adguardhome_lite stop >/dev/null 2>&1
+    unset AGH_APPLYING
 fi
 
 # 防御性处理：procd 未成功结束进程时强制清理，确保端口修改能生效
@@ -47,14 +56,14 @@ force_stop_agh
 # 已生成配置文件时，同步面板端口和 DNS 端口
 if [ -s "$configpath" ]; then
     cp -f "$configpath" "$configpath.bak" 2>/dev/null
-    yaml_set_scalar "$configpath" "address" "0.0.0.0:$webport"
+    yaml_set_scalar "$configpath" "address" "$webaddr:$webport"
     yaml_set_scalar "$configpath" "port" "$dnsport"
 
     # 只调整插件自己写入的上游；用户自定义的上游保持不变，
     # 也不再写死公共 DNS（DNSMasq 上游模式按实际环境选择 Clash / WAN DNS）。
     _cur_up=$(yaml_get_list "$configpath" "upstream_dns")
     _auto_up=$(uci -q get "$CONF.main.auto_upstream" 2>/dev/null)
-    _self_ip=$(uci -q get network.lan.ipaddr 2>/dev/null)
+    _self_ip=$(lan_ipv4)
     _crypto_up="$(dns_crypto_url)"
 
     # 自定义上游优先：固定使用用户填写的列表，不再按接管方式改写。
@@ -332,10 +341,12 @@ if [ "$enabled" = "1" ]; then
     # 前置模式下 AdGuard Home 先启动，再让 Clash 重载上游，
     # 避免重启 Clash 时 5335 还没有监听导致 DNS 中断。
     if [ "$dns_mode" = "clashfirst" ]; then
-        clashfirst_openclash_refresh
+        clashfirst_clash_refresh
     fi
 else
     /etc/init.d/adguardhome_lite disable >/dev/null 2>&1
+    # stop 阶段跳过了自动恢复，这里必须显式还原，否则 DNSMasq 留在 1745 而 53 无人监听
+    /usr/share/adguardhome-lite/dns_mode.sh revert >/dev/null 2>&1
     log_msg "服务已停止，并已取消开机自启。"
 fi
 
